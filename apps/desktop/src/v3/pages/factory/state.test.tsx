@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
 import type { WarshaEvent } from '@warsha/client';
+import { describe, expect, it } from 'vitest';
 
-import { applyEvent, idleMsOf, reduceEvents } from './state';
+import { idleMsOf, reduceEvents } from './state';
 
 function event(overrides: Partial<WarshaEvent> = {}): WarshaEvent {
   return {

@@ -1,11 +1,11 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { RunId, WarshaClient, WarshaEvent } from '@warsha/client';
-import type { ProjectSummary, RunSummary } from '@warsha/client';
+import type { RunId, WarshaClient, WarshaEvent, ProjectSummary, RunSummary } from '@warsha/client';
+import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import { ClientProvider } from '../../app/ClientContext';
-import { I18nProvider } from '@warsha/i18n/v3';
+
 import { FactoryPage } from './index';
 
 function run(id: string, status: string, projectId = 'proj-1'): RunSummary {

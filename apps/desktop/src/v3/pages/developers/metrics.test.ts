@@ -1,9 +1,9 @@
 // apps/desktop/src/v3/pages/developers/metrics.test.ts
 // E4: every on-screen figure equals its derivation — fixtures here are the same
 // numbers the page tests render (plan §8 E4 acceptance).
+import type { RunSubtask, Session, SessionId, WarshaEvent } from '@warsha/client';
 import { describe, expect, it } from 'vitest';
 
-import type { RunSubtask, Session, SessionId, WarshaEvent } from '@warsha/client';
 
 import {
   buildReceipt,

@@ -17,17 +17,17 @@ import { useAction } from '../../../actions';
 import { useClient } from '../../../app/ClientContext';
 import { useDataReady } from '../../../app/DataReadyContext';
 import {
-  quotaPercentage,
-  gaugeStatus,
-  DEFAULT_GAUGE_THRESHOLDS,
-} from '../../../data/useQuotaGauge';
-import {
   useProviders,
   useUsageByDimension,
   useUsageByTime,
   type UsageDimension,
   type UsageGranularity,
 } from '../../../data';
+import {
+  quotaPercentage,
+  gaugeStatus,
+  DEFAULT_GAUGE_THRESHOLDS,
+} from '../../../data/useQuotaGauge';
 
 const DIMENSIONS: UsageDimension[] = ['provider_id', 'model_id', 'agent_role', 'project_id'];
 const GRANULARITIES: UsageGranularity[] = ['day', 'month'];
@@ -66,7 +66,7 @@ export function UsageSection(): React.ReactElement {
 
   // Subscription windows load once with the section (estimated, from own records).
   const [windowData, setWindowData] = useState<SubscriptionWindow | null>(null);
-  const [windowError, setWindowError] = useState<string | null>(null);
+  const [, setWindowError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!client) return;

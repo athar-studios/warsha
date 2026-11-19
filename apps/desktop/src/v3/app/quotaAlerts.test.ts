@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { clearToastListeners, subscribeToast } from './toast';
 import { CrossingTracker, isCrossing, QUOTA_ALERT_THRESHOLD } from './quotaAlerts';
+import { clearToastListeners, subscribeToast } from './toast';
 
 describe('isCrossing', () => {
   it('fires when current reaches the threshold with no previous', () => {

@@ -9,16 +9,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAction } from '../../actions';
 import { useClient } from '../../app/ClientContext';
-import SessionDetail from './SessionDetail';
 import DevelopersList from '../../components/developers/DevelopersList';
-import { buildReceipt, burnRateCentsPerHour, costPerPacketCents, groupByParent, runCostCents, sessionMetrics } from './metrics';
 
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${ms} ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)} s`;
-  return `${Math.floor(seconds / 60)} m ${Math.round(seconds % 60)} s`;
-}
+import SessionDetail from './SessionDetail';
+import { formatMs } from './format';
+import { buildReceipt, burnRateCentsPerHour, costPerPacketCents, groupByParent, runCostCents, sessionMetrics } from './metrics';
 
 const DevelopersPage: React.FC = () => {
   const t = useT();
