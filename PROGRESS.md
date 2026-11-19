@@ -7105,3 +7105,6 @@ Packet A4 spend: 18/20. Cumulative spend: 18.
 - **Budget**: E5 spend ≈ 2 of cap 20 (gate setup + verify pass). Cumulative ≈ 182 of 400 (45.5%). Alert 320 (80%); hard stop 400.
 
 - [2026-11-19] A5: Final code-health audit (packet A5 complete, branch r-next/a5-health@978e40e, audit report docs/zadloop/packets/A5-report.md, evidence bridge-io/audit/a5/).
+
+## Run 2026-11-19 — release-merge-1 (D-RN-REL-M1)
+Merged P1 (9293310: ESLint resolver + disable removals) + P2 (dfc0650: wire stubs, wire 11 checks 0 violations) + P3 (12b1120: oauth2 drop, RUSTSEC-2025-0134 cleared) + P5 (1554b48: S-H1 resolve-once + 4 bypass_tests, pipeline lib 522/0) + P8 (39cafab: S-M3 router default removal, providers 60/60, sayl.site 0). Gates on merged tip: fmt 0, versions 0, arch 5/0, wire 0, policy 8/0. Merge done from root session (delegated workers sandbox-blocked on .git index.lock). Unpushed. Next: P6/P7.
