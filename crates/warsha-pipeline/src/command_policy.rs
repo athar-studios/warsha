@@ -503,28 +503,37 @@ impl CommandPolicy {
         args: &[String],
         working_dir: &Path,
     ) -> Result<CommandOutput, CommandPolicyError> {
-        let (_pid, result) = self.execute_with_pid(command, args, working_dir).await;
+        let (program, effective_args) = resolve_program_and_args(command, args)?;
+        self.execute_resolved(&program, &effective_args, working_dir)
+            .await
+    }
+
+    /// Validate and execute a command in `working_dir` under this policy, using already resolved program and args.
+    pub async fn execute_resolved(
+        &self,
+        program: &str,
+        args: &[String],
+        working_dir: &Path,
+    ) -> Result<CommandOutput, CommandPolicyError> {
+        let (_pid, result) = self
+            .execute_with_pid_resolved(program, args, working_dir)
+            .await;
         result
     }
 
     /// Validate and execute a command, also returning the spawned OS PID when started.
-    async fn execute_with_pid(
+    async fn execute_with_pid_resolved(
         &self,
-        command: &str,
+        program: &str,
         args: &[String],
         working_dir: &Path,
     ) -> (Option<u32>, Result<CommandOutput, CommandPolicyError>) {
-        let (program, effective_args) = match resolve_program_and_args(command, args) {
-            Ok(resolved) => resolved,
-            Err(err) => return (None, Err(err)),
-        };
-
-        if let Err(err) = self.check_invocation(&program, &effective_args) {
+        if let Err(err) = self.check_invocation(program, args) {
             return (None, Err(err));
         }
 
-        let mut cmd = Command::new(&program);
-        cmd.args(&effective_args);
+        let mut cmd = Command::new(program);
+        cmd.args(args);
         cmd.current_dir(working_dir);
         cmd.kill_on_drop(true);
         cmd.env_clear();
@@ -547,7 +556,7 @@ impl CommandPolicy {
                 return (
                     None,
                     Err(CommandPolicyError::Spawn {
-                        command: program,
+                        command: program.to_string(),
                         error: error.to_string(),
                     }),
                 )
@@ -588,7 +597,7 @@ impl CommandPolicy {
                 Err(error) => (
                     pid,
                     Err(CommandPolicyError::Wait {
-                        command: program,
+                        command: program.to_string(),
                         error: error.to_string(),
                     }),
                 ),
@@ -611,7 +620,7 @@ impl CommandPolicy {
                 (
                     pid,
                     Err(CommandPolicyError::TimedOut {
-                        command: program,
+                        command: program.to_string(),
                         timeout: self.timeout,
                     }),
                 )
@@ -643,7 +652,7 @@ fn parse_command_line(command_line: &str) -> Result<(String, Vec<String>), Comma
 /// token for policy inspection. When `args` is non-empty, `command` is still
 /// parsed for its first token unless it directly names an existing file path on
 /// disk (for example an unquoted Windows path containing spaces).
-fn resolve_program_and_args(
+pub(crate) fn resolve_program_and_args(
     command: &str,
     args: &[String],
 ) -> Result<(String, Vec<String>), CommandPolicyError> {
@@ -1429,7 +1438,9 @@ async fn a_sleeping_child_is_killed_at_the_timeout_and_no_process_remains() {
     );
 
     let started = std::time::Instant::now();
-    let (pid, result) = policy.execute_with_pid(cmd, &args, temp.path()).await;
+    let (pid, result) = policy
+        .execute_with_pid_resolved(cmd, &args, temp.path())
+        .await;
     let elapsed = started.elapsed();
 
     assert!(
@@ -1465,7 +1476,7 @@ async fn a_timed_out_command_takes_its_descendants_with_it() {
     let policy =
         CommandPolicy::from_config(&["sh".to_string()]).with_timeout(Duration::from_secs(2));
     let (_pid, result) = policy
-        .execute_with_pid("sh", &["-c".to_string(), script], temp.path())
+        .execute_with_pid_resolved("sh", &["-c".to_string(), script], temp.path())
         .await;
 
     assert!(

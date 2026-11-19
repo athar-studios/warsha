@@ -348,8 +348,12 @@ pub enum RiskClass {
 
 /// Classifies a command as safe or risky.
 pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
+    let program = crate::command_policy::program_name(program);
     // Shell commands are risky.
-    if matches!(program, "sh" | "bash" | "cmd" | "powershell" | "pwsh") {
+    if matches!(
+        program.as_str(),
+        "sh" | "bash" | "cmd" | "powershell" | "pwsh"
+    ) {
         return RiskClass::Risky;
     }
 
@@ -359,11 +363,11 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         "npm", "pip", "cargo", // Package managers
         "git",   // Pushing/Publishing
     ];
-    if risky_commands.contains(&program) {
-        if matches!(program, "curl" | "wget" | "ssh" | "scp") {
+    if risky_commands.contains(&program.as_str()) {
+        if matches!(program.as_str(), "curl" | "wget" | "ssh" | "scp") {
             return RiskClass::Risky;
         }
-        if matches!(program, "npm" | "pip" | "cargo")
+        if matches!(program.as_str(), "npm" | "pip" | "cargo")
             && args
                 .iter()
                 .any(|arg| matches!(arg.as_str(), "publish" | "install" | "add"))

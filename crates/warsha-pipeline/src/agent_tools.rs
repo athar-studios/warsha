@@ -519,11 +519,13 @@ impl FilesystemToolExecutor {
             command: command.to_string(),
             args: args.to_vec(),
         };
+        let (program, effective_args) =
+            crate::command_policy::resolve_program_and_args(command, args)?;
         if let Some(policy) = &self.protection {
             match policy.mode {
                 PermissionMode::FullAccess => {}
                 PermissionMode::AutoInsideProject => {
-                    if classify_command(command, args) == RiskClass::Risky {
+                    if classify_command(&program, &effective_args) == RiskClass::Risky {
                         return Err(ToolError::CommandRefused {
                             command: format!("{command} {}", args.join(" ")),
                             reason:
@@ -539,7 +541,7 @@ impl FilesystemToolExecutor {
                     });
                 }
                 PermissionMode::AskAlways | PermissionMode::AskForRisky => {
-                    let risky = classify_command(command, args) == RiskClass::Risky;
+                    let risky = classify_command(&program, &effective_args) == RiskClass::Risky;
                     if risky || policy.mode == PermissionMode::AskAlways {
                         let command_line = format!("{command} {}", args.join(" "));
                         // One shared ask-queue (B3): register the native ask so
@@ -552,7 +554,7 @@ impl FilesystemToolExecutor {
                                 "native",
                                 "run_command",
                                 MCP_AGENT_ROLE,
-                                &json!({ "command": command, "args": args }),
+                                &json!({ "command": program, "args": effective_args }),
                                 summary,
                             ) {
                                 Ok(_question_id) => {}
@@ -579,7 +581,7 @@ impl FilesystemToolExecutor {
         }
         let output = self
             .command_policy
-            .execute(command, args, &self.working_dir)
+            .execute_resolved(&program, &effective_args, &self.working_dir)
             .await?;
         Ok(ToolResult::new(tool, output.success, output.format_text()))
     }
@@ -1491,5 +1493,97 @@ mod protection_tests {
             approvals.pending().is_empty(),
             "a daemon-wide loop (no run id) must never register a pending ask"
         );
+    }
+
+    #[tokio::test]
+    async fn bypass_tests_git_push_compound() {
+        let dir = std::env::temp_dir().join("b5-bypass-test-1");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b5-1".to_string()));
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git push origin main".to_string(),
+                args: vec![],
+            })
+            .await;
+        assert!(!res.success, "git push origin main should be refused");
+        assert_eq!(approvals.pending().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn bypass_tests_usr_bin_git_path() {
+        let dir = std::env::temp_dir().join("b5-bypass-test-2");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b5-2".to_string()));
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "/usr/bin/git".to_string(),
+                args: vec!["push".to_string()],
+            })
+            .await;
+        assert!(!res.success, "/usr/bin/git push should be refused");
+        assert_eq!(approvals.pending().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn bypass_tests_npm_publish_compound() {
+        let dir = std::env::temp_dir().join("b5-bypass-test-3");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b5-3".to_string()));
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "npm publish".to_string(),
+                args: vec![],
+            })
+            .await;
+        assert!(!res.success, "npm publish should be refused");
+        assert_eq!(approvals.pending().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn bypass_tests_quoted_git_exe() {
+        let dir = std::env::temp_dir().join("b5-bypass-test-4");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b5-4".to_string()));
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "\"git.exe\"".to_string(),
+                args: vec!["push".to_string()],
+            })
+            .await;
+        assert!(!res.success, "git.exe push should be refused");
+        assert_eq!(approvals.pending().len(), 1);
     }
 }
