@@ -3435,12 +3435,15 @@ export class WarshaClient
     await this.rpc<unknown>('models.remove', { provider, model_id: modelId });
   }
 
+  // Wire RPC methods catalog.refresh and catalog.apply removed (P2):
+  // the daemon registers no such RPCs. Returning null / resolving void
+  // keeps the methods off the wire while satisfying desktop type contracts.
   async refreshCatalog(): Promise<CatalogDiff | null> {
-    return await this.rpc<CatalogDiff | null>('catalog.refresh');
+    return null;
   }
 
   async applyCatalogUpdate(): Promise<void> {
-    await this.rpc<unknown>('catalog.apply');
+    // No-op: daemon registers no catalog.apply RPC.
   }
 
   // Wave 2 — integrations. The token material rides the write once, like
