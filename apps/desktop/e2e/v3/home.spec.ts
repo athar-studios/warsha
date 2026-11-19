@@ -126,6 +126,41 @@ test.describe('Home journeys', () => {
     const call = await expectRpc(page, 'projects.list');
     expect(call.method).toBe('projects.list');
   });
+
+  for (const [lang, idea] of [
+    ['en', 'Retry failed run'],
+    ['ar', 'إعادة تشغيل المحاولة الفاشلة'],
+  ] as const) {
+    test(`home.run.retry sends runs.start with the localized idea (${lang})`, async ({ page }) => {
+      await openV3(page, '/', {
+        lang,
+        fixtures: {
+          'runs.list': {
+            // Only proj-ui's read returns the failed run, so the strip shows one retry row.
+            result: (params: unknown) =>
+              JSON.stringify(params).includes('proj-ui')
+                ? [
+              {
+                id: 'run-failed',
+                projectId: 'proj-ui',
+                stage: 'code',
+                status: 'failed',
+                startedAt: '2026-10-05T09:00:00.000Z',
+                updatedAt: '2026-10-05T09:45:00.000Z',
+                run_mode: 'agent',
+              },
+                  ]
+                : [],
+          },
+        },
+      });
+
+      await act(page, 'home.run.retry');
+      const call = await expectRpc(page, 'runs.start', { projectId: 'proj-ui', idea });
+      expect((call.params as { idea: string }).idea).toBe(idea);
+      expect((call.params as { idea: string }).idea).not.toBe('Retry run');
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -154,6 +189,24 @@ test.describe('Home action ids', () => {
     await openV3(page, '/');
     await act(page, 'home.defaults.open');
     await expect(page.locator('[data-testid="home-defaults-sheet"]')).toBeVisible();
+  });
+
+  test('home.needsyou.open navigates to the longest-waiting item', async ({ page }) => {
+    // The default fixtures carry a run with a pending gate, so the strip shows
+    // exactly one waiting row; opening it is the whole job of the strip.
+    await openV3(page, '/', { lang: 'en' });
+    await expect(page.locator('[data-testid="home-needsyou"]')).toBeVisible();
+    await act(page, 'home.needsyou.open');
+    await expect(page).toHaveURL(/#\/p\/[^/]+\/r\//);
+  });
+
+  test('home.interview.start dials projects.create then interview.start', async ({ page }) => {
+    await openV3(page, '/', { lang: 'en' });
+    const textarea = page.locator('main textarea');
+    await expect(textarea).toBeVisible();
+    await textarea.fill('متجر أدوات ورشة للتصنيع');
+    await act(page, 'home.interview.start');
+    await expectRpc(page, 'interview.start');
   });
 
   test('home.defaults.budget.save records preference', async ({ page }) => {
@@ -209,6 +262,12 @@ test.describe('Home action ids', () => {
     const call = await expectRpc(page, 'projects.list');
     expect(call.method).toBe('projects.list');
   });
+
+  test('home.secretary.open opens the secretary sheet', async ({ page }) => {
+    await openV3(page, '/');
+    await act(page, 'home.secretary.open');
+    await expect(page.locator('[data-testid="home-secretary-sheet"]')).toBeVisible();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -245,8 +304,25 @@ test.describe('Home accessibility (@a11y)', () => {
     await page.keyboard.press('Tab'); // inbox button
     await page.keyboard.press('Tab'); // settings button
 
-    // Now tab reaches composer textarea in main
+    // Tab to global secretary button in the home header
     await page.keyboard.press('Tab');
+    const activeSecretary = await page.evaluate(() =>
+      document.activeElement?.getAttribute('data-action')
+    );
+    expect(activeSecretary).toBe('home.secretary.open');
+
+    // Now tab reaches the needs-you strip first (E2: waiting things come before
+    // the composer — that is the strip's whole job). The strip holds one anchor
+    // per waiting row, so walk every one of them before the composer textarea.
+    for (let guard = 0; guard < 8; guard += 1) {
+      await page.keyboard.press('Tab');
+      const active = await page.evaluate(() => ({
+        tag: document.activeElement?.tagName.toLowerCase(),
+        action: document.activeElement?.getAttribute('data-action'),
+      }));
+      if (active.tag === 'textarea') break;
+      expect(active.action).toBe('home.needsyou.open');
+    }
     const activeTextarea = await page.evaluate(() => document.activeElement?.tagName.toLowerCase());
     expect(activeTextarea).toBe('textarea');
 

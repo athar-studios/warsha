@@ -22,7 +22,7 @@ use warsha_remote::rate_limit::rate_key;
 use crate::auth::cors_origins;
 use crate::{
     bearer_token, events_handler, retry_after_header, subprotocol_token, DaemonConfig, DaemonError,
-    DaemonState, HealthResponse, Result, EVENTS_PATH,
+    DaemonState, HealthResponse, RemoteBind, Result, EVENTS_PATH,
 };
 
 /// HTTP server for REST API and WebSocket
@@ -49,6 +49,111 @@ async fn health_handler(State(state): State<Arc<DaemonState>>) -> impl IntoRespo
 /// address, and the daemon never resolves one behind their back. A value that does not
 /// parse is a configuration error the owner sees at startup rather than a listener that
 /// quietly came up somewhere else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InterfaceInfo {
+    pub name: String,
+    pub ip: IpAddr,
+}
+
+pub(crate) fn tailscale_bind_ip(ifaces: &[InterfaceInfo]) -> Option<IpAddr> {
+    // 1. Matching interface name starting with "tailscale" case-insensitively
+    for iface in ifaces {
+        if iface.name.to_lowercase().starts_with("tailscale") {
+            return Some(iface.ip);
+        }
+    }
+    // 2. Matching IPv4 inside 100.64.0.0/10 (100.64.0.0 to 100.127.255.255)
+    for iface in ifaces {
+        if let IpAddr::V4(ipv4) = iface.ip {
+            let octets = ipv4.octets();
+            if octets[0] == 100 && (octets[1] & 0b1100_0000) == 64 {
+                return Some(iface.ip);
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn resolve_listener_bind(
+    config: &DaemonConfig,
+    ifaces: &[InterfaceInfo],
+) -> Result<IpAddr> {
+    match config.remote_bind {
+        RemoteBind::Default => resolve_bind_host(config),
+        RemoteBind::Localhost => Ok(IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))),
+        RemoteBind::Tailscale => tailscale_bind_ip(ifaces).ok_or_else(|| {
+            DaemonError::Config(
+                "no Tailscale interface found; remote_bind=tailscale refused".to_string(),
+            )
+        }),
+    }
+}
+
+pub(crate) fn enumerate_interfaces() -> Vec<InterfaceInfo> {
+    #[cfg(unix)]
+    {
+        // Try `ip -j addr` first
+        if let Ok(output) = std::process::Command::new("ip")
+            .args(["-j", "addr"])
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if let Some(arr) = json.as_array() {
+                        let mut res = Vec::new();
+                        for item in arr {
+                            let ifname = item
+                                .get("ifname")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default();
+                            if let Some(addr_info) =
+                                item.get("addr_info").and_then(|v| v.as_array())
+                            {
+                                for addr in addr_info {
+                                    if let Some(local) = addr.get("local").and_then(|v| v.as_str())
+                                    {
+                                        if let Ok(ip) = local.parse::<IpAddr>() {
+                                            res.push(InterfaceInfo {
+                                                name: ifname.to_string(),
+                                                ip,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if !res.is_empty() {
+                            return res;
+                        }
+                    }
+                }
+            }
+        }
+        // `ip` is absent (minimal containers, some BSDs) or yielded nothing: ask the
+        // Tailscale CLI for its IPv4 address. Failure of either probe is an empty list,
+        // which `remote_bind = tailscale` treats as "no Tailscale interface" and refuses.
+        if let Ok(output) = std::process::Command::new("tailscale")
+            .args(["ip", "-4"])
+            .output()
+        {
+            if output.status.success() {
+                if let Some(ip) = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .find_map(|line| line.trim().parse::<IpAddr>().ok())
+                {
+                    return vec![InterfaceInfo {
+                        name: "tailscale".to_string(),
+                        ip,
+                    }];
+                }
+            }
+        }
+    }
+    // Non-Unix hosts have no probe here yet: Tailscale binding is refused there rather
+    // than guessed.
+    Vec::new()
+}
+
 pub(crate) fn resolve_bind_host(config: &DaemonConfig) -> Result<IpAddr> {
     config.bind_host.trim().parse::<IpAddr>().map_err(|error| {
         DaemonError::Config(format!(
@@ -658,4 +763,98 @@ fn looks_hashed_file_name(file_name: &str) -> bool {
                 && hash.chars().any(|c| c.is_ascii_digit())
         })
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn test_remote_bind_default_uses_bind_host() {
+        let config = DaemonConfig {
+            bind_host: "192.168.1.50".to_string(),
+            remote_bind: RemoteBind::Default,
+            ..Default::default()
+        };
+        let ifaces = vec![];
+        let bound = resolve_listener_bind(&config, &ifaces).expect("binds");
+        assert_eq!(bound, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 50)));
+    }
+
+    #[test]
+    fn test_remote_bind_localhost() {
+        let config = DaemonConfig {
+            bind_host: "192.168.1.50".to_string(),
+            remote_bind: RemoteBind::Localhost,
+            ..Default::default()
+        };
+        let ifaces = vec![];
+        let bound = resolve_listener_bind(&config, &ifaces).expect("binds");
+        assert_eq!(bound, IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+    }
+
+    #[test]
+    fn test_remote_bind_tailscale_by_name() {
+        let config = DaemonConfig {
+            remote_bind: RemoteBind::Tailscale,
+            ..Default::default()
+        };
+        let ts_ip = IpAddr::V4(Ipv4Addr::new(100, 101, 102, 103));
+        let eth_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10));
+        let ifaces = vec![
+            InterfaceInfo {
+                name: "eth0".to_string(),
+                ip: eth_ip,
+            },
+            InterfaceInfo {
+                name: "tailscale0".to_string(),
+                ip: ts_ip,
+            },
+        ];
+        let bound = resolve_listener_bind(&config, &ifaces).expect("binds");
+        assert_eq!(bound, ts_ip);
+    }
+
+    #[test]
+    fn test_remote_bind_tailscale_by_cgnat_ip() {
+        let config = DaemonConfig {
+            remote_bind: RemoteBind::Tailscale,
+            ..Default::default()
+        };
+        let ts_ip = IpAddr::V4(Ipv4Addr::new(100, 64, 5, 6));
+        let eth_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10));
+        let ifaces = vec![
+            InterfaceInfo {
+                name: "utun4".to_string(),
+                ip: ts_ip,
+            },
+            InterfaceInfo {
+                name: "en0".to_string(),
+                ip: eth_ip,
+            },
+        ];
+        let bound = resolve_listener_bind(&config, &ifaces).expect("binds");
+        assert_eq!(bound, ts_ip);
+    }
+
+    #[test]
+    fn test_remote_bind_tailscale_missing_fails_closed() {
+        let config = DaemonConfig {
+            remote_bind: RemoteBind::Tailscale,
+            ..Default::default()
+        };
+        let eth_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10));
+        let ifaces = vec![InterfaceInfo {
+            name: "eth0".to_string(),
+            ip: eth_ip,
+        }];
+        let err = resolve_listener_bind(&config, &ifaces).expect_err("must fail closed");
+        match err {
+            DaemonError::Config(msg) => {
+                assert!(msg.contains("no Tailscale interface found"), "got: {msg}");
+            }
+            other => panic!("expected DaemonError::Config, got {other:?}"),
+        }
+    }
 }

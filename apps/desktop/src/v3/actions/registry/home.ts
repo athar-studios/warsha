@@ -66,4 +66,30 @@ export const ACTIONS: readonly ActionDef[] = [
     effect: 'rpc',
     rpc: ['projects.list'],
   },
+  {
+    // E2: retries a failed run from the needs-you strip.
+    id: 'home.run.retry',
+    labelKey: 'home.retry',
+    effect: 'rpc',
+    rpc: ['runs.start'],
+  },
+  {
+    // E2: opens the longest-waiting gate or ask from the needs-you strip.
+    id: 'home.needsyou.open',
+    labelKey: 'home.needsyou.open',
+    effect: 'nav',
+    route: '/inbox',
+  },
+  {
+    // D1 lineage: starts the secretary interview from the home composer.
+    id: 'home.interview.start',
+    labelKey: 'home.interview_start',
+    effect: 'rpc',
+    rpc: ['projects.create', 'interview.start'],
+  },
+  {
+    id: 'home.secretary.open',
+    labelKey: 'secretary.title',
+    effect: 'state',
+  },
 ];

@@ -90,6 +90,7 @@ impl Daemon {
             allowed_commands: Vec::new(),
             rate_limits: RateLimitConfig::default(),
             remote_assets_dir: None,
+            remote_bind: warshad::RemoteBind::Default,
         };
         Daemon {
             handle: start_daemon(config).await.expect("the daemon starts"),

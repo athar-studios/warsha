@@ -1,7 +1,6 @@
 import type {
   CostEstimate,
   GateSummary,
-  InterviewState,
   ProjectId,
   ProjectSummary,
   RoleRouting,
@@ -23,7 +22,7 @@ import {
   type StatusPillState,
   // eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAction } from '../../actions';
 import { useCapabilities } from '../../app/CapabilitiesContext';
@@ -32,11 +31,14 @@ import { useDataReady } from '../../app/DataReadyContext';
 import { useDensity } from '../../app/DensityContext';
 import { notify } from '../../app/toast';
 import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../copy/stages';
-import { useModels, usePreferences, useProjects, useRoles } from '../../data';
+import { useModels, usePreferences, useProjects, useQuotaGauge, useRoles } from '../../data';
 import { useResource } from '../../data/useResource';
 import { useNavigate } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 import { countPendingGatesAtCurrentStage } from '../frame/Frame';
+import SecretaryChat from '../project/SecretaryChat';
+
+import { ownerAlerts, raisedKeysAfter, type OwnerAlert, GATE_WAIT_THRESHOLD_MINUTES, QUOTA_NEAR_PERCENT, SPEND_NEAR_PERCENT } from './alerts';
 
 import './home.css';
 
@@ -180,6 +182,100 @@ export function computeMiniSegments(
   });
 }
 
+/** One row of the home needs-you strip: a gate wait or an approval ask, oldest first. */
+export interface NeedsYouRow {
+  key: string;
+  kind: 'gate' | 'ask' | 'failed';
+  /** Stable i18n label: `home.needsyou.gate` / `home.needsyou.ask`. */
+  labelKey: string;
+  /** What waits: the gate's stage word, or the ask's tool name. */
+  subject: string;
+  /** The run the row belongs to. */
+  runId: string;
+  projectId: ProjectId | null;
+  /** RFC 3339 the row started waiting; oldest first is the strip's order. */
+  since: string;
+  /** Navigate target for the row's Open button. */
+  href: string;
+}
+
+/**
+ * E2: merge gate waits with approval asks into one longest-waiting-first strip.
+ * A gate's waiting time is its run's `updatedAt` (the daemon's last change to the run row,
+ * which for a parked run is the gate's arrival); an ask carries its own `requestedAt`.
+ */
+export function buildNeedsYou(
+  t: (key: string) => string,
+  runs: readonly RunSummary[],
+  gatesByRun: Readonly<Record<string, { runId: string;
+  projectId: ProjectId; runUpdatedAt: string; stage: string; pending: boolean }[]>>,
+  asks: readonly { id: string; runId: string;
+  projectId: ProjectId | null; tool: string; requestedAt: string }[],
+  projects: readonly ProjectSummary[] = []
+): NeedsYouRow[] {
+  const rows: NeedsYouRow[] = [];
+  const projectNames = new Map(projects.map((p) => [p.id, p.name]));
+  for (const run of runs) {
+    if (run.status === 'failed') {
+      rows.push({
+        key: `failed-${run.id}`,
+        kind: 'failed',
+        labelKey: 'home.status_failed',
+        subject: projectNames.get(run.projectId) ?? t('home.project_unnamed'),
+        runId: run.id, projectId: run.projectId,
+        since: run.updatedAt,
+        href: `/p/${run.projectId}/r/${run.id}`,
+      });
+      continue;
+    }
+    const pending = gatesByRun[run.id] ?? [];
+    for (const gate of pending) {
+      if (!gate.pending) continue;
+      rows.push({
+        key: `gate-${run.id}-${gate.stage}`,
+        kind: 'gate',
+        labelKey: 'home.needsyou.gate',
+        subject: t(`bench.stage.${gate.stage}`),
+        runId: run.id, projectId: run.projectId,
+        since: gate.runUpdatedAt,
+        href: `/p/${run.projectId}/r/${run.id}/${gate.stage}`,
+      });
+    }
+  }
+  for (const ask of asks) {
+    rows.push({
+      key: `ask-${ask.id}`,
+      kind: 'ask',
+      labelKey: 'home.needsyou.ask',
+      subject: ask.tool,
+      runId: ask.runId, projectId: ask.projectId ?? null,
+      since: ask.requestedAt,
+      href: '/inbox',
+    });
+  }
+  return rows.sort((left, right) => left.since.localeCompare(right.since));
+}
+
+/** The once-per-condition owner alerts, computed from daemon records only. */
+export function homeAlerts(params: {
+  oldestWaitingGateAt: string | null;
+  failedRuns: readonly RunSummary[];
+  quotaPercent: number | null;
+  spendPercent: number | null;
+  raised: Readonly<Record<string, string>>;
+}): OwnerAlert[] {
+  const hour = new Date().getHours();
+  return ownerAlerts({
+    oldestWaitingGateAt: params.oldestWaitingGateAt,
+    failedRuns: params.failedRuns,
+    quotaPercent: params.quotaPercent,
+    spendPercent: params.spendPercent,
+    hour,
+    raised: params.raised,
+    quietHours: { start: 23, end: 6 },
+  });
+}
+
 export default function HomePage(): React.ReactElement {
   const t = useT();
   const { locale } = useLocale();
@@ -194,11 +290,65 @@ export default function HomePage(): React.ReactElement {
   const [runsByProject, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
   const [waitingGatesByProject, setWaitingGatesByProject] = useState<Record<string, number>>({});
   const [totalWaitingGates, setTotalWaitingGates] = useState(0);
+  // E2: the needs-you strip rows (gates + approval asks, longest waiting first) and the
+  // once-per-condition alert bookkeeping.
+  const [needsYou, setNeedsYou] = useState<NeedsYouRow[]>([]);
+  const [secretarySheetOpen, setSecretarySheetOpen] = useState(false);
+  // Bumped after a failed-run retry so the runs/gates read repeats and the failed row clears.
+  const [runsReloadTick, setRunsReloadTick] = useState(0);
+  const retryProjectIdRef = useRef<ProjectId | null>(null);
+  const raisedRef = useRef<Record<string, string>>({});
 
   const projectsResult = useProjects();
   const rolesResult = useRoles();
   const modelsResult = useModels();
   const preferencesResult = usePreferences('*');
+
+  const quotaGauge = useQuotaGauge();
+  const [alertSnapshot, setAlertSnapshot] = useState<{ oldestWaitingGateAt: string | null; failedRuns: RunSummary[]; maxSpendPercent: number | null }>({ oldestWaitingGateAt: null, failedRuns: [], maxSpendPercent: null });
+
+  // M5: Dedicated effect for alert evaluation to avoid re-fetching project runs/gates/budgets on quota poll.
+  const [alertTick, setAlertTick] = useState(0);
+  useEffect(() => {
+    const alertList = homeAlerts({
+      oldestWaitingGateAt: alertSnapshot.oldestWaitingGateAt,
+      failedRuns: alertSnapshot.failedRuns,
+      quotaPercent: quotaGauge.percentage,
+      spendPercent: alertSnapshot.maxSpendPercent,
+      raised: raisedRef.current,
+    });
+    
+    // Compute currently active condition keys
+    const now = Date.now();
+    const activeConditionKeys = new Set<string>();
+    if (alertSnapshot.oldestWaitingGateAt !== null && (now - Date.parse(alertSnapshot.oldestWaitingGateAt)) / 60_000 >= GATE_WAIT_THRESHOLD_MINUTES) activeConditionKeys.add("gate_waiting");
+    if (alertSnapshot.failedRuns.length > 0) activeConditionKeys.add("run_failed");
+    if (quotaGauge.percentage !== null && quotaGauge.percentage >= QUOTA_NEAR_PERCENT) activeConditionKeys.add("quota_near");
+    if (alertSnapshot.maxSpendPercent !== null && alertSnapshot.maxSpendPercent >= SPEND_NEAR_PERCENT) activeConditionKeys.add("spend_near");
+
+    // Retain only currently active keys in raisedRef
+    const nextRaised: Record<string, string> = {};
+    for (const [key, msgKey] of Object.entries(raisedRef.current)) {
+      if (activeConditionKeys.has(key)) {
+        nextRaised[key] = msgKey;
+      }
+    }
+
+    if (alertList.length > 0) {
+      for (const alert of alertList) {
+        notify({
+          type: "warning",
+          message: t(alert.messageKey, alert.params),
+        });
+      }
+      raisedRef.current = {
+        ...nextRaised,
+        ...raisedKeysAfter(alertList),
+      };
+    } else {
+      raisedRef.current = nextRaised;
+    }
+  }, [quotaGauge.percentage, alertTick, alertSnapshot, t]);
 
   // Honest data-ready signaling
   useEffect(() => {
@@ -224,6 +374,14 @@ export default function HomePage(): React.ReactElement {
     setSheetBudgetValue(defaultBudget);
   }, [defaultBudget]);
 
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAlertTick((t) => t + 1);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Load runs and gates across projects
   useEffect(() => {
     if (!client || !projectsResult.data || projectsResult.data.length === 0) {
@@ -239,7 +397,12 @@ export default function HomePage(): React.ReactElement {
     const loadRunsAndGates = async (): Promise<void> => {
       const runsMap: Record<string, RunSummary[]> = {};
       const waitingMap: Record<string, number> = {};
+      const gatesByRunId: Record<string, GateSummary[]> = {};
       let totalWaiting = 0;
+      let oldestWaitingGateAt: string | null = null;
+      const failedRuns: RunSummary[] = [];
+      const gateRows: Record<string, { runId: string;
+  projectId: ProjectId; runUpdatedAt: string; stage: string; pending: boolean }[]> = {};
 
       await Promise.all(
         projectList.map(async (project: ProjectSummary) => {
@@ -249,22 +412,35 @@ export default function HomePage(): React.ReactElement {
 
             let projectWaiting = 0;
             for (const run of runs) {
-              if (
-                run.status === 'completed' ||
-                run.status === 'cancelled' ||
-                run.status === 'failed'
-              ) {
+              if (run.status === 'failed') failedRuns.push(run);
+              
+              if (run.status === 'completed' || run.status === 'cancelled' || run.status === 'failed') {
                 continue;
               }
 
               try {
-                const gates: GateSummary[] = await client.getGates(run.id);
+                if (!gatesByRunId[run.id]) {
+                  gatesByRunId[run.id] = await client.getGates(run.id);
+                }
+                const gates = gatesByRunId[run.id];
                 projectWaiting += countPendingGatesAtCurrentStage(gates, run.stage);
+
+                gateRows[run.id] = gates.map((g) => ({
+                  runId: run.id, projectId: run.projectId,
+                  runUpdatedAt: run.updatedAt,
+                  stage: g.stage,
+                  pending: g.state.state === 'pending',
+                }));
+                
+                for (const row of gateRows[run.id]) {
+                  if (row.pending && (oldestWaitingGateAt === null || row.runUpdatedAt < oldestWaitingGateAt)) {
+                    oldestWaitingGateAt = row.runUpdatedAt;
+                  }
+                }
               } catch {
                 // Ignore single run gate failure
               }
             }
-
             waitingMap[project.id] = projectWaiting;
             totalWaiting += projectWaiting;
           } catch {
@@ -273,11 +449,54 @@ export default function HomePage(): React.ReactElement {
         })
       );
 
+      const allRuns = projectList.flatMap((project) => runsMap[project.id] ?? []);
+      let asks: { id: string; runId: string;
+  projectId: ProjectId | null; tool: string; requestedAt: string }[] = [];
+      try {
+        const approvals = await client.mcpApprovalsList();
+        asks = approvals.map((ask) => ({
+          id: ask.id,
+          runId: ask.runId,
+          projectId: (allRuns.find((r) => r.id === ask.runId)?.projectId ?? null) as ProjectId | null,
+          tool: ask.tool,
+          requestedAt: ask.requestedAt,
+        }));
+      } catch {
+        asks = [];
+      }
+
       if (active) {
         setRunsByProject(runsMap);
         setWaitingGatesByProject(waitingMap);
         setTotalWaitingGates(totalWaiting);
-      }
+        setNeedsYou(buildNeedsYou(
+          t,
+          allRuns,
+          gateRows,
+          asks,
+          projectList
+        ));
+        // Calculate max spend percent
+        let maxSpendPercent: number | null = null;
+        await Promise.all(
+          projectList.map(async (project) => {
+            try {
+              const budget = await client.getProjectBudget(project.id);
+              if (budget.totalBudgetUsd > 0) {
+                const pct = (budget.spentUsd / budget.totalBudgetUsd) * 100;
+                if (maxSpendPercent === null || pct > maxSpendPercent) {
+                  maxSpendPercent = pct;
+                }
+              }
+            } catch {
+              // Ignore budget fetch error
+            }
+          })
+        );
+
+        // E2: Once-per-condition alerts snapshot.
+        setAlertSnapshot({ oldestWaitingGateAt, failedRuns, maxSpendPercent });
+        }
     };
 
     void loadRunsAndGates();
@@ -285,20 +504,14 @@ export default function HomePage(): React.ReactElement {
     return () => {
       active = false;
     };
-  }, [client, projectsResult.data]);
+  }, [client, projectsResult.data, t, runsReloadTick]);
 
-  // Action: home.interview_start
-  const [interviewProjectId, setInterviewProjectId] = useState<ProjectId | null>(null);
-  const [interviewState, setInterviewState] = useState<InterviewState | null>(null);
-  const startInterviewAction = useAction('home.interview_start', async () => {
+  // Action: home.interview.start
+  const startInterviewAction = useAction('home.interview.start', async () => {
     if (!client) throw new Error(t('common.error'));
     const projectName = deriveProjectName(idea.trim());
     const project = await client.createProject(projectName, idea.trim(), locale);
-    const outcome = await client.interviewStart(project.id, idea.trim());
-    setInterviewProjectId(project.id);
-    if (outcome.kind === 'next_question') {
-      setInterviewState(outcome.state);
-    }
+    await client.interviewStart(project.id, idea.trim());
   });
   // Action: home.start
   // MUST call projects.create -> budget.set -> runs.start IN THAT ORDER
@@ -356,6 +569,15 @@ export default function HomePage(): React.ReactElement {
   // Action: home.retry
   const retryAction = useAction('home.retry', async () => {
     projectsResult.reload();
+  });
+
+  // Action: home.run.retry — one paid runs.start; failures toast through useAction.
+  const retryRunAction = useAction('home.run.retry', async () => {
+    const retryProjectId = retryProjectIdRef.current;
+    if (!client || retryProjectId === null) return;
+    await client.startRun(retryProjectId, t('home.retry_run_idea'));
+    projectsResult.reload();
+    setRunsReloadTick((tick) => tick + 1);
   });
 
   const handleStartSubmit = (): void => {
@@ -482,8 +704,27 @@ export default function HomePage(): React.ReactElement {
   return (
     <div className="v3-home-root">
       <div className="v3-home-narrow">
-        <h1 className="v3-home-title">{t('home.greeting')}</h1>
+        <div className="v3-home-header">
+           <h1 className="v3-home-title">{t('home.greeting')}</h1>
+           <Button
+             data-action="home.secretary.open"
+             data-testid="home-secretary-open"
+             onClick={() => setSecretarySheetOpen(true)}
+           >
+             {t('secretary.title')}
+           </Button>
+        </div>
         <p className="v3-home-help">{t('home.help')}</p>
+
+        <Sheet
+          open={secretarySheetOpen}
+          onClose={() => setSecretarySheetOpen(false)}
+          title={t('secretary.title')}
+          closeLabel={t('common.close')}
+          data-testid="home-secretary-sheet"
+        >
+          <SecretaryChat projectId={null} t={t} />
+        </Sheet>
 
         {/* Error state */}
         {projectsResult.status === 'error' && (
@@ -500,6 +741,47 @@ export default function HomePage(): React.ReactElement {
             >
               {projectsResult.error?.message || t('common.error')}
             </Banner>
+          </div>
+        )}
+
+        {/* E2: the needs-you strip — gates and asks merged, longest waiting first. */}
+        {needsYou.length > 0 && (
+          <div role="region" aria-label={t('home.needsyou.title')} data-testid="home-needsyou">
+            <ul className="v3-home-needsyou" aria-label={t('home.needsyou.title')}>
+              {needsYou.map((row) => (
+                <li key={row.key} className="v3-home-needsyou-row">
+                  <span className="v3-home-needsyou-label">{t(row.labelKey)}</span>
+                  <span className="v3-home-needsyou-subject">{row.subject}</span>
+                  <span className="v3-home-needsyou-wait">{t('home.needsyou.since', { since: new Date(row.since).toLocaleString(locale === 'ar' ? 'ar' : 'en') })}</span>
+                  {row.kind === 'failed' && (
+                    <Button
+                      variant="primary"
+                      data-action="home.run.retry"
+                      disabled={retryRunAction.pending}
+                      onClick={() => {
+                        if (row.projectId === null || retryRunAction.pending) return;
+                        retryProjectIdRef.current = row.projectId;
+                        void retryRunAction.run();
+                      }}
+                    >
+                      {t('home.retry')}
+                    </Button>
+                  )}
+                  <a
+                    href={row.href}
+                    className="v3-home-needsyou-open"
+                    data-action="home.needsyou.open"
+                    data-testid={`home-needsyou-open-${row.key}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigate(row.href);
+                    }}
+                  >
+                    {t('home.needsyou.open')}
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
@@ -548,7 +830,7 @@ export default function HomePage(): React.ReactElement {
                   disabled={!idea.trim() || startInterviewAction.pending}
                   loading={startInterviewAction.pending}
                   onClick={() => startInterviewAction.run()}
-                  data-action="home.interview_start"
+                  data-action="home.interview.start"
                 >
                   {t('home.interview_start')}
                 </Button>

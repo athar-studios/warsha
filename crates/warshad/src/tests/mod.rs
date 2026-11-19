@@ -6855,3 +6855,107 @@ async fn a_protected_file_is_marked_and_not_read() {
     crate::wave2::read_text(&root, &root.join("config.rs"))
         .expect("normal files should be readable");
 }
+
+/// M6: an unrecognised `WARSHA_REMOTE_BIND` fails closed instead of falling back to the
+/// default bind, and each recognised spelling lands on its variant.
+#[test]
+fn an_invalid_remote_bind_env_value_fails_closed() {
+    struct EnvGuard;
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var("WARSHA_REMOTE_BIND");
+        }
+    }
+    let _guard = EnvGuard;
+
+    std::env::set_var("WARSHA_REMOTE_BIND", "everywhere");
+    let error = crate::startup::apply_env_overrides(DaemonConfig::default())
+        .expect_err("an unknown remote bind must be refused");
+    assert!(
+        matches!(&error, DaemonError::Config(message) if message.contains("WARSHA_REMOTE_BIND")),
+        "unexpected error: {error}"
+    );
+
+    std::env::set_var("WARSHA_REMOTE_BIND", "tailscale");
+    let config = crate::startup::apply_env_overrides(DaemonConfig::default())
+        .expect("tailscale is a recognised value");
+    assert_eq!(config.remote_bind, RemoteBind::Tailscale);
+
+    std::env::set_var("WARSHA_REMOTE_BIND", "localhost");
+    let config = crate::startup::apply_env_overrides(DaemonConfig::default())
+        .expect("localhost is a recognised value");
+    assert_eq!(config.remote_bind, RemoteBind::Localhost);
+}
+
+/// H1: `remote_bind = tailscale` listens on the Tailscale address and ALSO on
+/// `127.0.0.1` (same ports) so the desktop app stays connected. The Tailscale adapter is
+/// mocked as an interface named `tailscale0` holding `127.0.0.2` (a loopback address a
+/// Linux host binds without a real adapter); it is never `0.0.0.0`.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn tailscale_bind_also_serves_the_loopback_companion() {
+    let temp = crate::test_util::fresh_tempdir();
+    let config = DaemonConfig {
+        data_dir: temp.path().to_path_buf(),
+        auth_token: "tailscale-token".to_string(),
+        http_port: 0,
+        ws_port: 0,
+        remote_bind: RemoteBind::Tailscale,
+        ..Default::default()
+    };
+    let ifaces = vec![InterfaceInfo {
+        name: "tailscale0".to_string(),
+        ip: "127.0.0.2".parse().expect("an IP literal"),
+    }];
+    let handle = crate::startup::start_daemon_with_interfaces(
+        config,
+        Arc::new(InMemorySecretStore::new()),
+        Arc::new(MockProviderFactory::new()),
+        ifaces,
+    )
+    .await
+    .expect("the daemon starts on the mocked Tailscale address");
+
+    assert_eq!(handle.bind_addr().to_string(), "127.0.0.2");
+    assert!(handle.has_loopback_companion());
+    for port in [handle.http_port(), handle.rpc_port()] {
+        tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("the loopback companion accepts connections");
+        tokio::net::TcpStream::connect(("127.0.0.2", port))
+            .await
+            .expect("the Tailscale address accepts connections");
+    }
+    let rpc_port = handle.rpc_port();
+    handle.shutdown().await;
+    // Both listeners are released by shutdown.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(
+        tokio::net::TcpStream::connect(("127.0.0.1", rpc_port))
+            .await
+            .is_err(),
+        "the companion RPC listener must be gone after shutdown"
+    );
+}
+
+/// H1: with no Tailscale interface the daemon refuses to start rather than falling back.
+#[tokio::test]
+async fn tailscale_bind_without_an_interface_refuses_to_start() {
+    let temp = crate::test_util::fresh_tempdir();
+    let config = DaemonConfig {
+        data_dir: temp.path().to_path_buf(),
+        auth_token: "tailscale-token".to_string(),
+        http_port: 0,
+        ws_port: 0,
+        remote_bind: RemoteBind::Tailscale,
+        ..Default::default()
+    };
+    let result = crate::startup::start_daemon_with_interfaces(
+        config,
+        Arc::new(InMemorySecretStore::new()),
+        Arc::new(MockProviderFactory::new()),
+        Vec::new(),
+    )
+    .await;
+    assert!(matches!(result, Err(DaemonError::Config(_))));
+}

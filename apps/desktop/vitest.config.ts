@@ -7,7 +7,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     include: ['src/**/*.test.{ts,tsx}'],
-    setupFiles: ['@testing-library/jest-dom'],
+    setupFiles: ['@testing-library/jest-dom/vitest'],
     // Component tests mount the whole app and await daemon wiring. `pnpm -r test` runs eight
     // workspaces in parallel and starves the 5 s default: AppWiring (routines) and
     // ModelsSettings (add form) timed out at exactly 5000 ms twice, while the same desktop suite

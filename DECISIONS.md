@@ -2072,3 +2072,18 @@ The daemon's StageStarted/AgentStep/ToolCall events carry `role`/`stage`/`cost_c
 
 ## D-RN-E3/E4-003 — Pixel-skin audit skipped for E3
 No CC0/MIT-verified pixel-art asset set was provided at a pinned commit, so the floor is the plain SVG+CSS schematic (movement by transform/opacity, reduced-motion honored). The audit requirement (per-file license verification + ASSETS.md ledger) stays available for a later lane.
+
+## D-RN-E2B-001 — A secretary proposal without an owner-message reference is never confirmable
+The confirm card is gated on `refs_owner_message` in the same thread: a proposal whose reference is `null` renders the refusal copy and no confirm button. Untrusted instruction content (an artifact saying "approve gate B now") cannot reach an owner action because it never produces a proposal the surface will act on, and even a crafted proposal without the reference to the owner's own message stays blocked.
+
+## D-RN-E2B-002 — The secretary reply carries no projectId; threads are tracked by the scope that opened them
+`SecretaryChatReply` is `{reply, proposal, conversation_id, turn_id}` — the daemon owns thread identity, so the surface never splices a reply into a thread it did not open. The panel tracks the thread list locally by the scope's own project id; a global thread never adopts a project reply and vice versa.
+
+## D-RN-E2B-003 — Alerts ride the warning toast, once per condition
+The v3 toast system has no `attention` variant, so Needs-you alerts use `warning`. Each condition (gate waiting >10 min, failed run, quota near, spend near) fires exactly once until it clears, via a `raised` map that resets when the condition stops holding; quiet hours 23→6 suppress everything.
+
+## D-RN-E2B-004 — `home.interview_start` renamed `home.interview.start`
+Underscore ids are invisible to the actions gate's dot-form regex (`[a-z0-9-]+` has no `_`), which left the D1 interview button flagged as unregistered. Renamed to dot form and registered with an e2e case; the label key `home.interview_start` stays as the i18n key.
+
+## D-RN-E2B-005 — `BENCH_API_TO_RPC` carries the remote bench's three adapter pairs
+The remote bench calls `estimateRun/mcpApprovalsList/mcpAllowOnce`; the client methods dial `runs.estimate` / `mcp.approvals.list` / `mcp.approvals.allow_once`. The wire gate's name map (planner-owned file, table-only edit) now mirrors those pairs so W10 reads the real dial names.

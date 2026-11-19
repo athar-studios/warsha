@@ -75,6 +75,9 @@ export function NeedsYouScreen() {
     decision,
     reloadAll,
     reconnectStream,
+    approvals,
+    approvalsState,
+    allowOnceApproval,
   } = useRemote();
 
   const title = (
@@ -229,6 +232,79 @@ export function NeedsYouScreen() {
           </div>
         </Card>
       </section>
+
+      {/* E2: the ask-queue — MCP calls waiting for the owner's answer, gates or not. */}
+      {(approvalsState !== 'idle' || approvals.length > 0) && (
+        <section aria-label={t('remote.approvals_title', {}, locale)}>
+          <Card title={t('remote.approvals_title', {}, locale)} variant="default">
+            {approvalsState === 'loading' ? (
+              <div role="status" aria-label={t('remote.approvals_title', {}, locale)}>
+                <Skeleton variant="text" />
+              </div>
+            ) : approvalsState === 'failed' ? (
+              <Banner variant="danger">
+                {t('remote.approvals_failed', {}, locale)}
+              </Banner>
+            ) : approvals.length === 0 ? (
+              <Machine>{t('remote.approvals_empty', {}, locale)}</Machine>
+            ) : (
+              <ul
+                role="list"
+                aria-label={t('remote.approvals_title', {}, locale)}
+                style={{
+                  listStyle: 'none',
+                  margin: 0,
+                  padding: 0,
+                  display: 'grid',
+                  gap: 'var(--w-space-2)',
+                }}
+              >
+                {approvals.map((ask) => (
+                  <li
+                    key={ask.id}
+                    style={{
+                      border: 'var(--w-border-width) solid var(--w-line)',
+                      borderRadius: 'var(--w-radius-md)',
+                      padding: 'var(--w-space-2)',
+                      display: 'grid',
+                      gap: 'var(--w-space-1)',
+                      minInlineSize: 0,
+                    }}
+                  >
+                    <div
+                      dir={dir}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 'var(--w-space-2)',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <StatusPill status="waiting" label={t('remote.approvals_waiting', {}, locale)} />
+                      <span style={{ color: 'var(--w-text)', fontSize: 'var(--w-font-size-sm)' }}>
+                        {ask.tool}
+                      </span>
+                    </div>
+                    <Machine title={ask.summary}>{ask.summary}</Machine>
+                    {allowOnceApproval !== null && (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        data-testid={`remote-approval-allow-${ask.id}`}
+                        onClick={() => {
+                          void allowOnceApproval(ask.id);
+                        }}
+                      >
+                        {t('remote.approvals_allow', {}, locale)}
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </section>
+      )}
 
       <section aria-label={t('remote.glance_title', {}, locale)}>
         <Card title={t('remote.glance_title', {}, locale)} variant="default">
