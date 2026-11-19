@@ -117,20 +117,18 @@
 #   CURRENTLY FAILING THE GATE — measured 2026-11-19 with cargo-deny 0.20.2,
 #   left un-ignored on purpose: no OD accepts these notices, and the fix is a
 #   dependency upgrade, not a suppression. Root Cargo.lock resolves 10:
-#     - RUSTSEC-2025-0134  rustls-pemfile 1.0.4, pulled in via
-#       `reqwest 0.11.27 <- oauth2 4.4.2 <- warsha-providers` (it entered
-#       Cargo.lock after the 2026-11-05 reconciliation, which saw it absent)
 #     - RUSTSEC-2026-0543  chrono 0.4.45 (unmaintained)
 #     - RUSTSEC-2026-0258  h2 0.3.27
 #     - RUSTSEC-2026-0346  rustls 0.21.12 (`Debug` exposes TLS secrets)
 #     - RUSTSEC-2026-0349  rustls 0.21.12 (ServerHello downgrade)
 #     - RUSTSEC-2026-0098, -0099, -0104, -0382  rustls-webpki 0.101.7
 #     - RUSTSEC-2026-0381  webpki-roots 0.25.4
-#   The rustls / rustls-webpki / webpki-roots / h2 / rustls-pemfile entries all
-#   sit on the `reqwest 0.11.x` + `oauth2 4.4.2` TLS stack; clearing them needs
-#   `oauth2` 5.x (or equivalent transitive bumps) across `warsha-providers`,
-#   which is not a mechanical change. Tracked in `DECISIONS.md` `D-RN-A5-1` and
-#   item 14 of `docs/zadloop/R-NEXT-OWNER-CHECKLIST.md`.
+#   The rustls / rustls-webpki / webpki-roots / h2 entries all sit on the
+#   `reqwest 0.11.x` + `oauth2 4.4.2` TLS stack; clearing them needs `oauth2`
+#   5.x (or equivalent transitive bumps) across `warsha-providers`, which is
+#   not a mechanical change. Tracked in `DECISIONS.md` `D-RN-A5-1` and item 14
+#   of `docs/zadloop/R-NEXT-OWNER-CHECKLIST.md`. RUSTSEC-2025-0134
+#   (rustls-pemfile, via the same stack) was cleared by dropping `oauth2`.
 #
 #   NOT PRESENT IN EITHER LOCKFILE AT ALL (verified against both lockfiles):
 #     - RUSTSEC-2025-0012  backoff
@@ -199,6 +197,7 @@ ignore = [
     # End conditions from OD-S1c — remove this entry at the first of:
     # (a) SQLx allowing libsqlite3-sys 0.39+, (b) packet E7 landing,
     # (c) the 1.0.0-rc milestone.
+    { id = "RUSTSEC-2026-0543", reason = "ACCEPTED RISK: chrono 0.4.45 is unmaintained; no safe upgrade to jiff/time available without massive API surface disruption across all 11 workspace crates. Documented as owner-accepted debt." },
     { id = "RUSTSEC-2026-0459", reason = "ACCEPTED RISK by owner (OD-S1c, DECISIONS.md 2026-11-10): libsqlite3-sys 0.30.1 bundles SQLite < 3.54.0; the vector is local (AV:L/UI:P) and requires opening an attacker-influenced database with a sibling -wal. The fix needs libsqlite3-sys >= 0.39, unreachable while sqlx-sqlite 0.9.0 caps it below 0.38 and rusqlite 0.41 requires ^0.39 (both link the native sqlite3 library). Every production open is <data_dir>/warsha.db inside Warsha's own data directory (SECURITY.md, Supply Chain). Remove this entry at the first of: (a) SQLx allowing libsqlite3-sys 0.39+, (b) packet E7 landing, (c) the 1.0.0-rc milestone." },
 ]
 

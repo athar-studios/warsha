@@ -78,6 +78,7 @@ base64 = "0.22"
 tempfile = "3.10"
 predicates = "3.0"
 mockall = "0.13"
+pretty_assertions = "1.4"
 
 # Goose integration (to be decided in M0)
 # goose = { git = "https://github.com/aaif-goose/goose", tag = "v0.x.x" }

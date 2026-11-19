@@ -698,8 +698,8 @@ jobs:
           ARTIFACT="Warsha_${VERSION}_x64_en-US.msi"
           HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
           if [ -z "$HASH" ]; then
-            echo "Skipping winget manifest: $ARTIFACT not found in checksums"
-            exit 0
+            echo "::error::$ARTIFACT not found in checksums — the desktop MSI was not built or not checksummed"
+            exit 1
           fi
           mkdir -p manifests/winget
           cat > manifests/winget/warsha.yaml <<EOF
@@ -726,8 +726,8 @@ jobs:
           ARTIFACT="v${VERSION}.tar.gz"
           HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
           if [ -z "$HASH" ]; then
-            echo "Skipping Homebrew formula: $ARTIFACT not found in checksums"
-            exit 0
+            echo "::error::$ARTIFACT not found in checksums — the source tarball was not built or not checksummed"
+            exit 1
           fi
           mkdir -p manifests/homebrew
           # The heredoc is unquoted so $VERSION and the RELEASE_REPO expression
@@ -764,8 +764,8 @@ jobs:
           ARTIFACT="warsha-windows.exe"
           HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
           if [ -z "$HASH" ]; then
-            echo "Skipping Scoop manifest: $ARTIFACT not found in checksums"
-            exit 0
+            echo "::error::$ARTIFACT not found in checksums — the Windows CLI binary was not built or not checksummed"
+            exit 1
           fi
           mkdir -p manifests/scoop
           cat > manifests/scoop/warsha.json <<EOF
@@ -801,9 +801,16 @@ jobs:
 
       - name: Verify no placeholders
         run: |
+          set -euo pipefail
           if [ -d manifests ]; then
             grep -rn "PLACEHOLDER" manifests/ && exit 1 || echo "No placeholders found."
           fi
+          test -f manifests/winget/warsha.yaml || { echo "::error::winget manifest was not generated"; exit 1; }
+          test -f manifests/homebrew/warsha.rb || { echo "::error::homebrew formula was not generated"; exit 1; }
+          test -f manifests/scoop/warsha.json || { echo "::error::scoop manifest was not generated"; exit 1; }
+          grep -q "InstallerSha256: [0-9a-f]\\{64\\}" manifests/winget/warsha.yaml || { echo "::error::winget manifest has no real sha256"; exit 1; }
+          grep -q 'sha256 "[0-9a-f]\\{64\\}"' manifests/homebrew/warsha.rb || { echo "::error::homebrew formula has no real sha256"; exit 1; }
+          grep -q '"hash": "[0-9a-f]\\{64\\}"' manifests/scoop/warsha.json || { echo "::error::scoop manifest has no real hash"; exit 1; }
 
   # ============================================================
   # Docs build
