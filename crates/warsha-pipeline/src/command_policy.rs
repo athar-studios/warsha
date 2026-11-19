@@ -31,6 +31,8 @@
 //!   allow-listed toolchain's forked descendants do not survive; on Windows only
 //!   the direct child is covered (a Job Object is K8's follow-up).
 
+#![cfg_attr(test, allow(clippy::panic, clippy::expect_used, clippy::unwrap_used))]
+
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -1131,6 +1133,7 @@ fn shell_metacharacters_and_parent_traversal_are_refused() {
 /// A `git` refusal travels as [`CommandPolicyError::InvalidCommand`], the variant
 /// whose `reason` the agent-facing `ToolError` carries verbatim.
 #[cfg(test)]
+#[allow(clippy::panic)]
 fn refused_argument(error: &CommandPolicyError) -> (&str, &str) {
     match error {
         CommandPolicyError::InvalidCommand { command, reason } => (command, reason),
@@ -1414,6 +1417,7 @@ async fn a_child_that_prints_its_environment_sees_none_of_the_daemons_variables(
 /// K4.4's regression guard: the daemon's own `PATH` reaches the child (so
 /// `cargo` under `~/.cargo/bin` resolves), while a planted secret still does not.
 #[cfg(test)]
+#[allow(clippy::panic)]
 #[tokio::test]
 async fn the_child_inherits_the_daemons_path_but_no_secret() {
     let _lock = ENV_TEST_LOCK.lock().await;

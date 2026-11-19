@@ -9,6 +9,8 @@
 //! instead, exactly like `fresh_tempdir` in `tests/child_reaping.rs` and
 //! `crates/warsha-git/src/lib.rs`: the same three-way fallback, one owner.
 
+#![allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
+
 use std::path::PathBuf;
 use tempfile::TempDir;
 

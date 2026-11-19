@@ -312,6 +312,7 @@ async fn run_tests(
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod e5 {
     use super::*;
     use std::process::{Command, Stdio};

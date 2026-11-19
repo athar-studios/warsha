@@ -223,6 +223,8 @@ impl EngineCatalog {
     }
 
     /// Get the global built-in catalog instance.
+    /// Built-in engines.json is validated at build time; fail-fast on corrupt bundle is intended.
+    #[allow(clippy::expect_used)]
     pub fn builtin() -> &'static EngineCatalog {
         BUILTIN_CATALOG.get_or_init(|| {
             Self::load_from_str(BUILTIN_CATALOG_JSON)
@@ -277,6 +279,7 @@ impl Default for EngineCatalog {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -1,5 +1,7 @@
 //! Warsha CLI — `warsha` binary
 
+use tracing_subscriber as _;
+
 pub mod mcp_serve;
 pub mod permission_bridge;
 
@@ -1414,6 +1416,7 @@ pub fn no_token_message(lang: CliLang, config_path: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -1964,6 +1967,7 @@ mod tests {
 
 /// K9 gates: zero-budget safety, a configured device id, and honest follow.
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod k9 {
     use super::*;
 
@@ -2033,6 +2037,7 @@ mod k9 {
 /// daemon auth token, and a world-readable token file is a token leak waiting
 /// for a token.
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod config_permissions {
     use super::*;
 

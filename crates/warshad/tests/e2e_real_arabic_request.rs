@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 /// End-to-end test: Arabic request for a dental clinic appointment booking web app.
 ///
 /// Covers the Definition of Done requirement:
@@ -205,6 +212,7 @@ impl ClinicSchedule {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

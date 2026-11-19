@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+
 use super::*;
 use warsha_core::ProviderQuota;
 use warsha_providers::{

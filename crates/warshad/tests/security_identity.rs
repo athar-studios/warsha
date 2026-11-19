@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Integration tests for the daemon's identity, authorization and process policy
 //! (security audit H-03, H-04, H-05) — driven through the real transport.
 //!

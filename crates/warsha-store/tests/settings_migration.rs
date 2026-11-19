@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! The settings migration on the three database states it has to survive
 //! (P-E7, OD-E7): a fresh file, a daemon database written before the
 //! pairing-expiry column existed, and one written between the expiry migration

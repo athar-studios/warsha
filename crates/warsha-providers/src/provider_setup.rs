@@ -363,6 +363,7 @@ fn describe_transport(error: &reqwest::Error) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};

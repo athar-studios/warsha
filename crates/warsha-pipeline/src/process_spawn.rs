@@ -1543,6 +1543,7 @@ impl LivePreviewManager {
 }
 
 #[cfg(test)]
+#[allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::time::Duration;
@@ -2735,6 +2736,7 @@ mod tests {
 /// environment built by [`command_for`] — without depending on a shell, a Python
 /// interpreter or any other program the host may not have.
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod spawn_hardening {
     use super::*;
 
@@ -2799,6 +2801,7 @@ mod spawn_hardening {
     }
 
     /// Poll until the child has printed a line with `prefix`, or fail after ~4 s.
+    #[allow(clippy::panic)]
     async fn wait_for_stdout(manager: &dyn ProcessManager, id: &str, prefix: &str) -> Vec<String> {
         for _ in 0..200 {
             let lines = manager
@@ -2814,6 +2817,7 @@ mod spawn_hardening {
     }
 
     /// Poll until the child has printed something to stderr, or fail after ~4 s.
+    #[allow(clippy::panic)]
     async fn wait_for_stderr(manager: &dyn ProcessManager, id: &str) -> Vec<String> {
         for _ in 0..200 {
             let lines = manager
@@ -2918,6 +2922,7 @@ mod spawn_hardening {
 
 /// K5 repair gates: trusted PATH, byte-bounded capture, known-secret masking.
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod k5_repair {
     use super::*;
     use std::collections::HashMap;

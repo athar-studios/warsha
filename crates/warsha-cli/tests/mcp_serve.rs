@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Integration tests for `warsha mcp serve` against a real loopback `warshad` daemon.
 //!
 //! Covers:

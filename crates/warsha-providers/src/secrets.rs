@@ -183,6 +183,7 @@ impl SecretStore for InMemorySecretStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -265,14 +266,17 @@ mod tests {
     }
 
     #[test]
-    fn the_keychain_store_names_the_service_and_the_account() {
+    fn the_keychain_store_names_the_service_and_the_account() -> Result<()> {
         let credentials = KeychainSecretStore::credentials("my-gateway");
         match credentials {
             CredentialsRef::Keychain { service, account } => {
                 assert_eq!(service, PROVIDER_KEYCHAIN_SERVICE);
                 assert_eq!(account, "my-gateway");
+                Ok(())
             }
-            other => panic!("expected a keychain reference, got {other:?}"),
+            other => Err(ProviderError::Auth(format!(
+                "expected a keychain reference, got {other:?}"
+            ))),
         }
     }
 }

@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! The real-LLM failure path (GAP 3): a stage whose model call is refused ends the
 //! run *as failed*, with a scrubbed event on its log — and it never puts the API key
 //! anywhere the owner would have to hunt for it.

@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! `gates.list` over the real transport (issue #25).
 //!
 //! The queue read is the seam that both apps' gates screens polls, and the whole

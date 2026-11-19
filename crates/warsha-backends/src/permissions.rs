@@ -164,6 +164,7 @@ pub fn argv_matrix(backend: &str) -> HashMap<(Confinement, ApprovalMode), Backen
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! The `/events` stream actually streams, against a real daemon (task #73).
 //!
 //! The measured gap: the socket authenticated and handshook (`events_ws_auth.rs`) and

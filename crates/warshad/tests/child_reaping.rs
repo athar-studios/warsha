@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! D2 — the daemon reaps its children when it shuts down (PLAN.md M20).
 //!
 //! The child is this test binary, re-executed with `--exact <probe>`: a real

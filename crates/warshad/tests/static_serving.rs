@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Static serving of the remote UI on the daemon's HTTP listener (GAP 1).
 //!
 //! The measured break: the built `apps/remote` bundle had no server. Caddy routed

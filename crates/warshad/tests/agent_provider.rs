@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! C2 — Agent mode reaches the provider the owner configured, through the daemon,
 //! and the routing, the approval history and the todos are still there after a
 //! restart.

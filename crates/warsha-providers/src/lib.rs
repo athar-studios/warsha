@@ -1198,6 +1198,7 @@ pub async fn create_provider(
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use async_trait::async_trait;

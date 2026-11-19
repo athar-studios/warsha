@@ -1059,6 +1059,7 @@ fn display_device_ids(ids: &[DeviceId]) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use chrono::Utc;

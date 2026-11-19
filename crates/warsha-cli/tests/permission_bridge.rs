@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! B2 acceptance tests for the approval bridge: an ask reaches the daemon's
 //! queue, a grant comes back as `{"allow": true}`, and an unanswered ask
 //! resolves to a deny.

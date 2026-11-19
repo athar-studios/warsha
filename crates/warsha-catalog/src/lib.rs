@@ -132,9 +132,11 @@ pub fn refresh_catalog(
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     #[test]
     fn test_diff_computation() {
         let mut current = Catalog::new();
@@ -159,7 +161,7 @@ mod tests {
 
         let mut new = current.clone();
         // Add m2
-        new.get_mut("v1").unwrap().models.insert(
+        new.get_mut("v1").expect("v1 exists").models.insert(
             "m2".to_string(),
             Model {
                 id: "m2".to_string(),
@@ -170,10 +172,10 @@ mod tests {
         );
         // Change price m1
         new.get_mut("v1")
-            .unwrap()
+            .expect("v1 exists")
             .models
             .get_mut("m1")
-            .unwrap()
+            .expect("m1 exists")
             .cost = Some(ModelCost {
             input: 2.0,
             output: 2.0,
@@ -189,9 +191,10 @@ mod tests {
         assert!(diff.removed.is_empty());
     }
 
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     #[test]
     fn test_malformed_download() {
-        let current = parse_catalog().unwrap();
+        let current = parse_catalog().expect("catalog exists");
         let bytes = b"{ malformed: json ]";
         let result = refresh_catalog(bytes, &current);
         assert!(result.is_err());
@@ -199,9 +202,10 @@ mod tests {
         // refresh_catalog doesn't modify current, it returns a new one or error
     }
 
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     #[test]
     fn test_custom_model_survives_refresh() {
-        let current = parse_catalog().unwrap();
+        let current = parse_catalog().expect("catalog exists");
         let mut overrides = HashMap::new();
         let custom_model = Model {
             id: "custom-m1".to_string(),
@@ -217,7 +221,7 @@ mod tests {
         let refreshed = apply_catalog(current, &overrides);
         assert!(refreshed
             .get("v1")
-            .unwrap()
+            .expect("v1 exists")
             .models
             .contains_key("custom-m1"));
     }

@@ -79,6 +79,7 @@ pub fn role_for_stage(stage: warsha_core::Stage) -> Option<Role> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

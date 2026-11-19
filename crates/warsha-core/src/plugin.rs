@@ -327,6 +327,7 @@ fn security_strix_pack() -> PluginDefinition {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

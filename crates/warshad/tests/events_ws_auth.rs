@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! The `/events` WebSocket handshake, against a real daemon (task #49).
 //!
 //! The measured break: `auth_handler_inner` read the credential out of the

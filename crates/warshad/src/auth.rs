@@ -1966,6 +1966,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
 #[path = "auth_tests.rs"]
 mod tests;
 
@@ -1980,6 +1981,7 @@ mod tests;
 /// what the agent's own tool layer would refuse, and cannot refuse what the tool
 /// layer would run.
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod policy_parity_tests {
     use super::*;
     use warsha_pipeline::{CommandPolicy, CommandPolicyError};

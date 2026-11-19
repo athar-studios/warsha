@@ -1,5 +1,23 @@
 //! Warsha CLI binary entry point
 
+use anyhow as _;
+use jsonrpsee as _;
+use reqwest as _;
+use serde as _;
+use serde_json as _;
+#[cfg(test)]
+use tempfile as _;
+use thiserror as _;
+use tracing as _;
+use ulid as _;
+use uuid as _;
+use warsha_backends as _;
+use warsha_core as _;
+use warsha_providers as _;
+use warsha_remote as _;
+use warshad as _;
+use which as _;
+
 use clap::Parser;
 use std::path::Path;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};

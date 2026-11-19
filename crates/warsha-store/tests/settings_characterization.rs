@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Characterization tests for the settings store (P-E7).
 //!
 //! These cases were written against the synchronous `rusqlite` `SqliteStore`

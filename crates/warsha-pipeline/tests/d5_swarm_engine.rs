@@ -1,3 +1,11 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! D5 acceptance tests: the swarm run mode (engine half).
 //!
 //! Spec anchor: `docs/zadloop/R-NEXT-MASTER-PLAN.md` §D5 (`:1490-1560`). The
@@ -10,7 +18,6 @@
 //! re-queue — runs end to end on the engine.
 
 #![cfg(unix)]
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};

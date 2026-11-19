@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! The daemon's in-scope path boundary, measured from outside the crate.
 //!
 //! `ProcessPolicy::check_command` decides whether a requested program is *inside the

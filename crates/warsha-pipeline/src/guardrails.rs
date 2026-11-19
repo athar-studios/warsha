@@ -416,6 +416,7 @@ fn looks_like_opaque_token(core: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

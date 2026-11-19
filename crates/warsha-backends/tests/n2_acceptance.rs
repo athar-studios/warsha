@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! R-NEXT N2 acceptance tests:
 //! - Custom backend end-to-end on a mock project via fake_cli() + absent-executable twin fails by name
 //! - Unknown backend name fails at run start and never silently falls back to routed provider (A16.11)

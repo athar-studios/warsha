@@ -682,6 +682,7 @@ pub fn caller_digest(caller_key: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

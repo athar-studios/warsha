@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! CLI ↔ daemon RPC-path integration tests.
 //!
 //! These pin the two defects the CLI had against the daemon's JSON-RPC surface:
