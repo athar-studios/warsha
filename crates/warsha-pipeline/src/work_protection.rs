@@ -366,31 +366,12 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
-    // Explicit check for shell inline-eval flags
+    // Shell commands are risky.
     if matches!(
         program_name.as_str(),
         "sh" | "bash" | "zsh" | "dash" | "cmd" | "cmd.exe" | "powershell" | "pwsh"
     ) {
-        for arg in args {
-            let is_inline_eval = match program_name.as_str() {
-                "sh" | "bash" | "zsh" | "dash" => arg == "-c" || arg == "-e",
-                "cmd" | "cmd.exe" => {
-                    arg.eq_ignore_ascii_case("/c") || arg.eq_ignore_ascii_case("/k")
-                }
-                "powershell" | "pwsh" => {
-                    let a = arg.to_ascii_lowercase();
-                    a == "-command"
-                        || a == "-c"
-                        || a == "-encodedcommand"
-                        || a == "-e"
-                        || a == "-ec"
-                }
-                _ => false,
-            };
-            if is_inline_eval {
-                return RiskClass::Risky;
-            }
-        }
+        return RiskClass::Risky;
     }
 
     // Writes outside the workspace or deleting >20 files (conservative).
@@ -429,12 +410,18 @@ mod tests {
     #[test]
     fn test_classify_command() {
         assert_eq!(classify_command("ls", &[]), RiskClass::Safe);
-        assert_eq!(classify_command("bash", &[]), RiskClass::Safe);
+        assert_eq!(classify_command("bash", &[]), RiskClass::Risky);
+        assert_eq!(
+            classify_command("bash", &["script.sh".to_string()]),
+            RiskClass::Risky
+        );
         assert_eq!(
             classify_command("bash", &["-c".to_string(), "id".to_string()]),
             RiskClass::Risky
         );
-        assert_eq!(classify_command("curl", &[]), RiskClass::Safe);
+        assert_eq!(classify_command("curl", &[]), RiskClass::Risky);
+        assert_eq!(classify_command("wget", &[]), RiskClass::Risky);
+        assert_eq!(classify_command("ssh", &[]), RiskClass::Risky);
         assert_eq!(
             classify_command("git", &["push".to_string()]),
             RiskClass::Risky
@@ -442,6 +429,54 @@ mod tests {
         assert_eq!(
             classify_command("npm", &["install".to_string()]),
             RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["publish".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pnpm", &["publish".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("yarn", &["publish".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("bun", &["publish".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("npx", &["cowsay".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pnpm", &["dlx".to_string(), "cowsay".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["-e".to_string(), "console.log(1)".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["index.js".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("deno", &["run".to_string(), "main.ts".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("php", &["-r".to_string(), "echo 1;".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["test".to_string()]),
+            RiskClass::Safe
         );
         assert_eq!(
             classify_command("cat", &["../secret.txt".to_string()]),

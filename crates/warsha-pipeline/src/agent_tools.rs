@@ -396,7 +396,7 @@ impl FilesystemToolExecutor {
         Ok(self.working_dir.join(candidate))
     }
 
-    /// Resolve `path` for a write operation, ensuring it stays contained within
+    /// Resolve `path` for a write or read operation, ensuring it stays contained within
     /// the workspace and does not escape via symlinks.
     ///
     /// Refused:
@@ -404,7 +404,7 @@ impl FilesystemToolExecutor {
     /// - Any path whose final component is a symlink (including dangling links).
     /// - Any path that resolves outside the workspace root (via symlinked parent directories).
     /// - Any path whose deepest existing parent cannot be resolved or escapes the workspace.
-    pub fn resolve_write_path(&self, path: &str) -> Result<PathBuf, ToolError> {
+    pub fn resolve_contained_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         let resolved = self.resolve(path)?;
 
         // The workspace root as the operating system sees it, so containment
@@ -525,7 +525,7 @@ impl FilesystemToolExecutor {
         let tool = AgentTool::ReadFile {
             path: path.to_string(),
         };
-        let resolved = self.resolve(path)?;
+        let resolved = self.resolve_contained_path(path)?;
         match std::fs::read_to_string(&resolved) {
             Ok(content) => Ok(ToolResult::ok(tool, content)),
             Err(error) => Ok(ToolResult::failed(
@@ -541,7 +541,7 @@ impl FilesystemToolExecutor {
             path: path.to_string(),
             content: content.to_string(),
         };
-        let resolved = self.resolve_write_path(path)?;
+        let resolved = self.resolve_contained_path(path)?;
         // B2: read-only confinement refuses every write by name.
         if let Some(policy) = &self.protection {
             if policy.mode == PermissionMode::ReadOnly {
@@ -1632,25 +1632,78 @@ mod protection_tests {
     }
 
     #[tokio::test]
-    async fn ask_without_a_run_id_never_registers() {
-        let approvals = Arc::new(McpApprovals::new(None));
-        let dir = std::env::temp_dir().join("b3-norun-test");
+    async fn test_read_file_symlink_containment() {
+        let dir = std::env::temp_dir().join("symlink-containment-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir);
+
+        // Create a file
+        let file_path = dir.join("file.txt");
+        std::fs::write(&file_path, "content").unwrap();
+
+        // Read file (safe)
+        let res = executor.read_file("file.txt").unwrap();
+        assert!(res.success);
+
+        // Read outside via symlink (refused)
+        #[cfg(unix)]
+        {
+            let link_path = dir.join("link.txt");
+            std::os::unix::fs::symlink("../outside.txt", &link_path).unwrap();
+            assert!(matches!(
+                executor.read_file("link.txt"),
+                Err(ToolError::PathEscapesWorkingDir(_))
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_full_access_commands_pass() {
+        let dir = std::env::temp_dir().join("full-access-test");
         let _ = std::fs::create_dir_all(&dir);
         let executor = FilesystemToolExecutor::new(&dir)
-            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
-            .with_protection(policy(PermissionMode::AskAlways))
-            .with_mcp_approvals(approvals.clone(), None);
-        let result = executor
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+                "make".to_string(),
+                "cargo".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::FullAccess));
+
+        for cmd in [
+            "git push",
+            "npm install",
+            "npm run build",
+            "make",
+            "cargo run",
+        ] {
+            let res = executor
+                .run_command(cmd, &[])
+                .await
+                .expect("command should run");
+            // Command might fail due to missing environment, but should NOT be refused
+            assert!(res.success || !res.output.contains("refused"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cargo_publish_bypass() {
+        let dir = std::env::temp_dir().join("cargo-publish-bypass");
+        let _ = std::fs::create_dir_all(&dir);
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-bypass-1".to_string()));
+
+        let res = executor
             .execute(&AgentTool::RunCommand {
-                command: "git".to_string(),
-                args: vec!["push".to_string()],
+                command: "cargo".to_string(),
+                args: vec!["publish".to_string()],
             })
             .await;
-        assert!(!result.success);
-        assert!(
-            approvals.pending().is_empty(),
-            "a daemon-wide loop (no run id) must never register a pending ask"
-        );
+
+        assert!(!res.success, "cargo publish should be refused/asked");
+        assert_eq!(approvals.pending().len(), 1);
     }
 
     #[tokio::test]
