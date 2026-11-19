@@ -1,0 +1,139 @@
+## TODO/FIXME/XXX/HACK (text sources)
+apps/desktop/src/screens/AdvancedMode.tsx:1767:                        // TODO(M20 wiring): the delivery checks run in CI and the daemon has no preflight RPC
+apps/desktop/src/screens/AdvancedMode.tsx:1776:                        // TODO(M20 wiring): the deploy RPC is not wired; the button reports intent only.
+apps/desktop/src/screens/ArtifactViewer.tsx:63: * TODO(M20 wiring): this legacy v2 screen still reads a fixture; the daemon now has a `runs.artifacts` RPC
+apps/desktop/src/screens/RunView.tsx:227:    // TODO(M20 wiring): legacy v2 screen; the daemon's `preview.start` RPC exists (crates/warshad/src/api.rs) and v3 supersedes this screen.
+apps/desktop/src/screens/RunView.tsx:232:    // TODO(M20 wiring): legacy v2 screen; the daemon's `preview.stop` RPC exists (crates/warshad/src/api.rs) and v3 supersedes this screen.
+apps/desktop/src/screens/RunView.tsx:237:    // TODO(M20 wiring): hand `elementMention(selector)` to the composer once RunView has one.
+apps/desktop/src/screens/SettingsScreen.tsx:60:  // TODO(M20 wiring): eco mode lives in `warsha-pipeline`'s `EcoMode`; the daemon has no settings RPC for
+## #[ignore]
+crates/warsha-pipeline/src/mcp_transport.rs:1585:    #[ignore = "a child process, not a test"]
+crates/warsha-pipeline/src/mcp_transport.rs:1681:    #[ignore = "a child process, not a test"]
+crates/warsha-pipeline/src/mcp_transport.rs:1728:    #[ignore = "a child process, not a test"]
+crates/warsha-pipeline/src/mcp_transport.rs:1783:    #[ignore = "a child process, not a test"]
+crates/warsha-pipeline/src/mcp_transport.rs:1795:    #[ignore = "a child process, not a test"]
+crates/warsha-pipeline/src/process_spawn.rs:1671:    #[ignore = "a child process, not a test"]
+crates/warsha-pipeline/src/process_spawn.rs:1690:    #[ignore = "a child process, not a test"]
+crates/warshad/src/lib.rs:3979:/// It is `#[ignore]`d because it spawns two child processes (the Gate C test
+crates/warshad/src/tests/e8_wiring.rs:50:/// that really exits 0 and really prints [`TEST_MARKER`]. `#[ignore]` keeps it
+crates/warshad/src/tests/e8_wiring.rs:53:#[ignore = "run by the E8 pilot as its Gate C test program"]
+crates/warshad/src/tests/e8_wiring.rs:138:#[ignore = "pilot: spawns child processes; run with `cargo test -p warshad -- --ignored pilot`"]
+crates/warshad/src/tests/mod.rs:1822:#[ignore = "a child process, not a test"]
+crates/warshad/src/tests/mod.rs:1887:#[ignore = "a child process, not a test"]
+crates/warshad/tests/child_reaping.rs:61:#[ignore = "a child process, not a test"]
+## TS skip/only/fixme/todo
+apps/desktop/e2e/v3/factory.spec.ts:32:  test.skip(count === 0, 'no active agents in the harness fixture');
+## allow(dead_code|unused)
+crates/warsha-backends/src/lib.rs:18:    #[allow(dead_code)]
+crates/warsha-backends/src/lib.rs:27:    #[allow(dead_code)]
+crates/warsha-backends/src/lib.rs:29:    #[allow(dead_code)]
+crates/warsha-backends/src/lib.rs:31:    #[allow(dead_code)]
+crates/warsha-pipeline/src/lib.rs:419:    #[allow(dead_code)]
+crates/warsha-pipeline/src/lib.rs:552:        #[allow(unused_variables)] spec_file_path: Option<&str>,
+crates/warsha-pipeline/src/lib.rs:2135:    #[allow(dead_code)]
+crates/warsha-pipeline/tests/n3_cli_isolation.rs:328:#[allow(dead_code)]
+crates/warsha-providers/src/oauth/device.rs:11:#[allow(dead_code)] // expires_in drives the poll deadline once the flow is wired to a provider
+crates/warsha-remote/src/lib.rs:586:#[allow(dead_code)]
+crates/warsha-store/src/lib.rs:27:#[allow(unused_imports)]
+crates/warshad/src/api.rs:896:#[allow(dead_code)]
+crates/warshad/src/auth.rs:1526:#[cfg_attr(not(windows), allow(dead_code))]
+crates/warshad/src/lib.rs:15:#[allow(unused_imports)] // read only by `mod tests`
+crates/warshad/src/lib.rs:96:#[allow(unused_imports)] // read only by `mod tests`
+crates/warshad/src/lib.rs:111:#[allow(unused_imports)]
+crates/warshad/src/startup.rs:36:#[allow(unused_imports)] // named only by the doc link on `start_daemon_with_provider_factory`
+crates/warshad/src/wave2.rs:217:#[allow(dead_code)]
+crates/warshad/tests/wave2_rpc.rs:142:    #[allow(dead_code)]
+## ts-ignore/expect-error/eslint-disable
+apps/desktop/src/v3/app/V3App.test.tsx:5:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/app/V3App.tsx:3:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/app/V3App.tsx:5:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/bench.test.tsx:21:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/AdvancedComposer.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/AdvancedComposer.tsx:4:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/BenchDecisionCard.tsx:1:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/BenchDecisionCard.tsx:3:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/BenchHeader.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/BenchHeader.tsx:14:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/BenchRail.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/BenchRail.tsx:4:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/BenchTabs.tsx:1:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/RunModeChip.tsx:7:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/components/StageStrip.tsx:1:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/index.tsx:9:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/index.tsx:11:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/index.tsx:13:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/ArtifactsTab.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/ArtifactsTab.tsx:12:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/AssistantTab.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/AssistantTab.tsx:16:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/ChangesTab.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/ChangesTab.tsx:15:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/CostTab.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/CostTab.tsx:11:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/EvidenceCard.test.tsx:4:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/EvidenceCard.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/EvidenceCard.tsx:13:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/FilesTab.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/FilesTab.tsx:15:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/OverviewTab.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/OverviewTab.tsx:4:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/PlanTab.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/PlanTab.tsx:4:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/PreviewTab.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/PreviewTab.tsx:11:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/TeamTab.tsx:8:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/TeamTab.tsx:10:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/TerminalTab.tsx:3:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/bench/tabs/TerminalTab.tsx:5:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/developers/index.test.tsx:6:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/frame/Frame.test.tsx:3:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/frame/Frame.tsx:3:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/frame/Frame.tsx:15:  // eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/frame/Frame.tsx:28:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/frame/FrameProjectSwitcher.tsx:2:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/frame/FrameProjectSwitcher.tsx:12:  // eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/home/Home.test.tsx:13:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/home/index.tsx:10:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/home/index.tsx:24:  // eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/inbox/Inbox.test.tsx:11:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/inbox/index.tsx:10:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/inbox/index.tsx:27:  // eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/onboarding/Onboarding.test.tsx:12:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/onboarding/index.tsx:3:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/onboarding/index.tsx:18:  // eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/project/Project.test.tsx:14:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/project/index.tsx:13:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/project/index.tsx:41:  // eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/projects/Projects.test.tsx:11:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/projects/index.tsx:7:// eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/projects/index.tsx:22:  // eslint-disable-next-line import/no-unresolved
+apps/desktop/src/v3/pages/settings/Settings.test.tsx:16:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/SettingsNav.tsx:2:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/AboutSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/BackendSection.tsx:9:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/BudgetsSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/ConnectionsSection.test.tsx:6:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/ConnectionsSection.tsx:28:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/DevicesSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/GeneralSection.test.tsx:5:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/GeneralSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/IntegrationsSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/McpPermissionsSection.tsx:5:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx:11:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/PluginsSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/PostLaunchSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/RoutinesSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/SkillsSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/UsageSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/pages/settings/sections/WorkflowsSection.tsx:3:/* eslint-disable import/no-unresolved */
+apps/desktop/src/v3/router/Router.tsx:1:// eslint-disable-next-line import/no-unresolved
+apps/remote/src/GatePlate.tsx:4:/* eslint-disable import/no-unresolved */
+apps/remote/src/chrome.tsx:3:/* eslint-disable import/no-unresolved */
+apps/remote/src/main.tsx:15:// eslint-disable-next-line import/no-unresolved
+apps/remote/src/main.tsx:17:// eslint-disable-next-line import/no-unresolved
+apps/remote/src/pairing.tsx:4:// eslint-disable-next-line import/no-unresolved
+apps/remote/src/screens/GatesScreen.tsx:5:/* eslint-disable import/no-unresolved */
+apps/remote/src/screens/NeedsYouScreen.tsx:5:/* eslint-disable import/no-unresolved */
+apps/remote/src/screens/ProjectsScreen.tsx:3:/* eslint-disable import/no-unresolved */
+apps/remote/src/screens/RunScreen.tsx:2:/* eslint-disable import/no-unresolved */
+apps/remote/src/screens/SettingsScreen.tsx:2:/* eslint-disable import/no-unresolved */
