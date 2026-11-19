@@ -6959,3 +6959,25 @@ async fn tailscale_bind_without_an_interface_refuses_to_start() {
     .await;
     assert!(matches!(result, Err(DaemonError::Config(_))));
 }
+
+#[tokio::test]
+async fn auth_token_must_be_long_enough_for_non_loopback() {
+    let config = DaemonConfig {
+        bind_host: "192.168.1.5".to_string(),
+        ..Default::default()
+    };
+
+    std::env::set_var("WARSHA_AUTH_TOKEN", "short");
+    let error = crate::startup::apply_env_overrides(config.clone())
+        .expect_err("short token on non-loopback must fail");
+    assert!(
+        error
+            .to_string()
+            .contains("auth token must be at least 32 characters"),
+        "unexpected error: {error}"
+    );
+
+    std::env::set_var("WARSHA_AUTH_TOKEN", "a".repeat(32));
+    crate::startup::apply_env_overrides(config.clone())
+        .expect("32-char token on non-loopback must pass");
+}

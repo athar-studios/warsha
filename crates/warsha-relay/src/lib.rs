@@ -75,6 +75,8 @@ pub enum RelayError {
     ChannelClosed,
     #[error("Other: {0}")]
     Other(String),
+    #[error("Not implemented")]
+    NotImplemented,
     /// No credential arrived, or the one that did authenticates nothing here.
     ///
     /// The two are the same answer on purpose: a probe that can tell "unknown
@@ -143,6 +145,7 @@ impl IntoResponse for RelayError {
                 (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
             }
             RelayError::RateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
+            RelayError::NotImplemented => (StatusCode::NOT_IMPLEMENTED, self.to_string()),
             RelayError::FrameTooLarge { .. } => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
             // Both of these are the relay's own configuration being unusable, which a
             // caller can neither see nor fix; they are answered at startup, not on the
@@ -949,6 +952,10 @@ async fn health(
     Ok(Json(serde_json::json!({ "status": "healthy" })))
 }
 
+pub async fn stub_endpoint() -> Result<StatusCode> {
+    Err(RelayError::NotImplemented)
+}
+
 /// The relay's routes, over a state the caller built.
 ///
 /// Split from [`run_relay`] so a test can serve the same router an operator starts,
@@ -956,6 +963,7 @@ async fn health(
 pub fn router(state: Arc<RelayState>) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/stub", get(stub_endpoint))
         .route("/frame", post(submit_frame))
         .route("/ws", get(websocket_handler))
         .with_state(state)

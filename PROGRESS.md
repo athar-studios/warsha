@@ -1,5 +1,6 @@
 # PROGRESS.md — Warsha Build Log
 
+- [x] P10 Hardening: Claude Review §P10 hardening items (rel-p10-harden)
 - [x] Z1: Final release report (plan §10 Z1, integration tip 28ee5e2, audit complete)
 - [x] A5: Final code-health audit (complete, merged at 43ec295)
 - [x] E5: Visual baselines sweep (complete, merged at 28ee5e2)
@@ -7,6 +8,23 @@
 - [x] A1: Model catalog (merged at 797721c)
 - [x] A2: OAuth engine, Warshad RPC, Providers UI (merged at 9fdb797)
 - [x] D1: Secretary role (merged at c500b7a)
+
+## Run 2026-11-19 — P10 Hardening (Claude Review §P10)
+- **Delivered**:
+  1. Token length enforcement: `crates/warshad/src/startup.rs` enforces ≥32-character `WARSHA_AUTH_TOKEN` when binding to non-loopback addresses with clear error `DaemonError::Config`. Added unit test `tests::auth_token_must_be_long_enough_for_non_loopback` in `crates/warshad/src/tests/mod.rs`.
+  2. Dev-server origin trust gating: `apps/desktop/src-tauri/src/lib.rs` gates `http://localhost:5173` behind `#[cfg(debug_assertions)]`. `docker/entrypoint.sh` gates dev server CORS trust behind `WARSHA_DEV=true` (or `1`).
+  3. Opener plugin scoping: `apps/desktop/src-tauri/tauri.conf.json` scopes `@tauri-apps/plugin-opener` permissions to `open: "safe"`.
+  4. Relay stub error: `crates/warsha-relay/src/lib.rs` implements `RelayError::NotImplemented` (HTTP 501 Not Implemented) on the `/stub` endpoint. Added test `the_relay_stub_returns_not_implemented` in `crates/warsha-relay/tests/relay_endpoints.rs`.
+  5. Docker compose image tag: Updated `deploy/docker-compose.yml` to `warsha/warshad:0.3.0`.
+- **Verification**:
+  - `cargo fmt --check` exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy --no-deps -p warshad -p warsha-relay --all-targets -- -D warnings` exit 0 (note: pre-existing warnings in untouched crates like `warsha-pipeline` left untouched per policy).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad -p warsha-relay -p warsha-pipeline --lib` all passed:
+    - `warsha-pipeline`: 527 passed, 0 failed, 7 ignored.
+    - `warsha-relay`: 17 passed, 0 failed.
+    - `warshad`: 295 passed, 0 failed, 4 ignored.
+  - Desktop self-check: `warsha-desktop --self-check --data-dir /tmp/warsha-test-selfcheck` passed all 11/11 tests.
+- **Status**: Left uncommitted on branch `rel-p10-harden`.
 
 ## Run 2026-11-19 — Z1: Final release report (plan §10 Z1, integration tip 28ee5e2)
 

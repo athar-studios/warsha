@@ -586,3 +586,16 @@ async fn a_relay_without_pairings_authenticates_no_channel() {
     .await;
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn the_relay_stub_returns_not_implemented() {
+    let trust = RelayTrust::from_entries(vec![]);
+    let state = Arc::new(warsha_relay::RelayState::new(trust, 1024 * 1024, 256));
+    let (addr, _server) = warsha_relay::serve(state, "127.0.0.1:0")
+        .await
+        .expect("the relay serves");
+    let response = reqwest::get(format!("http://{addr}/stub"))
+        .await
+        .expect("the relay answers");
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_IMPLEMENTED);
+}
