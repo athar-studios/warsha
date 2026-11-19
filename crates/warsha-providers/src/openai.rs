@@ -570,12 +570,12 @@ mod tests {
 
     #[test]
     fn from_env_config_uses_the_env_defaults_when_the_lookup_is_empty() {
-        // The defaults a caller gets from `EnvLlmConfig::from_lookup` land in the
-        // provider unchanged — the base url and model wiring is the whole point.
+        // When no environment is set, `from_lookup` returns empty strings, but
+        // `OpenAIProvider` construction fails if no key is provided.
         match OpenAIProvider::from_env_config(
             "env-openai".to_string(),
             ProviderKind::OpenAI,
-            &EnvLlmConfig::from_lookup(|_| None),
+            &EnvLlmConfig::from_lookup(|_| None).unwrap(),
         ) {
             Ok(_) => panic!("the default config has no key"),
             Err(ProviderError::Auth(_)) => {}
@@ -584,15 +584,16 @@ mod tests {
 
         let config = EnvLlmConfig {
             api_key: Some("sk-again-not-real".to_string()),
-            ..EnvLlmConfig::from_lookup(|_| None)
+            base_url: "https://router.test/v1".to_string(),
+            model: "some/model".to_string(),
         };
         let provider = OpenAIProvider::from_env_config(
             "env-openai".to_string(),
             ProviderKind::OpenAI,
             &config,
         )
-        .expect("a key completes the default config");
-        assert_eq!(provider.api_base, DEFAULT_LLM_BASE_URL);
-        assert_eq!(provider.models[0].id, DEFAULT_LLM_MODEL);
+        .expect("a key completes the config");
+        assert_eq!(provider.api_base, "https://router.test/v1");
+        assert_eq!(provider.models[0].id, "some/model");
     }
 }

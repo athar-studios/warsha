@@ -9,19 +9,12 @@
 //! The API key is a secret: it is never logged and the [`Debug`] implementation
 //! masks it, per the repository rule that secrets never reach a log line.
 
-/// The OpenAI-compatible endpoint Warsha defaults to when `WARSHA_LLM_BASE_URL`
-/// is unset or blank.
-pub const DEFAULT_LLM_BASE_URL: &str = "https://router.sayl.site/v1";
-
-/// The model Warsha defaults to when `WARSHA_LLM_MODEL` is unset or blank.
-pub const DEFAULT_LLM_MODEL: &str = "bzl/deepseek-v4-flash-0731free";
-
 /// The LLM configuration read from `WARSHA_LLM_BASE_URL`, `WARSHA_LLM_API_KEY`
 /// and `WARSHA_LLM_MODEL`, each falling back to its default (or, for the key, to
 /// `None`) when unset or blank.
 #[derive(Clone, PartialEq, Eq)]
 pub struct EnvLlmConfig {
-    /// OpenAI-compatible API base URL, e.g. `https://router.sayl.site/v1`.
+    /// OpenAI-compatible API base URL.
     pub base_url: String,
     /// The API key, if one is configured. A secret — never log this value.
     pub api_key: Option<String>,
@@ -31,7 +24,7 @@ pub struct EnvLlmConfig {
 
 impl EnvLlmConfig {
     /// Read the configuration from the process environment.
-    pub fn from_env() -> Self {
+    pub fn from_env() -> Result<Self, anyhow::Error> {
         Self::from_lookup(|key| std::env::var(key).ok())
     }
 
@@ -39,18 +32,27 @@ impl EnvLlmConfig {
     /// environment variable name. Blank values count as unset: every field is
     /// trimmed, and a trimmed-empty value falls back to its default (`None` for
     /// the key).
-    pub fn from_lookup<F: Fn(&str) -> Option<String>>(lookup: F) -> Self {
+    pub fn from_lookup<F: Fn(&str) -> Option<String>>(lookup: F) -> Result<Self, anyhow::Error> {
         let non_empty = |raw: Option<String>| {
             raw.map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty())
         };
-        Self {
-            base_url: non_empty(lookup("WARSHA_LLM_BASE_URL"))
-                .unwrap_or_else(|| DEFAULT_LLM_BASE_URL.to_string()),
-            api_key: non_empty(lookup("WARSHA_LLM_API_KEY")),
-            model: non_empty(lookup("WARSHA_LLM_MODEL"))
-                .unwrap_or_else(|| DEFAULT_LLM_MODEL.to_string()),
+
+        let base_url = non_empty(lookup("WARSHA_LLM_BASE_URL"));
+        let api_key = non_empty(lookup("WARSHA_LLM_API_KEY"));
+        let model = non_empty(lookup("WARSHA_LLM_MODEL"));
+
+        if api_key.is_some() && base_url.is_none() {
+            return Err(anyhow::anyhow!(
+                "WARSHA_LLM_API_KEY set but WARSHA_LLM_BASE_URL missing"
+            ));
         }
+
+        Ok(Self {
+            base_url: base_url.unwrap_or_default(),
+            api_key,
+            model: model.unwrap_or_default(),
+        })
     }
 }
 
@@ -84,12 +86,10 @@ mod tests {
     }
 
     #[test]
-    fn unset_env_falls_back_to_the_documented_defaults() {
-        let config = EnvLlmConfig::from_lookup(|_| None);
-        assert_eq!(config.base_url, "https://router.sayl.site/v1");
-        assert_eq!(config.base_url, DEFAULT_LLM_BASE_URL);
-        assert_eq!(config.model, "bzl/deepseek-v4-flash-0731free");
-        assert_eq!(config.model, DEFAULT_LLM_MODEL);
+    fn unset_env_has_no_defaults() {
+        let config = EnvLlmConfig::from_lookup(|_| None).unwrap();
+        assert_eq!(config.base_url, "");
+        assert_eq!(config.model, "");
         assert!(config.api_key.is_none(), "no key means no key");
     }
 
@@ -99,9 +99,10 @@ mod tests {
             ("WARSHA_LLM_BASE_URL", "   "),
             ("WARSHA_LLM_API_KEY", ""),
             ("WARSHA_LLM_MODEL", "\t "),
-        ]));
-        assert_eq!(config.base_url, DEFAULT_LLM_BASE_URL);
-        assert_eq!(config.model, DEFAULT_LLM_MODEL);
+        ]))
+        .unwrap();
+        assert_eq!(config.base_url, "");
+        assert_eq!(config.model, "");
         assert!(config.api_key.is_none());
     }
 
@@ -111,18 +112,26 @@ mod tests {
             ("WARSHA_LLM_BASE_URL", " https://example.test/v1 "),
             ("WARSHA_LLM_API_KEY", "  sk-secret-value "),
             ("WARSHA_LLM_MODEL", " some/model-x "),
-        ]));
+        ]))
+        .unwrap();
         assert_eq!(config.base_url, "https://example.test/v1");
         assert_eq!(config.api_key.as_deref(), Some("sk-secret-value"));
         assert_eq!(config.model, "some/model-x");
     }
 
     #[test]
+    fn key_without_url_is_an_error() {
+        let result =
+            EnvLlmConfig::from_lookup(lookup_from(&[("WARSHA_LLM_API_KEY", "sk-secret-value")]));
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn the_key_is_never_printed_by_debug() {
         let config = EnvLlmConfig {
-            base_url: DEFAULT_LLM_BASE_URL.to_string(),
+            base_url: "https://example.test".to_string(),
             api_key: Some("sk-super-secret-token".to_string()),
-            model: DEFAULT_LLM_MODEL.to_string(),
+            model: "some/model".to_string(),
         };
         let printed = format!("{config:?}");
         assert!(!printed.contains("sk-super-secret-token"), "{printed}");
@@ -131,10 +140,8 @@ mod tests {
 
     #[test]
     fn from_env_reads_the_process_environment_without_panicking() {
-        // Whatever the ambient environment holds, the defaults guarantee a usable
-        // config; this test only proves the call exists and cannot fail.
-        let config = EnvLlmConfig::from_env();
-        assert!(!config.base_url.is_empty());
-        assert!(!config.model.is_empty());
+        // Whatever the ambient environment holds, this test only proves the call
+        // exists and cannot fail (unless the environment violates the rule).
+        let _ = EnvLlmConfig::from_env();
     }
 }

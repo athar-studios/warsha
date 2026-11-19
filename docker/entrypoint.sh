@@ -16,7 +16,7 @@
 #   WARSHA_HTTP_PORT            default 8765  (HTTP: /health, /events)
 #   WARSHA_WS_PORT              default 8766  (JSON-RPC over WS/HTTP POST)
 #   WARSHA_DATA_DIR             default /var/lib/warsha (the named volume)
-#   WARSHA_LLM_BASE_URL         default https://router.sayl.site/v1
+#   WARSHA_LLM_BASE_URL         default none
 #   WARSHA_LLM_API_KEY          secret; environment-only, never written to
 #                               config.toml (containers have no OS keychain,
 #                               so the process env IS the secret store here)
@@ -44,8 +44,8 @@ set -euo pipefail
 : "${WARSHA_HTTP_PORT:=8765}"
 : "${WARSHA_WS_PORT:=8766}"
 : "${WARSHA_DATA_DIR:=/var/lib/warsha}"
-: "${WARSHA_LLM_BASE_URL:=https://router.sayl.site/v1}"
-: "${WARSHA_LLM_MODEL:=bzl/deepseek-v4-flash-0731free}"
+: "${WARSHA_LLM_BASE_URL:=}"
+: "${WARSHA_LLM_MODEL:=}"
 : "${WARSHA_LLM_API_KEY:=}"
 
 CONFIG_FILE="$WARSHA_DATA_DIR/config.toml"

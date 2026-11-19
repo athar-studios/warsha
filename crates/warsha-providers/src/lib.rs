@@ -23,7 +23,7 @@ mod provider_update;
 mod secrets;
 
 pub use anthropic::AnthropicProvider;
-pub use env_llm::{EnvLlmConfig, DEFAULT_LLM_BASE_URL, DEFAULT_LLM_MODEL};
+pub use env_llm::EnvLlmConfig;
 pub use fake::{FakeProvider, FAKE_MODEL_ID, FAKE_PROVIDER_ID};
 pub use ollama::OllamaProvider;
 pub use openai::{delete_key, load_key, store_key, OpenAIProvider};
