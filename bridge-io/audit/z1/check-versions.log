@@ -1,0 +1,15 @@
+Cargo.toml [workspace.package]          0.3.0
+apps/desktop/src-tauri/Cargo.toml       0.3.0
+apps/desktop/src-tauri/tauri.conf.json  0.3.0
+package.json                            0.3.0
+apps/desktop/package.json               0.3.0
+apps/remote/package.json                0.3.0
+packages/ui/package.json                0.3.0
+packages/client/package.json            0.3.0
+packages/i18n/package.json              0.3.0
+packages/crypto/package.json            0.3.0
+apps/mobile versionName                 0.3.0
+docker/compose.yml warshad tag          0.3.0
+Cargo.lock workspace crates             0.3.0
+apps/mobile versionCode                 300 (want 300)
+versions: aligned
