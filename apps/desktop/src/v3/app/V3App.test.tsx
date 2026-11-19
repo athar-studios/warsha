@@ -2,9 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { render, screen } from '@testing-library/react';
-/* eslint-disable import/no-unresolved */
 import { fontSizes, lineHeights } from '@warsha/ui/v3';
-/* eslint-enable import/no-unresolved */
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 

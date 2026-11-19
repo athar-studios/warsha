@@ -3,9 +3,7 @@
 // writes a tool's permission for the role the daemon's own reply names.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { McpConnection, McpPermissionsReply, WarshaClient } from '@warsha/client';
-/* eslint-disable import/no-unresolved */
 import { I18nProvider, type Locale } from '@warsha/i18n/v3';
-/* eslint-enable import/no-unresolved */
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

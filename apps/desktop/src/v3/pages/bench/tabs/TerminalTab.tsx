@@ -1,8 +1,6 @@
 import type { McpCallEvent, WarshaEvent } from '@warsha/client';
 import { decodeMcpCall, decodeRunFinished } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useLocale, useT } from '@warsha/i18n/v3';
-// eslint-disable-next-line import/no-unresolved
 import { Button, EmptyState, IconClock, IconCopy, IconTerminal, Transcript } from '@warsha/ui/v3';
 import React, { useState } from 'react';
 

@@ -1,5 +1,4 @@
 import type { GateEvidence } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -10,7 +9,6 @@ import {
   IconRefresh,
   IconX,
   TextField,
-// eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
 import React, { useState } from 'react';
 

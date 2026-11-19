@@ -1,7 +1,5 @@
 import type { ProjectSummary, RunSummary } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
-// eslint-disable-next-line import/no-unresolved
 import { Banner, Button, IconPlus, Skeleton, StatusPill } from '@warsha/ui/v3';
 import React from 'react';
 

@@ -1,6 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { GateSummary, ProjectId, ProjectSummary, RunId, RunSummary, WarshaClient } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

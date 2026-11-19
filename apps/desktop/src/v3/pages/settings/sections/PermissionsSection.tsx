@@ -1,6 +1,5 @@
 // apps/desktop/src/v3/pages/settings/sections/PermissionsSection.tsx
 import type { ProjectId, ProjectPermissions, ProjectSummary } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -9,7 +8,6 @@ import {
   Select,
   Skeleton,
   StatusPill,
-  // eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
 import React, { useCallback, useEffect, useState } from 'react';
 

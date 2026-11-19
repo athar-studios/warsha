@@ -2,7 +2,6 @@
 // table (R-BRIDGE-B3b). A row-list in the `DevicesSection.tsx` pattern, not a `<table>`: the
 // design system has no table primitive, and a row keeps its action beside the row it acts on.
 import type { McpPermission, McpPermissionRow, McpPermissionsReply } from '@warsha/client';
-/* eslint-disable import/no-unresolved */
 import { useT } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -13,7 +12,6 @@ import {
   Skeleton,
   StatusPill,
 } from '@warsha/ui/v3';
-/* eslint-enable import/no-unresolved */
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useAction } from '../../../actions';

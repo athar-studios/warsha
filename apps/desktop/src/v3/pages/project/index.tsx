@@ -10,7 +10,6 @@ import type {
   WarshaEvent,
 } from '@warsha/client';
 import { decodeRunFinished } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import {
   ActivityFeed,
@@ -38,7 +37,6 @@ import {
   type ActivityEvent,
   type StatusPillState,
   type StepperStage,
-  // eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -1061,7 +1059,7 @@ export default function ProjectPage(): React.ReactElement {
                   { value: 'full-access', label: t('settings.permissions.confinement.full_access') },
                 ]}
                 value={permissionsDraft.confinement}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPermissionsDraft((prev: ProjectPermissions | null) => prev ? ({ ...prev, confinement: e.target.value as any }) : null)}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPermissionsDraft((prev: ProjectPermissions | null) => prev ? ({ ...prev, confinement: e.target.value as ProjectPermissions['confinement'] }) : null)}
               />
               <Select
                 label={t('settings.permissions.approval_label')}
@@ -1071,7 +1069,7 @@ export default function ProjectPage(): React.ReactElement {
                   { value: 'never-ask', label: t('settings.permissions.approval.never_ask') },
                 ]}
                 value={permissionsDraft.approvalMode}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPermissionsDraft((prev: ProjectPermissions | null) => prev ? ({ ...prev, approvalMode: e.target.value as any }) : null)}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPermissionsDraft((prev: ProjectPermissions | null) => prev ? ({ ...prev, approvalMode: e.target.value as ProjectPermissions['approvalMode'] }) : null)}
               />
               <div className="v3-project-dock-actions">
                 <Button

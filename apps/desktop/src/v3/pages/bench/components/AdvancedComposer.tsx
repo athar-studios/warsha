@@ -1,7 +1,5 @@
 import type { HarnessDefinition, RunModeConfig } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
-// eslint-disable-next-line import/no-unresolved
 import { Button, Card, IconButton, IconCheck, IconSend, Select, TextArea, TextField } from '@warsha/ui/v3';
 import React, { useEffect, useState } from 'react';
 

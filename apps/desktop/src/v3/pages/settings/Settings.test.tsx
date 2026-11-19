@@ -13,9 +13,7 @@ import type {
   SkillDefinition,
   WarshaClient,
 } from '@warsha/client';
-/* eslint-disable import/no-unresolved */
 import { I18nProvider } from '@warsha/i18n/v3';
-/* eslint-enable import/no-unresolved */
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

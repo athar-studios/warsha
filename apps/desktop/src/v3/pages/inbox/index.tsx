@@ -7,7 +7,6 @@ import type {
   RunSummary,
   Stage,
 } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import {
   Badge,
@@ -24,7 +23,6 @@ import {
   Sheet,
   Skeleton,
   TextArea,
-  // eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -333,7 +331,7 @@ export default function InboxPage(): React.ReactElement {
     const mcpItems = collectMcpItems(mcpApprovals);
     if (!projectsResult.data) return mcpItems;
     return mergeInboxItems(gateDecisions, mcpItems);
-  }, [gateDecisions, mcpApprovals]);
+  }, [gateDecisions, mcpApprovals, projectsResult.data]);
 
   // Filter out any locally decided items
   const decisions = useMemo(() => {

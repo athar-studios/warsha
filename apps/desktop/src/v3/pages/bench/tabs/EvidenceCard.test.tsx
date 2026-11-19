@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { GateEvidence, WarshaClient } from '@warsha/client';
 import { createClient } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';

@@ -1,5 +1,4 @@
 import type { RunArtifact } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useT } from '@warsha/i18n/v3';
 import {
   Button,
@@ -9,7 +8,6 @@ import {
   IconCopy,
   IconFile,
   Sheet,
-// eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
 import React, { useState } from 'react';
 

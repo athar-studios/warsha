@@ -133,6 +133,7 @@ module.exports = [
       // ---- carried over verbatim from .eslintrc.cjs
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'import/no-unresolved': ['error', { ignore: ['^@warsha/.*'] }],
       'import/order': [
         'error',
         {

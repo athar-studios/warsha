@@ -4,7 +4,6 @@ import type {
   ProjectSummary,
   RunSummary,
 } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useLocale, useT } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -19,7 +18,6 @@ import {
   StatusPill,
   type DataTableColumn,
   type StatusPillState,
-  // eslint-disable-next-line import/no-unresolved
 } from '@warsha/ui/v3';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 

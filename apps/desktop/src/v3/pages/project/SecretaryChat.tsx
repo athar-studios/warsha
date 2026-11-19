@@ -17,11 +17,8 @@ import type {
   Stage,
   WarshaClient,
 } from '@warsha/client';
-// eslint-disable-next-line import/no-unresolved
 import { useLocale } from '@warsha/i18n/v3';
-/* eslint-disable import/no-unresolved */
 import { Banner, Button, Skeleton } from '@warsha/ui/v3';
-/* eslint-enable import/no-unresolved */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useClient } from '../../app/ClientContext';
