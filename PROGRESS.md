@@ -7148,3 +7148,12 @@ Merged P6 (1d1d475: S-M1 shared risky-command table, shells narrowed to inline-e
 
 ## Run 2026-11-19 — release-merge-4 (D-RN-REL-M4)
 Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missing, release needs manifests, Homebrew restored; YAML parses, no generated PLACEHOLDER) + P12 (d0724ac: B4b v2 shell deleted 43 paths, main.tsx always V3App, main.test.tsx rewritten always-v3; TODO(M20)=0, eslint main files 0). Merged tip gates: fmt 0, versions 0, arch 5/0, wire 11/0, policy 8/0. Merge from root session. Unpushed. Remaining: P4, P10, P11, P13.
+
+## Run 2026-11-19 — release-merge-5 (D-RN-REL-M5)
+- Merged `rel-p4-final 13c1f9f` into `r-next/integration` as `e566caa` (no conflicts).
+- P4 scope: workspace clippy denies (unwrap/expect/panic) enforced, test-scoped
+  mod-level allows, `use <crate> as _;` satisfies, 3 verified-unused dev-dep
+  removals. No behavioral changes: catalog.rs builtin() kept fail-fast
+  (out-of-scope empty-fallback hunk reverted before commit).
+- Gates on merged tip: fmt 0, versions aligned, arch 5/0, wire 11/0, policy 8/0,
+  clippy `-D warnings` 0, pipeline 527 + warshad 295 pass.

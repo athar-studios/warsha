@@ -2108,3 +2108,9 @@ The A5 packet (final code-health audit of the R-NEXT tree at branch `r-next/a5-h
 
 ## D-RN-REL-M4 — Release merges P9-redo + P12 (2026-11-19)
 P9-redo fixes the first P9 attempt's job-ordering race (release now needs manifests) and restores the Homebrew formula with the same hash-lookup+skip pattern as winget/scoop instead of the `exit 0` stub. P12 deletes the v2 shell (App.tsx + 42 screens/**) with 4 co-deleted v2 test files (tested code no longer ships) and rewrites main.test.tsx to a single always-v3 case. Both merged to r-next/integration; gates green; unpushed.
+
+## D-RN-REL-M5 — merge P4 workspace lints (2026-11-19)
+- Merged `rel-p4-final` (146 files, lint-only) as `e566caa`. Kept
+  `EngineCatalog::builtin()` fail-fast `.expect()` (original behavior);
+  reverted worker's out-of-scope empty-catalog fallback before commit.
+- No test weakened (11 assert_eq/assert! kept, 0 contains-weakened).
