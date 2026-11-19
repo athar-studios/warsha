@@ -2890,10 +2890,15 @@ export class WarshaClient
 
   /** `secretary.thread.turns` — one thread's turns, oldest first. */
   async getSecretaryTurns(conversationId: string, projectId?: ProjectId): Promise<SecretaryTurn[]> {
-    const rows = await this.rpc<unknown[]>('secretary.thread.turns', {
-      conversation_id: conversationId,
-      ...(projectId !== undefined ? { project_id: projectId } : {}),
-    });
+    const rows =
+      projectId !== undefined
+        ? await this.rpc<unknown[]>('secretary.thread.turns', {
+            conversation_id: conversationId,
+            project_id: projectId,
+          })
+        : await this.rpc<unknown[]>('secretary.thread.turns', {
+            conversation_id: conversationId,
+          });
     return rows.map((row) => decodeSecretaryTurn(row));
   }
 
@@ -2909,12 +2914,18 @@ export class WarshaClient
     message: string,
     language?: 'ar' | 'en'
   ): Promise<SecretaryChatReply> {
-    const row = await this.rpc<unknown>('secretary.chat', {
-      project_id: projectId,
-      conversation_id: conversationId,
-      message,
-      ...(language ? { language } : {}),
-    });
+    const row = language
+      ? await this.rpc<unknown>('secretary.chat', {
+          project_id: projectId,
+          conversation_id: conversationId,
+          message,
+          language,
+        })
+      : await this.rpc<unknown>('secretary.chat', {
+          project_id: projectId,
+          conversation_id: conversationId,
+          message,
+        });
     return decodeSecretaryChatReply(row);
   }
 
