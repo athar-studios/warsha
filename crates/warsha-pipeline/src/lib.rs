@@ -42,6 +42,7 @@ pub mod mcp;
 pub mod mcp_approval;
 pub mod mcp_observer;
 pub mod mcp_permission;
+pub mod risky_commands;
 pub mod swarm;
 pub mod swarm_runtime;
 pub mod worktree;

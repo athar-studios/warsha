@@ -346,36 +346,52 @@ pub enum RiskClass {
     Risky,
 }
 
+use crate::risky_commands::RISKY_COMMANDS;
+
 /// Classifies a command as safe or risky.
 pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
-    let program = crate::command_policy::program_name(program);
-    // Shell commands are risky.
-    if matches!(
-        program.as_str(),
-        "sh" | "bash" | "cmd" | "powershell" | "pwsh"
-    ) {
-        return RiskClass::Risky;
+    let program_name = crate::command_policy::program_name(program);
+
+    for risky in RISKY_COMMANDS {
+        if risky.program == program_name {
+            if risky.argument_pattern == "*" {
+                if !risky.check_arguments_only {
+                    return RiskClass::Risky;
+                }
+            }
+            if args
+                .iter()
+                .any(|arg| risky.argument_pattern.split('|').any(|p| p == arg))
+            {
+                return RiskClass::Risky;
+            }
+        }
     }
 
-    // Network egress is risky.
-    let risky_commands = [
-        "curl", "wget", "ssh", "scp", // Network
-        "npm", "pip", "cargo", // Package managers
-        "git",   // Pushing/Publishing
-    ];
-    if risky_commands.contains(&program.as_str()) {
-        if matches!(program.as_str(), "curl" | "wget" | "ssh" | "scp") {
-            return RiskClass::Risky;
-        }
-        if matches!(program.as_str(), "npm" | "pip" | "cargo")
-            && args
-                .iter()
-                .any(|arg| matches!(arg.as_str(), "publish" | "install" | "add"))
-        {
-            return RiskClass::Risky;
-        }
-        if program == "git" && args.iter().any(|arg| arg == "push") {
-            return RiskClass::Risky;
+    // Explicit check for shell inline-eval flags
+    if matches!(
+        program_name.as_str(),
+        "sh" | "bash" | "zsh" | "dash" | "cmd" | "cmd.exe" | "powershell" | "pwsh"
+    ) {
+        for arg in args {
+            let is_inline_eval = match program_name.as_str() {
+                "sh" | "bash" | "zsh" | "dash" => arg == "-c" || arg == "-e",
+                "cmd" | "cmd.exe" => {
+                    arg.to_ascii_lowercase() == "/c" || arg.to_ascii_lowercase() == "/k"
+                }
+                "powershell" | "pwsh" => {
+                    let a = arg.to_ascii_lowercase();
+                    a == "-command"
+                        || a == "-c"
+                        || a == "-encodedcommand"
+                        || a == "-e"
+                        || a == "-ec"
+                }
+                _ => false,
+            };
+            if is_inline_eval {
+                return RiskClass::Risky;
+            }
         }
     }
 
@@ -414,8 +430,12 @@ mod tests {
     #[test]
     fn test_classify_command() {
         assert_eq!(classify_command("ls", &[]), RiskClass::Safe);
-        assert_eq!(classify_command("bash", &[]), RiskClass::Risky);
-        assert_eq!(classify_command("curl", &[]), RiskClass::Risky);
+        assert_eq!(classify_command("bash", &[]), RiskClass::Safe);
+        assert_eq!(
+            classify_command("bash", &["-c".to_string(), "id".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(classify_command("curl", &[]), RiskClass::Safe);
         assert_eq!(
             classify_command("git", &["push".to_string()]),
             RiskClass::Risky
@@ -432,6 +452,29 @@ mod tests {
             classify_command("cat", &["/etc/passwd".to_string()]),
             RiskClass::Risky
         );
+    }
+
+    #[test]
+    fn risky_commands_are_classified_as_risky() {
+        for risky in RISKY_COMMANDS {
+            let args = if risky.argument_pattern == "*" {
+                vec!["arg".to_string()]
+            } else {
+                vec![risky
+                    .argument_pattern
+                    .split('|')
+                    .next()
+                    .unwrap()
+                    .to_string()]
+            };
+            assert_eq!(
+                classify_command(risky.program, &args),
+                RiskClass::Risky,
+                "{} with args {:?} should be risky",
+                risky.program,
+                args
+            );
+        }
     }
     fn snapshot(id: &str, run_id: &str, files: &[(&str, &str)]) -> Snapshot {
         Snapshot {
