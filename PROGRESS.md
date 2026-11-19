@@ -7108,3 +7108,6 @@ Packet A4 spend: 18/20. Cumulative spend: 18.
 
 ## Run 2026-11-19 — release-merge-1 (D-RN-REL-M1)
 Merged P1 (9293310: ESLint resolver + disable removals) + P2 (dfc0650: wire stubs, wire 11 checks 0 violations) + P3 (12b1120: oauth2 drop, RUSTSEC-2025-0134 cleared) + P5 (1554b48: S-H1 resolve-once + 4 bypass_tests, pipeline lib 522/0) + P8 (39cafab: S-M3 router default removal, providers 60/60, sayl.site 0). Gates on merged tip: fmt 0, versions 0, arch 5/0, wire 0, policy 8/0. Merge done from root session (delegated workers sandbox-blocked on .git index.lock). Unpushed. Next: P6/P7.
+
+## Run 2026-11-19 — release-merge-2 (D-RN-REL-M2)
+Merged P7 (ea888f7: S-M2 symlink containment + 4 tests, pipeline lib 526/0). Merged tip gates: fmt 0, versions 0, arch 5/0, policy 8/0, wire 11/0. Merge done from root session (workers sandbox-blocked on .git index.lock). Unpushed. P6 risky-table correction still running.
