@@ -841,7 +841,7 @@ describe('R6 app drift', () => {
   it('reads both app sources, so the rule cannot pass by scanning nothing', () => {
     const files = appSourceFiles();
 
-    expect(files).toContain('apps/desktop/src/App.tsx');
+    expect(files).toContain('apps/desktop/src/main.tsx');
     expect(files).toContain('apps/remote/src/App.tsx');
     expect(files.filter((file) => file.startsWith('apps/desktop/src/')).length).toBeGreaterThan(20);
     expect(files.filter((file) => file.startsWith('apps/remote/src/')).length).toBeGreaterThan(0);

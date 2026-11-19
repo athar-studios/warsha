@@ -2,6 +2,24 @@
 
 - [x] P11 Repo Hygiene: Claude Review §P11/S-L8 (rel-p11-final)
 - [x] P10 Hardening: Claude Review §P10 hardening items (rel-p10-harden)
+- [ ] FIX-MISC: Advisory debt, P9 manifests, UI drift, Records, Relay lints (rel-fix-misc — uncommitted, UI drift test pending)
+
+## Run 2026-11-20 — FIX-MISC: Advisory debt, P9 manifests, UI drift, Records, Relay lints
+
+- **Delivered**:
+  1. `crates/warsha-relay/Cargo.toml`: `reqwest` and `pretty_assertions` dev-only as `{ workspace = true }` (root defines `pretty_assertions`; `[lints] workspace = true` kept).
+  2. `deny.toml`: kept `RUSTSEC-2026-0543` (chrono) owner-accepted ignore; removed stale `RUSTSEC-2026-0371` (zbus_names not in graph — deny warns advisory-not-detected); updated header comment (oauth2 drop cleared RUSTSEC-2025-0134).
+  3. `release.yml`: winget/homebrew/scoop missing-hash skips now fail closed (`::error::` + exit 1); added manifest proving guard (files exist + 64-hex hashes, PLACEHOLDER grep).
+  4. `tokenDrift.test.ts`: desktop expectation `App.tsx` → `main.tsx` (P12 deleted V2; remote `App.tsx` kept).
+  5. `DECISIONS.md`: added `D-RN-FIX-MISC-1` owner-accepted-debt entry for chrono/member notices.
+  6. `PROGRESS.md`: fixed operator-login redaction wording (no login tracked).
+- **Verification (this session, fix-misc worktree)**:
+  - `cargo fmt --check` exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings` exit 0.
+  - `cargo test -p warsha-relay` 17 + 9 passed, 0 failed.
+  - `cargo deny check` exit 0 (`advisories ok, bans ok, licenses ok, sources ok`; one `advisory-not-detected` warning for src-tauri-only RUSTSEC-2024-0370).
+  - UI drift test: NOT re-run in this session (pending before commit).
+- **Status**: Left uncommitted on branch `fix-misc`.
 - [x] Z1: Final release report (plan §10 Z1, integration tip 28ee5e2, audit complete)
 - [x] A5: Final code-health audit (complete, merged at 43ec295)
 - [x] E5: Visual baselines sweep (complete, merged at 28ee5e2)
@@ -14,7 +32,7 @@
 
 - **Delivered**:
   1. Untracked `bridge-io/`: `git rm -r --cached bridge-io/` stopped tracking all 71 audit logs (a5, z1 evidence). All working files kept on disk. Verified `.gitignore:74` narrows ignore rule.
-  2. Operator placeholder in `DECISIONS.md`: line 940 operator login `ashrymahrm` replaced with `[operator]` placeholder to minimize exposure for public release; verified with grep before/after.
+  2. Operator placeholder in `DECISIONS.md`: line 940 operator login `[operator]` replaced with `[operator]` placeholder to minimize exposure for public release; verified with grep before/after.
   3. Superseded `COMPLETION_STATUS.md`: updated header to explicitly state superseded by `docs/zadloop/R-NEXT-FINAL-REPORT.md` at integration tip, with clear SUPERSEDED banner dated 2026-11-19; all historical content preserved intact below banner.
 - **Verification**:
   - `git ls-files bridge-io` prints empty (exit code 0).

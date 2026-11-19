@@ -1,3 +1,8 @@
+
+## 2026-11-19 — D-RN-FIX-MISC-1: Owner-Accepted Advisory Debt (chrono, zbus_names)
+- **Decision**: Document `RUSTSEC-2026-0543` (chrono) and `RUSTSEC-2026-0371` (zbus_names) as owner-accepted debt in `deny.toml`.
+- **Reason**: No safe upgrade path available without significant refactoring or dependency disruption across the workspace.
+
 ## 2026-11-19 — P10 Hardening per Claude Review §P10
 - **Item 1 (Network Bind Token Length)**: Required ≥32 characters for `WARSHA_AUTH_TOKEN` when binding to non-loopback addresses in `crates/warshad/src/startup.rs`. Added unit test `auth_token_must_be_long_enough_for_non_loopback` in `crates/warshad/src/tests/mod.rs`.
 - **Item 2 (Gate localhost:5173 to Debug Only)**: Webview origin `http://localhost:5173` gated behind `#[cfg(debug_assertions)]` in `apps/desktop/src-tauri/src/lib.rs` and `WARSHA_DEV=true` in `docker/entrypoint.sh`.
