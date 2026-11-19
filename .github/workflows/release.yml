@@ -42,8 +42,8 @@ env:
   # DECISIONS.md 2026-11-03, "#10 release repo").
   #
   # Deliberately NOT derived from github.repository: this repository is the dev
-  # checkout (athar-studios/warsha-dev), while the product repo the Tauri
-  # updater endpoint already targets is athar-studios/warsha
+  # checkout (athar-studios/warsha-dev), while the Tauri updater endpoint
+  # already targets athar-studios/warsha
   # (apps/desktop/src-tauri/tauri.conf.json:74). Deriving from the running repo
   # would silently retarget every generated installer manifest at the dev fork.
   # The workflow_dispatch input allows an explicit override per run; the env
@@ -537,7 +537,7 @@ jobs:
   # ============================================================
   release:
     name: Create Draft Release
-    needs: [prepare, rust-build, desktop-build, artifacts]
+    needs: [prepare, rust-build, desktop-build, artifacts, manifests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -568,6 +568,12 @@ jobs:
         with:
           name: release-artifacts
           path: release
+
+      - name: Download package manifests
+        uses: actions/download-artifact@v4
+        with:
+          name: package-manifests
+          path: release/manifests
 
       # Before: `mv release/warsha*` is a prefix glob — it matched warshad* too, so
       # the daemon binaries landed in release/cli/, release/daemon/ was always empty,
@@ -618,6 +624,10 @@ jobs:
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify no placeholders in all artifacts
+        run: |
+          grep -rn "PLACEHOLDER" release/ && exit 1 || echo "No placeholders found."
 
   # ============================================================
   # Promote the verified draft to a public release (separate, gated step)
@@ -670,15 +680,27 @@ jobs:
   # ============================================================
   manifests:
     name: Prepare Package Manager Manifests
-    needs: prepare
+    needs: [prepare, artifacts]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts
+
       - name: Create winget manifest
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT="Warsha_${VERSION}_x64_en-US.msi"
+          HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
+          if [ -z "$HASH" ]; then
+            echo "Skipping winget manifest: $ARTIFACT not found in checksums"
+            exit 0
+          fi
           mkdir -p manifests/winget
           cat > manifests/winget/warsha.yaml <<EOF
           PackageIdentifier: Warsha.Warsha
@@ -692,9 +714,8 @@ jobs:
           Installers:
             - Architecture: x64
               InstallerType: msi
-              InstallerUrl: https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/Warsha_${VERSION}_x64_en-US.msi
-              InstallerSha256: PLACEHOLDER_SHA256
-              ProductCode: "{PLACEHOLDER}"
+              InstallerUrl: https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/$ARTIFACT
+              InstallerSha256: $HASH
           ManifestType: singleton
           ManifestVersion: 1.6.0
           EOF
@@ -702,6 +723,12 @@ jobs:
       - name: Create Homebrew formula
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT="v${VERSION}.tar.gz"
+          HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
+          if [ -z "$HASH" ]; then
+            echo "Skipping Homebrew formula: $ARTIFACT not found in checksums"
+            exit 0
+          fi
           mkdir -p manifests/homebrew
           # The heredoc is unquoted so $VERSION and the RELEASE_REPO expression
           # expand; `version "$VERSION"` is emitted because the `url` line below
@@ -715,7 +742,7 @@ jobs:
             version "$VERSION"
             homepage "https://github.com/${{ env.RELEASE_REPO }}"
             url "https://github.com/${{ env.RELEASE_REPO }}/archive/refs/tags/v#{version}.tar.gz"
-            sha256 "PLACEHOLDER_SHA256"
+            sha256 "$HASH"
             license "PolyForm-Noncommercial-1.0.0"
 
             depends_on "rust" => :build
@@ -734,6 +761,12 @@ jobs:
       - name: Create Scoop manifest
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT="warsha-windows.exe"
+          HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
+          if [ -z "$HASH" ]; then
+            echo "Skipping Scoop manifest: $ARTIFACT not found in checksums"
+            exit 0
+          fi
           mkdir -p manifests/scoop
           cat > manifests/scoop/warsha.json <<EOF
           {
@@ -743,8 +776,8 @@ jobs:
             "license": "PolyForm-Noncommercial-1.0.0",
             "architecture": {
               "64bit": {
-                "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/warsha-windows.exe",
-                "hash": "PLACEHOLDER_SHA256"
+                "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/$ARTIFACT",
+                "hash": "$HASH"
               }
             },
             "bin": "warsha.exe",
@@ -752,7 +785,7 @@ jobs:
             "autoupdate": {
               "architecture": {
                 "64bit": {
-                  "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$version/warsha-windows.exe"
+                  "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v\$version/$ARTIFACT"
                 }
               }
             }
@@ -765,6 +798,12 @@ jobs:
           name: package-manifests
           path: manifests/
           retention-days: 30
+
+      - name: Verify no placeholders
+        run: |
+          if [ -d manifests ]; then
+            grep -rn "PLACEHOLDER" manifests/ && exit 1 || echo "No placeholders found."
+          fi
 
   # ============================================================
   # Docs build
