@@ -294,7 +294,7 @@ function decodeProposalAction(source: unknown): ProposalAction {
 }
 
 /** `proposal_json` is a JSON-encoded string on the turn wire; junk drops the proposal. */
-function decodeProposalJson(source: unknown, turnId: string): SecretaryProposal | null {
+function decodeProposalJson(source: unknown): SecretaryProposal | null {
   if (source === null || source === undefined) return null;
   if (typeof source !== 'string') return null;
   let parsed: unknown;
@@ -340,7 +340,7 @@ export function decodeSecretaryTurn(source: unknown): SecretaryTurn {
     conversationId: secretaryString(record, 'conversation_id', 'conversationId'),
     role,
     content: secretaryString(record, 'content'),
-    proposal: decodeProposalJson(field(record, 'proposal_json', 'proposalJson'), id),
+    proposal: decodeProposalJson(field(record, 'proposal_json', 'proposalJson')),
     refsOwnerMessage: secretaryOptionalString(record, 'refs_owner_message', 'refsOwnerMessage'),
     createdAt: secretaryString(record, 'created_at', 'createdAt'),
   };

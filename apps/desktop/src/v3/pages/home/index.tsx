@@ -1,7 +1,6 @@
 import type {
   CostEstimate,
   GateSummary,
-// Removed unused InterviewState import
   ProjectId,
   ProjectSummary,
   RoleRouting,
@@ -193,7 +192,7 @@ export interface NeedsYouRow {
   subject: string;
   /** The run the row belongs to. */
   runId: string;
-  projectId: ProjectId;
+  projectId: ProjectId | null;
   /** RFC 3339 the row started waiting; oldest first is the strip's order. */
   since: string;
   /** Navigate target for the row's Open button. */
@@ -211,16 +210,18 @@ export function buildNeedsYou(
   gatesByRun: Readonly<Record<string, { runId: string;
   projectId: ProjectId; runUpdatedAt: string; stage: string; pending: boolean }[]>>,
   asks: readonly { id: string; runId: string;
-  projectId: ProjectId | null; tool: string; requestedAt: string }[]
+  projectId: ProjectId | null; tool: string; requestedAt: string }[],
+  projects: readonly ProjectSummary[] = []
 ): NeedsYouRow[] {
   const rows: NeedsYouRow[] = [];
+  const projectNames = new Map(projects.map((p) => [p.id, p.name]));
   for (const run of runs) {
     if (run.status === 'failed') {
       rows.push({
         key: `failed-${run.id}`,
         kind: 'failed',
         labelKey: 'home.status_failed',
-        subject: t('home.project_unnamed'),
+        subject: projectNames.get(run.projectId) ?? t('home.project_unnamed'),
         runId: run.id, projectId: run.projectId,
         since: run.updatedAt,
         href: `/p/${run.projectId}/r/${run.id}`,
@@ -247,7 +248,7 @@ export function buildNeedsYou(
       kind: 'ask',
       labelKey: 'home.needsyou.ask',
       subject: ask.tool,
-      runId: ask.runId, projectId: ask.projectId as ProjectId,
+      runId: ask.runId, projectId: ask.projectId ?? null,
       since: ask.requestedAt,
       href: '/inbox',
     });
@@ -469,7 +470,8 @@ export default function HomePage(): React.ReactElement {
           t,
           allRuns,
           gateRows,
-          asks
+          asks,
+          projectList
         ));
         // Calculate max spend percent
         let maxSpendPercent: number | null = null;
@@ -738,14 +740,14 @@ export default function HomePage(): React.ReactElement {
                 <li key={row.key} className="v3-home-needsyou-row">
                   <span className="v3-home-needsyou-label">{t(row.labelKey)}</span>
                   <span className="v3-home-needsyou-subject">{row.subject}</span>
-                  <span className="v3-home-needsyou-wait">{t('home.needsyou.since', { since: new Date(row.since).toLocaleString() })}</span>
+                  <span className="v3-home-needsyou-wait">{t('home.needsyou.since', { since: new Date(row.since).toLocaleString(locale === 'ar' ? 'ar' : 'en') })}</span>
                   {row.kind === 'failed' && (
                     <Button
                       variant="primary"
-                      data-action="home.retry"
+                      data-action="home.run.retry"
                       onClick={() => {
                         if (client && row.projectId) {
-                          client.startRun(row.projectId, 'Retry run').then(() => {
+                          void client.startRun(row.projectId, t('home.retry_run_idea')).then(() => {
                             projectsResult.reload();
                           }).catch(() => {});
                         }

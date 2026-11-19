@@ -34,6 +34,7 @@ export default {
   'home.project_unnamed': 'مشروع بلا اسم',
   'home.error_title': 'تعذّر تحميل المشاريع',
   'home.retry': 'إعادة المحاولة',
+  'home.retry_run_idea': 'إعادة تشغيل المحاولة الفاشلة',
   'home.status_idle': 'خامل',
   'home.status_running': 'يعمل',
   'home.status_waiting': 'ينتظرك',

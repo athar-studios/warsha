@@ -63,7 +63,7 @@ harness stubs, and the e2e journeys. No Rust, no routes, no Frame.tsx (PM-owned 
 
 All findings from the independent Reviewer report on E2 Lane B have been remediated:
 - **H1 (Missing v3 i18n keys):** Added `secretary.role.owner`, `secretary.role.assistant`, `secretary.refused`, `secretary.error_no_project` to v3 `ar/secretary.ts` and `en/secretary.ts`. Cleaned up legacy catalog in `packages/i18n/src/index.tsx`. Replaced `home.interview.start` key usage with registered action id and aligned i18n keys.
-- **H2 (`queue_decide` with `allow: false`):** When `action.type === 'queue_decide'` and `!action.allow`, looked up approvals via `client.mcpApprovalsList()`, matched the item, and called `client.mcpPermissionsSet(match.server, match.tool, 'deny', ...)`. Added tests in `SecretaryChat.test.tsx`.
+- **H2 (`queue_decide` with `allow: false`):** When `action.type === 'queue_decide'` and `!action.allow`, looked up approvals via `client.mcpApprovalsList()`, matched the item, and called `client.mcpPermissionsSet(match.server, match.tool, match.role, 'deny')`. Added tests in `SecretaryChat.test.tsx`.
 - **H3 (`run_start` nil projectId & unvalidated IDs):** Added fallback to active scope `projectId` if `action.projectId` is empty or nil UUID (`00000000-0000-0000-0000-000000000000`). If still nil, blocks confirmation with a translated hint. Added validation blocking `'unknown'` or empty `runId` on `gate_approve`/`gate_reject`/`run_cancel` and `questionId` on `queue_decide`. Added unit tests.
 - **H4 (Proposal confirm card localization):** Localized proposal cards using v3 keys `secretary.proposal.{gate_approve,gate_reject,queue_decide,run_start,run_cancel}` instead of raw model text `{proposal.label}`.
 - **M1 (`refsOwnerMessage` verification):** Checked both `turn.id === refsOwnerMessage` and `turn.role === 'owner'` (assistant turns cannot authorize proposals). Covered with unit test.
@@ -74,26 +74,30 @@ All findings from the independent Reviewer report on E2 Lane B have been remedia
 - **M7 (Harness proposal shape):** Updated mocked proposal actions in `harness.ts` to emit real daemon wire shapes (`{ gate_approve: { run_id, stage } }`).
 - **M9 & M10 (Tests & Formatting):** Formatted `since` time cleanly with locale formatting and translated stages via `bench.stage.*`.
 - **M11 (ESLint & LOW cleanups):** Cleaned up unused variables, fixed react hooks dependencies, removed dead `SECRETARY_TRANSLATE` export, and removed raw ULID display.
-- **Structural E2 §8 Home Gap:** Completed Home Needs-you strip with running and failed items, with working failed-run retry via `home.retry`.
+- **Structural E2 §8 Home Gap:** Completed Home Needs-you strip with running and failed items, with working failed-run retry via `home.run.retry`.
 
-## Gate matrix (this tree)
+## Reviewer round 2 (1 HIGH, 3 MEDIUM, LOWs)
+
+- **HIGH — `queue_decide` consent copy:** `ProposalCard` branches on `action.allow`; `allow: false` renders the new `secretary.proposal.queue_deny` ("Deny permission request "{tool}" for this role") instead of the allow-once copy, because it performs a persistent role-wide deny. `secretary.proposal.queue_decide` now names the permission request (en + ar). The deny path no longer throws into an outer catch (`setError` once, `setConfirmed(false)`); `run_start` no longer falls back to the sheet `projectId` in global scope (refuses with `secretary.error`); the dead `else { return; }` branch in `send` is gone.
+- **MEDIUM — Home retry:** failed-run Retry button is `data-action="home.run.retry"` (registered, `rpc: ['runs.start']`) and sends the localized `home.retry_run_idea` (en/ar) instead of the literal `'Retry run'`; `home.retry` stays the error-banner retry. Failed-run subject now resolves the project name; ask rows use `ask.projectId ?? null` (`NeedsYouRow.projectId: ProjectId | null`); `toLocaleString` is locale-aware; stray comment removed. New e2e case `home.run.retry` (en + ar) in `apps/desktop/e2e/v3/home.spec.ts` — **written but not run** (Playwright is deferred to PM).
+- **MEDIUM — client:** unused `turnId` parameter removed from `decodeProposalJson`.
+- **MEDIUM — project sheet:** `SecretaryChat` import moved to the sibling group (`import/order`); `secretary.confirm` registry rpc now also lists `mcp.approvals.list` and `mcp.permissions.set`.
+
+## Gate matrix (this tree, measured with `XDG_DATA_HOME=/tmp/xdgdata`)
 
 | Gate | Result |
 | --- | --- |
-| desktop vitest | 921/921 (105 files) |
-| remote vitest | 229/229 |
-| client vitest | 199/199 |
-| i18n package tests | 58/58 |
-| i18n-gate | 1018 keys / 0 violations |
-| wire | 10 violations — 4 pre-existing catalog + 3 W1 + 3 W2 secretary pairs |
-| actions | 184 registered / 190 used / 19 pre-existing baseline violations |
-| arch / policy | 5/0 · 8/0 |
-| ds-v3 | 0 violations on changed CSS |
-| gitleaks (redact) | clean |
-| secretary e2e | 7/7 |
-| home e2e (non-visual) | 23/23 |
-| desktop tsc | clean |
-| remote tsc | clean |
+| client build (tsc) / lint / vitest | exit 0 · 200/200 (2 files) |
+| desktop `vitest run src/v3` | 452/452 (53 files) |
+| desktop legacy `vitest run src/components src/hooks src/lib src/pages src/screens src/stores` | 403/403 (42 files) |
+| remote lint / vitest / build | exit 0 · 229/229 (17 files) |
+| desktop tsc --noEmit | clean |
+| i18n-gate | 1020 keys / 0 violations |
+| check-ds-v3 | 0 violations |
+| check-arch / check-engineering-policy | 5 rules, 0 violations · 8 checks, 0 failures |
+| actions-gate | 185 registered / 191 used / 19 violations = 18 baseline + `secretary.chat` (A5, daemon registration lives in lane A) |
+| desktop ESLint (E2 file list) | **exit 1 — 5 errors, all pre-existing, none in E2 lines**: `e2e/harness.ts:1942` `no-fallthrough` (blame 08d61af) and `src/v3/pages/project/index.tsx:1092,1102` `no-explicit-any` / `no-restricted-syntax` (blame 7f556bb); both commits predate E2 (`2fcb216`). Zero ESLint findings in the files/lines E2 touched (incl. `import/order`). |
+| Playwright (secretary / home e2e), i18n package tests, wire gate, gitleaks | **not run in this round** (Playwright deferred to PM; earlier-round figures are stale and omitted) |
 
 The three W1/W2 `secretary.*` pairs exist because the **daemon registration lives in
 lane A** (merged after this branch); they clear the moment lane A lands.

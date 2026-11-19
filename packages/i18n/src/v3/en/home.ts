@@ -34,6 +34,7 @@ export default {
   'home.project_unnamed': 'Untitled project',
   'home.error_title': 'Failed to load projects',
   'home.retry': 'Retry',
+  'home.retry_run_idea': 'Retry failed run',
   'home.status_idle': 'Idle',
   'home.status_running': 'Running',
   'home.status_waiting': 'Waiting',

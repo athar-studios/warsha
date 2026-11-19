@@ -51,7 +51,9 @@ export function ProposalCard(props: ProposalCardProps): React.ReactElement | nul
           : proposal.action.type === 'gate_reject'
           ? t('secretary.proposal.gate_reject', { stage: t(`bench.stage.${proposal.action.stage}` as Parameters<typeof t>[0]), run: proposal.action.runId })
           : proposal.action.type === 'queue_decide'
-          ? t('secretary.proposal.queue_decide', { tool: proposal.action.questionId })
+          ? proposal.action.allow
+            ? t('secretary.proposal.queue_decide', { tool: proposal.action.questionId })
+            : t('secretary.proposal.queue_deny', { tool: proposal.action.questionId })
           : proposal.action.type === 'run_start'
           ? t('secretary.proposal.run_start', { project: proposal.action.projectId })
           : proposal.action.type === 'run_cancel'
@@ -108,6 +110,8 @@ export interface SecretaryChatProps {
 }
 
 type ProjectId = Parameters<WarshaClient['startRun']>[0];
+
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
 /** The chat body: thread switcher (global / this project), turns, input, proposal card. */
 export default function SecretaryChat({
@@ -255,19 +259,16 @@ export default function SecretaryChat({
         const without = previous.filter((row) => row.id !== reply.conversationId);
         // A chat reply names only its conversation: the scope's own project id is
         // what a project-thread row carries (the daemon keys threads by scope).
-        const scopeProject = scope === 'project' ? projectId : null;
-        if (scopeProject !== null || scope === 'global') {
-          return [
-            {
-              id: reply.conversationId,
-              projectId: scopeProject,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            },
-            ...without,
-          ];
-        }
-        return without;
+        const targetProjectId = scope === 'project' ? projectId : null;
+        return [
+          {
+            id: reply.conversationId,
+            projectId: targetProjectId,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          ...without,
+        ];
       });
       setInput('');
       const rows = await contextClient.getSecretaryTurns(reply.conversationId).catch(() => {
@@ -352,33 +353,42 @@ export default function SecretaryChat({
         if (action.allow) {
           run(contextClient.mcpAllowOnce(action.questionId));
         } else {
-          run(
-            (async () => {
+          void (async () => {
+            try {
               const list = await contextClient.mcpApprovalsList();
               const match = list.find((a) => a.id === action.questionId);
               if (match === undefined) {
-                throw new Error('Not found');
+                setError(t('secretary.error'));
+                setConfirmed(false);
+                return;
               }
               await contextClient.mcpPermissionsSet(match.server, match.tool, match.role, 'deny');
-            })().catch((e) => {
+              finish();
+            } catch {
               setError(t('secretary.error'));
-              throw e;
-            })
-          );
+              setConfirmed(false);
+            }
+          })();
         }
       } else if (action.type === 'run_start') {
-        const targetProjectId = (action.projectId === '' || action.projectId === '00000000-0000-0000-0000-000000000000') ? projectId : action.projectId;
-        if (targetProjectId === null) {
-            setError(t('secretary.error_no_project'));
-            setConfirmed(false);
-            return;
+        const actionProject = action.projectId;
+        const targetProject =
+          actionProject !== '' && actionProject !== NIL_UUID
+            ? actionProject
+            : scope === 'project'
+              ? projectId
+              : null;
+        if (targetProject === null) {
+          setError(t('secretary.error'));
+          setConfirmed(false);
+          return;
         }
-        run(contextClient.startRun(targetProjectId, action.idea));
+        run(contextClient.startRun(targetProject, action.idea));
       } else if (action.type === 'run_cancel') {
         run(contextClient.cancelRun(action.runId as RunId, 'secretary confirmed'));
       }
     },
-    [contextClient, onConfirmed, t, confirmed, projectId]
+    [contextClient, onConfirmed, t, confirmed, projectId, scope]
   );
   
   // Reset confirmed state when new proposal arrives or on mount

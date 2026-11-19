@@ -66,8 +66,9 @@ import {
   useRuns,
 } from '../../data';
 import { useRoute } from '../../router';
-import SecretaryChat from './SecretaryChat';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
+
+import SecretaryChat from './SecretaryChat';
 
 import './project.css';
 

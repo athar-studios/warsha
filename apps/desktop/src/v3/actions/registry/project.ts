@@ -142,7 +142,15 @@ export const SECRETARY_ACTIONS: ActionDef[] = [
     id: 'secretary.confirm',
     labelKey: 'secretary.proposal.confirm',
     effect: 'rpc',
-    rpc: ['gates.approve', 'gates.reject', 'mcp.approvals.allow_once', 'runs.start', 'runs.cancel'],
+    rpc: [
+      'gates.approve',
+      'gates.reject',
+      'mcp.approvals.allow_once',
+      'mcp.approvals.list',
+      'mcp.permissions.set',
+      'runs.start',
+      'runs.cancel',
+    ],
   },
   {
     id: 'secretary.proposal.dismiss',

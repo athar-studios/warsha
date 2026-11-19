@@ -61,6 +61,13 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['projects.list'],
   },
   {
+    // E2: retries a failed run from the needs-you strip.
+    id: 'home.run.retry',
+    labelKey: 'home.retry',
+    effect: 'rpc',
+    rpc: ['runs.start'],
+  },
+  {
     // E2: opens the longest-waiting gate or ask from the needs-you strip.
     id: 'home.needsyou.open',
     labelKey: 'home.needsyou.open',

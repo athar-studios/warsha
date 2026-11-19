@@ -124,6 +124,10 @@ describe('SecretaryChat', () => {
       expect(screen.getByTestId('secretary-proposal-card')).toBeTruthy();
     });
 
+    const label = screen.getByTestId('secretary-proposal-card').textContent ?? '';
+    expect(label).toContain('secretary.proposal.queue_deny');
+    expect(label).not.toContain('secretary.proposal.queue_decide');
+
     const confirmBtn = screen.getByTestId('secretary-confirm');
     fireEvent.click(confirmBtn);
 
@@ -334,6 +338,49 @@ describe('SecretaryChat', () => {
     await waitFor(() => {
       expect(startRun).toHaveBeenCalledWith('p1', 'new idea');
     });
+  });
+
+  it('renders the allow-once copy for queue_decide with allow: true', async () => {
+    const client = mockClient({});
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Allow MCP',
+        action: { type: 'queue_decide', questionId: 'q1', allow: true } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+    renderPanel(client, 'p1' as ProjectId);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-proposal-card')).toBeTruthy();
+    });
+    const label = screen.getByTestId('secretary-proposal-card').textContent ?? '';
+    expect(label).toContain('secretary.proposal.queue_decide');
+    expect(label).not.toContain('secretary.proposal.queue_deny');
+  });
+
+  it('refuses run_start in global scope when project_id is nil (no sheet-project fallback)', async () => {
+    const startRun = vi.fn().mockResolvedValue({ id: 'r2' });
+    const client = mockClient({ startRun });
+    const turn = {
+      ...proposalTurn('turn-1'),
+      proposal: {
+        label: 'Start run',
+        action: { type: 'run_start', projectId: '00000000-0000-0000-0000-000000000000' as ProjectId, idea: 'new idea' } as ProposalAction,
+      },
+    };
+    client.getSecretaryTurns = vi.fn().mockResolvedValue([ownerTurn, turn]);
+
+    renderPanel(client, null);
+    await waitFor(() => {
+      expect(screen.getByTestId('secretary-confirm')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId('secretary-confirm'));
+
+    await waitFor(() => {
+      expect(screen.getByText('secretary.error')).toBeTruthy();
+    });
+    expect(startRun).not.toHaveBeenCalled();
   });
 
   it('rejects gate_approve with unknown runId', async () => {

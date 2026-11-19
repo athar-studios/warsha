@@ -126,6 +126,41 @@ test.describe('Home journeys', () => {
     const call = await expectRpc(page, 'projects.list');
     expect(call.method).toBe('projects.list');
   });
+
+  for (const [lang, idea] of [
+    ['en', 'Retry failed run'],
+    ['ar', 'إعادة تشغيل المحاولة الفاشلة'],
+  ] as const) {
+    test(`home.run.retry sends runs.start with the localized idea (${lang})`, async ({ page }) => {
+      await openV3(page, '/', {
+        lang,
+        fixtures: {
+          'runs.list': {
+            // Only proj-ui's read returns the failed run, so the strip shows one retry row.
+            result: (params: unknown) =>
+              JSON.stringify(params).includes('proj-ui')
+                ? [
+              {
+                id: 'run-failed',
+                projectId: 'proj-ui',
+                stage: 'code',
+                status: 'failed',
+                startedAt: '2026-10-05T09:00:00.000Z',
+                updatedAt: '2026-10-05T09:45:00.000Z',
+                run_mode: 'agent',
+              },
+                  ]
+                : [],
+          },
+        },
+      });
+
+      await act(page, 'home.run.retry');
+      const call = await expectRpc(page, 'runs.start', { projectId: 'proj-ui', idea });
+      expect((call.params as { idea: string }).idea).toBe(idea);
+      expect((call.params as { idea: string }).idea).not.toBe('Retry run');
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
