@@ -713,6 +713,7 @@ impl ToolExecutor for FilesystemToolExecutor {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::test_util::fresh_tempdir;
@@ -1460,6 +1461,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod protection_tests {
     use super::*;
 

@@ -1559,6 +1559,7 @@ impl McpManager for InMemoryMcpManager {
 }
 
 #[cfg(test)]
+#[allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::process_spawn::InMemoryProcessManager;
@@ -2592,6 +2593,7 @@ mod tests {
 /// Review-driven repairs: a disconnected or failed record is a tombstone, not a
 /// permanent duplicate.
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod review_repair {
     use super::*;
 
@@ -2610,6 +2612,7 @@ mod review_repair {
             .expect("a disconnected name can be connected again");
     }
 
+    #[allow(clippy::panic)]
     #[tokio::test]
     async fn a_failed_connect_can_be_retried() {
         let mcp = manager();

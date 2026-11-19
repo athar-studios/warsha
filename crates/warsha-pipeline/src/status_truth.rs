@@ -1,5 +1,7 @@
 //! Tests for K3 status and provider truthfulness (no silent fakes).
 
+#![cfg_attr(test, allow(clippy::panic, clippy::expect_used, clippy::unwrap_used))]
+
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use warsha_core::*;

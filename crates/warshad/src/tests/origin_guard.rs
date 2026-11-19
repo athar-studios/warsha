@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+
 use super::*;
 use jsonrpsee::core::http_helpers::Body;
 use std::future::Ready;

@@ -1,5 +1,7 @@
 //! Warshad — Daemon binary: local API (JSON-RPC over Unix socket / named pipe + localhost HTTP/WebSocket with token)
 
+use tracing_subscriber as _;
+
 use chrono::Utc;
 use jsonrpsee::{
     core::{async_trait, RpcResult},
@@ -4119,4 +4121,5 @@ mod secretary_chat_tests;
 #[cfg(test)]
 pub(crate) mod test_util;
 #[cfg(test)]
+#[allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
 mod tests;

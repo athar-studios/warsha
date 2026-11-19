@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+
 use super::*;
 
 fn pairing(revoked: bool, expires_at: Option<u64>) -> PhonePairing {

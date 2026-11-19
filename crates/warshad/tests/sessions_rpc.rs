@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 use reqwest::Client;
 use serde_json::{json, Value};
 use tempfile::TempDir;

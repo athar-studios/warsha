@@ -192,6 +192,7 @@ fn sanitize_attributes(attributes: HashMap<String, String>) -> HashMap<String, S
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

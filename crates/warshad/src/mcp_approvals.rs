@@ -243,6 +243,7 @@ fn is_secret_key(key: &str, input_schema: Option<&serde_json::Value>) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use serde_json::json;

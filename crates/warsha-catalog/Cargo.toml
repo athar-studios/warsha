@@ -4,10 +4,12 @@ version = "0.3.0"
 edition = "2021"
 license = "PolyForm-Noncommercial-1.0.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 anyhow = { workspace = true }
 sha2 = "0.10"
 hex = "0.4"

@@ -4,6 +4,9 @@
 //! so the crate compiles on stable Rust without native bindings. GitHub
 //! operations are plain REST calls issued with `reqwest`.
 
+#[cfg(test)]
+use tokio as _;
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
@@ -1090,6 +1093,7 @@ impl ProjectTemplate {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

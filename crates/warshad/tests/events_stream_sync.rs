@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! WS3 — the daemon's sequenced event stream, replay, and run-control RPCs.
 //!
 //! What this file pins down, end to end against a real daemon wherever the

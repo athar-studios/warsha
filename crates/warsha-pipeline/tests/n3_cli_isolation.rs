@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! N3 acceptance tests: CLI Code stage isolation.
 //!
 //! The CLI Code stage must run in the run's own worktree — never the project
@@ -6,7 +13,6 @@
 //! (the `fake_cli` shell-script pattern from `warsha-backends`' own tests).
 
 #![cfg(unix)]
-
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;

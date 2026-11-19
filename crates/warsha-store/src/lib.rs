@@ -1947,6 +1947,7 @@ fn cost_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<CostRecord> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use chrono::Utc;
@@ -2629,10 +2630,11 @@ mod tests {
 
     #[cfg(test)]
     mod cas {
+        #![allow(clippy::unwrap_used, clippy::expect_used)]
         use super::*;
 
         #[tokio::test]
-        async fn concurrent_update_with_stale_version_is_rejected() {
+        async fn concurrent_update_with_stale_version_is_rejected() -> Result<()> {
             let store = temp_store().await;
             let project = sample_project();
             store.create_project(&project).await.unwrap();
@@ -2668,7 +2670,7 @@ mod tests {
                     assert_eq!(expected, 1);
                     assert_eq!(actual, 2);
                 }
-                other => panic!("expected VersionConflict, got {other:?}"),
+                other => return Err(other),
             }
 
             // Stored state remains Worker 1's commit (Research), not overwritten by Worker 2.
@@ -2684,6 +2686,7 @@ mod tests {
             let (final_run, final_v) = store.get_run_versioned(run.id).await.unwrap();
             assert_eq!(final_run.current_stage, Stage::Design);
             assert_eq!(final_v, 3);
+            Ok(())
         }
 
         #[tokio::test]

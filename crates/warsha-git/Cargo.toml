@@ -5,17 +5,16 @@ edition = { workspace = true }
 license = { workspace = true }
 description = "Git + GitHub integration: repos, branches, issues, PRs, checks"
 
+[lints]
+workspace = true
+
 [dependencies]
 warsha-core = { path = "../warsha-core" }
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
 reqwest = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true }
 tempfile = { workspace = true }

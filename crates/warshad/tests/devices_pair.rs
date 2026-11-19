@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! `devices.pair` over the real transport (task #58).
 //!
 //! The pairing write is the one RPC the shipped client had never reached: measured against

@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! D1 — the daemon's settings survive a restart (PLAN.md M20).
 //!
 //! The seam under test is the daemon's own RPC surface: the first daemon is told

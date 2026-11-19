@@ -180,5 +180,6 @@ fn too_large() -> ScoutError {
 }
 
 #[cfg(test)]
+#[allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
 #[path = "tests/registry_http.rs"]
 mod tests;

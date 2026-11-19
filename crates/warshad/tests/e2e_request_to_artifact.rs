@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 /// End-to-end test: a written request becomes a working, tested, built binary.
 ///
 /// The flow is the one a real project takes, with a cheap model in place of a
@@ -110,6 +117,7 @@ pub fn greeting(name: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::greeting;
 

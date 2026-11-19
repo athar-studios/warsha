@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+
 use crate::auth::policy_of;
 use crate::secretary_chat::{
     language_directive, normalize_language, owner_asked_for_proposal, ProposalAction,

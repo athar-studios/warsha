@@ -354,10 +354,8 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
 
     for risky in RISKY_COMMANDS {
         if risky.program == program_name {
-            if risky.argument_pattern == "*" {
-                if !risky.check_arguments_only {
-                    return RiskClass::Risky;
-                }
+            if risky.argument_pattern == "*" && !risky.check_arguments_only {
+                return RiskClass::Risky;
             }
             if args
                 .iter()
@@ -377,7 +375,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             let is_inline_eval = match program_name.as_str() {
                 "sh" | "bash" | "zsh" | "dash" => arg == "-c" || arg == "-e",
                 "cmd" | "cmd.exe" => {
-                    arg.to_ascii_lowercase() == "/c" || arg.to_ascii_lowercase() == "/k"
+                    arg.eq_ignore_ascii_case("/c") || arg.eq_ignore_ascii_case("/k")
                 }
                 "powershell" | "pwsh" => {
                     let a = arg.to_ascii_lowercase();
@@ -424,6 +422,7 @@ pub fn policy_for_permissions(p: ProjectPermissions) -> WorkProtectionPolicy {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

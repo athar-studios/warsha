@@ -1128,6 +1128,7 @@ fn detect_language(text: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use async_trait::async_trait;

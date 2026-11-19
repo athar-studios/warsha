@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! The CLI's own transport, against a real daemon (tasks #14, #15).
 //!
 //! Two defects reached the owner that no test here caught: every RPC `warsha` sent left

@@ -339,6 +339,7 @@ fn autonomous_factory_harness() -> Result<StoredHarness, SettingsError> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

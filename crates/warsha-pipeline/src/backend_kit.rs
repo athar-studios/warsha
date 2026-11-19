@@ -1081,6 +1081,7 @@ pub fn backend_mcp_tools() -> Vec<crate::mcp::McpTool> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

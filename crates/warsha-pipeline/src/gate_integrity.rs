@@ -6,6 +6,8 @@
 //! `artifacts_sha256`, a deterministic SHA-256 digest of the run's artifacts at the
 //! moment of the decision.
 
+#![cfg_attr(test, allow(clippy::panic, clippy::expect_used, clippy::unwrap_used))]
+
 use std::collections::HashMap;
 use warsha_core::{Artifact, GateState, Run, RunStatus, Stage};
 

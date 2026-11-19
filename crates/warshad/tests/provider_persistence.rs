@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! D2 — the provider RPCs really store, really test and really remove (PLAN.md M20,
 //! provider-RPC batch).
 //!

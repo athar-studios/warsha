@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! T1–T3 (R-FIN-SH4d): `create_pr`'s draft mode against an in-process loopback stub.
 //!
 //! Nothing here reaches the real GitHub API. Every test binds `127.0.0.1:0`, so the

@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Integration tests for the daemon's inbound ceilings (security audit H-01).
 //!
 //! The audit's finding was that no endpoint had a 429 path at all: the JSON-RPC

@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+
 //! T8–T11 (R-EXT-4): `ReqwestMcpHttp` against an in-process loopback server.
 //!
 //! Nothing here reaches the real network: every test binds `127.0.0.1:0`, so the port

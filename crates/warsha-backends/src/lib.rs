@@ -868,6 +868,7 @@ impl BackendFactory {
 pub const CODING_BACKEND_ENV: &str = "WARSHA_CODING_BACKEND";
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     mod cli_parsing;
     mod streaming_acceptance;

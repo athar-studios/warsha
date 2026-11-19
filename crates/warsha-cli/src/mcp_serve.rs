@@ -447,6 +447,7 @@ fn json_rpc_error(id: Value, code: i64, message: impl Into<String>) -> Value {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use jsonrpsee::http_client::HttpClientBuilder;

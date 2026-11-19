@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+
 use crate::stream::*;
 use std::sync::Arc;
 use tempfile::tempdir;

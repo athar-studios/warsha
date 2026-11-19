@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! End-to-end deterministic pipeline runs driven by the pre-registered fake
 //! provider — with zero manual `RoleRouting` configured.
 //!

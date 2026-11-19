@@ -807,6 +807,7 @@ pub fn canonical_json(value: &serde_json::Value) -> serde_json::Value {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use serde_json::json;

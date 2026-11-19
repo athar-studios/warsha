@@ -509,6 +509,7 @@ pub async fn delete_key(credentials: &CredentialsRef) -> Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -549,22 +550,22 @@ mod tests {
         };
         // `OpenAIProvider` carries live request headers, so it deliberately has no
         // `Debug`; the result is matched by hand instead of `expect_err`.
-        let error = match OpenAIProvider::from_env_config(
+        let result = OpenAIProvider::from_env_config(
             "env-openai".to_string(),
             ProviderKind::OpenAI,
             &config,
-        ) {
+        );
+        match result {
             Ok(_) => panic!("a config without a key must not build a provider"),
-            Err(error) => error,
-        };
-        match &error {
-            ProviderError::Auth(message) => {
-                assert!(
-                    !message.contains("sk-"),
-                    "the error text names a key: {message}"
-                );
-            }
-            other => panic!("expected an auth error, got {other:?}"),
+            Err(error) => match error {
+                ProviderError::Auth(message) => {
+                    assert!(
+                        !message.contains("sk-"),
+                        "the error text names a key: {message}"
+                    );
+                }
+                other => panic!("expected an auth error, got {other:?}"),
+            },
         }
     }
 

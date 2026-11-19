@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! T1–T4 for the Scout's MCP registry client (R-EXT-3).
 //!
 //! Everything here runs against the recorded page in

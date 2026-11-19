@@ -766,6 +766,7 @@ fn looks_hashed_file_name(file_name: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr};
