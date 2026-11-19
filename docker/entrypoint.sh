@@ -71,19 +71,23 @@ if [ ! -w "$WARSHA_DATA_DIR" ]; then
 fi
 
 # ------------------------------------------------------ origins for the file
-# Comma-separated WARSHA_ALLOWED_ORIGINS becomes a TOML array. The loopback
-# dev origins always stay in the list: they are harmless (nothing on the
-# Internet can dial 127.0.0.1 of this container) and their absence would
-# break an owner who port-forwards for local administration.
-origins_toml='["http://localhost:5173", "tauri://localhost", "http://127.0.0.1:5173"]'
+# Comma-separated WARSHA_ALLOWED_ORIGINS becomes a TOML array.
+# Localhost dev origins are added ONLY if WARSHA_DEV is true.
+origins_toml='["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]'
+if [ "${WARSHA_DEV:-}" = "true" ]; then
+    origins_toml='["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost", "http://localhost:5173", "http://127.0.0.1:5173"]'
+fi
 if [ -n "${WARSHA_ALLOWED_ORIGINS:-}" ]; then
     split="${WARSHA_ALLOWED_ORIGINS//,/ }"
     built=""
     for o in $split; do
         built+="\"${o}\", "
     done
-    built+="\"http://localhost:5173\", \"tauri://localhost\", \"http://127.0.0.1:5173\""
-    origins_toml="[$built]"
+    # Add dev origins if requested
+    if [ "${WARSHA_DEV:-}" = "true" ]; then
+        built+="\"http://localhost:5173\", \"http://127.0.0.1:5173\", "
+    fi
+    origins_toml="[${built}\"tauri://localhost\", \"http://tauri.localhost\", \"https://tauri.localhost\"]"
 fi
 
 # ------------------------------------------------------- first-start token

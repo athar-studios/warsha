@@ -13,7 +13,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: warsha/warshad:0.1.0
+    image: warsha/warshad:0.3.0
     expose:
       - "8765"
       - "8766"

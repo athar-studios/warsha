@@ -1048,6 +1048,12 @@ pub(crate) fn apply_env_overrides(mut config: DaemonConfig) -> Result<DaemonConf
         config.data_dir = PathBuf::from(dir);
     }
     if let Some(token) = env_string("WARSHA_AUTH_TOKEN") {
+        if config.bind_host != "127.0.0.1" && config.bind_host != "::1" && token.len() < 32 {
+            return Err(DaemonError::Config(format!(
+                "security: auth token must be at least 32 characters for non-loopback bind host '{}'",
+                config.bind_host
+            )));
+        }
         config.auth_token = token;
     }
     if let Some(dir) = env_string(REMOTE_ASSETS_DIR_ENV) {

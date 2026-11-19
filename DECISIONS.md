@@ -1,3 +1,10 @@
+## 2026-11-19 — P10 Hardening per Claude Review §P10
+- **Item 1 (Network Bind Token Length)**: Required ≥32 characters for `WARSHA_AUTH_TOKEN` when binding to non-loopback addresses in `crates/warshad/src/startup.rs`. Added unit test `auth_token_must_be_long_enough_for_non_loopback` in `crates/warshad/src/tests/mod.rs`.
+- **Item 2 (Gate localhost:5173 to Debug Only)**: Webview origin `http://localhost:5173` gated behind `#[cfg(debug_assertions)]` in `apps/desktop/src-tauri/src/lib.rs` and `WARSHA_DEV=true` in `docker/entrypoint.sh`.
+- **Item 3 (Opener Plugin Scoping)**: Scoped `@tauri-apps/plugin-opener` in `apps/desktop/src-tauri/tauri.conf.json` to `open: "safe"`.
+- **Item 4 (Relay Stub Error)**: Replaced empty success response in `crates/warsha-relay/src/lib.rs` (`/stub`) with explicit `RelayError::NotImplemented` (HTTP 501). Added integration test `the_relay_stub_returns_not_implemented` in `crates/warsha-relay/tests/relay_endpoints.rs`.
+- **Item 5 (Compose Image Tag 0.3.0)**: Updated compose image tags in `deploy/docker-compose.yml` from `:0.1.0`/`:latest` to `warsha/warshad:0.3.0`.
+
 ## 2026-11-18 — D1: Secretary Role Implementation
 - **Decision**: Implement Secretary interview using a new `Secretary` role with a bundled `interview` skill and a new state management approach that reuses `ProjectBrief` for state persistence.
 - **Reason**: Reusing `ProjectBrief` for interview state minimizes schema drift and simplifies pipeline integration (Gate A).
