@@ -1,3 +1,16 @@
+# حالة إكمال ورشة — COMPLETION STATUS (SUPERSEDED)
+
+> **SUPERSEDED / مستند ملغى ومستبدل**  
+> **Date / التاريخ:** 2026-11-19  
+> **Notice:** This document (dated 2026-11-11) is **SUPERSEDED** by `docs/zadloop/R-NEXT-FINAL-REPORT.md` at the integration tip.  
+> All historical tracking below is retained for record and audit purposes. Refer to `docs/zadloop/R-NEXT-FINAL-REPORT.md` for current status and verification evidence.  
+>  
+> **تنبيه:** هذا المستند (المؤرخ 2026-11-11) تم تجاوزه وإلغاؤه لصالح التقرير النهائي المعتمد في `docs/zadloop/R-NEXT-FINAL-REPORT.md` عند قمة التكامل. يُحتفظ بالمحتوى القديم أدناه بالكامل لسجل المراجعة والتدقيق التاريخي.
+
+---
+
+# [SUPERSEDED / محتوى ملغى — 2026-11-19]
+
 # حالة إكمال ورشة — قائمة تنفيذ وأدلة (2026-11-11)
 
 > مستند متتبَّع، خالٍ من الأسرار. الأدلة الخام الخاصة تبقى في `bridge-io/` المتجاهَل بـgit.

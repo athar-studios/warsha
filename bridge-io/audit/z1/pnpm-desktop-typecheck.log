@@ -1,4 +1,0 @@
-
-> warsha-desktop@0.3.0 typecheck /home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop
-> tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json
-

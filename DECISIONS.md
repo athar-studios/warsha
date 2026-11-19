@@ -937,7 +937,7 @@ before it can believe any line number in the handoff.
   `gh-warsha-dev` remote exists here; `origin` → `https://github.com/athar-studios/warsha.git` (the
   **public** repo) and `private` → `https://github.com/athar-studios/warsha-dev.git`, with working
   credentials (`git ls-remote --heads private` rc=0, returned 18 heads; `gh auth status` →
-  `ashrymahrm`, scopes `repo`+`workflow`). Running the prompt's command verbatim would have pointed
+  `[operator]`, scopes `repo`+`workflow`). Running the prompt's command verbatim would have pointed
   `origin` at the private repo and destroyed the public/private distinction, so that a habitual
   `git push` would target the wrong repository. **Both remotes are left unchanged; every fetch and push
   in this run names `private` explicitly.**
