@@ -1,6 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
-- [x] P11 Repo Hygiene: Claude Review §P11/S-L8 (rel-p11-final)
+- [ ] REL-UNSIGNED: Build unsigned desktop installers for 0.3.0 (D-RN-REL-UNSIGNED-1) (uncommitted — pending commit/push/CI)
+
+## Run 2026-11-20 — Unsigned desktop builds for 0.3.0
+- Build unsigned installers on all OSes by gating secret envs and using tauri.ci.unsigned.json override.
+- Defaulted `signing_scope` to `unsigned` in `release.yml` and `promote` job.
+- Verification commands pass.
+
+
 - [x] P10 Hardening: Claude Review §P10 hardening items (rel-p10-harden)
 - [x] FIX-MISC: Advisory debt, P9 manifests, UI drift, Records, Relay lints (merged ed08b2c)
 - [x] FIX-PIPE + FIX-LAUNCH: pipeline S-H1/S-M1/S-M2 + P10 opener/token/relay (merged f6a03df/65cb9f5)

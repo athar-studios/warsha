@@ -21,7 +21,7 @@ on:
         options:
           - signed
           - unsigned
-        default: signed
+        default: unsigned
       release_repo:
         description: >-
           owner/repo that the generated winget/Homebrew/Scoop manifests point
@@ -292,18 +292,12 @@ jobs:
         working-directory: ./apps/desktop
         run: pnpm install --frozen-lockfile
 
-      - name: Build Tauri app
+      # 0.3.0 ships UNSIGNED (no Apple/Windows/Tauri signing keys exist; never generate or store any).
+      - name: Build Tauri app (unsigned)
         working-directory: ./apps/desktop
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
         run: |
-          pnpm tauri build --target ${{ matrix.tauri_target }}
+          printf '{\n  "bundle": {\n    "createUpdaterArtifacts": false\n  }\n}\n' > "$GITHUB_WORKSPACE/tauri.ci.unsigned.json"
+          pnpm tauri build --target ${{ matrix.tauri_target }} --config "$GITHUB_WORKSPACE/tauri.ci.unsigned.json"
 
       # Renamed from warsha-desktop-<os>: the release job's CLI pattern `warsha-*`
       # also matched that name, so the "CLI binaries" step silently downloaded the
@@ -665,7 +659,7 @@ jobs:
             --dir dist \
             --tag "${{ needs.prepare.outputs.tag }}" \
             --version "${{ needs.prepare.outputs.version }}" \
-            --scope "${{ inputs.signing_scope }}" \
+            --scope "${{ inputs.signing_scope || 'unsigned' }}" \
             --release-exists no
 
       - name: Publish the verified release

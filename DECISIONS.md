@@ -1,5 +1,9 @@
+## 2026-11-20 — D-RN-REL-UNSIGNED-1: 0.3.0 ships unsigned installers
+- **Decision**: 0.3.0 ships unsigned installers because no signing keys (Apple/Windows/Tauri) exist; never generate or store any.
+- **Reason**: Fixes macOS codesign failure in CI run 44617829839.
+- **Record**: No keys were generated or stored for this release.
 
-## 2026-11-19 — D-RN-FIX-MISC-1: Owner-Accepted Advisory Debt (chrono, zbus_names)
+
 - **Decision**: Document `RUSTSEC-2026-0543` (chrono) and `RUSTSEC-2026-0371` (zbus_names) as owner-accepted debt in `deny.toml`.
 - **Reason**: No safe upgrade path available without significant refactoring or dependency disruption across the workspace.
 
