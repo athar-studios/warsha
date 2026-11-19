@@ -1,0 +1,96 @@
+[1A[2K[WebServer] (node:33) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `pnpm --trace-warnings ...` to show where the warning was created)
+
+[1A[2K[WebServer] (node:55) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `pnpm --trace-warnings ...` to show where the warning was created)
+
+[1A[2K[WebServer] (node:75) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[1A[2K[WebServer] (node:100) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `pnpm --trace-warnings ...` to show where the warning was created)
+
+[1A[2K[WebServer] (node:125) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `pnpm --trace-warnings ...` to show where the warning was created)
+
+[1A[2K[WebServer] (node:149) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 3 tests using 3 workers
+
+[1A[2K(node:248) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1A[2K(node:248) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1A[2K(node:249) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1A[2K(node:249) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1A[2K(node:250) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1A[2K(node:250) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1A[2K[1/3] [desktop] › desktop/e2e/v3/permissions.spec.ts:6:3 › Permissions v3 › settings: default permissions show
+[1A[2K[2/3] [desktop] › desktop/e2e/v3/permissions.spec.ts:15:3 › Permissions v3 › project override: open project permissions
+[1A[2K[3/3] [desktop] › desktop/e2e/v3/permissions.spec.ts:25:3 › Swarm settings v3 (D5) › swarm: per-project toggle fires swarm.project.set
+[1A[2K  1) [desktop] › desktop/e2e/v3/permissions.spec.ts:15:3 › Permissions v3 › project override: open project permissions 
+
+    Error: [31mTimed out 15000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+    Locator: locator('[data-action="project.permissions.open"]')
+    Expected: visible
+    Received: <element(s) not found>
+    Call log:
+    [2m  - expect.toBeVisible with timeout 15000ms[22m
+    [2m  - waiting for locator('[data-action="project.permissions.open"]')[22m
+
+
+      16 |     // Navigate to a project, open sheet
+      17 |     await openV3(page, '/projects/1', { lang: 'en' });
+    > 18 |     await expect(page.locator('[data-action="project.permissions.open"]')).toBeVisible();
+         |                                                                            ^
+      19 |     await page.locator('[data-action="project.permissions.open"]').click();
+      20 |     await expect(page.getByTestId('project-permissions-sheet')).toBeVisible();
+      21 |   });
+        at /home/moe/Downloads/Warsha/.agents/worktrees/rn-a5/apps/desktop/e2e/v3/permissions.spec.ts:18:76
+
+
+[1A[2K  2) [desktop] › desktop/e2e/v3/permissions.spec.ts:25:3 › Swarm settings v3 (D5) › swarm: per-project toggle fires swarm.project.set 
+
+    Error: [31mTimed out 15000ms waiting for [39m[2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m()[22m
+
+    Locator: getByTestId('project-swarm-toggle-1')
+    Expected: visible
+    Received: <element(s) not found>
+    Call log:
+    [2m  - expect.toBeVisible with timeout 15000ms[22m
+    [2m  - waiting for getByTestId('project-swarm-toggle-1')[22m
+
+
+      30 |
+      31 |     const toggle = page.getByTestId('project-swarm-toggle-1');
+    > 32 |     await expect(toggle).toBeVisible();
+         |                          ^
+      33 |     await expect(toggle).toHaveAttribute('aria-checked', 'false');
+      34 |
+      35 |     await page.locator('[data-action="settings.swarm.save"]').click();
+        at /home/moe/Downloads/Warsha/.agents/worktrees/rn-a5/apps/desktop/e2e/v3/permissions.spec.ts:32:26
+
+
+[1A[2K  2 failed
+    [desktop] › desktop/e2e/v3/permissions.spec.ts:15:3 › Permissions v3 › project override: open project permissions 
+    [desktop] › desktop/e2e/v3/permissions.spec.ts:25:3 › Swarm settings v3 (D5) › swarm: per-project toggle fires swarm.project.set 
+  1 passed (29.2s)

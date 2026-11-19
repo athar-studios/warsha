@@ -10,6 +10,8 @@ import React, { useState } from 'react';
 
 import { useAction } from '../../actions';
 import { useClient } from '../../app/ClientContext';
+
+import { formatMs } from './format';
 import {
   contextUsage,
   elapsedMs,
@@ -24,13 +26,6 @@ interface Props {
   events: WarshaEvent[];
   projectId: ProjectId;
   runId: RunId;
-}
-
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${ms} ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)} s`;
-  return `${Math.floor(seconds / 60)} m ${Math.round(seconds % 60)} s`;
 }
 
 const SessionDetail: React.FC<Props> = ({ session, events, projectId, runId }) => {

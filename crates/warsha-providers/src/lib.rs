@@ -1729,7 +1729,6 @@ mod tests {
     /// The other half of N-3: during a backoff sleep nothing is locked, so a `providers.*`
     /// RPC — and a second paid call — is answered while the first request waits.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore]
     async fn a_backoff_sleep_holds_no_router_lock() {
         /// A provider that always answers with a retryable failure, counting the attempts.
         struct AlwaysThrottled {

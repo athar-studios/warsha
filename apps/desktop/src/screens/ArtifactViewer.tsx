@@ -60,7 +60,8 @@ const ARTIFACT_STAGES: readonly Stage[] = [
 /**
  * What the run has written, keyed by stage.
  *
- * TODO(M20 wiring): the daemon has no `runs.artifacts` RPC yet, so this fixture is the seam it will fill.
+ * TODO(M20 wiring): this legacy v2 screen still reads a fixture; the daemon now has a `runs.artifacts` RPC
+ * (crates/warshad/src/api.rs), and the v3 Bench/Project pages supersede this screen.
  * Everything around it — the loading state, the failure banner, the retry — is the real path already.
  */
 async function loadArtifacts(runId: string): Promise<Record<string, string>> {

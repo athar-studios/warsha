@@ -224,12 +224,12 @@ export function RunView({ client, run, onBack }: RunViewProps) {
   // Live preview (M5b): the daemon starts and stops the dev server, so these only move the status the
   // panel renders. The URL arrives with the server, which is why it is null.
   const handlePreviewRun = () => {
-    // TODO(M20 wiring): call the daemon's dev-server start RPC once it exists.
+    // TODO(M20 wiring): legacy v2 screen; the daemon's `preview.start` RPC exists (crates/warshad/src/api.rs) and v3 supersedes this screen.
     setPreviewStatus('running');
   };
 
   const handlePreviewStop = () => {
-    // TODO(M20 wiring): call the daemon's dev-server stop RPC once it exists.
+    // TODO(M20 wiring): legacy v2 screen; the daemon's `preview.stop` RPC exists (crates/warshad/src/api.rs) and v3 supersedes this screen.
     setPreviewStatus('stopped');
   };
 

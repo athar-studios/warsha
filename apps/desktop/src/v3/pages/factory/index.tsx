@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RunId, WarshaClient, WarshaEvent } from '@warsha/client';
-import { useClient } from '../../app/ClientContext';
 import { useT } from '@warsha/i18n/v3';
 import { Banner, Button } from '@warsha/ui/v3';
-import { Floor } from './Floor';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+
+import { useClient } from '../../app/ClientContext';
+
 import { AgentPanel, lastFileOf } from './AgentPanel';
+import { Floor } from './Floor';
 import type { AgentStatus } from './state';
-import { idleMsOf, reduceEvents } from './state';
+import { reduceEvents } from './state';
 
 /**
  * E3 Factory floor (plan §8, ### E3). The owner's overview of every working

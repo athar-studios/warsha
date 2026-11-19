@@ -1,6 +1,6 @@
+import { useT } from '@warsha/i18n/v3';
 import React, { lazy, Suspense } from 'react';
 
-import { useT } from '@warsha/i18n/v3';
 
 const CodeViewer = lazy(() => import(/* webpackChunkName: "code-viewer" */ '../../components/code/CodeViewer'));
 

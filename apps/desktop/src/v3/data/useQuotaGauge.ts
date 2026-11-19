@@ -1,11 +1,11 @@
 // apps/desktop/src/v3/data/useQuotaGauge.ts — A3 status-bar gauge state
 import type { ProviderQuotaStatus } from '@warsha/client';
 import type { GaugeStatus } from '@warsha/ui/v3';
+import { useEffect, useRef, useState } from 'react';
 
 import { useClient } from '../app/ClientContext';
 import { CrossingTracker, QUOTA_ALERT_THRESHOLD } from '../app/quotaAlerts';
 
-import { useEffect, useRef, useState } from 'react';
 
 export interface QuotaGaugeState {
   /** Tightest known quota as a percentage used (0-100), or null when no limit is known. */

@@ -1,15 +1,15 @@
 import React from 'react';
 
 import BenchPage from '../pages/bench';
+import CodePage from '../pages/code';
+import DevelopersPage from '../pages/developers';
+import { FactoryPage } from '../pages/factory';
 import HomePage from '../pages/home';
 import InboxPage from '../pages/inbox';
 import OnboardingPage from '../pages/onboarding';
 import ProjectPage from '../pages/project';
 import ProjectsPage from '../pages/projects';
 import SettingsPage from '../pages/settings';
-import CodePage from '../pages/code';
-import DevelopersPage from '../pages/developers';
-import { FactoryPage } from '../pages/factory';
 
 export type RouteArea =
   | 'onboarding'

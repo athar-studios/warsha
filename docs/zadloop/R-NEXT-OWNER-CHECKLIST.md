@@ -2,7 +2,10 @@
 
 Items only a human can do. The fleet never waits on these; it builds and tests against mocks and
 appends each such step here with the packet, what to do, and what a pass looks like. Z1 finalises
-this file. Seeded by packet F0 from plan §10.2.
+this file. Items 1–10 were seeded by packet F0 from plan §10.2; items 11–13 were added later and
+trace to Amendment A1 (spend-ceiling alert), Amendment A10 / packet F3 (RF2 blocked gate, now
+closed) and the F3 report (smoke-script S4/S5 follow-up). Item 14 was added by packet A5
+(cargo-deny advisory gate).
 
 ## Items
 
@@ -70,7 +73,6 @@ this file. Seeded by packet F0 from plan §10.2.
 - **Pass looks like:** an alert entry appended below with the date and figures; the run
   continues; at 100% the run hard-stops and Z1 is produced as-is.
 
-
 ### 12. Smoke-script S4/S5 harness follow-up — packet: F3 (recorded 2026-11-15)
 - **What to do:** decide whether to order a script-only packet: `scripts/android-smoke.sh` S4 should
   accept the bench's `#/…` hash links, and S5 should re-establish CDP after a harness-side
@@ -88,7 +90,24 @@ this file. Seeded by packet F0 from plan §10.2.
   FIN4 @visual rows are recorded against the green runs.
 - **Pass looks like:** (closed — recorded here for the audit trail).
 
+### 14. Resolve cargo-deny advisory gate (RUSTSEC-2025-0134 & 2026 advisory DB entries) — packet: A5
+- **What to do:** decide how to clear the advisory gate now that `RUSTSEC-2025-0134`
+  (`rustls-pemfile 1.0.4`, via `reqwest 0.11.27 <- oauth2 4.4.2 <- warsha-providers`) plus nine
+  further current advisory-DB notices resolve in the root graph (10 total; 11 in
+  `apps/desktop/src-tauri`, which adds `RUSTSEC-2026-0371` `zbus_names`). Either upgrade `oauth2` to
+  5.x / bump the transitive TLS stack (`rustls 0.21.12`, `rustls-webpki 0.101.7`, `webpki-roots
+  0.25.4`, `h2 0.3.27`, `chrono 0.4.45`), or record an explicit `OD-S*` decision accepting each
+  notice by ID and add matching `deny.toml` ignore entries citing that decision. A5 deliberately
+  left them un-ignored (see `DECISIONS.md` `D-RN-A5-1`).
+- **Pass looks like:** `cargo deny --config deny.toml check` exits 0 for the root workspace, and
+  `cargo deny --config deny.toml --manifest-path apps/desktop/src-tauri/Cargo.toml --all-features
+  check` exits 0 for the desktop app (or every remaining notice is enumerated in an OD and ignored
+  with that OD cited in `deny.toml`).
+
+## Fleet notes
+
+- [ ] Probe `codex exec --json` parsing when codex is installed on a host (N0's JSONL parser is fixture-tested only; codex absent on the run host).
+
 ## Alerts appended by the fleet
 
 (none yet)
-- [ ] Probe `codex exec --json` parsing when codex is installed on a host (N0's JSONL parser is fixture-tested only; codex absent on the run host).

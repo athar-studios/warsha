@@ -21,7 +21,7 @@
 
 ## What is Warsha?
 
-Warsha ("workshop" in Arabic) is an app that works like a small software team. You describe an idea in plain words, in Arabic or English. A team of AI agents researches it, writes the spec, designs, plans, proposes code changes, tests and reviews it, and prepares a release, while you approve each important step. The published `v0.2.0` (2026-11-09) is an early preview: the planning, review and gate surfaces work; autonomous end-to-end code writing is not yet delivered — see `PLAN.md`.
+Warsha ("workshop" in Arabic) is an app that works like a small software team. You describe an idea in plain words, in Arabic or English. A team of AI agents researches it, writes the spec, designs, plans, proposes code changes, tests and reviews it, and prepares a release, while you approve each important step. The current build is `v0.3.0` (bumped 2026-11-15), an early preview: the planning, review and gate surfaces work; autonomous end-to-end code writing is not yet delivered — see `PLAN.md`.
 
 - **Arabic first.** Full Arabic interface (right to left) and English.
 - **You stay in control.** Nothing is merged, published or posted without your approval.
@@ -122,7 +122,7 @@ are not wired to their screens; and no Android APK is built in this tree.
 
 ## Roadmap
 
-The desktop app is versioned **0.2.0** (`apps/desktop/src-tauri/tauri.conf.json`) and the Rust crates **0.1.0**
+The desktop app is versioned **0.3.0** (`apps/desktop/src-tauri/tauri.conf.json`) and the Rust crates **0.3.0**
 (`Cargo.toml`); neither is tagged and no version has been released. No dates are set.
 
 | Milestone | What it delivers | Status |
