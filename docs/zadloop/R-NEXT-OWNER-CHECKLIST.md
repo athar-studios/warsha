@@ -2,7 +2,9 @@
 
 Items only a human can do. The fleet never waits on these; it builds and tests against mocks and
 appends each such step here with the packet, what to do, and what a pass looks like. Z1 finalises
-this file. Seeded by packet F0 from plan §10.2.
+this file. Items 1–10 were seeded by packet F0 from plan §10.2; items 11–13 were added later and
+trace to Amendment A1 (spend-ceiling alert), Amendment A10 / packet F3 (RF2 blocked gate, now
+closed) and the F3 report (smoke-script S4/S5 follow-up).
 
 ## Items
 
@@ -88,7 +90,10 @@ this file. Seeded by packet F0 from plan §10.2.
   FIN4 @visual rows are recorded against the green runs.
 - **Pass looks like:** (closed — recorded here for the audit trail).
 
+## Fleet notes
+
+- [ ] Probe `codex exec --json` parsing when codex is installed on a host (N0's JSONL parser is fixture-tested only; codex absent on the run host).
+
 ## Alerts appended by the fleet
 
 (none yet)
-- [ ] Probe `codex exec --json` parsing when codex is installed on a host (N0's JSONL parser is fixture-tested only; codex absent on the run host).

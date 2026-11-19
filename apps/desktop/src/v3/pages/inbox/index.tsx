@@ -42,7 +42,15 @@ import { useProjects } from '../../data';
 import { useNavigate } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 
+import {
+  extractGateCode,
+  findPendingGateAtCurrentStage,
+  formatTime24,
+} from './gateHelpers';
+
 import './inbox.css';
+
+export { extractGateCode, findPendingGateAtCurrentStage, formatTime24 };
 
 /**
  * One waiting gate decision. `kind` is the discriminator the list, the empty state and the
@@ -82,41 +90,6 @@ export interface InboxMcpItem {
 }
 
 export type InboxItem = InboxDecisionItem | InboxMcpItem;
-
-export function extractGateCode(stage: string): 'a' | 'b' | 'c' | 'd' {
-  if (stage === 'gate_a') return 'a';
-  if (stage === 'gate_b') return 'b';
-  if (stage === 'gate_c') return 'c';
-  if (stage === 'gate_d') return 'd';
-  return 'a';
-}
-
-export function formatTime24(iso: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const hours = String(d.getUTCHours()).padStart(2, '0');
-  const mins = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${hours}:${mins}`;
-}
-
-export function findPendingGateAtCurrentStage(
-  gates: readonly GateSummary[] | null | undefined,
-  run: RunSummary | null
-): GateSummary | null {
-  if (!run || !gates || gates.length === 0) return null;
-  if (
-    run.status === 'completed' ||
-    run.status === 'cancelled' ||
-    run.status === 'failed'
-  ) {
-    return null;
-  }
-  const match = gates.find(
-    (g) => g.stage === run.stage && g.state.state === 'pending'
-  );
-  return match ?? null;
-}
 
 export function collectPendingDecisions(
   projects: readonly ProjectSummary[],

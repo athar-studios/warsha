@@ -5,7 +5,7 @@ This file records every third-party component Warsha depends on, bundles, links 
 license that governs it, and where the license text lives. It never reproduces full license texts; follow the
 links into the upstream repositories.
 
-Last reviewed: 2026-11-02 (M16 and B0 design-skill intake).
+Last reviewed: 2026-11-19 (A5 security/dependency/freshness audit).
 
 ## Declared components
 
@@ -17,13 +17,13 @@ Last reviewed: 2026-11-02 (M16 and B0 design-skill intake).
 | **IBM Plex Sans Arabic** | `5.3.0` (`@fontsource/ibm-plex-sans-arabic`) | OFL-1.1 | UI typography for Design System v3 (ar + en). Bundled as woff2 assets. | [`fontsource/ibm-plex-sans-arabic/LICENSE`](https://github.com/fontsource/fontsource/blob/main/fonts/google/ibm-plex-sans-arabic/LICENSE) |
 | **IBM Plex Mono** | `5.3.0` (`@fontsource/ibm-plex-mono`) | OFL-1.1 | Code and ID typography for Design System v3. Bundled as woff2 assets. | [`fontsource/ibm-plex-mono/LICENSE`](https://github.com/fontsource/fontsource/blob/main/fonts/google/ibm-plex-mono/LICENSE) |
 | **oauth2** | `4.4.2` | MIT OR Apache-2.0 | Generic OAuth 2.0 PKCE and device flow handling in `warsha-providers`. | [`ramosbugs/oauth2-rs/LICENSE-MIT`](https://github.com/ramosbugs/oauth2-rs/blob/main/LICENSE-MIT) |
-| **url** | `2.5.4` | MIT OR Apache-2.0 | URL parsing and query parameter handling for OAuth and HTTP endpoints. | [`servo/rust-url/LICENSE-MIT`](https://github.com/servo/rust-url/blob/master/LICENSE-MIT) |
+| **url** | `2.5.8` | MIT OR Apache-2.0 | URL parsing and query parameter handling for OAuth and HTTP endpoints. | [`servo/rust-url/LICENSE-MIT`](https://github.com/servo/rust-url/blob/master/LICENSE-MIT) |
 | **CodeMirror 6 Editor** | (Pinned in `package.json`) | MIT | Editor for the project code viewer and diffing. | [codemirror/dev/LICENSE](https://github.com/codemirror/dev/blob/main/LICENSE) |
-| **tauri-plugin-opener** | `2.7.2` | Apache-2.0 | External file and URL opening plugin for Tauri desktop. | [tauri-apps/plugins-workspace/LICENSE](https://github.com/tauri-apps/plugins-workspace/blob/dev/LICENSE) |
+| **tauri-plugin-opener** | `2.7.3` | Apache-2.0 | External file and URL opening plugin for Tauri desktop. | [tauri-apps/plugins-workspace/LICENSE](https://github.com/tauri-apps/plugins-workspace/blob/dev/LICENSE) |
 
 ## Reviewed external design skills — reference material only, not bundled
 
-The B0 intake reviewed the following upstream material at the recorded commits. **None of these skills is a Warsha dependency, installed component or bundled/shipped file.** The only Warsha artifacts are original summaries in `bridge-io/skills/DESIGN_BRIEF.md` and the source/license audit in `bridge-io/skills/LOCKFILE.md`; no upstream skill text, code, themes, fonts, icons, datasets, screenshots, PDFs or archives were copied into the product.
+The B0 intake reviewed the following upstream material at the recorded commits. **None of these skills is a Warsha dependency, installed component or bundled/shipped file.** The only Warsha artifacts are the design direction distilled in [`docs/design/REDESIGN.md`](docs/design/REDESIGN.md) and the B0 intake verdicts recorded in [`PROGRESS.md`](PROGRESS.md) and [`DECISIONS.md`](DECISIONS.md); the `bridge-io/` working directory that held the original notes is not tracked in git, so these tracked files are the durable record. No upstream skill text, code, themes, fonts, icons, datasets, screenshots, PDFs or archives were copied into the product.
 
 | Upstream component | Reviewed commit | License | Actual Warsha use | License evidence |
 |---|---|---|---|---|
@@ -57,7 +57,7 @@ features, it becomes an owner decision with its own license review — it does n
 
 The authoritative list of everything compiled into or shipped with Warsha is in [`Cargo.lock`](Cargo.lock)
 (Rust) and [`pnpm-lock.yaml`](pnpm-lock.yaml) (TypeScript). License compliance for that set is enforced in CI
-by `cargo-deny` ([`deny.toml`](deny.toml) if present, otherwise the default policy) and by the pnpm audit
+by `cargo-deny` ([`deny.toml`](deny.toml)) and by the pnpm audit
 step. Adding a dependency means adding a row above when it is a declared, user-visible component.
 
 ## Keeping this file current

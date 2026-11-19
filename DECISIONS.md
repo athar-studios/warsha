@@ -1944,9 +1944,6 @@ axe wcag2aa color-contrast (RF2 run 4): faint text on --w-danger-soft measured 3
 ## D-RN-FIN5-1 — self-check walk order fixed (pre-existing bug, 2026-11-16)
 The desktop --self-check's zero-key pipeline walk (check_fake_provider_pipeline, introduced 1e984a5 on main 2026-11-05) approved Gate A while the run still stood at Idea. It worked when written: approve_gate then required only GateState::Pending. a70a18d (2026-11-10, in our base repair/dev-csp-f474776, 571 commits ahead of main) added ensure_gate_decidable — a gate must be the run's current stage to be decided — so the walk has failed its own check ever since (7 PASS + 1 FAIL on every run). The pipeline itself is sound: a manual RPC walk on a scratch daemon (projects.create → runs.start → runs.advance → GateA → gates.approve → advance → GateB) succeeds end to end. Fixed the script's order to match the pipeline's semantics (advance → approve at the gate → advance), matching the order the pipeline's own fake_e2e test has always used. Verified: 3 consecutive self-check runs, 12/12 PASS each ("self-check: OK"). This unblocks owner checklist item 2 (OD-B6 self-check evidence).
 
-## D-RN-RF2-5 — A10: bounded decoded-pixel tolerance for the @visual verify (2026-11-16)
-Owner decision (Amendment 3, A10): the @visual comparison (desktop 416 + remote 84) adopts the F1 canary's decoded-pixel tolerance — maxDiffPixels = 64 beyond the existing threshold 0.05 (unchanged); maxDiffPixelRatio stays UNSET because the comparator takes min(maxDiffPixels, w·h·ratio) when both are set, so a ratio of 0 would zero the budget (measured: the fringe case failed with 3 differing px while both bounds were set — commit 0ecb65e). Scope: @visual comparison only; no other gate/threshold/test changed. Proof: (a) 100-pass experiment vs CI genesis baselines with tolerance ON = 100/100 green (inbox spec, 32 cases, fresh container per pass); extended to the full suite: 416/416 in 3 fresh-container passes over all 8 v3 specs (216+104+96 cases per pass) — A10 step 3a satisfied, budget NOT widened; (b) A7 3-consecutive-green CI proof follows; (c) merge + record-close after. Appended to the plan's Amendments section in the repo copy and both Desktop copies (v3 full text; v2 summary note — v2 has no Amendments section).
-
 ## D-RN-RF2-5 — A10: bounded decoded-pixel budget for @visual (owner decision 2026-11-16, m03702)
 Owner chose option (i) from the RF2 report: the @visual comparison (desktop 416 + remote 84) adopts the F1 canary's decoded-pixel budget — maxDiffPixels: 64 with threshold: 0.05 unchanged. maxDiffPixelRatio stays UNSET (comparator takes min(maxDiffPixels, w·h·ratio) when both are set; ratio 0 zeroes the budget — measured: a 3-px fringe case failed with both bounds present). Scope: @visual only; no other gate or test changed. Proof: 100-pass inbox experiment 100/100 green; full 416 desktop cases 416/416 ×3 fresh-container passes; then 3 consecutive green "Baseline capture (RF2)" CI runs both legs (43833136416, 43837753064, 43842194783 — desktop 416/0 and remote 84/0 in run 3's reports). The stale 1019506 remote baseline vintage was replaced with the fresh CI-captured set (9a225ac) — the green runs verify against exactly those bytes.
 
@@ -1961,6 +1958,7 @@ Legacy settings values (AskAlways / AskForRisky / AutoInsideProject, stored in r
 
 ## D-RN-B1-4 — Lane repair: DECISIONS.md restored (2026-11-16, PM)
 Commit cc889ed ("fix(B1): compilation and test errors") accidentally replaced DECISIONS.md (1,943 lines of decision history) with a 5-line stub. Repair under §0.6 lane-health: restored the 0e457cc version verbatim via `git checkout 0e457cc -- DECISIONS.md`, then re-appended the B1 decisions (D-RN-B1-1..3 above). No other file touched by the repair. Evidence: `git show cc889ed --stat` shows DECISIONS.md −1,941 lines; `git show 31fd758:DECISIONS.md` tail matches the 0e457cc tail, proving 31fd758 still held the intact file.
+
 ## D-RN-A2-1 — A2: WIP Commit limitation
 - **Decision**: Deferred initial wip(A2) commit due to read-only filesystem error (`index.lock`) in the worktree. Continuing work and will attempt commit once local environment permissions permit.
 - **Reason**: The worktree is currently experiencing a read-only filesystem error when attempting to stage/commit. Task must proceed to avoid blocking.
@@ -1969,10 +1967,7 @@ Commit cc889ed ("fix(B1): compilation and test errors") accidentally replaced DE
 
 To properly implement provider-specific `get_quota` logic (specifically for OpenRouter), I have updated `OpenAIProvider` to store its `ProviderKind` and added logic in `get_quota` to query the OpenRouter `/key` endpoint when the kind is `ProviderKind::OpenRouter`.
 
-### D-RN-A4-001 (2026-11-17): Failover Classification
-Introduce  to distinguish between retryable errors (transient) and failover triggers (auth, 5xx, rate-limit), as required by A4 plan.
-
-### D-RN-A4-001 (2026-11-17): Failover Classification
+## D-RN-A4-001 (2026-11-17): Failover Classification
 Introduce `should_failover(&ProviderError) -> bool` to distinguish between retryable errors (transient) and failover triggers (auth, 5xx, rate-limit), as required by A4 plan.
 
 ## 2026-11-17 — Tool Permissioning Location: `warsha-core`

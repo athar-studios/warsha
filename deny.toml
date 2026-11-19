@@ -11,20 +11,22 @@
 #
 # Evidence (measured, not guessed)
 # -------------------------------
-# Generated 2026-11-04 against the committed Cargo.lock (lock `version = 4`,
+# Re-measured 2026-11-19 against the committed Cargo.lock (lock `version = 4`,
 # which is also why the old container action failed to parse it):
 #
-#   cargo metadata --format-version 1              -> 579 packages, 17 terms
-#   cargo metadata --format-version 1 --all-features -> 579 packages, 17 terms
+#   cargo metadata --format-version 1              -> 520 packages
+#   cargo metadata --format-version 1 --all-features -> 520 packages
 #
 # The two graphs are identical, so the list below is complete for cargo-deny's
 # own `--all-features` fetch (the flag the previous action passed by default).
-# 35 distinct raw license strings occur; 0 packages have no `license` field at
-# all. Every entry below is an atomic SPDX id appearing in that graph and was
-# validated against the SPDX license list (spdx/license-list-data
+# The license term count is pending re-measurement: `cargo metadata` requires
+# network access to resolve the full graph on this host. The 2026-11-04
+# measurement saw 35 distinct raw license strings; 0 packages have no `license`
+# field at all. Every entry below is an atomic SPDX id appearing in that graph
+# and was validated against the SPDX license list (spdx/license-list-data
 # licenses.json).
 #
-# The workspace's own crates contribute "PolyForm-Noncommercial-1.0.0": all ten
+# The workspace's own crates contribute "PolyForm-Noncommercial-1.0.0": all eleven
 # members set `license = { workspace = true }`, inheriting
 # Cargo.toml `[workspace.package] license = "PolyForm-Noncommercial-1.0.0"`.
 #
@@ -65,8 +67,8 @@
 # `Unicode-DFS-2016` is allowed pre-emptively for the `src-tauri` manifest as well
 # as the workspace one. Measured state of both graphs today: no crate resolves to
 # that id (`unicode-ident` ships the newer `Unicode-3.0`, already allowed; the
-# Unicode-DFS-2016 reference in the earlier wave summary is stale, like
-# RUSTSEC-2025-0012/RUSTSEC-2025-0134 above). It is kept because `cargo-deny`
+# Unicode-DFS-2016 reference in the earlier wave summary is stale, as is the
+# RUSTSEC-2025-0012 (`backoff`) reference above). It is kept because `cargo-deny`
 # reports an unused allow entry only as `warning[license-not-encountered]` — it
 # never fails a check (CI runs `cargo deny check` without `--deny-warnings`) — so
 # allowing it costs nothing and keeps the gate stable if an older Unicode-derived
@@ -77,7 +79,7 @@
 # `[bans]` and `[sources]` are intentionally ABSENT, so those two checks run
 # under cargo-deny's built-in defaults. Note the graph contains crates with
 # more than one version in it, which the default `[bans] multiple-versions = "warn"`
-# reports as warnings rather than errors, and that all 22 wildcard (`*`)
+# reports as warnings rather than errors, and that all 26 wildcard (`*`)
 # requirements are workspace-internal path deps, not registry wildcards.
 #
 # `[advisories]` (version = 2) is configured explicitly below. The ignore list
@@ -98,23 +100,24 @@
 #   regressed and the fix belongs in the manifest, not in this file):
 #     - RUSTSEC-2025-0119  number_prefix 0.4.0 — removed by deleting the unused
 #       `indicatif = "0.17"` dependency; not present in either lockfile.
-#     - RUSTSEC-2024-0436  paste (via `image -> ravif`) — narrowed away in the
-#       ROOT graph by setting `image = "0.25"` in `warsha-remote` to
-#       `default-features = false, features = ["png"]`. Measured with an empty
-#       `ignore` list, this advisory fires in NEITHER graph today. Caveat for
-#       whoever reads this file: `paste 1.0.15` is still a lock entry of
-#       apps/desktop/src-tauri/Cargo.lock (reached through `image` default
-#       features -> ravif -> rav1e -> pulp), and it does not trigger the notice,
-#       so the check's green result there is not evidence that the src-tauri
-#       graph dropped paste.
+#     - RUSTSEC-2024-0436  paste (via `image -> ravif`) — `image` is narrowed to
+#       png in `warsha-remote`, and neither `paste` nor `ravif` is resolved in
+#       Cargo.lock or apps/desktop/src-tauri/Cargo.lock today, so the advisory
+#       cannot fire in either graph. No ignore entry is needed, and none is
+#       added (an ignore for an advisory that cannot fire would silently mask
+#       it if the crate re-entered a lockfile).
 #
-#   NOT PRESENT IN EITHER LOCKFILE AT ALL (verified against Cargo.lock):
+#   One advisory IS present in both graphs and currently FAILS the gate (left
+#   un-ignored on purpose — the fix is a dependency bump, not a suppression):
+#     - RUSTSEC-2025-0134  rustls-pemfile 1.0.4 — resolved in BOTH Cargo.lock and
+#       apps/desktop/src-tauri/Cargo.lock.
+#
+#   NOT PRESENT IN EITHER LOCKFILE AT ALL (verified against both lockfiles):
 #     - RUSTSEC-2025-0012  backoff
-#     - RUSTSEC-2025-0134  rustls-pemfile
-#   These two only ever appeared as prose in an earlier wave summary; neither
-#   crate is resolved by this workspace, so they are deliberately NOT ignored
-#   here. An ignore entry for an advisory that cannot fire would silently mask
-#   it forever if either crate is ever introduced.
+#   It only ever appeared as prose in an earlier wave summary; the crate is not
+#   resolved by this workspace, so it is deliberately NOT ignored here. An
+#   ignore entry for an advisory that cannot fire would silently mask it forever
+#   if the crate is ever introduced.
 #
 #   apps/desktop/src-tauri/Cargo.lock — 1 additional notice on top of the 4
 #   above (its own lock graph re-resolves the same keyring chain), reachable
@@ -122,24 +125,30 @@
 #     - RUSTSEC-2024-0370  proc-macro-error 1.0.4, via `tauri 2.12.5 ->
 #       gtk 0.18.2 -> glib 0.18.5 -> glib-macros 0.18.5`.
 #   That is why the 5th `ignore` entry below exists. Note that both ci.yml
-#   (`Rust (ubuntu|macos|windows)`, line 192) and release.yml (`Generate
-#   Artifacts`, line 442) currently run `cargo deny --manifest-path Cargo.toml
-#   --all-features check` ONLY — the `src-tauri` manifest is not a CI step, so
-#   its graph is covered by this config plus the repo-hygiene gate that runs
-#   `cargo-deny --manifest-path apps/desktop/src-tauri/Cargo.toml --all-features
-#   check --config deny.toml` explicitly.
+#   (`Rust (ubuntu|macos|windows)`, line 318) and release.yml (`Generate
+#   Artifacts`, line 465) currently run `cargo deny --manifest-path Cargo.toml
+#   --all-features check` ONLY — the `src-tauri` manifest is not a CI step. Its
+#   graph is covered by this config plus a repo-hygiene gate that runs, by hand
+#   and in no workflow:
+#     cargo deny --config deny.toml --manifest-path \
+#       apps/desktop/src-tauri/Cargo.toml --all-features check
 #
 #   Side effect of sharing ONE config across both graphs (intentional — a second
 #   deny.toml under apps/desktop/src-tauri/ would drift from this one): each check
 #   reports the other graph's concessions as non-fatal warnings, which is why
 #   neither invocation may be run with `--deny-warnings`:
 #     - root: `warning[advisory-not-detected]` for RUSTSEC-2024-0370, since
-#       proc-macro-error is not in the root Cargo.lock; plus the pre-existing
-#       `warning[license-not-encountered]` for CC0-1.0, NCSA and
-#       Unicode-DFS-2016.
+#       proc-macro-error is not in the root Cargo.lock; the
+#       `warning[license-exception-not-encountered]` for the `target-lexicon`
+#       entry, because every LLVM crate in the root graph offers a plain
+#       Apache-2.0/MIT alternative and the exception is never exercised there;
+#       plus the pre-existing `warning[license-not-encountered]` for CC0-1.0,
+#       NCSA and Unicode-DFS-2016.
 #     - src-tauri: `warning[license-not-encountered]` for allow entries its graph
 #       does not resolve (measured today: NCSA, Unicode-DFS-2016).
-#   Both checks exit 0 (`advisories ok, bans ok, licenses ok, sources ok`).
+#   Both checks currently EXIT 1 on `advisories FAILED` — `bans`, `licenses`
+#   and `sources` report ok — because RUSTSEC-2025-0134 is resolved in both
+#   graphs; the warnings above stay non-fatal.
 #
 #   ACCEPTED RISK — RUSTSEC-2026-0459 (`libsqlite3-sys` 0.30.1 bundles SQLite
 #   < 3.54.0). The owning decision is OD-S1c in `DECISIONS.md` (2026-11-10);
