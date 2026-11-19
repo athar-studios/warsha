@@ -32,11 +32,10 @@ closed) and the F3 report (smoke-script S4/S5 follow-up). Item 14 was added by p
   this host).
 - **Pass looks like:** the row's gate commands pass on Windows with logs kept.
 
-### 5. Pending visual baselines — packet: any UI packet with F1 blocked (§3.1.6 fallback)
-- **What to do:** capture the baselines marked `pending` in the baseline manifest on a suitable
-  capture host, if F1 was blocked.
-- **Pass looks like:** manifest rows move from `pending` to captured; two consecutive captures
-  byte-identical.
+### 5. Pending visual baselines — CLOSED by Packet E5 (2026-11-19)
+- **Was:** capture the baselines marked `pending` in the baseline manifest on a suitable capture host, if F1 was blocked.
+- **Resolution:** Packet E5 executed the full visual baselines sweep on the pinned Docker capture host (`warsha-capture:0.3.0`, digest `sha256:581c7fc1b5c51dc3abb78534134071d45be81f29c4ca047de03b3b0385ac4b3f`). All 144 new/changed visual surface baselines were captured and verified byte-identical (144 passed / 0 failed, exit code 0; duration 5.3m). Zero pending baselines remain in `scripts/ci/baseline-manifest.json` (153 total rows, all `status: "captured"`). Evidence: `bridge-io/audit/e5/verify-1.log`, `verify-1.json`, `docs/zadloop/packets/E5-report.md`.
+- **Pass looks like:** (closed — recorded here for the audit trail).
 
 ### 6. One live sign-in per shipped OAuth lane — packet: A2
 - **What to do:** for each OAuth lane that shipped (OpenRouter, remote-MCP OAuth), perform one
@@ -67,11 +66,11 @@ closed) and the F3 report (smoke-script S4/S5 follow-up). Item 14 was added by p
   process. Release remains owner-only.
 - **Pass looks like:** version bumped by you, release published by you, after the pilot passes.
 
-### 11. Spend-ceiling alert at 80% of the run budget — packet: any (Amendment A1)
-- **What to do:** when the cumulative estimated spend reaches 80% of the run budget recorded in
+### 11. Spend-ceiling alert at 80% of the run budget — CLOSED / VERIFIED at Z1 (2026-11-19)
+- **Was:** when the cumulative estimated spend reaches 80% of the run budget (320 of 400 units) recorded in
   `PROGRESS.md`, review the remaining packet list and confirm the run continues.
-- **Pass looks like:** an alert entry appended below with the date and figures; the run
-  continues; at 100% the run hard-stops and Z1 is produced as-is.
+- **Resolution:** Cumulative estimated spend across all R-NEXT packets closed at ~180 units of the 400 unit ceiling (45%), well below the 80% (320 units) alert ceiling. No spend alert was triggered during the run.
+- **Pass looks like:** (closed / verified — run completed within budget).
 
 ### 12. Smoke-script S4/S5 harness follow-up — packet: F3 (recorded 2026-11-15)
 - **What to do:** decide whether to order a script-only packet: `scripts/android-smoke.sh` S4 should

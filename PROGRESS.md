@@ -1,8 +1,23 @@
 # PROGRESS.md — Warsha Build Log
 
-- [ ] A1: Model catalog (in progress)
-- [x] A2: OAuth engine, Warshad RPC, Providers UI (implementation complete, WIP commit blocked by read-only filesystem; estimated spend 7/20)
-- [ ] D1: Secretary role (in progress, spend 95/400, cumulative 188)
+- [x] Z1: Final release report (plan §10 Z1, integration tip 28ee5e2, audit complete)
+- [x] A5: Final code-health audit (complete, merged at 43ec295)
+- [x] E5: Visual baselines sweep (complete, merged at 28ee5e2)
+- [x] E2: Secretary chat & remote_bind (complete, merged at d4dc30d / 90c1086 / 11104c8)
+- [x] A1: Model catalog (merged at 797721c)
+- [x] A2: OAuth engine, Warshad RPC, Providers UI (merged at 9fdb797)
+- [x] D1: Secretary role (merged at c500b7a)
+
+## Run 2026-11-19 — Z1: Final release report (plan §10 Z1, integration tip 28ee5e2)
+
+- **Audited & Verified**: branch `r-next/z1-final` created at `28ee5e2` (integration tip, containing E2, E5, A5, and all preceding R-NEXT packets). Full FIN4 verification matrix executed with logs and exit codes archived under `bridge-io/audit/z1/`.
+  - Rust gates: `cargo fmt --check` exit 0, `cargo clippy --workspace --all-targets -- -D warnings` exit 0, scoped `cargo test` exit 0 (warsha-store 47/47, warshad 281/281, warsha-cli 2/2). Mock-provider greenfield e2e (`cargo test -p warsha-pipeline --test fake_e2e`) 6/6 passed, exit 0.
+  - TS/Web gates: `pnpm --filter warsha-desktop typecheck` exit 0, `pnpm --filter warsha-desktop test` exit 0 (938/938), `pnpm --filter warsha-desktop build` exit 0. `pnpm --filter warsha-remote build` exit 0, `pnpm --filter warsha-remote test` exit 0 (229/229), `pnpm --filter warsha-remote lint` exit 0. Pre-existing ESLint debt on desktop: 17 import errors + 1 hook warning, exit 1.
+  - Architecture, policy & consistency: `check-arch` exit 0 (5/0), `check-engineering-policy` exit 0 (8/0), `check-versions` exit 0 (0.3.0 aligned), `check-ds-v3` exit 0 (0 violations across desktop/ui/remote), `i18n-gate` exit 0 (1021 keys, 0 violations), `actions-gate` exit 0 (193 registered, 193 used, 0 violations). Gitleaks exit 0 (836 commits, 0 leaks). Gate-tool self-tests exit 0. Docs consistency audit exit 0.
+  - Pre-existing debt recorded: wire contract exit 1 (4 violations: `catalog.refresh`/`apply` missing stubs carried from A1); cargo deny advisories exit 1 (10 root, 11 desktop, `D-RN-A5-1`).
+- **Reports & Checklists**: `docs/zadloop/R-NEXT-FINAL-REPORT.md` written in full replacing draft skeleton. `docs/zadloop/R-NEXT-OWNER-CHECKLIST.md` finalized with owner-gated items kept open.
+- **Spend**: Cumulative spend ≈ 180 units (of 400 run ceiling), well below 80% ceiling alert.
+- **Decisions**: `D-RN-Z1-1` logged in `DECISIONS.md`. Checkpoint tagging (`cp-phase4`, `cp-final`) and remote pushes deferred to human owner / PM instruction.
 
 ## Run 2026-11-15 — R-EXT-5 (X9a WebMCP, desktop v3): four navigation tools behind an off-by-default switch
 

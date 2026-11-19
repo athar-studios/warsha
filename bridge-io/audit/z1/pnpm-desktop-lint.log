@@ -1,0 +1,47 @@
+
+> warsha-desktop@0.3.0 lint /home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop
+> eslint src --ext .ts,.tsx
+
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop/src/v3/components/developers/DevelopersList.tsx
+  7:22  error  Unable to resolve path to module '@warsha/i18n/v3'  import/no-unresolved
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop/src/v3/pages/developers/SessionDetail.tsx
+  7:22  error  Unable to resolve path to module '@warsha/i18n/v3'  import/no-unresolved
+  8:42  error  Unable to resolve path to module '@warsha/ui/v3'    import/no-unresolved
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop/src/v3/pages/developers/index.tsx
+  6:22  error  Unable to resolve path to module '@warsha/i18n/v3'  import/no-unresolved
+  7:40  error  Unable to resolve path to module '@warsha/ui/v3'    import/no-unresolved
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop/src/v3/pages/factory/index.test.tsx
+  3:30  error  Unable to resolve path to module '@warsha/i18n/v3'  import/no-unresolved
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop/src/v3/pages/factory/index.tsx
+  2:22  error  Unable to resolve path to module '@warsha/i18n/v3'  import/no-unresolved
+  3:32  error  Unable to resolve path to module '@warsha/ui/v3'    import/no-unresolved
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop/src/v3/pages/frame/QuotaGaugeButton.tsx
+  2:22  error  Unable to resolve path to module '@warsha/i18n/v3'                import/no-unresolved
+  3:23  error  Unable to resolve path to module '@warsha/ui/v3'                  import/no-unresolved
+  7:1   error  `../../data` import should occur before import of `../../router`  import/order
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop/src/v3/pages/inbox/index.tsx
+  336:6  warning  React Hook useMemo has a missing dependency: 'projectsResult.data'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop/src/v3/pages/project/index.tsx
+  1064:179  error  Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  1064:179  error  no `as any` — use the shared type instead (@warsha/client exports the branded ProjectId/RunId/DeviceId types for exactly this)  no-restricted-syntax
+  1074:180  error  Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  1074:180  error  no `as any` — use the shared type instead (@warsha/client exports the branded ProjectId/RunId/DeviceId types for exactly this)  no-restricted-syntax
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop/src/v3/pages/settings/sections/SwarmSection.tsx
+  6:22  error  Unable to resolve path to module '@warsha/i18n/v3'  import/no-unresolved
+  7:51  error  Unable to resolve path to module '@warsha/ui/v3'    import/no-unresolved
+
+✖ 18 problems (17 errors, 1 warning)
+  1 error and 0 warnings potentially fixable with the `--fix` option.
+
+/home/moe/Downloads/Warsha/.agents/worktrees/rn-z1/apps/desktop:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  warsha-desktop@0.3.0 lint: `eslint src --ext .ts,.tsx`
+Exit status 1
