@@ -8,15 +8,21 @@ pub struct RiskyCommandDefinition {
 pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     RiskyCommandDefinition {
         program: "npx",
-        argument_pattern: "-c",
+        argument_pattern: "*",
         reason: "Npx",
-        check_arguments_only: true,
+        check_arguments_only: false,
     },
     RiskyCommandDefinition {
         program: "dlx",
-        argument_pattern: "-c",
+        argument_pattern: "*",
         reason: "Dlx",
-        check_arguments_only: true,
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "bunx",
+        argument_pattern: "*",
+        reason: "Bunx",
+        check_arguments_only: false,
     },
     RiskyCommandDefinition {
         program: "exec",
@@ -30,6 +36,37 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
         reason: "X",
         check_arguments_only: true,
     },
+    // Inline code execution
+    RiskyCommandDefinition {
+        program: "node",
+        argument_pattern: "-e|--eval|-pe",
+        reason: "Node inline code",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "nodejs",
+        argument_pattern: "-e|--eval|-pe",
+        reason: "Node inline code",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "deno",
+        argument_pattern: "run|eval",
+        reason: "Deno run/eval",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "php",
+        argument_pattern: "-r",
+        reason: "Php inline code",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "cargo",
+        argument_pattern: "build",
+        reason: "Cargo build",
+        check_arguments_only: true,
+    },
     // Install aliases
     RiskyCommandDefinition {
         program: "npm",
@@ -39,20 +76,20 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "pnpm",
-        argument_pattern: "install|i|ci|add|update",
-        reason: "Install/Update",
+        argument_pattern: "install|i|ci|add|update|dlx",
+        reason: "Install/Update/Dlx",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
         program: "yarn",
-        argument_pattern: "install|i|ci|add|update",
-        reason: "Install/Update",
+        argument_pattern: "install|i|ci|add|update|dlx",
+        reason: "Install/Update/Dlx",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
         program: "bun",
-        argument_pattern: "install|i|ci|add|update",
-        reason: "Install/Update",
+        argument_pattern: "install|i|ci|add|update|x|dlx",
+        reason: "Install/Update/X",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -85,11 +122,35 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
         reason: "Install/Update",
         check_arguments_only: true,
     },
-    // Scripts/Run
+    // Scripts/Run/Publish
     RiskyCommandDefinition {
         program: "npm",
-        argument_pattern: "run|publish",
-        reason: "Run script or Publish",
+        argument_pattern: "run|publish|exec",
+        reason: "Run script, Publish or Exec",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "pnpm",
+        argument_pattern: "publish",
+        reason: "Publish",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "yarn",
+        argument_pattern: "publish",
+        reason: "Publish",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "bun",
+        argument_pattern: "publish",
+        reason: "Publish",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "cargo",
+        argument_pattern: "publish",
+        reason: "Publish",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -128,5 +189,73 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
         argument_pattern: "push|pull|fetch|clone",
         reason: "Git network",
         check_arguments_only: true,
+    },
+    // Network egress
+    RiskyCommandDefinition {
+        program: "curl",
+        argument_pattern: "*",
+        reason: "Network egress",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "wget",
+        argument_pattern: "*",
+        reason: "Network egress",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "ssh",
+        argument_pattern: "*",
+        reason: "Network egress",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "scp",
+        argument_pattern: "*",
+        reason: "Network egress",
+        check_arguments_only: false,
+    },
+    // Shells
+    RiskyCommandDefinition {
+        program: "sh",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "bash",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "zsh",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "dash",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "cmd",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "powershell",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "pwsh",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
     },
 ];

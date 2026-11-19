@@ -685,58 +685,31 @@ pub(crate) fn resolve_program_and_args(
 /// directory of git's own executables — so its grammar is narrowed here: an
 /// override whose key names a program or hook is refused unless its value is
 /// empty, and `--exec-path` is refused outright (KEEL checkpoint finding M3).
-use crate::risky_commands::RISKY_COMMANDS;
-
 fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyError> {
-    let prog_name = program_name(program);
-
-    for risky in RISKY_COMMANDS {
-        if risky.program == prog_name {
-            // Program level refusal
-            if !risky.check_arguments_only && risky.argument_pattern == "*" {
-                return Err(CommandPolicyError::InvalidCommand {
-                    command: program.to_string(),
-                    reason: format!("risky command: {}", risky.reason),
-                });
-            }
-
-            // Argument level refusal
-            for arg in args {
-                // If the pattern is not a catch-all, check against arguments
-                if risky.argument_pattern != "*"
-                    && risky.argument_pattern.split('|').any(|p| p == arg)
-                {
-                    return Err(CommandPolicyError::InvalidCommand {
-                        command: program.to_string(),
-                        reason: format!("risky argument: {}", risky.reason),
-                    });
-                }
-            }
-        }
+    if program_name(program) != "git" {
+        return Ok(());
     }
 
-    if prog_name == "git" {
-        let mut index = 0;
-        while index < args.len() {
-            let argument = args[index].trim();
-            let lowered = argument.to_ascii_lowercase();
-            if lowered == "--exec-path" || lowered.starts_with("--exec-path=") {
-                return Err(CommandPolicyError::InvalidCommand {
-                    command: argument.to_string(),
-                    reason: GIT_EXEC_PATH_REASON.to_string(),
-                });
-            }
-            if argument == "-c" || lowered == "--config" {
-                if let Some(value) = args.get(index + 1) {
-                    check_git_config_override(value)?;
-                    index += 2;
-                    continue;
-                }
-            } else if let Some(value) = git_config_override_value(argument) {
-                check_git_config_override(value)?;
-            }
-            index += 1;
+    let mut index = 0;
+    while index < args.len() {
+        let argument = args[index].trim();
+        let lowered = argument.to_ascii_lowercase();
+        if lowered == "--exec-path" || lowered.starts_with("--exec-path=") {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: argument.to_string(),
+                reason: GIT_EXEC_PATH_REASON.to_string(),
+            });
         }
+        if argument == "-c" || lowered == "--config" {
+            if let Some(value) = args.get(index + 1) {
+                check_git_config_override(value)?;
+                index += 2;
+                continue;
+            }
+        } else if let Some(value) = git_config_override_value(argument) {
+            check_git_config_override(value)?;
+        }
+        index += 1;
     }
     Ok(())
 }
@@ -978,53 +951,25 @@ async fn pid_is_alive(pid: u32) -> bool {
 }
 
 #[cfg(test)]
-#[tokio::test]
-async fn risky_commands_are_refused() {
-    let policy = CommandPolicy::from_config(&[
-        "npm".to_string(),
-        "pnpm".to_string(),
-        "yarn".to_string(),
-        "bun".to_string(),
-        "cargo".to_string(),
-        "go".to_string(),
-        "composer".to_string(),
-        "bundle".to_string(),
-        "pip".to_string(),
-        "git".to_string(),
-        "make".to_string(),
-        "just".to_string(),
-        "task".to_string(),
-        "sh".to_string(),
-        "bash".to_string(),
-        "cmd".to_string(),
-        "powershell".to_string(),
-        "pwsh".to_string(),
-        "npx".to_string(),
-        "dlx".to_string(),
-        "exec".to_string(),
-        "x".to_string(),
-    ]);
-
-    for risky in RISKY_COMMANDS {
-        let cmd = if risky.argument_pattern == "*" {
-            format!("{} arg", risky.program)
-        } else {
-            format!(
-                "{} {}",
-                risky.program,
-                risky.argument_pattern.split('|').next().unwrap()
-            )
-        };
+#[test]
+fn refused_command_not_in_allowlist_is_refused() {
+    let policy = CommandPolicy::default();
+    for bad in ["rm", "curl", "wget", "python", "/usr/bin/cat", "nc.exe"] {
         let err = policy
-            .check_command(&cmd)
-            .expect_err(&format!("{} should be refused", cmd));
+            .check_command(&format!("{bad} --help"))
+            .expect_err("unlisted command must be refused");
         assert!(
-            matches!(err, CommandPolicyError::InvalidCommand { .. }),
-            "expected InvalidCommand for `{}`, got {:?}",
-            cmd,
-            err
+            matches!(err, CommandPolicyError::NotAllowed { .. }),
+            "expected NotAllowed for `{bad}`, got {err:?}"
         );
     }
+
+    let narrow = CommandPolicy::from_config(&["cargo".to_string()]);
+    assert!(matches!(
+        narrow.check_command("npm test"),
+        Err(CommandPolicyError::NotAllowed { .. })
+    ));
+    assert!(narrow.check_command("cargo test").is_ok());
 }
 
 #[cfg(test)]
@@ -1035,8 +980,10 @@ fn allowed_commands_and_paths_pass_policy_check() {
         policy.check_command("cargo test --all").ok(),
         Some("cargo".to_string())
     );
-    // npm run is risky, so this should be refused
-    assert!(policy.check_command("NPM.CMD run build").is_err());
+    assert_eq!(
+        policy.check_command("NPM.CMD run build").ok(),
+        Some("NPM.CMD".to_string())
+    );
 
     assert_eq!(
         policy
@@ -1288,11 +1235,9 @@ fn benign_git_config_overrides_pass_and_program_naming_keys_are_refused() {
             .check_command(refused)
             .expect_err("a config key that names a program must be refused");
         let (_, reason) = refused_argument(&err);
-        // The refusal reason might be "risky argument: Git network" for `push` or "config key" for others.
-        // I need to accept either.
         assert!(
-            reason.contains("config key") || reason.contains("risky argument"),
-            "expected a config-key or risky argument refusal for `{refused}`, got {err:?}"
+            reason.contains("config key"),
+            "expected a config-key refusal for `{refused}`, got {err:?}"
         );
     }
 }
