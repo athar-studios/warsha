@@ -5,6 +5,7 @@ use chrono::Utc;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use ulid::Ulid;
 use warsha_core::*;
 use warsha_pipeline::{
     AgentMode, AgentTurnResult, BackendKit, CrashReport, LivePreview, McpConnection,
@@ -12,7 +13,7 @@ use warsha_pipeline::{
     Routine, RunModeConfig, RunWorktree, StoreReview, TodoItem,
 };
 use warsha_providers::{HealthCheck, OneClickProvider};
-use warsha_store::StoredProvider;
+use warsha_store::{SecretaryConversation, SecretaryTurn, StoredProvider};
 
 use crate::mcp_approvals::{PermissionAskAccepted, PermissionDecision};
 use crate::{McpApproval, McpApprovalAnswer, McpPermissionRow, McpPermissionsReply, RunStreamSync};
@@ -133,6 +134,28 @@ pub trait WarshaApi {
         &self,
         project_id: ProjectId,
     ) -> RpcResult<Option<crate::secretary::InterviewState>>;
+
+    #[method(name = "secretary.thread.list", with_extensions)]
+    async fn secretary_thread_list(
+        &self,
+        project_id: Option<ProjectId>,
+    ) -> RpcResult<Vec<SecretaryConversation>>;
+
+    #[method(name = "secretary.thread.turns", with_extensions)]
+    async fn secretary_thread_turns(
+        &self,
+        conversation_id: Ulid,
+        project_id: Option<ProjectId>,
+    ) -> RpcResult<Vec<SecretaryTurn>>;
+
+    #[method(name = "secretary.chat", with_extensions)]
+    async fn secretary_chat(
+        &self,
+        project_id: Option<ProjectId>,
+        conversation_id: Option<Ulid>,
+        message: String,
+        language: Option<String>,
+    ) -> RpcResult<crate::secretary_chat::ChatTurnReply>;
 
     #[method(name = "runs.start", with_extensions)]
     async fn start_run(

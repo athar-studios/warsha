@@ -36,13 +36,14 @@ use crate::auth::cors_origins;
 #[allow(unused_imports)] // named only by the doc link on `start_daemon_with_provider_factory`
 use crate::MockProviderFactory;
 use crate::{
-    acquire_lock, apply_role_routings, build_agent_loop, http_app, mcp_approvals, mcp_http,
-    pairing_origin, register_configured_providers, resolve_bind_host, scrub_event_payload,
-    seed_agent_snapshot, seed_backend_routings, seed_custom_backends, seed_role_routings, wave2,
-    windows_firewall_command, DaemonArgs, DaemonConfig, DaemonError, DaemonHandle,
-    DaemonPermissionStore, DaemonState, EventSequencer, KeychainProviderFactory, ProcessPolicy,
-    ProviderFactory, RateGovernor, Result, RpcAuthLayer, Sessions, SettingsStore, StoreRunLiveness,
-    WarshaApiServer, WarshaRpc, LOCAL_POCKETBASE_URL, MOCK_PROVIDER_ID, REMOTE_ASSETS_DIR_ENV,
+    acquire_lock, apply_role_routings, build_agent_loop, enumerate_interfaces, http_app,
+    mcp_approvals, mcp_http, pairing_origin, register_configured_providers, resolve_listener_bind,
+    scrub_event_payload, seed_agent_snapshot, seed_backend_routings, seed_custom_backends,
+    seed_role_routings, wave2, windows_firewall_command, DaemonArgs, DaemonConfig, DaemonError,
+    DaemonHandle, DaemonPermissionStore, DaemonState, EventSequencer, KeychainProviderFactory,
+    ProcessPolicy, ProviderFactory, RateGovernor, RemoteBind, Result, RpcAuthLayer, Sessions,
+    SettingsStore, StoreRunLiveness, WarshaApiServer, WarshaRpc, LOCAL_POCKETBASE_URL,
+    MOCK_PROVIDER_ID, REMOTE_ASSETS_DIR_ENV,
 };
 
 /// The backend kit a project starts from until it exports or sets one of its own.
@@ -159,6 +160,17 @@ pub async fn start_daemon_with_provider_factory(
     secrets: Arc<dyn SecretStore>,
     provider_factory: Arc<dyn ProviderFactory>,
 ) -> Result<DaemonHandle> {
+    start_daemon_with_interfaces(config, secrets, provider_factory, enumerate_interfaces()).await
+}
+
+/// [`start_daemon_with_provider_factory`] with the host's network interfaces injected, so
+/// a test can exercise `remote_bind = tailscale` without a real Tailscale adapter.
+pub(crate) async fn start_daemon_with_interfaces(
+    config: DaemonConfig,
+    secrets: Arc<dyn SecretStore>,
+    provider_factory: Arc<dyn ProviderFactory>,
+    ifaces: Vec<crate::InterfaceInfo>,
+) -> Result<DaemonHandle> {
     // The environment is consulted here and not only in [`load_or_create_config`]:
     // an embedded host that builds a [`DaemonConfig`] in-process still gets the
     // deployment knob of [`REMOTE_ASSETS_DIR_ENV`], and a configuration that named
@@ -183,6 +195,11 @@ pub async fn start_daemon_with_provider_factory(
     // that cannot be opened fails the start instead of the first setting the owner
     // changes.
     let settings = Arc::new(SettingsStore::open(&db_path).await?);
+    if config.remote_bind == RemoteBind::Default {
+        if let Ok(persisted_bind) = settings.load_remote_bind().await {
+            config.remote_bind = persisted_bind;
+        }
+    }
     let store = Arc::new(Store::open_at(db_path).await?);
 
     // Initialize provider router
@@ -504,7 +521,7 @@ pub async fn start_daemon_with_provider_factory(
     // reach this machine — it would be dialling itself. Loopback remains the default, and
     // every other address is an opt-in the owner made in the config file or with
     // `--bind-host` (see [`DaemonConfig::bind_host`] for why that posture is deliberate).
-    let bind = resolve_bind_host(&config)?;
+    let bind = resolve_listener_bind(&config, &ifaces)?;
     let rpc_addr: SocketAddr = SocketAddr::new(bind, config.ws_port);
     // The origins this daemon accepts, parsed once and used by both servers below.
     //
@@ -530,13 +547,39 @@ pub async fn start_daemon_with_provider_factory(
     let rpc_server = ServerBuilder::default()
         .set_http_middleware(
             tower::ServiceBuilder::new()
-                .layer(rpc_cors)
-                .layer(rpc_auth_layer),
+                .layer(rpc_cors.clone())
+                .layer(rpc_auth_layer.clone()),
         )
         .build(rpc_addr)
         .await
         .map_err(|e| DaemonError::Config(format!("could not bind RPC server: {e}")))?;
     let actual_rpc_port = rpc_server.local_addr()?.port();
+
+    // H1: `remote_bind = tailscale` binds the Tailscale address only, which would cut the
+    // desktop app off from `127.0.0.1`. Start a companion loopback RPC server (same state,
+    // CORS and auth layers) on the same port. Never `0.0.0.0`, never another interface.
+    let loopback_rpc_server = if config.remote_bind == RemoteBind::Tailscale
+        && bind != std::net::Ipv4Addr::LOCALHOST
+    {
+        let loopback_addr = SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), actual_rpc_port);
+        let companion = ServerBuilder::default()
+            .set_http_middleware(
+                tower::ServiceBuilder::new()
+                    .layer(rpc_cors)
+                    .layer(rpc_auth_layer),
+            )
+            .build(loopback_addr)
+            .await
+            .map_err(|e| {
+                DaemonError::Config(format!("could not bind loopback RPC companion: {e}"))
+            })?;
+        info!("companion loopback JSON-RPC listening on {loopback_addr}");
+        Some(companion.start(WarshaRpc::new(state.clone()).into_rpc()))
+    } else {
+        None
+    };
+    let mut loopback_http_task = None;
+
     // The origin a pairing link may advertise, decided now rather than at the call: this
     // is the moment the daemon knows the address it is actually reachable at, and
     // `devices.pair-start` must not put a port on a QR plate that no socket holds.
@@ -623,6 +666,31 @@ pub async fn start_daemon_with_provider_factory(
     // is the one that has to: a rate limit with no identity to key on falls back to
     // the address, and an unbounded `/events` is a socket-occupying denial of service
     // with no response code for it (audit H-01).
+    //
+    // H1: `remote_bind = tailscale` binds the Tailscale address only, which would cut the
+    // desktop app off from `127.0.0.1`. The companion loopback HTTP listener shares the same
+    // app (state, CORS, auth layers) on the same port number; it never binds `0.0.0.0`.
+    if loopback_rpc_server.is_some() {
+        let loopback_http_addr =
+            SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), actual_http_port);
+        let loopback_listener = tokio::net::TcpListener::bind(loopback_http_addr)
+            .await
+            .map_err(|e| {
+                DaemonError::Config(format!("could not bind loopback HTTP companion: {e}"))
+            })?;
+        info!("companion loopback HTTP listening on http://{loopback_http_addr}");
+        let loopback_app = app.clone();
+        loopback_http_task = Some(tokio::spawn(async move {
+            if let Err(e) = axum::serve(
+                loopback_listener,
+                loopback_app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            {
+                error!("loopback HTTP server error: {}", e);
+            }
+        }));
+    }
     let http_task = tokio::spawn(async move {
         if let Err(e) = axum::serve(
             http_listener,
@@ -638,6 +706,8 @@ pub async fn start_daemon_with_provider_factory(
         _lock_file: lock_file,
         http_task,
         rpc_server: rpc_handle,
+        loopback_http_task,
+        loopback_rpc_server,
         http_port: actual_http_port,
         rpc_port: actual_rpc_port,
         bind_addr: bind,
@@ -945,7 +1015,7 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
 
     // The environment is the deployment-time knob, overlaid last so it wins over both
     // a `config.toml` and the defaults a fresh file was written from.
-    Ok(apply_env_overrides(config))
+    apply_env_overrides(config)
 }
 
 /// Overlay `WARSHA_*` environment variables on a configuration the daemon read or made.
@@ -957,7 +1027,11 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
 /// must not brick a deploy — while the bind address is passed through as written and
 /// validated by [`resolve_bind_host`], which owns the error an owner should actually
 /// see for a non-address.
-pub(crate) fn apply_env_overrides(mut config: DaemonConfig) -> DaemonConfig {
+///
+/// Returns an error if an environment variable holds an invalid value, forcing a
+/// startup failure instead of a silent fallback to a default that may not suit
+/// the host's networking or auth requirements.
+pub(crate) fn apply_env_overrides(mut config: DaemonConfig) -> Result<DaemonConfig> {
     if let Some(host) = env_string("WARSHA_BIND_HOST") {
         config.bind_host = host;
     }
@@ -979,7 +1053,19 @@ pub(crate) fn apply_env_overrides(mut config: DaemonConfig) -> DaemonConfig {
     if let Some(dir) = env_string(REMOTE_ASSETS_DIR_ENV) {
         config.remote_assets_dir = Some(PathBuf::from(dir));
     }
-    config
+    if let Some(bind) = env_string("WARSHA_REMOTE_BIND") {
+        match bind.to_lowercase().as_str() {
+            "default" => config.remote_bind = RemoteBind::Default,
+            "localhost" => config.remote_bind = RemoteBind::Localhost,
+            "tailscale" => config.remote_bind = RemoteBind::Tailscale,
+            invalid => {
+                return Err(DaemonError::Config(format!(
+                    "invalid WARSHA_REMOTE_BIND value: '{invalid}', expected 'default', 'localhost', or 'tailscale'"
+                )));
+            }
+        }
+    }
+    Ok(config)
 }
 
 /// A non-empty environment value, trimmed; `None` when the name is unset, blank, or
