@@ -32,6 +32,14 @@ use warsha_remote::rate_limit::{Quota, RateLimiter, RefusalMeter};
 
 use super::SettingsError;
 
+/// Validates that a token is at least 32 characters long.
+pub fn validate_token(token: &str) -> Result<(), String> {
+    if token.len() < 32 {
+        return Err("token too short (H-01)".to_string());
+    }
+    Ok(())
+}
+
 /// What a caller is allowed to ask for.
 ///
 /// Two roles, because the daemon has two real kinds of caller: the machine the

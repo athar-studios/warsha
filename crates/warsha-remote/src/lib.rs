@@ -46,6 +46,8 @@ pub enum RemoteError {
     PairingOrigin(String),
     #[error("Relay error: {0}")]
     Relay(String),
+    #[error("Not implemented")]
+    NotImplemented,
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     #[error("IO error: {0}")]
@@ -615,14 +617,14 @@ impl RelayClient {
         Ok(format!("Bearer {}", pairing.secret_token()))
     }
 
-    /// Not implemented: returns `Ok(())` without sending anything.
+    /// Not implemented: returns an error instead of reporting fake success.
     pub async fn send_frame(&self, _frame: EncryptedFrame) -> Result<()> {
-        Ok(())
+        Err(RemoteError::NotImplemented)
     }
 
-    /// Not implemented: returns an empty list without reading anything.
+    /// Not implemented: returns an error instead of reporting fake success.
     pub async fn receive_frames(&self) -> Result<Vec<EncryptedFrame>> {
-        Ok(vec![])
+        Err(RemoteError::NotImplemented)
     }
 }
 

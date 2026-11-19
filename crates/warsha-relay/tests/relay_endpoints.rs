@@ -591,6 +591,30 @@ async fn a_relay_without_pairings_authenticates_no_channel() {
 
 #[tokio::test]
 async fn the_relay_stub_returns_not_implemented() {
+    let client = warsha_remote::RelayClient::new(
+        "ws://127.0.0.1:0".to_string(),
+        warsha_core::DeviceId::new(),
+    );
+    let frame = warsha_remote::EncryptedFrame {
+        from: warsha_core::DeviceId::new(),
+        to: warsha_core::DeviceId::new(),
+        nonce: [0u8; 12],
+        ciphertext: vec![],
+        timestamp: chrono::Utc::now(),
+    };
+    let send_result = client.send_frame(frame).await;
+    assert!(matches!(
+        send_result,
+        Err(warsha_remote::RemoteError::NotImplemented)
+    ));
+
+    let recv_result = client.receive_frames().await;
+    assert!(matches!(
+        recv_result,
+        Err(warsha_remote::RemoteError::NotImplemented)
+    ));
+
+    // Verify /stub route was removed
     let trust = RelayTrust::from_entries(vec![]);
     let state = Arc::new(warsha_relay::RelayState::new(trust, 1024 * 1024, 256));
     let (addr, _server) = warsha_relay::serve(state, "127.0.0.1:0")
@@ -599,5 +623,5 @@ async fn the_relay_stub_returns_not_implemented() {
     let response = reqwest::get(format!("http://{addr}/stub"))
         .await
         .expect("the relay answers");
-    assert_eq!(response.status(), reqwest::StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
 }
