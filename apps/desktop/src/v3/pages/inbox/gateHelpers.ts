@@ -27,15 +27,9 @@ export function findPendingGateAtCurrentStage(
   run: RunSummary | null
 ): GateSummary | null {
   if (!run || !gates || gates.length === 0) return null;
-  if (
-    run.status === 'completed' ||
-    run.status === 'cancelled' ||
-    run.status === 'failed'
-  ) {
+  if (run.status === 'completed' || run.status === 'cancelled' || run.status === 'failed') {
     return null;
   }
-  const match = gates.find(
-    (g) => g.stage === run.stage && g.state.state === 'pending'
-  );
+  const match = gates.find((g) => g.stage === run.stage && g.state.state === 'pending');
   return match ?? null;
 }

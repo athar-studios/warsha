@@ -3,7 +3,7 @@
 ## Supported Versions
 
 **One release is published: `v0.2.0` (2026-11-09), a normal public release with seven assets.** The tag
-`v0.2.0` exists; the tree has moved on to `0.2.1`, so the published build and the source head are not the
+`v0.2.0` exists; the tree has moved on to `0.3.0`, so the published build and the source head are not the
 same code. Treat `v0.2.0` as the only supported published build; source on `main` is work in progress. Two
 known labelling defects in that release: its Docker asset is labelled `0.1.0`, and its notes predate the
 current workflow. `release.yml` currently produces an intermediate **draft**; making a release public is a
@@ -12,8 +12,8 @@ separate, gated promotion, so a draft is not a release.
 | Component | Version in the tree | Supported |
 | --------- | ------------------- | --------- |
 | Published release | `v0.2.0` (2026-11-09) | Yes — the only published build |
-| Desktop app (`apps/desktop/src-tauri/tauri.conf.json:4`) | `0.2.1` | Source head; not published |
-| Rust crates (`Cargo.toml:18`) | `0.2.1` | Source head; not published |
+| Desktop app (`apps/desktop/src-tauri/tauri.conf.json:4`) | `0.3.0` | Source head; not published |
+| Rust crates (`Cargo.toml:18`) | `0.3.0` | Source head; not published |
 
 ## Reporting a Vulnerability
 
