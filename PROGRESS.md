@@ -2,7 +2,15 @@
 
 - [x] P11 Repo Hygiene: Claude Review §P11/S-L8 (rel-p11-final)
 - [x] P10 Hardening: Claude Review §P10 hardening items (rel-p10-harden)
-- [ ] FIX-MISC: Advisory debt, P9 manifests, UI drift, Records, Relay lints (rel-fix-misc — uncommitted, UI drift test pending)
+- [x] FIX-MISC: Advisory debt, P9 manifests, UI drift, Records, Relay lints (merged ed08b2c)
+- [x] FIX-PIPE + FIX-LAUNCH: pipeline S-H1/S-M1/S-M2 + P10 opener/token/relay (merged f6a03df/65cb9f5)
+
+## Run 2026-11-20 — Release gate matrix on r-next/integration tip ed08b2c (post fix-pipe/launch/misc)
+
+- Merges: fix-pipe 3e49147 → f6a03df; fix-launch 45dea30 → 65cb9f5; fix-misc 00723ec → ed08b2c. Independent review APPROVED all three; spot diffs verified.
+- **Full gate matrix (r-next-integration worktree, tip ed08b2c)**: `cargo fmt --check` 0; `check-versions` aligned 0.3.0; `check-arch` 5 rules 0 violations; `check-wire-contract` 11/0; `check-engineering-policy` 8/0; `i18n-gate` 1021 keys 0 violations; `actions-gate` 193 registered/used 0 violations; `cargo deny check` exit 0 (advisories/bans/licenses/sources ok); `cargo clippy --workspace --all-targets -- -D warnings` exit 0; `cargo test -p warsha-relay` 17+9 passed; `cargo test -p warsha-pipeline --lib` 529 passed 0 failed 7 ignored; `cargo test -p warsha-store` 26+1+4+19+5 passed; `cargo test -p warshad` 295 passed 0 failed 4 ignored (+8 integration); `cargo test -p warsha-cli` 16+4+7+2+3 passed; desktop tsc/client tsc/remote+ui+i18n+crypto tsc 0; eslint key packages 0; vitest client 200/200, remote 229/229, desktop 665/665 (79 files); vite production build exit 0.
+- UI drift (`tokenDrift.test.ts` main.tsx expectation): NOT re-run on the tip (no pnpm install path verified); file-level change reviewed, desktop build green.
+- **Status**: gates green on tip ed08b2c; release steps (build/install/push/tag/GH release) pending.
 
 ## Run 2026-11-20 — FIX-MISC: Advisory debt, P9 manifests, UI drift, Records, Relay lints
 
