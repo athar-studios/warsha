@@ -44,6 +44,8 @@ function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactEle
         setStartupRoute(decision.route);
         if (decision.error) {
           setStartupError(decision.error);
+        } else {
+          setStartupError(null);
         }
       })
       .catch((err) => {

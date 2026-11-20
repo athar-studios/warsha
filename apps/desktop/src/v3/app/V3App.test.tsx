@@ -1,14 +1,44 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import type { WarshaClient } from '@warsha/client';
 import { fontSizes, lineHeights } from '@warsha/ui/v3';
 import React from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { V3App } from './V3App';
 
 describe('V3App', () => {
+  it('displays danger banner when startup decision errors and clears it when rerun succeeds', async () => {
+    const failingClient = {
+      health: vi.fn().mockRejectedValue(new Error('Cannot reach Warsha daemon')),
+      listProjects: vi.fn().mockResolvedValue([]),
+    } as unknown as WarshaClient;
+
+    const { container, rerender } = render(<V3App client={failingClient} />);
+
+    await waitFor(() => {
+      const banner = container.querySelector('.v3-danger-banner');
+      expect(banner).not.toBeNull();
+      expect(banner).toHaveTextContent('Cannot reach Warsha daemon');
+    });
+
+    const healthyClient = {
+      health: vi.fn().mockResolvedValue({
+        status: 'ok',
+        version: '0.2.1',
+        capabilities: { runControls: false },
+      }),
+      listProjects: vi.fn().mockResolvedValue([]),
+    } as unknown as WarshaClient;
+
+    rerender(<V3App client={healthyClient} />);
+
+    await waitFor(() => {
+      expect(container.querySelector('.v3-danger-banner')).toBeNull();
+    });
+  });
   it('renders Frame with route page and main data-ready="true"', () => {
     const { container } = render(<V3App initialRoute="/projects" />);
 
