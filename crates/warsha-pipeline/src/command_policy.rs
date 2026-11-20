@@ -694,6 +694,45 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
     while index < args.len() {
         let argument = args[index].trim();
         let lowered = argument.to_ascii_lowercase();
+
+        // Scan for the first non-flag subcommand
+        if !argument.starts_with('-')
+            && argument != "."
+            && !args
+                .get(index.saturating_sub(1))
+                .map(|a| {
+                    let a_low = a.to_ascii_lowercase();
+                    a_low == "-c"
+                        || a_low == "--config"
+                        || a_low == "--config-env"
+                        || a_low == "-c"
+                        || a_low == "-c"
+                        || a_low == "-c"
+                        || a_low == "-C"
+                })
+                .unwrap_or(false)
+        {
+            if lowered == "rebase"
+                && args
+                    .get(index + 1)
+                    .map(|a| a == "-x" || a == "--exec")
+                    .unwrap_or(false)
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git rebase -x is not allowed".to_string(),
+                });
+            }
+            if lowered == "submodule"
+                && args.get(index + 1).map(|a| a == "foreach").unwrap_or(false)
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git submodule foreach is not allowed".to_string(),
+                });
+            }
+        }
+
         if lowered == "--exec-path" || lowered.starts_with("--exec-path=") {
             return Err(CommandPolicyError::InvalidCommand {
                 command: argument.to_string(),
