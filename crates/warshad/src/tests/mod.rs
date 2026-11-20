@@ -234,6 +234,7 @@ pub(super) async fn test_state_with_seams(
         // unless a test publishes onto it directly; the live stream is exercised by
         // the real-daemon tests.
         events: Arc::new(EventSequencer::new()),
+        start_time: std::time::Instant::now(),
     });
     (state, store)
 }

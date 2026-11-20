@@ -475,6 +475,7 @@ pub(crate) async fn start_daemon_with_interfaces(
         // Filled the moment the RPC listener has bound — see [`DaemonState::pairing_origin`].
         pairing_origin: std::sync::OnceLock::new(),
         events,
+        start_time: std::time::Instant::now(),
     });
 
     // The single writer of the event stream: drain the store's event bus, scrub each

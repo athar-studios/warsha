@@ -32,10 +32,11 @@ describe('useHealth', () => {
     expect(result.current.data).toEqual(emptyHealth);
   });
 
-  it('handles ready state when health is ok', async () => {
+  it('handles ready state when health is ok and includes uptimeSeconds', async () => {
     const healthData: HealthInfo = {
       status: 'ok',
-      version: '0.2.1',
+      version: '0.3.0',
+      uptimeSeconds: 3600,
     };
     const client = {
       health: vi.fn().mockResolvedValue(healthData),
@@ -46,6 +47,7 @@ describe('useHealth', () => {
 
     expect(result.current.status).toBe('ready');
     expect(result.current.data).toEqual(healthData);
+    expect(result.current.data?.uptimeSeconds).toBe(3600);
   });
 
   it('handles error state and reloads', async () => {

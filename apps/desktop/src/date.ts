@@ -88,3 +88,40 @@ export function formatTime(
     hour12: false,
   }).format(date);
 }
+
+/**
+ * Format uptime seconds into human-readable duration (`45s`, `2m 5s`, `3h 12m 4s`, `2d 4h 10m`).
+ *
+ * Falls back to `—` for null, undefined, negative numbers, or non-finite inputs.
+ */
+export function formatUptime(seconds: unknown, fallback: string = DATE_FALLBACK): string {
+  let sec: number;
+  if (typeof seconds === 'number') {
+    sec = seconds;
+  } else if (typeof seconds === 'string') {
+    const trimmed = seconds.trim();
+    if (trimmed.length === 0) return fallback;
+    sec = Number(trimmed);
+  } else {
+    return fallback;
+  }
+
+  if (!Number.isFinite(sec) || sec < 0) return fallback;
+
+  const total = Math.floor(sec);
+  if (total < 60) {
+    return `${total}s`;
+  }
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  if (h < 1) {
+    return `${m}m ${s}s`;
+  }
+  if (h < 24) {
+    return `${h}h ${m}m ${s}s`;
+  }
+  const d = Math.floor(h / 24);
+  const remH = h % 24;
+  return `${d}d ${remH}h ${m}m`;
+}

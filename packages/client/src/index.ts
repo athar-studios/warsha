@@ -2392,6 +2392,7 @@ export interface HealthReport {
   status: string;
   version: string;
   capabilities: HealthCapabilities;
+  uptimeSeconds?: number;
 }
 
 export class WarshaClient
@@ -3265,10 +3266,14 @@ export class WarshaClient
   async health(): Promise<HealthReport> {
     const result = await this.rpc<unknown>('health');
     const record = wave2Object(result, 'health');
+    const uptime = field(record, 'uptime_seconds');
+    const uptimeSeconds =
+      typeof uptime === 'number' && Number.isFinite(uptime) && uptime >= 0 ? uptime : undefined;
     return {
       status: wave2String(record, 'status'),
       version: wave2String(record, 'version'),
       capabilities: { runControls: healthRunControls(field(record, 'capabilities')) },
+      ...(uptimeSeconds !== undefined ? { uptimeSeconds } : {}),
     };
   }
 

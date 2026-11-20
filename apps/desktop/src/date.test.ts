@@ -4,16 +4,19 @@
 // these helpers are the guard behind the boundary.
 import { describe, expect, it } from 'vitest';
 
-import { DATE_FALLBACK, formatDate, formatInstant, formatTime, parseSafeDate } from './date';
+import {
+  DATE_FALLBACK,
+  formatDate,
+  formatInstant,
+  formatTime,
+  formatUptime,
+  parseSafeDate,
+} from './date';
 
 describe('parseSafeDate', () => {
   it('parses the shapes the daemon and its harnesses send', () => {
-    expect(parseSafeDate('2026-10-28T00:00:00Z')?.getTime()).toBe(
-      Date.UTC(2026, 9, 28, 0, 0, 0)
-    );
-    expect(parseSafeDate(new Date(Date.UTC(2026, 9, 28)))?.getTime()).toBe(
-      Date.UTC(2026, 9, 28)
-    );
+    expect(parseSafeDate('2026-10-28T00:00:00Z')?.getTime()).toBe(Date.UTC(2026, 9, 28, 0, 0, 0));
+    expect(parseSafeDate(new Date(Date.UTC(2026, 9, 28)))?.getTime()).toBe(Date.UTC(2026, 9, 28));
     expect(parseSafeDate(0)?.getTime()).toBe(0);
   });
 
@@ -53,5 +56,43 @@ describe('the formatters never throw', () => {
   it('works without a locale at all', () => {
     expect(() => formatDate(good)).not.toThrow();
     expect(formatDate(undefined)).toBe(DATE_FALLBACK);
+  });
+});
+
+describe('formatUptime', () => {
+  it('formats various durations', () => {
+    expect(formatUptime(0)).toBe('0s');
+    expect(formatUptime(45)).toBe('45s');
+    expect(formatUptime(60)).toBe('1m 0s');
+    expect(formatUptime(125)).toBe('2m 5s');
+    expect(formatUptime(3600)).toBe('1h 0m 0s');
+    expect(formatUptime(3665)).toBe('1h 1m 5s');
+    expect(formatUptime(86400)).toBe('1d 0h 0m');
+    expect(formatUptime(90060)).toBe('1d 1h 1m');
+  });
+
+  it('supports string representation of numbers', () => {
+    expect(formatUptime('42')).toBe('42s');
+  });
+
+  it('falls back safely without throwing for invalid inputs', () => {
+    for (const broken of [
+      undefined,
+      null,
+      '',
+      '   ',
+      'garbage',
+      -1,
+      -100,
+      Number.NaN,
+      Infinity,
+      -Infinity,
+      {},
+      [],
+    ]) {
+      expect(() => formatUptime(broken)).not.toThrow();
+      expect(formatUptime(broken)).toBe(DATE_FALLBACK);
+      expect(formatUptime(broken, 'N/A')).toBe('N/A');
+    }
   });
 });

@@ -13,6 +13,7 @@ import {
 } from '@warsha/ui/v3';
 import React, { useEffect, useState } from 'react';
 
+import { formatUptime } from '../../../../date';
 import { useAction } from '../../../actions';
 import { useClient, useReloadClient } from '../../../app/ClientContext';
 import { useDataReady } from '../../../app/DataReadyContext';
@@ -56,7 +57,8 @@ export function AboutSection(): React.ReactElement {
   const isOnline = isDaemonHealthy(health?.status) && status === 'ready';
 
   const handleCopy = (): void => {
-    const info = `Warsha Daemon ${health?.version ?? '—'} (Status: ${isOnline ? health?.status : 'down'}) - Data: ${dataDir}`;
+    const uptimeStr = formatUptime(health?.uptimeSeconds);
+    const info = `Warsha Daemon ${health?.version ?? '—'} (Status: ${isOnline ? health?.status : 'down'}, Uptime: ${uptimeStr}) - Data: ${dataDir}`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(info).catch(() => {});
     }
@@ -153,6 +155,10 @@ export function AboutSection(): React.ReactElement {
           <KeyValue
             label={t('settings.about.version')}
             value={<bdi dir="ltr">{health?.version ?? '—'}</bdi>}
+          />
+          <KeyValue
+            label={t('settings.about.uptime')}
+            value={<bdi dir="ltr">{formatUptime(health?.uptimeSeconds)}</bdi>}
           />
           <KeyValue
             label={t('settings.about.data_dir')}

@@ -602,6 +602,11 @@ pub struct DaemonState {
     /// order, and the same reason the `/events` replay and the `runs.subscribe` sync
     /// cannot disagree about where the stream is.
     pub events: Arc<EventSequencer>,
+    /// When this daemon instance started running.
+    ///
+    /// Single source of truth for daemon uptime across HTTP `/health` and JSON-RPC
+    /// `health` so both endpoints report truthful, monotonically increasing uptime.
+    pub start_time: std::time::Instant,
 }
 
 /// Whether a paired actor's device is still in the active pairing set.
