@@ -15,12 +15,12 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAction } from '../../actions';
-import { useClient } from '../../app/ClientContext';
+import { useClient, useReloadClient } from '../../app/ClientContext';
 import { useDataReady } from '../../app/DataReadyContext';
 import { useDensity, type AppMode } from '../../app/DensityContext';
 import { subscribeToast, type ToastMessage } from '../../app/toast';
 import { useSoundCues } from '../../app/useSoundCues';
-import { useHealth, useProjects } from '../../data';
+import { isDaemonHealthy, useHealth, useProjects } from '../../data';
 import { useNavigate, useRoute } from '../../router';
 
 import '@warsha/ui/v3/tokens/tokens.css';
@@ -76,6 +76,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
   const { isReady } = useDataReady();
   const { mode, density, setMode } = useDensity();
   const client = useClient();
+  const reloadClient = useReloadClient();
   const navigate = useNavigate();
   const { params } = useRoute();
 
@@ -170,13 +171,19 @@ export function Frame({ children }: FrameProps): React.ReactElement {
   // an addition to the inbox badge / run status chip, never a replacement (D2-d).
   useSoundCues({ inboxCount, runsByProject });
 
-  const daemonOffline = healthResult.status === 'error';
+  const isOnline = isDaemonHealthy(healthResult.data?.status) && healthResult.status === 'ready';
+  const daemonOffline = healthResult.status === 'error' || (!isOnline && healthResult.status !== 'loading');
 
   const retryAction = useAction('frame.daemon.retry', async () => {
-    if (!client) {
+    let activeClient = client;
+    if (!activeClient && reloadClient) {
+      activeClient = await reloadClient();
+    }
+    if (!activeClient) {
+      healthResult.reload();
       throw new Error(t('frame.daemon_offline'));
     }
-    await client.health();
+    await activeClient.health();
     healthResult.reload();
     projectsResult.reload();
   });

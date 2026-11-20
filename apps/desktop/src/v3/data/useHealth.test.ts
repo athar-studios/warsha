@@ -72,4 +72,40 @@ describe('useHealth', () => {
     expect(result.current.status).toBe('ready');
     expect(result.current.data).toEqual(recovered);
   });
+
+  it('handles error state when client is null', async () => {
+    const { result } = renderHook(() => useHealth(null));
+    await act(async () => {});
+
+    expect(result.current.status).toBe('error');
+    expect(result.current.error?.message).toBe('Cannot reach Warsha daemon');
+  });
+
+  it('handles ready state when status is healthy', async () => {
+    const healthData: HealthInfo = {
+      status: 'healthy',
+      version: '0.3.0',
+    };
+    const client = {
+      health: vi.fn().mockResolvedValue(healthData),
+    } as unknown as WarshaClient;
+
+    const { result } = renderHook(() => useHealth(client));
+    await act(async () => {});
+
+    expect(result.current.status).toBe('ready');
+    expect(result.current.data).toEqual(healthData);
+  });
+
+  it('handles error state when health status reports offline', async () => {
+    const client = {
+      health: vi.fn().mockResolvedValue({ status: 'offline', version: '0.2.1' }),
+    } as unknown as WarshaClient;
+
+    const { result } = renderHook(() => useHealth(client));
+    await act(async () => {});
+
+    expect(result.current.status).toBe('error');
+    expect(result.current.error?.message).toBe('Daemon status: offline');
+  });
 });

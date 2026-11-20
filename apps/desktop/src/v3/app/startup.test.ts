@@ -69,4 +69,53 @@ describe('decideStartupRoute', () => {
     expect(decision.route).toBe('/p/proj-123');
     expect(decision.error).toBeUndefined();
   });
+
+  it('routes to Frame route with danger error when client is null, never onboarding', async () => {
+    const opts: StartupOptions = {
+      readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
+      client: null,
+    };
+    const decision = await decideStartupRoute(opts);
+    expect(decision.route).toBe('/');
+    expect(decision.error).toBe('Cannot reach Warsha daemon');
+    expect(decision.route).not.toBe('/onboarding');
+  });
+
+  it('routes to Frame route with danger error when readConfig throws, never onboarding', async () => {
+    const opts: StartupOptions = {
+      readConfig: async () => {
+        throw new Error('IPC failed');
+      },
+      client: {
+        health: async () => ({
+          status: 'ok',
+          version: '0.2.1',
+          capabilities: { runControls: false },
+        }),
+        listProjects: async () => [],
+      },
+    };
+    const decision = await decideStartupRoute(opts);
+    expect(decision.route).toBe('/');
+    expect(decision.error).toBe('IPC failed');
+    expect(decision.route).not.toBe('/onboarding');
+  });
+
+  it('routes to Frame route with danger error when daemon health reports offline, never onboarding', async () => {
+    const opts: StartupOptions = {
+      readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
+      client: {
+        health: async () => ({
+          status: 'offline',
+          version: '0.2.1',
+          capabilities: { runControls: false },
+        }),
+        listProjects: async () => [],
+      },
+    };
+    const decision = await decideStartupRoute(opts);
+    expect(decision.route).toBe('/');
+    expect(decision.error).toBe('Daemon status: offline');
+    expect(decision.route).not.toBe('/onboarding');
+  });
 });

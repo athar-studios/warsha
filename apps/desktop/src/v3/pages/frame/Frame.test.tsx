@@ -47,15 +47,15 @@ function makeMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
 
 async function renderFrame(
   options: {
-    client?: WarshaClient;
+    client?: WarshaClient | null;
     initialPath?: string;
     locale?: 'ar' | 'en';
     initialMode?: 'simple' | 'developers';
     children?: React.ReactNode;
   } = {}
 ) {
+  const client = options.client !== undefined ? options.client : makeMockClient();
   const {
-    client = makeMockClient(),
     initialPath = '/',
     locale = 'ar',
     initialMode = 'simple',
@@ -322,6 +322,38 @@ describe('Frame component', () => {
 
     await waitFor(() => {
       expect(screen.queryByText('Cannot reach Warsha daemon — retry')).toBeNull();
+    });
+  });
+
+  it('shows danger Banner when client is null (daemon offline) and notifies on retry', async () => {
+    const { container } = await renderFrame({ client: null, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cannot reach Warsha daemon — retry')).toBeDefined();
+    });
+
+    const retryBtn = container.querySelector('[data-action="frame.daemon.retry"]') as HTMLButtonElement;
+    expect(retryBtn).not.toBeNull();
+
+    await act(async () => {
+      fireEvent.click(retryBtn);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Cannot reach Warsha daemon — retry').length).toBeGreaterThanOrEqual(1);
+      expect(container.querySelector('.v3-frame-banner')).not.toBeNull();
+    });
+  });
+
+  it('shows danger Banner when daemon health status is offline, preventing silent green', async () => {
+    const client = makeMockClient({
+      health: vi.fn().mockResolvedValue({ status: 'offline', version: '0.2.1' }),
+    });
+    await renderFrame({ client, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cannot reach Warsha daemon — retry')).toBeDefined();
     });
   });
 
