@@ -556,7 +556,7 @@ impl WarshaApiServer for WarshaRpc {
             .and_then(|m| warsha_core::RunMode::from_str(&m).ok())
             .unwrap_or_default();
 
-        let run = self
+        let mut run = self
             .state
             .pipeline
             .start_run_in_mode(project_id, &idea, run_mode, spec_file_path.as_deref())
@@ -647,6 +647,11 @@ impl WarshaApiServer for WarshaRpc {
             .await
             {
                 Ok(worktree) => {
+                    run.worktree_path = Some(worktree.path.to_string_lossy().into_owned());
+                    run.worktree_branch = Some(format!("warsha/run-{}", run.id.0));
+                    if let Err(e) = self.state.store.update_run(&run).await {
+                        tracing::warn!("failed to persist run worktree path: {e}");
+                    }
                     self.state
                         .run_worktrees
                         .write()
