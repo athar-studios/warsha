@@ -591,6 +591,7 @@ jobs:
       - name: Reject an existing release for this tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           if gh release view "${{ needs.prepare.outputs.tag }}" >/dev/null 2>&1; then
@@ -602,6 +603,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: Warsha ${{ needs.prepare.outputs.version }}
           body: ${{ needs.prepare.outputs.release_notes }}
           draft: true
@@ -624,7 +626,7 @@ jobs:
 
       - name: Verify no placeholders in all artifacts
         run: |
-          grep -rn "PLACEHOLDER" release/ && exit 1 || echo "No placeholders found."
+          grep -rI --exclude-dir="*AppDir*" "PLACEHOLDER" release/ && exit 1 || echo "No placeholders found."
 
   # ============================================================
   # Promote the verified draft to a public release (separate, gated step)

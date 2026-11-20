@@ -1,5 +1,10 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — FIX-RELEASE: Guard repo context, pin draft target, scope placeholder grep (D-RN-REL-DRAFT-1, D-RN-REL-PLACEHOLDER-1)
+- **Root cause**: Guard without repo context (`release` job has no checkout step, so `gh release view` could not resolve repository and the guard never fired) + unpinned target (`softprops/action-gh-release@v2` defaulted target to `main`, reusing stale polluted draft 452058329 containing 267 junk payload assets including AppRun and .so files) + binary grep (`Verify no placeholders in all artifacts` grep scanned binary payloads under `release/desktop/appimage/Warsha.AppDir/...` causing false positives on nested bundles retained on disk for the count assertion).
+- **Fix**: Added `GH_REPO: ${{ github.repository }}` env to guard step; added `target_commitish: ${{ github.sha }}` to draft release action; updated verifier to `grep -rI --exclude-dir="*AppDir*" "PLACEHOLDER" release/`. Stale draft 452058329 deleted before re-run so the action starts clean.
+- **Status**: uncommitted pending commit/push/retag/CI.
+
 ## Run 2026-11-20 — FIX-RELEASE: Nested bundle upload collisions (D-RN-REL-DESKTOP-1)
 - **Root cause**: After the organizer flatten was dropped, `release/desktop/**/*` in `Create draft release` included hundreds of same-basename payload files (`copyright`, `Warsha.desktop`, `.so` files), causing `HttpError: Not Found` on `releases/assets#delete-a-release-asset` as the uploader's overwrite-by-name logic failed.
 - **Fix**: Replaced recursive glob with explicit installer-only glob list. Added installer-count assertion to `Organize release files`.

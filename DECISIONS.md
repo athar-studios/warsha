@@ -1,4 +1,14 @@
 
+## 2026-11-20 — D-RN-REL-DRAFT-1: Guard repo context, pin draft target, delete stale draft
+- **Decision**: Guard needs GH_REPO because release job has no checkout; target_commitish pins draft to run SHA instead of main; stale draft 452058329 (target=main, 267 junk assets) must be deleted before re-run so the action does not reuse it.
+- **Reason**: The `release` job has no checkout step, so `gh release view` cannot resolve repository context without `GH_REPO`, causing the guard to never fire. Without `target_commitish`, `softprops/action-gh-release@v2` targets `main` and reuses duplicate draft 452058329 with 267 junk payload assets.
+- **Record**: Set `GH_REPO: ${{ github.repository }}` on the guard step, set `target_commitish: ${{ github.sha }}` on the release action, and purge stale draft 452058329 before retagging.
+
+## 2026-11-20 — D-RN-REL-PLACEHOLDER-1: Scope verifier grep with -I and --exclude-dir=*AppDir*
+- **Decision**: Verifier uses `-I` + `--exclude-dir=*AppDir*` (`grep -rI --exclude-dir="*AppDir*" "PLACEHOLDER" release/`).
+- **Reason**: Verifier uses `-I` + `--exclude-dir=*AppDir*` because nested AppDir payloads stay on disk and binary matches are false positives.
+- **Record**: Verifier grep scoped to ignore binaries and internal bundle payloads under `release/desktop/appimage/Warsha.AppDir/...`.
+
 ## 2026-11-20 — D-RN-REL-DESKTOP-1: Nested bundles stay on disk for assert
 - **Decision**: Nested bundles stay on disk for assert, only installer extensions upload.
 - **Reason**: Payload basenames collide in release-asset namespace; installer extensions are installer-only.
