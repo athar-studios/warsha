@@ -1,5 +1,47 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Merge 4 Verified Round-3 Fix Lanes into r-next/integration
+- **Scope**: Local merge of 4 verified round-3 fix lanes into `r-next/integration` (`.agents/worktrees/r-next-integration`) from base tip `6002ee7`. Local-only: no push, no tag move, no publish, main untouched, tip unpushed.
+- **Lane Branches and Merges**:
+  - `fix-r3-ci-lane`: commit `12ce988`, merge commit `723e142`
+    - N-H2 tokenDrift + lint (`ModelsSection.tsx` token vars).
+    - N-M2 UTF-8 `floor_char_boundary` in `crates/warsha-providers/src/provider_setup.rs` + tests.
+    - N-M4 kind -> `default_base_url` fallback in `crates/warshad/src/api.rs`, `lib.rs`, `tests/mod.rs`.
+    - Dropped 1-line noise diff in `apps/desktop/src/v3/data/useHealth.ts`, keeping banner version.
+  - `fix-r3-policy-lane`: commit `3c8ab04`, merge commit `79a70e4`
+    - H1/N-H1 command approval bypass hardening (`command_policy.rs`, `work_protection.rs`).
+    - H2/N-M1 missing risky command rows (`risky_commands.rs`, `work_protection.rs`, `verification_tests_impl.rs`).
+    - Recorded `D-R3-POLICY-HARDENING` in `DECISIONS.md`.
+  - `fix-r3-banner-lane`: commit `687f0de`, merge commit `6064647`
+    - N-M3 banner recovery (`apps/desktop/src/v3/app/V3App.tsx`, `V3App.test.tsx`).
+  - `fix-r3-govern-lane`: commit `d2845f3`, merge commit `d6dadc1`
+    - N-M6 `deny.toml` chrono ignore removal + `D-RN-OD-CHRONO`.
+    - N-M5 `agent_tools.rs` symlink containment test.
+    - N-M7 `scripts/verify-release-artifacts.test.mjs` test suite.
+- **Reconciliation & Overlaps**:
+  - `ModelsSection.tsx`: kept CI lane token variable fixes.
+  - `useHealth.ts`: kept banner version (`isDaemonHealthy` + `uptimeSeconds`).
+  - `crates/warshad/tests/mod.rs`: union of tests preserved.
+  - `DECISIONS.md` / `PROGRESS.md`: cleanly unioned all D-R3-* entries without reflow.
+- **Gate Matrix (CARGO_HOME=/tmp/cargo-home)**:
+  - `cargo fmt --check`: exit code 0 (clean).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit code 0 (0 warnings, 0 errors).
+  - `cargo test -p warsha-providers --lib`: exit code 0 (61 passed; 0 failed; 0 ignored).
+  - `cargo test -p warshad --lib`: exit code 0 (301 passed; 0 failed; 4 ignored).
+  - `node_modules/.bin/tsc --noEmit -p apps/desktop/tsconfig.json`: exit code 0.
+  - `node scripts/check-engineering-policy.mjs`: exit code 0 (8 checks, 0 failures).
+  - `node scripts/check-versions.mjs`: exit code 0 (versions: aligned 0.3.0).
+  - `node scripts/check-arch.mjs`: exit code 0 (5 rules, 0 violations).
+  - `node scripts/check-wire-contract.mjs`: exit code 0 (11 checks, 0 violations).
+  - `node scripts/ci/i18n-gate.mjs .`: exit code 0 (1036 keys, 0 violations).
+- **Additional Verification**:
+  - `cargo test -p warsha-pipeline --lib`: exit code 0 (540 passed; 0 failed; 7 ignored).
+  - `node scripts/verify-release-artifacts.test.mjs`: exit code 0 (9 passed; 0 failed).
+  - `apps/desktop/src/v3/app/V3App.test.tsx`: exit code 0 (4 passed; 0 failed).
+  - `apps/desktop/src/v3/pages/settings/sections/ModelsSection.test.tsx`: exit code 0 (5 passed; 0 failed).
+- **Status**:
+  ROUND-3 MERGES AND GATES COMPLETE — ALL 10 GATES PASSED (EXIT CODE 0) — UNPUSHED
+
 ## Run 2026-11-20 — Round-3 Blockers H1/N-H1 and H2/N-M1 Policy Hardening (fix-r3-policy)
 - **Scope**: Fix round-3 blockers H1/N-H1 (approval bypass) + H2/N-M1 (missing risky rows) in worktree `.agents/worktrees/fix-r3-policy` detached at `6002ee7`. Local-only: no push, no tag, no publish, uncommitted changes left in working tree.
 - **Implemented Fixes**:
