@@ -337,11 +337,7 @@ pub async fn probe_endpoint(base_url: &str, api_key: &str) -> HealthCheck {
             )
         } else {
             let trimmed = scrubbed.trim();
-            let short = if trimmed.len() > 200 {
-                &trimmed[..200]
-            } else {
-                trimmed
-            };
+            let short = &trimmed[..trimmed.floor_char_boundary(200)];
             format!("the endpoint answered HTTP {}: {}", status.as_u16(), short)
         };
         unhealthy(detail)
@@ -415,11 +411,7 @@ pub async fn probe_models(base_url: &str, api_key: &str) -> Result<Vec<ModelInfo
             format!("HTTP {}", status.as_u16())
         } else {
             let trimmed = scrubbed.trim();
-            let short = if trimmed.len() > 200 {
-                &trimmed[..200]
-            } else {
-                trimmed
-            };
+            let short = &trimmed[..trimmed.floor_char_boundary(200)];
             format!("HTTP {}: {}", status.as_u16(), short)
         };
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
@@ -701,6 +693,20 @@ mod tests {
     /// without an endpoint that answers, so the endpoint is here, on `127.0.0.1`,
     /// and it records what the probe sent it.
     fn stub_endpoint(status: u16) -> (String, Arc<Mutex<Vec<String>>>) {
+        stub_endpoint_with_capture(
+            status,
+            if status == 200 {
+                r#"{"data":[]}"#
+            } else {
+                "{}"
+            },
+        )
+    }
+
+    fn stub_endpoint_with_capture(
+        status: u16,
+        body_str: &str,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
         use std::io::{BufRead, BufReader, Write};
         use std::net::TcpListener;
 
@@ -708,6 +714,7 @@ mod tests {
         let port = listener.local_addr().expect("the bound address").port();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let captured = seen.clone();
+        let body = body_str.to_string();
 
         thread::spawn(move || {
             for stream in listener.incoming() {
@@ -726,13 +733,8 @@ mod tests {
                     .expect("the capture lock")
                     .push(authorization);
 
-                let body = if status == 200 {
-                    r#"{"data":[]}"#
-                } else {
-                    "{}"
-                };
                 let response = format!(
-                    "HTTP/1.1 {status} stub\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 {status} stub\r\ncontent-type: application/json; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                     body.len()
                 );
                 let _ = stream.write_all(response.as_bytes());
@@ -740,6 +742,11 @@ mod tests {
         });
 
         (format!("http://127.0.0.1:{port}/v1"), seen)
+    }
+
+    fn stub_endpoint_with_body(status: u16, body_str: &str) -> String {
+        let (url, _) = stub_endpoint_with_capture(status, body_str);
+        url
     }
 
     /// A port nothing listens on: bound to get a free number, then released.
@@ -806,6 +813,51 @@ mod tests {
         assert_ne!(
             wrong_key.error, unreachable.error,
             "an owner who mistyped a key must not be told the endpoint is down"
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_handles_non_ascii_utf8_truncation_without_panic() {
+        // Construct a body where byte 200 falls inside multi-byte character 'ب' (U+0628, 2 bytes).
+        // 199 ASCII bytes + 2-byte 'ب' + trailing text: byte 200 is the second byte of 'ب'.
+        let prefix = "x".repeat(199);
+        let body = format!("{prefix}ب_more_text_after_char_boundary");
+        assert_eq!(prefix.len(), 199);
+        assert!(!body.is_char_boundary(200), "byte 200 must land inside 'ب'");
+
+        // 1. probe_models with HTTP 401
+        let url_401 = stub_endpoint_with_body(401, &body);
+        let models_res = probe_models(&url_401, "sk-test-key").await;
+        assert!(models_res.is_err(), "probe_models must return error on 401");
+        let err_msg = match models_res {
+            Err(ProviderError::Auth(msg)) => msg,
+            other => panic!("expected ProviderError::Auth, got {other:?}"),
+        };
+        assert!(
+            err_msg.contains(&prefix),
+            "error message should contain truncated detail: {err_msg}"
+        );
+        assert!(
+            !err_msg.contains('ب'),
+            "character 'ب' should be truncated away since boundary was at 199"
+        );
+
+        // 2. probe_endpoint with HTTP 401 (proves 401 probe path doesn't panic)
+        let health_401 = probe_endpoint(&url_401, "sk-test-key").await;
+        assert!(!health_401.healthy);
+
+        // 3. probe_endpoint with HTTP 500 (exercises line 341 truncation path with non-ASCII body)
+        let url_500 = stub_endpoint_with_body(500, &body);
+        let health_500 = probe_endpoint(&url_500, "sk-test-key").await;
+        assert!(!health_500.healthy);
+        let err_500 = health_500.error.expect("probe_endpoint error");
+        assert!(
+            err_500.contains(&prefix),
+            "endpoint error should contain truncated detail: {err_500}"
+        );
+        assert!(
+            !err_500.contains('ب'),
+            "character 'ب' should be truncated away since boundary was at 199"
         );
     }
 }

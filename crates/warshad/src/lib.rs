@@ -1333,11 +1333,16 @@ impl WarshaApiServer for WarshaRpc {
         name: String,
         api_base: Option<String>,
         key: Option<String>,
-        _kind: Option<String>,
+        kind: Option<String>,
     ) -> RpcResult<warsha_providers::ModelCatalogDiff> {
         self.authorize(ext, "providers.check_models").await?;
 
-        let api_base = api_base.filter(|s| !s.trim().is_empty());
+        let api_base = api_base.filter(|s| !s.trim().is_empty()).or_else(|| {
+            kind.as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .and_then(default_base_url_for_kind)
+                .map(str::to_string)
+        });
         let key = key.filter(|s| !s.trim().is_empty());
 
         if let (Some(url), Some(k)) = (&api_base, &key) {

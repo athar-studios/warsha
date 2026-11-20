@@ -908,17 +908,31 @@ pub struct AuthCompleteResponse {
 /// Recognises the one-click presets plus standard vendor kinds (`openai`,
 /// `anthropic`, `ollama`). Returns `None` for custom endpoints and unrecognized kinds.
 pub(crate) fn default_base_url_for_kind(kind: &str) -> Option<&'static str> {
-    if let Some(one_click) = OneClickProvider::from_tag(kind) {
-        if let Some(url) = one_click.default_base_url() {
-            return Some(url);
-        }
-    }
     let normalised: String = kind
         .trim()
         .chars()
         .flat_map(|c| c.to_lowercase())
         .map(|c| if c == '-' || c == ' ' { '_' } else { c })
         .collect();
+
+    if let Ok(override_url) = std::env::var("WARSHA_TEST_DEFAULT_BASE_URL") {
+        if !override_url.trim().is_empty() {
+            let is_known = OneClickProvider::from_tag(kind).is_some()
+                || matches!(
+                    normalised.as_str(),
+                    "openai" | "anthropic" | "claude" | "ollama"
+                );
+            if is_known {
+                return Some(Box::leak(override_url.into_boxed_str()));
+            }
+        }
+    }
+
+    if let Some(one_click) = OneClickProvider::from_tag(kind) {
+        if let Some(url) = one_click.default_base_url() {
+            return Some(url);
+        }
+    }
     match normalised.as_str() {
         "openai" => Some("https://api.openai.com/v1"),
         "anthropic" | "claude" => Some("https://api.anthropic.com"),
