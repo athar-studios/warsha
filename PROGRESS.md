@@ -40,7 +40,7 @@
   - `apps/desktop/src/v3/app/V3App.test.tsx`: exit code 0 (4 passed; 0 failed).
   - `apps/desktop/src/v3/pages/settings/sections/ModelsSection.test.tsx`: exit code 0 (5 passed; 0 failed).
 - **Status**:
-  ROUND-3 MERGES AND GATES COMPLETE — ALL 10 GATES PASSED (EXIT CODE 0) — UNPUSHED
+  FIXES COMPLETE — AWAITING CLAUDE VERIFICATION (round-3 merges + gates green, unpushed, local-only)
 
 ## Run 2026-11-20 — Round-3 Blockers H1/N-H1 and H2/N-M1 Policy Hardening (fix-r3-policy)
 - **Scope**: Fix round-3 blockers H1/N-H1 (approval bypass) + H2/N-M1 (missing risky rows) in worktree `.agents/worktrees/fix-r3-policy` detached at `6002ee7`. Local-only: no push, no tag, no publish, uncommitted changes left in working tree.
