@@ -1,5 +1,17 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — R2 FIX-LANE INTEGRATION
+- **Changes**: Merged lanes H1, H2, M1, SYM, M5.
+- **Risky Commands**: Unified H1/H2 policies in `crates/warsha-pipeline/src/risky_commands.rs`.
+- **Verification**: 
+  - `cargo fmt --check`: PASSED.
+  - `cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: PASSED.
+  - `cargo clippy -p warshad --all-targets -- -D warnings`: PASSED.
+  - `cargo test -p warsha-pipeline --lib`: 532 passed.
+  - `cargo test -p warshad --lib -- validate_token_for_config_tailscale_requires_long_token`: PASSED.
+  - `cargo deny check`: PASSED (root + apps/desktop/src-tauri).
+- **Decisions**: D-RN-R2-H1, D-RN-R2-H2, D-RN-R2-M1, D-RN-R2-M2-M4, D-RN-R2-M5 (see DECISIONS.md).
+
 ## Run 2026-11-20 — FIX-RELEASE: verifier x86_64-only (D-RN-REL-AARCH64-1)
 - **Root cause**: `scripts/verify-release-artifacts.mjs` lines 90-93 hard-failed with `missing CLI asset for aarch64` and `missing daemon asset for aarch64`. However, `release.yml` rust-build matrix (lines 128-138) and desktop matrix (lines 232-246) build x86_64 only by pipeline design (`x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`). Draft 452168316 holds 15 x86_64-only assets (6 rust binaries, 6 desktop installers, 2 SBOMs, checksums.sha256). No aarch64 assets exist. This was the second and remaining promotion blocker after the checksum scoping fix.
 - **Fix**: Updated `scripts/verify-release-artifacts.mjs` to keep x86_64 CLI and daemon checks as hard fail-closed failures (`problems.push`), while downgrading the missing aarch64 CLI/daemon checks to non-blocking informational notes (`report.arch = "x86_64-only"` and `report.notes`). All other checks (tag/version identity, non-empty assets, checksums listed and matching in both directions, desktop installers, SBOMs, signing scope) remain strictly unchanged and fail-closed.
