@@ -14,13 +14,14 @@ import {
 import React, { useEffect, useState } from 'react';
 
 import { useAction } from '../../../actions';
-import { useClient } from '../../../app/ClientContext';
+import { useClient, useReloadClient } from '../../../app/ClientContext';
 import { useDataReady } from '../../../app/DataReadyContext';
-import { useHealth } from '../../../data';
+import { isDaemonHealthy, useHealth } from '../../../data';
 
 export function AboutSection(): React.ReactElement {
   const t = useT();
   const client = useClient();
+  const reloadClient = useReloadClient();
   const { setReady } = useDataReady();
   const { status, data: health, error, reload } = useHealth();
 
@@ -42,14 +43,20 @@ export function AboutSection(): React.ReactElement {
   }, []);
 
   const refreshAction = useAction('settings.about.health.refresh', async () => {
-    if (client) {
-      await client.health();
+    let activeClient = client;
+    if (!activeClient && reloadClient) {
+      activeClient = await reloadClient();
+    }
+    if (activeClient) {
+      await activeClient.health();
     }
     reload();
   });
 
+  const isOnline = isDaemonHealthy(health?.status) && status === 'ready';
+
   const handleCopy = (): void => {
-    const info = `Warsha Daemon ${health?.version ?? '—'} (Status: ${health?.status ?? 'down'}) - Data: ${dataDir}`;
+    const info = `Warsha Daemon ${health?.version ?? '—'} (Status: ${isOnline ? health?.status : 'down'}) - Data: ${dataDir}`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(info).catch(() => {});
     }
@@ -112,7 +119,9 @@ export function AboutSection(): React.ReactElement {
                   size="sm"
                   variant="secondary"
                   data-action="settings.error.retry"
-                  onClick={reload}
+                  onClick={() => {
+                    void refreshAction.run();
+                  }}
                 >
                   {t('common.retry')}
                 </Button>
@@ -132,9 +141,9 @@ export function AboutSection(): React.ReactElement {
             label={t('settings.about.status')}
             value={
               <StatusPill
-                status={health?.status === 'ok' ? 'done' : 'failed'}
+                status={isOnline ? 'done' : 'failed'}
                 label={
-                  health?.status === 'ok'
+                  isOnline
                     ? t('settings.about.status.ok')
                     : t('settings.about.status.down')
                 }
