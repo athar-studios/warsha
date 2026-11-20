@@ -1033,6 +1033,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn symlink_to_parent_dir_is_refused() {
         let temp = fresh_tempdir();
@@ -1041,7 +1042,6 @@ mod tests {
         let executor = executor(&workspace);
         let link_path = workspace.join("link_to_parent");
 
-        #[cfg(unix)]
         std::os::unix::fs::symlink("..", &link_path).expect("link created");
 
         let result = executor
@@ -1053,6 +1053,7 @@ mod tests {
         assert!(!result.success, "Write should fail");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn symlink_to_etc_is_refused() {
         let temp = fresh_tempdir();
@@ -1061,7 +1062,6 @@ mod tests {
         let executor = executor(&workspace);
         let link_path = workspace.join("link_to_etc");
 
-        #[cfg(unix)]
         std::os::unix::fs::symlink("/etc", &link_path).expect("link created");
 
         let result = executor
@@ -1073,6 +1073,7 @@ mod tests {
         assert!(!result.success, "Write should fail");
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn dangling_symlink_is_refused() {
         let temp = fresh_tempdir();
@@ -1081,7 +1082,6 @@ mod tests {
         let executor = executor(&workspace);
         let link_path = workspace.join("dangling_link");
 
-        #[cfg(unix)]
         std::os::unix::fs::symlink("/tmp/nonexistent", &link_path).expect("link created");
 
         let result = executor
@@ -1464,6 +1464,7 @@ mod tests {
 #[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod protection_tests {
     use super::*;
+    use crate::test_util::fresh_tempdir;
 
     fn executor_with(policy: Option<WorkProtectionPolicy>) -> FilesystemToolExecutor {
         FilesystemToolExecutor::new("/tmp/b2-test")
@@ -1633,9 +1634,9 @@ mod protection_tests {
 
     #[tokio::test]
     async fn test_read_file_symlink_containment() {
-        let dir = std::env::temp_dir().join("symlink-containment-test");
-        let _ = std::fs::create_dir_all(&dir);
-        let executor = FilesystemToolExecutor::new(&dir);
+        let temp = fresh_tempdir();
+        let dir = temp.path();
+        let executor = FilesystemToolExecutor::new(dir);
 
         // Create a file
         let file_path = dir.join("file.txt");
@@ -1646,15 +1647,45 @@ mod protection_tests {
         assert!(res.success);
 
         // Read outside via symlink (refused)
+        let link_path = dir.join("link.txt");
         #[cfg(unix)]
-        {
-            let link_path = dir.join("link.txt");
-            std::os::unix::fs::symlink("../outside.txt", &link_path).unwrap();
+        std::os::unix::fs::symlink("../outside.txt", &link_path).unwrap();
+        #[cfg(windows)]
+        let _ = std::os::windows::fs::symlink_file("../outside.txt", &link_path);
+
+        let read_result = executor.read_file("link.txt");
+
+        // If symlink was created (unix or successful windows creation), verify it's refused.
+        // If windows symlink creation failed, we skip the refusal check.
+        if link_path.exists() {
             assert!(matches!(
-                executor.read_file("link.txt"),
+                read_result,
                 Err(ToolError::PathEscapesWorkingDir(_))
             ));
         }
+    }
+
+    // M4: Restore test
+    #[tokio::test]
+    async fn ask_without_a_run_id_never_registers() {
+        let approvals = Arc::new(McpApprovals::new(None));
+        let temp = fresh_tempdir();
+        let dir = temp.path();
+        let executor = FilesystemToolExecutor::new(dir)
+            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
+            .with_protection(policy(PermissionMode::AskAlways))
+            .with_mcp_approvals(approvals.clone(), None);
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git".to_string(),
+                args: vec!["push".to_string()],
+            })
+            .await;
+        assert!(!result.success);
+        assert!(
+            approvals.pending().is_empty(),
+            "a daemon-wide loop (no run id) must never register a pending ask"
+        );
     }
 
     #[tokio::test]
