@@ -1,5 +1,34 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — Official Release 0.3.0 (v0.3.0 published)
+- **Authorization**: Owner explicit confirmation ("yes execute publish now") overriding ENGINEERING_POLICY §8 for release 0.3.0.
+- **Pre-release Verification**:
+  - `git rev-parse HEAD`: `dc32f2784b39d7475dd519bb917bc7bbf5bb283f`
+  - `git merge-base origin/r-next/integration HEAD`: `3dc90837f3be8441c97dbbc492cb195391471c84` (15 commits ahead, fast-forward clean)
+  - Pre-existing blocking draft `v0.3.0` (target `8e244fce5a6670d7d896f7f60655aac0de3adfe8`, 15 old assets) recorded and deleted (`gh release delete v0.3.0 --yes`).
+- **Branch & Tag Push**:
+  - `git push origin r-next/integration`: fast-forwarded `origin/r-next/integration` to `dc32f2784b39d7475dd519bb917bc7bbf5bb283f`.
+  - `git tag -f v0.3.0 HEAD` and `git push origin refs/tags/v0.3.0 --force`: tag moved to `dc32f2784b39d7475dd519bb917bc7bbf5bb283f`.
+- **Workflow Run**:
+  - GitHub Actions run `44700418642` on workflow `release.yml` for tag `v0.3.0`: completed `success` (all build and packaging matrix jobs passed).
+- **Draft & Artifact Verification**:
+  - Draft release verified: target commitish `dc32f2784b39d7475dd519bb917bc7bbf5bb283f`, 15 assets total (6 rust binaries, 6 desktop installers, 2 CycloneDX SBOMs, `checksums.sha256`).
+  - `checksums.sha256` normalized to bare asset filenames in draft release.
+  - Verifier execution:
+    `node scripts/verify-release-artifacts.mjs --dir /tmp/warsha-rel-verify --tag v0.3.0 --version 0.3.0 --scope unsigned --release-exists no`
+  - Output:
+    ```
+    verify-release: note: missing CLI asset for aarch64 (informational: 0.3.0 ships x86_64-only per pipeline matrix)
+    verify-release: note: missing daemon asset for aarch64 (informational: 0.3.0 ships x86_64-only per pipeline matrix)
+    verify-release: OK v0.3.0 unsigned (15 assets)
+    ```
+  - Verifier exit code: `0`.
+- **Publication**:
+  - `gh release edit v0.3.0 --draft=false` executed.
+  - Confirmed `gh release view v0.3.0 --json isDraft,tagName`: `{"isDraft":false,"tagName":"v0.3.0"}`.
+  - Release notes include signing and verification notice stating unsigned installers, no signing keys generated/stored.
+
+
 ## Run 2026-11-20 — Pre-release gate matrix (r-next/integration@d2a4e3d)
 - **Commands**:
   - `cargo fmt --all -- --check`: exit 0
