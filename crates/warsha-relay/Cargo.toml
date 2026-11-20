@@ -32,4 +32,4 @@ path = "src/main.rs"
 [dev-dependencies]
 tempfile = { workspace = true }
 reqwest = { workspace = true }
-pretty_assertions = "1.4"
+pretty_assertions = "1.4.1"
