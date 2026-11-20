@@ -686,7 +686,34 @@ pub(crate) fn resolve_program_and_args(
 /// override whose key names a program or hook is refused unless its value is
 /// empty, and `--exec-path` is refused outright (KEEL checkpoint finding M3).
 fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyError> {
-    if program_name(program) != "git" {
+    let prog = program_name(program);
+    if prog == "sqlite3" {
+        for (i, arg) in args.iter().enumerate() {
+            let trimmed = arg.trim();
+            let lowered = trimmed.to_ascii_lowercase();
+            if lowered.starts_with(".shell") || lowered.starts_with(".system") {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: arg.clone(),
+                    reason: "sqlite3 shell execution is not allowed".to_string(),
+                });
+            }
+            if lowered.starts_with(".once") || lowered.starts_with(".output") {
+                let next_is_pipe = args
+                    .get(i + 1)
+                    .map(|a| a.trim().starts_with('|'))
+                    .unwrap_or(false);
+                if lowered.contains('|') || next_is_pipe {
+                    return Err(CommandPolicyError::InvalidCommand {
+                        command: arg.clone(),
+                        reason: "sqlite3 shell execution is not allowed".to_string(),
+                    });
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    if prog != "git" {
         return Ok(());
     }
 
@@ -729,6 +756,16 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
                 return Err(CommandPolicyError::InvalidCommand {
                     command: argument.to_string(),
                     reason: "git submodule foreach is not allowed".to_string(),
+                });
+            }
+            if lowered == "bisect"
+                && args[index + 1..]
+                    .iter()
+                    .any(|a| a.eq_ignore_ascii_case("run"))
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git bisect run is not allowed".to_string(),
                 });
             }
         }

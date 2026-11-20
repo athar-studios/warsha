@@ -371,6 +371,92 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
+    // Git bisect run is arbitrary command execution.
+    if program_name == "git" {
+        let mut has_bisect = false;
+        for arg in args {
+            if arg.eq_ignore_ascii_case("bisect") {
+                has_bisect = true;
+            } else if has_bisect && arg.eq_ignore_ascii_case("run") {
+                return RiskClass::Risky;
+            }
+        }
+    }
+
+    // SQLite3 dot-commands that shell out (.shell, .system, .once/.output with pipe).
+    if program_name == "sqlite3" {
+        for (i, arg) in args.iter().enumerate() {
+            let trimmed = arg.trim();
+            let lowered = trimmed.to_ascii_lowercase();
+            if lowered.starts_with(".shell") || lowered.starts_with(".system") {
+                return RiskClass::Risky;
+            }
+            if lowered.starts_with(".once") || lowered.starts_with(".output") {
+                let next_is_pipe = args
+                    .get(i + 1)
+                    .map(|a| a.trim().starts_with('|'))
+                    .unwrap_or(false);
+                if lowered.contains('|') || next_is_pipe {
+                    return RiskClass::Risky;
+                }
+            }
+        }
+    }
+
+    // Node executing agent-written script files (.js, .mjs, .cjs).
+    if program_name == "node" || program_name == "nodejs" {
+        for arg in args {
+            let lowered = arg.to_ascii_lowercase();
+            if lowered.ends_with(".js") || lowered.ends_with(".mjs") || lowered.ends_with(".cjs") {
+                return RiskClass::Risky;
+            }
+        }
+    }
+
+    // Bun executing script files (e.g. bun x.ts).
+    if program_name == "bun" {
+        for arg in args {
+            let lowered = arg.to_ascii_lowercase();
+            if lowered.ends_with(".ts")
+                || lowered.ends_with(".js")
+                || lowered.ends_with(".mjs")
+                || lowered.ends_with(".cjs")
+                || lowered.ends_with(".mts")
+                || lowered.ends_with(".cts")
+                || lowered.ends_with(".jsx")
+                || lowered.ends_with(".tsx")
+            {
+                return RiskClass::Risky;
+            }
+        }
+    }
+
+    // Plain pnpm <script> / yarn <script>: any first arg not in the known-safe set is Risky.
+    if program_name == "pnpm" || program_name == "yarn" {
+        const KNOWN_SAFE_PNPM_YARN_SUBCOMMANDS: &[&str] = &[
+            "--version",
+            "-v",
+            "-V",
+            "--help",
+            "-h",
+            "help",
+            "list",
+            "ls",
+            "why",
+            "info",
+            "view",
+            "outdated",
+            "audit",
+            "licenses",
+        ];
+        if let Some(first_arg) = args.first() {
+            if !KNOWN_SAFE_PNPM_YARN_SUBCOMMANDS.contains(&first_arg.to_ascii_lowercase().as_str())
+            {
+                return RiskClass::Risky;
+            }
+        }
+    }
+
     // Shell commands are risky.
     if matches!(
         program_name.as_str(),
@@ -465,10 +551,30 @@ mod tests {
         );
         assert_eq!(
             classify_command("node", &["index.js".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["script.mjs".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["script.cjs".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("nodejs", &["index.js".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["--version".to_string()]),
             RiskClass::Safe
         );
         assert_eq!(
             classify_command("deno", &["run".to_string(), "main.ts".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("deno", &["test".to_string()]),
             RiskClass::Risky
         );
         assert_eq!(
@@ -480,8 +586,24 @@ mod tests {
             RiskClass::Risky
         );
         assert_eq!(
+            classify_command("cargo", &["b".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
             classify_command("cargo", &["test".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["t".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["check".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["clippy".to_string()]),
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("cat", &["../secret.txt".to_string()]),
@@ -490,6 +612,144 @@ mod tests {
         assert_eq!(
             classify_command("cat", &["/etc/passwd".to_string()]),
             RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pnpm", &["run".to_string(), "build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pnpm", &["build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pnpm", &["test".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pnpm", &["list".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("pnpm", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("yarn", &["build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("yarn", &["test".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("yarn", &["why".to_string(), "foo".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("yarn", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("bundle", &["exec".to_string(), "rspec".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("mvn", &["exec:exec".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("mvn", &["-Dexec.executable=bash".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rails", &["r".to_string(), "script.rb".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rails", &["runner".to_string(), "script.rb".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-P".to_string(), "script.cmake".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-E".to_string(), "env".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["--build".to_string(), ".".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("bun", &["test".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("bun", &["x.ts".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("go", &["test".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("npm", &["t".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("npm", &["rebuild".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".shell whoami".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".system whoami".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".output |cat".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".once |sh".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), "SELECT 1;".to_string()]
+            ),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "bisect".to_string(),
+                    "run".to_string(),
+                    "./test.sh".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("git", &["bisect".to_string(), "start".to_string()]),
+            RiskClass::Safe
         );
         assert_eq!(
             classify_command("pnpm", &["run".to_string(), "build".to_string()]),

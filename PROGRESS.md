@@ -1,5 +1,26 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — Round-3 Blockers H1/N-H1 and H2/N-M1 Policy Hardening (fix-r3-policy)
+- **Scope**: Fix round-3 blockers H1/N-H1 (approval bypass) + H2/N-M1 (missing risky rows) in worktree `.agents/worktrees/fix-r3-policy` detached at `6002ee7`. Local-only: no push, no tag, no publish, uncommitted changes left in working tree.
+- **Implemented Fixes**:
+  - H1/N-H1: Hardened `command_policy.rs` and `work_protection.rs` to refuse and classify `git bisect run <cmd>` and `sqlite3` shell out (`.shell`, `.system`, `.output |...`, `.once |...`) as `Risky`.
+  - H2/N-M1: Added missing risky command rows in `risky_commands.rs` and `work_protection.rs`:
+    - `node`/`nodejs` script execution (`.js`, `.mjs`, `.cjs`) -> `Risky`. Corrected `node script.js` assertion from `Safe` to `Risky` with recorded rationale.
+    - `bun` script execution (`.ts`, `.js`, etc.) and `bun test` -> `Risky`.
+    - `cmake -P` -> `Risky`.
+    - `bundle exec`, `mvn exec:exec` / `-Dexec.executable=`, `rails r` -> `Risky`.
+    - `npm t`, `npm rebuild` -> `Risky`.
+    - `cargo test`, `cargo t`, `cargo check`, `cargo clippy` -> `Risky`.
+    - `deno test`, `go test` -> `Risky`.
+    - Fallback for plain `pnpm <script>` / `yarn <script>`: unknown subcommands -> `Risky`, preserving safe commands (`--version`, `list`, `ls`, `why`, etc.).
+  - Proving / Verification Tests:
+    - Added comprehensive unit tests in `work_protection.rs` and `verification_tests_impl.rs` covering every shape above.
+    - Added end-to-end `test_git_bisect_run_ask_for_risky_e2e` proving `git bisect run` requires approval and queues pending ask under `AskForRisky`, whereas `git bisect start` is Safe.
+- **Gates Verified**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt --check`: exit code 0 (clean).
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: exit code 0 (0 warnings, 0 errors).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: exit code 0 (540 passed; 0 failed; 7 ignored; 0 weakened/deleted).
+
 ## Run 2026-11-20 — Local checklist & gate matrix verification (F1-F7 local-only)
 - **Scope**: F1-F7 UX fixes verification and local checklist completion in `.agents/worktrees/r-next-integration` on branch `r-next/integration`. Local-only; no push, no tag move, no publish, no network send, main untouched, remotes unmodified.
 - **Sync Check**:

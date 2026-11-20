@@ -1,4 +1,20 @@
 
+## 2026-11-20 — D-R3-POLICY-HARDENING: Round-3 Blockers H1/N-H1 and H2/N-M1 Command Policy Hardening
+- **Decision**:
+  1. (H1/N-H1 Approval Bypass): Gated `git bisect run <cmd>` and `sqlite3` shell-out commands (`.shell`, `.system`, `.once |`, `.output |`) in both `command_policy.rs` (`check_arguments`) and `work_protection.rs` (`classify_command`). `git bisect run` is classified as `Risky` and triggers approval under `AskForRisky` (or refusal in allowlist check), whereas benign git operations like `git bisect start` remain `Safe`. `sqlite3` remains in default allowed binaries, but shell-out arguments are refused and classified as `Risky`.
+  2. (H2/N-M1 Missing Risky Rows): Extended `risky_commands.rs` and `classify_command` to cover:
+     - `node`/`nodejs` script execution (`.js`, `.mjs`, `.cjs` arguments): Classified as `Risky` because executing agent-written JS files is arbitrary code execution.
+     - Corrected `verification_tests_impl.rs` line 44 assertion for `node script.js` from `Safe` to `Risky` (the previous assertion that `node script.js` is `Safe` was wrong per round-3 review and has been corrected, not dropped; recorded in this decision).
+     - `bun` script execution (`.ts`, `.js`, etc.) and `bun test` classified as `Risky`.
+     - `cmake -P` (script mode) added to cmake `-E` rule as `Risky`.
+     - `bundle exec <prog>`, `mvn exec:exec` / `-Dexec.executable=...`, `rails r` (alias for `rails runner`) classified as `Risky`.
+     - `npm t` (alias for `npm test`) and `npm rebuild` classified as `Risky`.
+     - `cargo test`, `cargo t`, `cargo check`, `cargo clippy` classified as `Risky` (arbitrary code execution via build.rs and test harnesses, same class as `cargo build`).
+     - `deno test` and `go test` classified as `Risky`.
+     - Plain `pnpm <script>` / `yarn <script>`: Added fallback rule where any unknown subcommand not in the explicit known-safe set (`--version`, `-v`, `-V`, `--help`, `-h`, `help`, `list`, `ls`, `why`, `info`, `view`, `outdated`, `audit`, `licenses`) is classified as `Risky` (e.g. `pnpm build`, `yarn build`, `pnpm test`).
+- **Reason**: Round-3 security review blockers H1/N-H1 identified approval bypasses via `git bisect run` and `sqlite3` interactive shell-out, and H2/N-M1 identified missing risky command rows and script-runner patterns that allowed arbitrary code execution without approval prompt under `AskForRisky` / command policy.
+- **Record**: `crates/warsha-pipeline/src/risky_commands.rs`, `crates/warsha-pipeline/src/command_policy.rs`, `crates/warsha-pipeline/src/work_protection.rs`, `crates/warsha-pipeline/src/verification_tests_impl.rs`.
+
 ## 2026-11-20 — D-UX-PROVIDER-1: Fix add provider flow in desktop UI and daemon RPC
 - **Decision**: (1) Added `default_base_url_for_kind` for `openai`/`anthropic`/`ollama` in `warshad::api`, wired into `providers.add` RPC and `provider_endpoint`. (2) Fixed desktop `ClientContext.tsx` daemon endpoint discovery to use `get_config` instead of undefined `daemon_url`. (3) `ModelsSection.tsx` validates empty name/key independently with localized strings, guards missing client with `no_client` error, surfaces RPC errors on the dialog banner with dialog staying open, closing/reloading only on success. (4) API key is write-only over RPC, never returned on `providers.list`, password-masked in UI.
 - **Reason**: Adding a provider showed a false success toast without saving (null client or silently swallowed RPC error), or refused standard vendor kinds without explicit `api_base`.
