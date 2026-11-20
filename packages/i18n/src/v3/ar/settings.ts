@@ -8,6 +8,7 @@ export default {
   'settings.nav.advanced_hide': 'إخفاء الإعدادات المتقدّمة',
   'settings.layer.quick': 'سريع',
   'settings.layer.advanced': 'متقدّم',
+  'settings.search.label': 'بحث في الإعدادات',
   'settings.search.placeholder': 'ابحث في الإعدادات...',
   'settings.search.empty': 'لا توجد نتائج مطابقة',
   'settings.export.title': 'الإعدادات المُصدَّرة',

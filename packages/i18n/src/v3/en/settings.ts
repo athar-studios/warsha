@@ -8,6 +8,7 @@ export default {
   'settings.nav.advanced_hide': 'Hide advanced settings',
   'settings.layer.quick': 'Quick',
   'settings.layer.advanced': 'Advanced',
+  'settings.search.label': 'Search settings',
   'settings.search.placeholder': 'Search settings...',
   'settings.search.empty': 'No matching settings',
   'settings.export.title': 'Exported settings',
