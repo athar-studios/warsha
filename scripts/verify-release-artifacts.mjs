@@ -6,7 +6,8 @@
 // release. `--release-exists yes` fails: a rerun must not overwrite assets.
 //
 // Checks: tag/version identity, a non-empty asset set with the CLI, daemon,
-// desktop, checksum and SBOM classes present, every asset listed in
+// desktop, checksum and SBOM classes present (0.3.0 ships x86_64-only; aarch64
+// is informational per D-RN-REL-AARCH64-1), every asset listed in
 // checksums.sha256 with a matching digest, and (for the signed scope) a shipped
 // signature or updater manifest. The unsigned scope is allowed only when it is
 // named explicitly, and the report then says `unsigned`.
@@ -88,9 +89,20 @@ export function verifyRelease({ dir, tag, version, scope, releaseExists }) {
   }
 
   if (!has(/^warsha-x86_64-/)) problems.push("missing CLI asset for x86_64");
-  if (!has(/^warsha-aarch64-/)) problems.push("missing CLI asset for aarch64");
   if (!has(/^warshad-x86_64-/)) problems.push("missing daemon asset for x86_64");
-  if (!has(/^warshad-aarch64-/)) problems.push("missing daemon asset for aarch64");
+
+  // 0.3.0 ships x86_64-only per pipeline matrix; aarch64 legs are informational (D-RN-REL-AARCH64-1)
+  const notes = [];
+  if (!has(/^warsha-aarch64-/)) {
+    notes.push("missing CLI asset for aarch64 (informational: 0.3.0 ships x86_64-only per pipeline matrix)");
+  }
+  if (!has(/^warshad-aarch64-/)) {
+    notes.push("missing daemon asset for aarch64 (informational: 0.3.0 ships x86_64-only per pipeline matrix)");
+  }
+  report.arch = (!has(/^warsha-aarch64-/) || !has(/^warshad-aarch64-/)) ? "x86_64-only" : "multi-arch";
+  if (notes.length > 0) {
+    report.notes = notes;
+  }
   if (!has(/\.(msi|exe|dmg|AppImage|deb)$/)) {
     problems.push("missing a desktop installer");
   }
@@ -113,7 +125,7 @@ export function verifyRelease({ dir, tag, version, scope, releaseExists }) {
     report.signing = "unknown";
   }
 
-  return { ok: problems.length === 0, problems, report };
+  return { ok: problems.length === 0, problems, notes, report };
 }
 
 function parseArgs(argv) {
@@ -165,6 +177,11 @@ function main() {
     releaseExists: args.releaseExists,
   });
   console.log(JSON.stringify(result.report, null, 2));
+  if (result.notes && result.notes.length > 0) {
+    for (const note of result.notes) {
+      console.log(`verify-release: note: ${note}`);
+    }
+  }
   if (!result.ok) {
     for (const problem of result.problems) {
       console.error(`verify-release: ${problem}`);

@@ -1,9 +1,46 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — FIX-RELEASE: verifier x86_64-only (D-RN-REL-AARCH64-1)
+- **Root cause**: `scripts/verify-release-artifacts.mjs` lines 90-93 hard-failed with `missing CLI asset for aarch64` and `missing daemon asset for aarch64`. However, `release.yml` rust-build matrix (lines 128-138) and desktop matrix (lines 232-246) build x86_64 only by pipeline design (`x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`). Draft 452168316 holds 15 x86_64-only assets (6 rust binaries, 6 desktop installers, 2 SBOMs, checksums.sha256). No aarch64 assets exist. This was the second and remaining promotion blocker after the checksum scoping fix.
+- **Fix**: Updated `scripts/verify-release-artifacts.mjs` to keep x86_64 CLI and daemon checks as hard fail-closed failures (`problems.push`), while downgrading the missing aarch64 CLI/daemon checks to non-blocking informational notes (`report.arch = "x86_64-only"` and `report.notes`). All other checks (tag/version identity, non-empty assets, checksums listed and matching in both directions, desktop installers, SBOMs, signing scope) remain strictly unchanged and fail-closed.
+- **Verification**:
+  - `node --check scripts/verify-release-artifacts.mjs`: PASSED (exit code 0).
+  - Gate simulation: copied 14 shipped files from `dist-verify-44654484785/` (6 rust + 6 installers + 2 SBOMs) to temp dir `/tmp/verify-release-sim-XXXXXX`, generated `checksums.sha256` via `sha256sum * > checksums.sha256` (15 total assets), ran:
+    `node scripts/verify-release-artifacts.mjs --dir "$TMPDIR" --tag v0.3.0 --version 0.3.0 --scope unsigned --release-exists no`
+    Output:
+    ```
+    {
+      "tag": "v0.3.0",
+      "version": "0.3.0",
+      "scope": "unsigned",
+      "signing": "unsigned",
+      "files": [ ... 15 assets ... ],
+      "arch": "x86_64-only",
+      "notes": [
+        "missing CLI asset for aarch64 (informational: 0.3.0 ships x86_64-only per pipeline matrix)",
+        "missing daemon asset for aarch64 (informational: 0.3.0 ships x86_64-only per pipeline matrix)"
+      ]
+    }
+    verify-release: note: missing CLI asset for aarch64 (informational: 0.3.0 ships x86_64-only per pipeline matrix)
+    verify-release: note: missing daemon asset for aarch64 (informational: 0.3.0 ships x86_64-only per pipeline matrix)
+    verify-release: OK v0.3.0 unsigned (15 assets)
+    ```
+    Exit code: 0.
+  - Fail-closed verification: verified omission of all `warsha-x86_64-*` assets fails with `verify-release: missing CLI asset for x86_64` (exit code 1); checksum corruption fails with `sha256 does not match checksums.sha256` (exit code 1).
+  - Workflow YAML check: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/release.yml')); print('YAML_OK')"` → `YAML_OK`.
+  - Engineering policy check: `node scripts/check-engineering-policy.mjs` → `policy: 8 checks, 0 failures`.
+- **Status**: uncommitted on `r-next/integration` pending PM review to land together with checksum fix (D-RN-REL-CHECKSUM-1).
+
+## Run 2026-11-20 — FIX-RELEASE: scope checksums to shipped artifacts (D-RN-REL-CHECKSUM-1)
+- **Root cause**: Release job `find . -type f` hashed merged download tree (docs, internal payloads, etc.), creating ~458 non-shipped checksum names; verifier FAILED (aarch64 required but matrix x86_64-only; checksums 471 lines vs 15 shipped; sha256sum -c hundreds FAILED open-or-read — from worker report, mark as worker-reported not re-run). Verifier aarch64 evidence: verifier required aarch64 CLI/daemon assets (`missing CLI asset for aarch64`, `missing daemon asset for aarch64`), but `release.yml` matrix is x86_64-only and draft 452168316 holds 15 x86_64-only assets.
+- **Fix**: Scoped checksum generation to 6 rust binaries, 6 desktop installers, 2 SBOMs (14 hashed files; draft holds 15 assets incl. checksums.sha256 itself).
+- **Verification**: Verified scoped logic on dist-verify-44654484785/ (14 assets found, missing aarch64 assets are only reported issues); YAML_OK; policy 8/0 pass.
+- **Status**: uncommitted pending commit/push.
+
 ## Run 2026-11-20 — FIX-RELEASE: Guard repo context, pin draft target, scope placeholder grep (D-RN-REL-DRAFT-1, D-RN-REL-PLACEHOLDER-1)
 - **Root cause**: Guard without repo context (`release` job has no checkout step, so `gh release view` could not resolve repository and the guard never fired) + unpinned target (`softprops/action-gh-release@v2` defaulted target to `main`, reusing stale polluted draft 452058329 containing 267 junk payload assets including AppRun and .so files) + binary grep (`Verify no placeholders in all artifacts` grep scanned binary payloads under `release/desktop/appimage/Warsha.AppDir/...` causing false positives on nested bundles retained on disk for the count assertion).
 - **Fix**: Added `GH_REPO: ${{ github.repository }}` env to guard step; added `target_commitish: ${{ github.sha }}` to draft release action; updated verifier to `grep -rI --exclude-dir="*AppDir*" "PLACEHOLDER" release/`. Stale draft 452058329 deleted before re-run so the action starts clean.
-- **Status**: uncommitted pending commit/push/retag/CI.
+- **Status**: committed 8e244fc, pushed r-next/integration, tag v0.3.0 moved to 8e244fc, run 44654484785 success, stale draft 452058329 deleted, new draft 452168316 target=8e244fc 15 assets.
 
 ## Run 2026-11-20 — FIX-RELEASE: Nested bundle upload collisions (D-RN-REL-DESKTOP-1)
 - **Root cause**: After the organizer flatten was dropped, `release/desktop/**/*` in `Create draft release` included hundreds of same-basename payload files (`copyright`, `Warsha.desktop`, `.so` files), causing `HttpError: Not Found` on `releases/assets#delete-a-release-asset` as the uploader's overwrite-by-name logic failed.

@@ -1,4 +1,14 @@
 
+## 2026-11-20 — D-RN-REL-AARCH64-1: 0.3.0 ships x86_64-only; aarch64 verifier checks informational only
+- **Decision**: 0.3.0 ships x86_64-only per pipeline matrix; verifier requires x86_64 hard, aarch64 informational only; future aarch64 legs are a separate decision.
+- **Reason**: Draft 452168316 holds 15 x86_64-only assets (6 rust binaries, 6 desktop installers, 2 SBOMs, checksums.sha256). `release.yml` rust-build matrix (lines 128-138) and desktop matrix (lines 232-246) target x86_64 only by pipeline design. The promotion gate verifier previously hard-failed on missing aarch64 CLI/daemon assets.
+- **Record**: `scripts/verify-release-artifacts.mjs` retains hard fail-closed enforcement on x86_64 CLI/daemon, desktop installers, SBOMs, and checksums, while downgrading aarch64 presence checks to non-blocking informational notes (`report.arch = "x86_64-only"`).
+
+## 2026-11-20 — D-RN-REL-CHECKSUM-1: Scope checksums to shipped artifacts
+- **Decision**: Checksums hash only the 14 shipped files (6 rust binaries, 6 desktop installers, 2 SBOMs); with checksums.sha256 itself the draft holds 15 assets.
+- **Reason**: The merged artifacts/ tree contains documentation and bundle payloads that are never uploaded, triggering false positives. The verifier's `names a missing asset` check serves as the fail-closed proof.
+- **Record**: Checksum generation scoped to hash only the 14 shipped files precisely.
+
 ## 2026-11-20 — D-RN-REL-DRAFT-1: Guard repo context, pin draft target, delete stale draft
 - **Decision**: Guard needs GH_REPO because release job has no checkout; target_commitish pins draft to run SHA instead of main; stale draft 452058329 (target=main, 267 junk assets) must be deleted before re-run so the action does not reuse it.
 - **Reason**: The `release` job has no checkout step, so `gh release view` cannot resolve repository context without `GH_REPO`, causing the guard to never fire. Without `target_commitish`, `softprops/action-gh-release@v2` targets `main` and reuses duplicate draft 452058329 with 267 junk payload assets.

@@ -500,7 +500,13 @@ jobs:
           files=()
           while IFS= read -r -d '' f; do
             files+=("$f")
-          done < <(find . -type f ! -name '*.sha256' -print0 | sort -z)
+          done < <(find . -type f \( \
+            -name 'warsha-x86_64-*' -o \
+            -name 'warshad-x86_64-*' -o \
+            -name 'sbom-cli.cdx.xml' -o \
+            -name 'sbom-daemon.cdx.xml' -o \
+            \( \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) ! -name 'warsha-*' ! -name 'warshad-*' \) \
+          \) ! -name '*.sha256' -print0 | sort -z)
           # The guard now checks the SAME recursive set the checksums are built from.
           # It previously looked only at -maxdepth 1, so an artifacts/ tree holding
           # only nested files passed the guard while the (different) recursive glob
