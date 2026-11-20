@@ -50,14 +50,14 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "cmake",
-        argument_pattern: "-E",
-        reason: "CMake environment execution",
+        argument_pattern: "-E|-P",
+        reason: "CMake environment execution/script mode",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
         program: "deno",
-        argument_pattern: "run|eval|task",
-        reason: "Deno run/eval/task",
+        argument_pattern: "run|eval|task|test",
+        reason: "Deno run/eval/task/test",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -68,14 +68,15 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "cargo",
-        argument_pattern: "build|b",
-        reason: "Cargo build/b",
+        argument_pattern: "build|b|test|t|check|clippy",
+        reason: "Cargo build/b/test/t/check/clippy",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
         program: "npm",
-        argument_pattern: "install|i|ci|add|update|run|publish|exec|x|start|test|run-script",
-        reason: "Install/Update/Run/Publish/Exec",
+        argument_pattern:
+            "install|i|ci|add|update|run|publish|exec|x|start|test|t|run-script|rebuild",
+        reason: "Install/Update/Run/Publish/Exec/Rebuild",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -92,8 +93,8 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "bun",
-        argument_pattern: "install|i|ci|add|update|x|dlx|publish|-e",
-        reason: "Install/Update/X/Publish/Inline",
+        argument_pattern: "install|i|ci|add|update|x|dlx|publish|-e|test",
+        reason: "Install/Update/X/Publish/Inline/Test",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -104,8 +105,8 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "go",
-        argument_pattern: "install|i|ci|add|update|run|get|generate",
-        reason: "Install/Update/Run/Get/Generate",
+        argument_pattern: "install|i|ci|add|update|run|get|generate|test",
+        reason: "Install/Update/Run/Get/Generate/Test",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -116,8 +117,14 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "bundle",
-        argument_pattern: "install|i|ci|add|update",
-        reason: "Install/Update",
+        argument_pattern: "install|i|ci|add|update|exec",
+        reason: "Install/Update/Exec",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "mvn",
+        argument_pattern: "exec:exec|-Dexec.executable=|-Dexec.executable",
+        reason: "Maven exec plugin",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -146,7 +153,7 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "rails",
-        argument_pattern: "runner",
+        argument_pattern: "runner|r",
         reason: "Rails runner",
         check_arguments_only: true,
     },
