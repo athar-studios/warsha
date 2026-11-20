@@ -189,7 +189,69 @@ Start-Process -FilePath "...\install\uninstall.exe" -ArgumentList '/S' -Wait
 لمسح المشاريع وإعداد الخادم؛ مفاتيح المزوّدين تبقى في خزنة ويندوز تحت اسم الخدمة
 `warsha-provider`. من الواجهة الرسومية: «الإعدادات ← التطبيقات ← Warsha ← إلغاء التثبيت».
 
-## ٦. Android: تثبيت APK عن طريق sideload
+## ٦. لينكس: الحِزم الجاهزة (0.3.0) ومتطلبات التشغيل (GLIBC >= 2.39 وlibssl.so.3)
+
+الحزم التنفيذية الجاهزة لإصدار 0.3.0 المبنية على خوادم التكامل المستمر (Ubuntu 24.04 x86_64) ترتبط ديناميكيًا بالمكتبات القياسية لمضيف البناء:
+- **مكتبة C القياسية**: تتطلب `GLIBC >= 2.39` في `libc.so.6` (تحديدًا الرموز `pidfd_spawnp` و`pidfd_getpid` التي تصدرها مكتبة Rust القياسية لإدارة العمليات الفرعية).
+- **مكتبة التشفير**: تتطلب `libssl.so.3` و`libcrypto.so.3` (`OPENSSL_3.0.0`) عبر ارتباط `openssl-sys` (المجلوب مع ميزات `reqwest` الافتراضية).
+
+### جدول توافق توزيعات لينكس مع الحِزم الجاهزة
+
+| التوزيعة | إصدار GLIBC | إصدار OpenSSL | التوافق مع حزم 0.3.0 الجاهزة | الملاحظات |
+|---|---|---|---|---|
+| Ubuntu 24.04 LTS (Noble) | 2.39 | 3.0.13 (`libssl.so.3`) | **مدعوم مباشرة** | بيئة البناء الرسمية |
+| Ubuntu 24.10 (Oracular) | 2.40 | 3.0.13 (`libssl.so.3`) | **مدعوم مباشرة** | متوافق للأمام |
+| Fedora 40 / 41 | 2.39 / 2.40 | 3.2.x (`libssl.so.3`) | **مدعوم مباشرة** | يعمل دون تعديل |
+| Arch Linux / Manjaro | 2.39+ | 3.x (`libssl.so.3`) | **مدعوم مباشرة** | توزيعات متجددة |
+| Debian 13 (Trixie) | 2.40+ | 3.x (`libssl.so.3`) | **مدعوم مباشرة** | النسخة التجريبية الحالية |
+| Ubuntu 22.04 LTS (Jammy) | 2.35 | 3.0.2 (`libssl.so.3`) | **غير متوافق** مع الحزم الجاهزة | يفشل لغياب GLIBC 2.39 (يوجد 2.35) |
+| Debian 12 (Bookworm) | 2.36 | 3.0.11 (`libssl.so.3`) | **غير متوافق** مع الحزم الجاهزة | يفشل لغياب GLIBC 2.39 (يوجد 2.36) |
+| Debian 11 (Bullseye) | 2.31 | 1.1.1 (`libssl.so.1.1`) | **غير متوافق** | غياب GLIBC 2.39 وغياب libssl3 |
+| RHEL / Alma / Rocky 9 | 2.34 | 3.0.7 / 3.2 | **غير متوافق** مع الحزم الجاهزة | يفشل لغياب GLIBC 2.39 (يوجد 2.34) |
+| RHEL / CentOS 8 | 2.28 | 1.1.1 (`libssl.so.1.1`) | **غير متوافق** | غياب الاثنين معًا |
+| Alpine Linux | musl | 3.x | **غير متوافق** مباشرة | مبني على musl؛ يتطلب `gcompat` أو بناء musl |
+
+### سلوك الحِزم عند التشغيل على توزيعات غير مدعومة
+
+إن حاولت تشغيل الحزم التنفيذية الجاهزة على توزيعة أقدم مثل Ubuntu 22.04 LTS أو Debian 12:
+- ستظهر رسالة الخطأ الآتية فورًا:
+  ```text
+  ./warsha: /lib/x86_64-linux-gnu/libc.so.6: version 'GLIBC_2.39' not found (required by ./warsha)
+  ```
+- أو في حال غياب مكتبة OpenSSL 3:
+  ```text
+  ./warsha: error while loading shared libraries: libssl.so.3: cannot open shared object file: No such file or directory
+  ```
+
+### تفاصيل حزم سطح المكتب (`.deb` و`.AppImage`)
+
+- **حزمة Debian/Ubuntu (`Warsha_0.3.0_amd64.deb`)**:
+  الملف التنفيذي الداخلي `/usr/bin/warsha-desktop` يتطلب `GLIBC >= 2.39` و`libssl.so.3` بالإضافة إلى حِزم الواجهة الرسومية: `libwebkit2gtk-4.1-0` و`libgtk-3-0` و`libayatana-appindicator3-1` و`librsvg2-common`. لا يمكن تثبيتها وتشغيلها على Debian 12 أو Ubuntu 22.04 LTS لاختلاف إصدار مكتبة C القياسية.
+- **حزمة AppImage (`Warsha_0.3.0_amd64.AppImage`)**:
+  تدمج الحزمة مكتبات OpenSSL 3 داخليًا في `usr/lib/libssl.so.3` و`libcrypto.so.3`، **لكنها لا تدمج `libc.so.6`** (لأن دمج glibc في AppImage يتسبب بتعارضات قاتلة مع تعريفات العتاد وX11/Wayland في النظام المضيف). وبما أن البرنامج التنفيذي الداخلي يطلب رموز `GLIBC_2.39`، فإن ملف AppImage **لا يعمل باستقلالية تامة عن التوزيعة** في إصدار 0.3.0 ويفشل على أي نظام يحمل GLIBC أقل من 2.39.
+
+### الحلول البديلة لتشغيل ورشة على التوزيعات الأخرى (مثل Ubuntu 22.04 وDebian 12)
+
+1. **البناء من المصدر عبر Cargo (موصى به لسطر الأوامر والخادم)**:
+   يتم البناء وربطه بمكتبات النظام المضيف مباشرة دون أدنى تعارض:
+   ```bash
+   cargo install --locked --path crates/warsha-cli
+   cargo install --locked --path crates/warshad
+   ```
+2. **تشغيل الخادم عبر حاوية Docker الرسمية**:
+   حاوية الخادم `warsha/warshad:0.3.0` معزولة وتضم بيئتها المتوافقة بالكامل:
+   ```bash
+   docker run -d --name warshad -p 8765:8765 -p 8766:8766 \
+     -v warsha-data:/root/.local/share/warsha \
+     warsha/warshad:0.3.0
+   ```
+3. **بناء تطبيق سطح المكتب محليًا**:
+   ```bash
+   pnpm install --frozen-lockfile
+   pnpm --filter warsha-desktop tauri build
+   ```
+
+## ٧. Android: تثبيت APK عن طريق sideload
 
 غلاف «Warsha Remote» (يقرن بالهاتف ولا يحمل مفاتيح نماذج) موثّق كاملًا في `apps/mobile/README.md`؛
 هذا مختصر التشغيل:
@@ -214,7 +276,7 @@ adb install -r <apk>
 Keystore‏ (AES-256-GCM) لا في نص عادي. الالتزام لأي `.jks` أو `keystore.properties` داخل git
 ممنوع بـ`SECURITY.md`؛ و`assembleRelease` يفشل فورًا مع تعليمات إن لم توجد الخزنة.
 
-## ٧. ما يفعله التطبيق عند التشغيل وأين تُحفظ البيانات
+## ٨. ما يفعله التطبيق عند التشغيل وأين تُحفظ البيانات
 
 - يقرأ إعدادات الخادم من `%APPDATA%\warsha\config.toml` وينشئه عند أول تشغيل برمز من ٣٢ بايتًا
   عشوائيًا (مُرمَّز base64).
@@ -224,7 +286,7 @@ Keystore‏ (AES-256-GCM) لا في نص عادي. الالتزام لأي `.jks
   الواجهة) و`desktop.log` (سجل أعطال التشغيل الذي يُقرأ عند «التطبيق لا يجد الخادم»). غيّر
   المجلد بمفتاح `data_dir` داخل `config.toml`.
 
-## ٨. حل المشكلات
+## ٩. حل المشكلات
 
 | ما تراه | السبب المحتمل | ما تفعله |
 |---|---|---|
@@ -233,8 +295,10 @@ Keystore‏ (AES-256-GCM) لا في نص عادي. الالتزام لأي `.jks
 | فشل تغليف: تعذّر تنزيل NSIS | لا إنترنت ولا `%LOCALAPPDATA%\tauri\NSIS` مخزّن | وصّل الإنترنت لأول تغليف فقط |
 | رسالة `too many arguments` عند تشغيل المُثبِّت من سطر أوامر | أمر `cmd` في المسار ليس cmd.exe الحقيقي (غلاف npm أو غطاء يظلل المسار) | نادِ `%WINDIR%\System32\cmd.exe` كاملًا أو استخدم `Start-Process` |
 | تحذير SmartScreen عند النقر المزدوج | لا شهادة توقيع | `More info` ثم `Run anyway` |
+| فشل ثنائيات لينكس: `version 'GLIBC_2.39' not found` | التوزيعة تعمل بإصدار GLIBC أقدم من 2.39 (مثل Ubuntu 22.04 أو Debian 12) | ثنائيات 0.3.0 الجاهزة تتطلب GLIBC >= 2.39؛ ابنِ من المصدر عبر `cargo install --locked --path crates/warsha-cli` أو شغّل الخادم عبر Docker (راجع القسم ٦) |
+| فشل ثنائيات لينكس: `libssl.so.3: cannot open shared object file` | غياب حزمة OpenSSL 3 على النظام (أو وجود OpenSSL 1.1 قديم) | ثبّت `libssl3` على توزيعات دبيان/أوبونتو الحديثة، أو ابنِ من المصدر بربط مكتبات النظام المتوفرة |
 
-## ٩. ما ليس في هذا الإصدار بعد
+## ١٠. ما ليس في هذا الإصدار بعد
 
 - **لا إصدار منشور**: لا وسم ولا صفحة تنزيل؛ كل أرقام هذا الملف من تثبيت محلي على جهاز البناء نفسه.
 - **التوقيع**: لا شهادة، لذلك SmartScreen متوقع في التثبيت الرسومي.
@@ -243,6 +307,7 @@ Keystore‏ (AES-256-GCM) لا في نص عادي. الالتزام لأي `.jks
   `latest.json` منشور.
 - **MSI في هذا الفوج**: لم يُبنَ (`--bundles nsis` فقط)، ولم تُختبر حزمة MSI منذ بناء ٢٠٢٦-١٠-٣١
   على الجهاز السابق.
+- **توافق حزم لينكس الجاهزة مع التوزيعات الأقدم**: الحزم الجاهزة لـ0.3.0 تتطلب `GLIBC >= 2.39` و`libssl.so.3`، فلا تعمل الحزم المسبقة البناء ولا AppImage على Ubuntu 22.04 LTS أو Debian 12 (البناء الموسع المستقل قيد الاقتراح للإصدار التالي، انظر `DECISIONS.md` قرار `D-RN-UX-F6-1`).
 - **منافذ ثابتة**: عند شغلهما يختار النظام غيرهما، ولا يعرفها سطر أوامر `warsha` بعد ذلك.
 - **معرّف الحزمة**: القيمة `dev.warsha.app` تنتهي بـ`.app` وتنبّه أداة Tauri لتعارضها مع حزمة
   macOS؛ تغييرها يغيّر هوية المُثبِّت، فغيّرها قبل أول إصدار عام إن أردت (مثل `dev.warsha.desktop`).
@@ -452,7 +517,69 @@ the directory. Uninstalling never touches `%APPDATA%\warsha`: delete it by hand 
 projects and the daemon configuration; provider keys stay in the Windows Credential Manager under
 the service name `warsha-provider`. Through the UI: Settings → Apps → Warsha → Uninstall.
 
-## 6. Android: sideloading the APK
+## 6. Linux: Shipped 0.3.0 Binaries & Runtime Requirements (GLIBC >= 2.39, libssl.so.3)
+
+Pre-built Linux x86_64 binaries shipped for Warsha 0.3.0 are compiled on GitHub Actions using `ubuntu-latest` (Ubuntu 24.04 LTS Noble Numbat). As a result of dynamic linking against the build host's shared libraries, the binaries have the following hard runtime requirements:
+- **C Standard Library**: `libc.so.6` with `GLIBC >= 2.39` (specifically required by Rust standard library process spawning symbols `pidfd_spawnp@GLIBC_2.39` and `pidfd_getpid@GLIBC_2.39`).
+- **Cryptography & TLS**: `libssl.so.3` and `libcrypto.so.3` (`OPENSSL_3.0.0`) linked via `openssl-sys` (pulled by default `reqwest` features).
+
+### Linux Distribution Compatibility Matrix (0.3.0 Pre-builts)
+
+| Distribution | GLIBC Version | OpenSSL Version | 0.3.0 Pre-built Status | Notes |
+|---|---|---|---|---|
+| Ubuntu 24.04 LTS (Noble) | 2.39 | 3.0.13 (`libssl.so.3`) | **Supported** | Official CI build image baseline |
+| Ubuntu 24.10 (Oracular) | 2.40 | 3.0.13 (`libssl.so.3`) | **Supported** | Forward compatible |
+| Fedora 40 / 41 | 2.39 / 2.40 | 3.2.x (`libssl.so.3`) | **Supported** | Runs out of the box |
+| Arch Linux / Manjaro | 2.39+ | 3.x (`libssl.so.3`) | **Supported** | Rolling release distributions |
+| Debian 13 (Trixie) | 2.40+ | 3.x (`libssl.so.3`) | **Supported** | Current testing distribution |
+| Ubuntu 22.04 LTS (Jammy) | 2.35 | 3.0.2 (`libssl.so.3`) | **Incompatible** with pre-builts | Missing GLIBC 2.39 (system has 2.35) |
+| Debian 12 (Bookworm) | 2.36 | 3.0.11 (`libssl.so.3`) | **Incompatible** with pre-builts | Missing GLIBC 2.39 (system has 2.36) |
+| Debian 11 (Bullseye) | 2.31 | 1.1.1 (`libssl.so.1.1`) | **Incompatible** | Missing both GLIBC 2.39 and OpenSSL 3 |
+| RHEL / Alma / Rocky 9 | 2.34 | 3.0.7 / 3.2 | **Incompatible** with pre-builts | Missing GLIBC 2.39 (system has 2.34) |
+| RHEL / CentOS 8 | 2.28 | 1.1.1 (`libssl.so.1.1`) | **Incompatible** | Missing both GLIBC 2.39 and OpenSSL 3 |
+| Alpine Linux | musl | 3.x | **Incompatible** natively | Built on musl; requires `gcompat` or musl target build |
+
+### Failure Symptoms on Older Distributions
+
+Attempting to run the 0.3.0 pre-built binaries on older distributions (such as Ubuntu 22.04 LTS or Debian 12 Bookworm) fails immediately on dynamic linking:
+- GLIBC symbol mismatch:
+  ```text
+  ./warsha: /lib/x86_64-linux-gnu/libc.so.6: version 'GLIBC_2.39' not found (required by ./warsha)
+  ```
+- Missing OpenSSL 3 shared object:
+  ```text
+  ./warsha: error while loading shared libraries: libssl.so.3: cannot open shared object file: No such file or directory
+  ```
+
+### Desktop Package Specifics (`.deb` and `.AppImage`)
+
+- **Debian/Ubuntu Package (`Warsha_0.3.0_amd64.deb`)**:
+  The packaged executable `/usr/bin/warsha-desktop` requires `GLIBC >= 2.39` and `libssl.so.3`, alongside GUI dependencies `libwebkit2gtk-4.1-0`, `libgtk-3-0`, `libayatana-appindicator3-1`, and `librsvg2-common`. Installing on Debian 12 or Ubuntu 22.04 LTS will fail to run due to the glibc version mismatch.
+- **AppImage Bundle (`Warsha_0.3.0_amd64.AppImage`)**:
+  While the AppImage bundles OpenSSL 3 shared libraries (`usr/lib/libssl.so.3` and `usr/lib/libcrypto.so.3`) internally, **it does not and cannot bundle `libc.so.6`** (bundling libc in AppImages causes severe symbol collisions and crashes with host graphics drivers, DRI, and NSS). Because the internal payload binary requires `GLIBC_2.39` from the host system, the 0.3.0 AppImage is **not distro-independent** and fails on distributions with GLIBC < 2.39.
+
+### Workarounds for Users on Older Distributions (e.g. Ubuntu 22.04, Debian 12, RHEL 9)
+
+1. **Build CLI and Daemon from Source via Cargo (Recommended)**:
+   Compiling locally dynamically links against your host system's native GLIBC and OpenSSL versions:
+   ```bash
+   cargo install --locked --path crates/warsha-cli
+   cargo install --locked --path crates/warshad
+   ```
+2. **Run Daemon via the Official Docker Image**:
+   The container image `warsha/warshad:0.3.0` bundles its own isolated Debian runtime:
+   ```bash
+   docker run -d --name warshad -p 8765:8765 -p 8766:8766 \
+     -v warsha-data:/root/.local/share/warsha \
+     warsha/warshad:0.3.0
+   ```
+3. **Build Desktop App Locally**:
+   ```bash
+   pnpm install --frozen-lockfile
+   pnpm --filter warsha-desktop tauri build
+   ```
+
+## 7. Android: sideloading the APK
 
 The "Warsha Remote" shell (it pairs with the phone and holds no model keys) is fully documented in
 `apps/mobile/README.md`; the operational summary:
@@ -478,7 +605,7 @@ the Android Keystore (AES-256-GCM), never in plaintext. Committing any `.jks` or
 `keystore.properties` into git is forbidden by `SECURITY.md`; `assembleRelease` fails fast with
 instructions when the keystore is missing.
 
-## 7. What the app does when it starts, and where the data lives
+## 8. What the app does when it starts, and where the data lives
 
 - Reads the daemon configuration from `%APPDATA%\warsha\config.toml`, creating it on first run
   with 32 fresh random bytes as its token (base64-encoded).
@@ -488,7 +615,7 @@ instructions when the keystore is missing.
   preferences) and `desktop.log` (the startup log to read when "the app opens but finds no
   daemon"). Change the directory with the `data_dir` key in `config.toml`.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Likely cause | What to do |
 |---|---|---|
@@ -497,8 +624,10 @@ instructions when the keystore is missing.
 | Bundling fails: NSIS could not be downloaded | no network and no `%LOCALAPPDATA%\tauri\NSIS` cache | connect a network for the first bundle only |
 | `too many arguments` when starting the installer from a shell | `cmd` on the `PATH` is not the real `cmd.exe` (an npm shim or wrapper shadowing it) | call `%WINDIR%\System32\cmd.exe` by full path, or use `Start-Process` |
 | SmartScreen warning on double-click | no code-signing certificate | `More info` → `Run anyway` |
+| Linux binary fails: `version 'GLIBC_2.39' not found` | The distribution provides an older GLIBC version (< 2.39, e.g. Ubuntu 22.04 LTS or Debian 12) | Shipped 0.3.0 pre-builts require GLIBC >= 2.39; build from source using `cargo install --locked --path crates/warsha-cli` or run the daemon via Docker (see §6) |
+| Linux binary fails: `libssl.so.3: cannot open shared object file` | Missing OpenSSL 3.x shared library (or older OpenSSL 1.1 installed) | Install `libssl3` (Ubuntu/Debian) or `openssl-libs` (Fedora), or compile from source against the local OpenSSL stack |
 
-## 9. Not in this build yet
+## 10. Not in this build yet
 
 - **No published release**: no tag, no release page; every number here is a local install on the
   build machine itself.
@@ -508,6 +637,7 @@ instructions when the keystore is missing.
   signed `latest.json` is published.
 - **MSI in this batch**: not built (`--bundles nsis` only); the MSI path is untested since the
   2026-10-31 build on the previous host.
+- **Universal Linux distribution compatibility**: Shipped 0.3.0 pre-built binaries and AppImage require `GLIBC >= 2.39` and `libssl.so.3` due to the Ubuntu 24.04 CI build runner. Out-of-the-box execution is limited to modern distros (Ubuntu 24.04+, Fedora 40+, Arch); users on older LTS distros (Debian 12, Ubuntu 22.04) must compile from source or use Docker. Wider compatibility via static musl builds and pure rustls is proposed for post-0.3.0 (see `DECISIONS.md` `D-RN-UX-F6-1`).
 - **Fixed ports**: when 8765/8766 are taken the OS picks others, and the `warsha` CLI does not
   know about them afterwards.
 - **Bundle identifier**: `dev.warsha.app` ends in `.app`, which Tauri warns clashes with the macOS

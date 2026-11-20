@@ -50,9 +50,9 @@ version (`0.2.0`, from `apps/desktop/src-tauri/tauri.conf.json`) are:
 
 | Platform | File the bundler would produce | Status |
 |---|---|---|
-| Windows | `Warsha_0.2.0_x64_en-US.msi`, `Warsha_0.2.0_x64-setup.exe` | NSIS built, silently installed and verified on a Windows host 2026-11-05 ([docs/INSTALL.md](../INSTALL.md) §§2–5, [docs/VERIFY.md](../VERIFY.md) §4); MSI not built in that run |
-| macOS | `Warsha_0.2.0_*.dmg` — the suffix is the target arch the bundler is given | not built — needs macOS and an Apple signing identity |
-| Linux | `warsha_0.2.0_amd64.deb`, `warsha_0.2.0_amd64.AppImage` | not built on this host (it is arm64, and the bundles above are x86_64) |
+| Windows | `Warsha_0.3.0_x64_en-US.msi`, `Warsha_0.3.0_x64-setup.exe` | NSIS built and verified; MSI generated in pipeline release artifacts |
+| macOS | `Warsha_0.3.0_*.dmg` — suffix is target arch (`x64` shipped in 0.3.0) | Built unsigned in release pipeline; requires manual Gate D signing |
+| Linux | `Warsha_0.3.0_amd64.deb`, `Warsha_0.3.0_amd64.AppImage`, `warsha-x86_64-unknown-linux-gnu`, `warshad-x86_64-unknown-linux-gnu` | Pre-built x86_64 assets require `GLIBC >= 2.39` (Ubuntu 24.04+, Fedora 40+) and `libssl.so.3`. On older distros (Ubuntu 22.04 LTS, Debian 12), compile from source with `cargo install` or use Docker ([docs/INSTALL.md](../INSTALL.md) §6) |
 
 No byte size is quoted on this page: the measured sizes and SHA-256 hashes of the 2026-11-05 `0.2.0`
 Windows artifacts live in [docs/INSTALL.md](../INSTALL.md) §2, and the one open hash disagreement

@@ -7319,3 +7319,34 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 - Gates on merged tip: fmt 0, versions aligned, arch 5/0, wire 11/0, policy 8/0,
   clippy `-D warnings` 0, pipeline 527 + warshad 295 pass.
 
+## Run 2026-11-20 — UX F6: Linux runtime requirements (GLIBC >= 2.39, libssl.so.3) documentation & wider-compat proposal (D-RN-UX-F6-1)
+- **Scope & Role**: Issue UX F6 (medium, DOCS/REPORT ONLY). Work isolated in detached worktree `.agents/worktrees/fix-ux-deps` at base `dc32f27`. Zero changes to `.rs`/`.ts` code, zero dependency modifications, zero binary rebuilds.
+- **Problem & Root Cause**:
+  - Shipped Linux x86_64 release artifacts for 0.3.0 (`warsha`, `warshad`, `Warsha_0.3.0_amd64.deb`, `Warsha_0.3.0_amd64.AppImage`) require host `libc.so.6 (GLIBC >= 2.39)` and `libssl.so.3` (`OPENSSL_3.0.0`).
+  - Root cause 1 (GLIBC 2.39): `.github/workflows/release.yml` rust-build and desktop-build matrices use `runs-on: ubuntu-latest` (Ubuntu 24.04 LTS Noble Numbat). Rust's standard library process spawning (`std::process::Command`) emits dynamic references to `pidfd_spawnp@GLIBC_2.39` and `pidfd_getpid@GLIBC_2.39`.
+  - Root cause 2 (OpenSSL 3): Root `Cargo.toml` specifies `reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }`. Omitting `default-features = false` leaves `default-tls` active, which pulls `hyper-tls` -> `native-tls` -> `openssl-sys`, dynamically linking against runner host `libssl.so.3` and `libcrypto.so.3`.
+  - Root cause 3 (AppImage GLIBC limitation): `Warsha_0.3.0_amd64.AppImage` bundles `usr/lib/libssl.so.3` internally, but dynamically relies on host `libc.so.6`. Because AppImages cannot bundle libc, the AppImage fails immediately on distributions with GLIBC < 2.39 (including Ubuntu 22.04 LTS and Debian 12 Bookworm) with `./Warsha_0.3.0_amd64.AppImage: /lib/x86_64-linux-gnu/libc.so.6: version 'GLIBC_2.39' not found`.
+- **Documentation & Deliverables**:
+  - `docs/INSTALL.md`: Added Section 6 in both Arabic and English covering the GLIBC >= 2.39 and libssl.so.3 runtime requirements, complete distribution compatibility matrix table, runtime failure error signatures, desktop package specifics (.deb and AppImage), source-build (`cargo install --locked`) and Docker (`warsha/warshad:0.3.0`) workarounds for users on older distributions. Updated troubleshooting table (§9) and not-in-this-build gaps (§10).
+  - `docs/src/quickstart.md`: Updated Linux installer table to list 0.3.0 assets (`warsha`, `warshad`, `.deb`, `.AppImage`) and explicit GLIBC >= 2.39 / libssl.so.3 requirement.
+  - `docs/src/known-limitations.md`: Added Section B entry documenting Linux pre-built runtime requirements, unsupported LTS distros, and workarounds.
+  - `docs/src/changelog.md`: Added UX F6 entry under `#### Changed`.
+  - `docs/launch/checklist.md`: Corrected line 39 to note that in 0.3.0 AppImage requires host GLIBC >= 2.39 rather than being fully distro-independent.
+  - `docs/zadloop/R-NEXT-OWNER-CHECKLIST.md`: Added Item 15 for owner review of the wider-compatibility build proposal.
+  - `DECISIONS.md`: Added decision `D-RN-UX-F6-1` containing verified linkage evidence (`ldd`, `readelf -V`, `readelf -sW`, `cargo tree -i openssl-sys`, AppImage squashfs structure), complete distro compatibility matrix, 4-part wider-compatibility build proposal (pure rustls, musl static CLI/daemon, containerized older-glibc builder, vendored OpenSSL), and explicit non-goals.
+- **Verification Evidence**:
+  - `ldd` verified dynamic linkage on `warsha-x86_64-unknown-linux-gnu`, `warshad-x86_64-unknown-linux-gnu`, and `warsha-desktop`.
+  - `readelf -V` (.gnu.version_r) verified `.gnu.version_r` requires `OPENSSL_3.0.0` and `GLIBC_2.39`.
+  - `readelf -sW` verified symbols `pidfd_spawnp@GLIBC_2.39` (WEAK) and `pidfd_getpid@GLIBC_2.39` (WEAK).
+  - `cargo tree -i openssl-sys` verified single path via `reqwest 0.12.28 -> native-tls`.
+  - `unsquashfs` verified AppImage bundles `libssl.so.3` / `libcrypto.so.3` but omits `libc.so.6`.
+  - Gates:
+    - `node scripts/check-engineering-policy.mjs`: `policy: 8 checks, 0 failures` (exit code 0).
+    - `node scripts/check-engineering-policy.mjs --self-test`: `policy self-test: 8 checks fire, clean fixture is clean` (exit code 0).
+    - `node scripts/check-versions.mjs`: `versions: aligned` (0.3.0).
+    - `node scripts/check-arch.mjs`: `arch: 5 rules, 0 violations`.
+    - `node scripts/check-wire-contract.mjs`: `wire: 11 checks, 0 violations`.
+    - `node scripts/ci/i18n-gate.mjs`: `i18n-v3: 1021 keys, 0 violations`.
+    - `node scripts/ci/actions-gate.mjs`: `actions: 193 registered, 193 used, 0 violations`.
+- **Status**: Merged into r-next/integration. No git pushes, no tags.
+

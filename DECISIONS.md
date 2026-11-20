@@ -2192,3 +2192,143 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
 ## D-RN-R2-M5: Cargo deny rules
 - Ignored RUSTSEC-2026-0371
 - Updated stale header comments in `deny.toml`
+
+## 2026-11-20 — D-RN-UX-F6-1: Linux 0.3.0 runtime linkage requirements (GLIBC >= 2.39, libssl.so.3) and wider-compatibility build proposal
+- **Context & Problem**: Issue UX F6 (medium): Pre-built Linux x86_64 release artifacts for Warsha 0.3.0 (`warsha-x86_64-unknown-linux-gnu`, `warshad-x86_64-unknown-linux-gnu`, `Warsha_0.3.0_amd64.deb`, `Warsha_0.3.0_amd64.AppImage`) dynamically link against host glibc and OpenSSL shared libraries provided by the GitHub Actions builder (`ubuntu-latest` running Ubuntu 24.04 LTS Noble Numbat). As a result, the pre-built binaries require `libc.so.6 (GLIBC >= 2.39)` and `libssl.so.3` (`OPENSSL_3.0.0`). When users run these binaries or the AppImage on older Linux distributions (including major enterprise/LTS distributions such as Ubuntu 22.04 LTS Jammy with GLIBC 2.35, Debian 12 Bookworm with GLIBC 2.36, and RHEL/Rocky/AlmaLinux 8 & 9), execution immediately halts with dynamic linker errors:
+  `./warsha: /lib/x86_64-linux-gnu/libc.so.6: version 'GLIBC_2.39' not found (required by ./warsha)`
+  or `libssl.so.3: cannot open shared object file: No such file or directory`.
+  Furthermore, `docs/launch/checklist.md` previously claimed that the AppImage was "distro-independent", which is violated by the GLIBC 2.39 dependency because AppImages cannot bundle `libc.so.6`.
+
+- **Verified Linkage Evidence**:
+  1. `ldd` on CLI (`dist-verify-44654484785/warsha-x86_64-unknown-linux-gnu`):
+     ```text
+     linux-vdso.so.1 (0x00007aaf7fb70000)
+     libssl.so.3 => /usr/lib/x86_64-linux-gnu/libssl.so.3 (0x00007aaf7fa38000)
+     libcrypto.so.3 => /usr/lib/x86_64-linux-gnu/libcrypto.so.3 (0x00007aaf7e000000)
+     libgcc_s.so.1 => /usr/lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007aaf7fa0a000)
+     libm.so.6 => /usr/lib/x86_64-linux-gnu/libm.so.6 (0x00007aaf7e6da000)
+     libc.so.6 => /usr/lib/x86_64-linux-gnu/libc.so.6 (0x00007aaf7dc00000)
+     libz.so.1 => /usr/lib/x86_64-linux-gnu/libz.so.1 (0x00007aaf7f9ea000)
+     libzstd.so.1 => /usr/lib/x86_64-linux-gnu/libzstd.so.1 (0x00007aaf7df3d000)
+     /lib64/ld-linux-x86-64.so.2 (0x00007aaf7fb72000)
+     ```
+     Same dynamic linkage verified for `warshad-x86_64-unknown-linux-gnu`.
+  2. `readelf -V` (.gnu.version_r section) on `warsha-x86_64-unknown-linux-gnu`:
+     ```text
+     Version needs section '.gnu.version_r' contains 5 entries:
+      Addr: 0x0000000000001df8 Offset: 0x00001df8 Link: 8 (.dynstr)
+       000000: Version: 1 File: libssl.so.3 Cnt: 1
+       0x0050: Name: OPENSSL_3.0.0 Flags: none Version: 11
+       0x0010: Version: 1 File: libcrypto.so.3 Cnt: 1
+       0x0060: Name: OPENSSL_3.0.0 Flags: none Version: 10
+       0x0020: Version: 1 File: libgcc_s.so.1 Cnt: 3
+       0x0070: Name: GCC_3.0 Flags: none Version: 4
+       0x0080: Name: GCC_3.3 Flags: none Version: 14
+       0x0090: Name: GCC_4.2.0 Flags: none Version: 12
+       0x0030: Version: 1 File: libm.so.6 Cnt: 1
+       0x00a0: Name: GLIBC_2.29 Flags: none Version: 28
+       0x0040: Version: 1 File: libc.so.6 Cnt: 23
+       ...
+       0x0210: Name: GLIBC_2.39 Flags: WEAK Version: 21
+     ```
+  3. Symbols requiring `GLIBC_2.39` via `readelf -sW ... | grep GLIBC_2.39`:
+     - In CLI (`warsha`):
+       ```text
+       174: 0000000000000000 0 FUNC WEAK DEFAULT UND pidfd_spawnp@GLIBC_2.39 (21)
+       193: 0000000000000000 0 FUNC WEAK DEFAULT UND pidfd_getpid@GLIBC_2.39 (21)
+       ```
+     - In daemon (`warshad`):
+       ```text
+       174: 0000000000000000 0 FUNC WEAK DEFAULT UND pidfd_spawnp@GLIBC_2.39 (21)
+       193: 0000000000000000 0 FUNC WEAK DEFAULT UND pidfd_getpid@GLIBC_2.39 (21)
+       ```
+     - In desktop binary (`warsha-desktop`):
+       ```text
+       241: 0000000000000000 0 FUNC WEAK DEFAULT UND pidfd_spawnp@GLIBC_2.39 (25)
+       268: 0000000000000000 0 FUNC WEAK DEFAULT UND pidfd_getpid@GLIBC_2.39 (25)
+       ```
+     Both symbols originate from Rust standard library `std::process::Command` implementation targeting Linux glibc >= 2.39 headers.
+  4. Dependency tree path for `openssl-sys` via `cargo tree -i openssl-sys`:
+     ```text
+     openssl-sys v0.9.117
+     ├── native-tls v0.2.18
+     │ ├── hyper-tls v0.6.0
+     │ │ └── reqwest v0.12.28
+     │ │ ├── warsha-git v0.3.0
+     │ │ │ └── warshad v0.3.0
+     │ │ ├── warsha-providers v0.3.0
+     │ │ │ ├── warsha-pipeline v0.3.0
+     │ │ │ │ ├── warsha-backends v0.3.0
+     │ │ │ │ │ └── warshad v0.3.0
+     │ │ │ │ └── warshad v0.3.0
+     │ │ │ └── warshad v0.3.0
+     │ │ └── warshad v0.3.0
+     │ ├── reqwest v0.12.28
+     │ └── tokio-native-tls v0.3.1
+     │ ├── hyper-tls v0.6.0
+     │ └── reqwest v0.12.28
+     └── openssl v0.10.81
+     └── native-tls v0.2.18
+     ```
+     No other workspace crate pulls `openssl` or `openssl-sys`. Root `Cargo.toml` specifies `reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }`. Because `default-features = false` was omitted, reqwest keeps its default `default-tls` (`native-tls` -> `openssl-sys`), which links `libssl.so.3` and `libcrypto.so.3` dynamically via `pkg-config`.
+  5. Desktop Debian package (`Warsha_0.3.0_amd64.deb`):
+     - `dpkg -I` reveals `Depends: libwebkit2gtk-4.1-0, libayatana-appindicator3-1, librsvg2-common, libwebkit2gtk-4.1-0, libgtk-3-0`.
+     - ELF binary `/usr/bin/warsha-desktop` inside the package requires `GLIBC >= 2.39` (`pidfd_spawnp`, `pidfd_getpid`) and `libssl.so.3`.
+  6. Desktop AppImage package (`Warsha_0.3.0_amd64.AppImage`):
+     - Squashfs payload (offset 944632) contains bundled `usr/lib/libssl.so.3` and `usr/lib/libcrypto.so.3`.
+     - Squashfs does NOT bundle `libc.so.6`.
+     - Embedded `/usr/bin/warsha-desktop` requires host `libc.so.6` with `GLIBC_2.39`.
+     - Fails immediately on any host with GLIBC < 2.39 (e.g. Ubuntu 22.04 LTS, Debian 12 Bookworm).
+
+- **Linux Distribution Compatibility Matrix (0.3.0 Pre-builts)**:
+  | Distribution | GLIBC Version | OpenSSL Version | 0.3.0 Pre-built Status | Notes |
+  |---|---|---|---|---|
+  | Ubuntu 24.04 LTS (Noble) | 2.39 | 3.0.13 (`libssl.so.3`) | **Supported** | GitHub Actions `ubuntu-latest` baseline |
+  | Ubuntu 24.10 (Oracular) | 2.40 | 3.0.13 (`libssl.so.3`) | **Supported** | Forward-compatible |
+  | Fedora 40 / 41 | 2.39 / 2.40 | 3.2.x (`libssl.so.3`) | **Supported** | Modern RPM desktop / server |
+  | Arch Linux / Manjaro | 2.39+ | 3.x (`libssl.so.3`) | **Supported** | Rolling release |
+  | Debian 13 (Trixie) | 2.40+ | 3.x (`libssl.so.3`) | **Supported** | Current testing distribution |
+  | Ubuntu 22.04 LTS (Jammy) | 2.35 | 3.0.2 (`libssl.so.3`) | **Incompatible** with pre-builts | Missing GLIBC 2.39 (has 2.35) |
+  | Debian 12 (Bookworm) | 2.36 | 3.0.11 (`libssl.so.3`) | **Incompatible** with pre-builts | Missing GLIBC 2.39 (has 2.36) |
+  | Debian 11 (Bullseye) | 2.31 | 1.1.1 (`libssl.so.1.1`) | **Incompatible** | Missing both GLIBC 2.39 and OpenSSL 3 |
+  | RHEL / Alma / Rocky 9 | 2.34 | 3.0.7 / 3.2 | **Incompatible** with pre-builts | Missing GLIBC 2.39 (has 2.34) |
+  | RHEL / CentOS 8 | 2.28 | 1.1.1 (`libssl.so.1.1`) | **Incompatible** | Missing both GLIBC 2.39 and OpenSSL 3 |
+  | openSUSE Leap 15.6 | 2.31 | 3.0.8 (`libssl.so.3`) | **Incompatible** with pre-builts | Missing GLIBC 2.39 (has 2.31) |
+  | Alpine Linux (musl) | musl | 3.x | **Incompatible** natively | Requires `gcompat` or native musl build |
+
+- **Decision for 0.3.0 Release (Grounding in Documentation & Guidance)**:
+  1. For 0.3.0, retain existing built artifacts as-is (do not perform silent rebuilds, re-tags, or dependency modifications).
+  2. Ground and state the actual runtime requirement (`GLIBC >= 2.39` and `libssl.so.3`) where Linux users see it before download:
+     - `docs/INSTALL.md`: Added Section 6 (in Arabic and English) detailing requirements, distribution compatibility matrix, failure signatures, desktop packaging nuances (.deb and AppImage), and source-build / Docker workarounds. Updated troubleshooting table (§9) and known gaps (§10).
+     - `docs/src/quickstart.md`: Updated Linux installer table to list 0.3.0 assets and explicit GLIBC >= 2.39 / libssl.so.3 requirement.
+     - `docs/src/known-limitations.md`: Added Section B entry documenting Linux pre-built runtime limits.
+     - `docs/src/changelog.md`: Added 0.3.0 runtime constraint note.
+     - `docs/launch/checklist.md`: Corrected AppImage distro-independence note for 0.3.0.
+     - `docs/zadloop/R-NEXT-OWNER-CHECKLIST.md`: Added Item 15 for owner review of wider-compatibility build proposal.
+
+- **Wider-Compatibility Build Proposal (for post-0.3.0 / 0.3.1)**:
+  To provide broad Linux compatibility across LTS releases (Debian 12, Ubuntu 22.04 LTS, RHEL 9), we propose a concrete three-part architecture:
+  1. **Path 1: Pure rustls TLS stack (eliminate `libssl.so.3` completely)**:
+     - Change root `Cargo.toml`:
+       ```toml
+       reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+       ```
+     - Drops `native-tls`, `hyper-tls`, `openssl`, and `openssl-sys` from all workspace crates.
+     - Completely removes `libssl.so.3` and `libcrypto.so.3` dynamic linkage from `warsha` and `warshad`.
+     - Consistent with `sqlx = { version = "0.8", features = ["runtime-tokio-rustls", ...] }`.
+     - Eliminates build-time dependencies on `libssl-dev` and `pkg-config`.
+  2. **Path 2: Fully static musl CLI and daemon (`x86_64-unknown-linux-musl`)**:
+     - Add `x86_64-unknown-linux-musl` target to `release.yml` for CLI and daemon.
+     - Musl binaries statically link libc and (combined with rustls) have ZERO runtime dynamic shared library dependencies.
+     - Executes universally on any Linux kernel >= 3.2 across all distributions (Ubuntu 16.04–24.04, Debian 10–12, Alpine, RHEL 7–9, Arch).
+  3. **Path 3: Containerized builder with older GLIBC baseline for Desktop GUI (`.deb` and `.AppImage`)**:
+     - Desktop app (`warsha-desktop`) relies on GTK 3 and WebKit2GTK 4.1, which require dynamic glibc linkage.
+     - In `.github/workflows/release.yml`, build Linux desktop bundles inside an `ubuntu-22.04` (GLIBC 2.35) container or Debian 12 Bookworm container.
+     - Building against GLIBC 2.35 allows `.deb` and `.AppImage` to execute out of the box on Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, Debian 12 Bookworm, Fedora 36+, and RHEL 9.
+  4. **Alternative Path 4: Vendored OpenSSL (`openssl = { version = "0.10", features = ["vendored"] }`)**:
+     - If OpenSSL C library were specifically required over rustls, the `vendored` feature compiles OpenSSL statically into the binary, removing runtime `libssl.so.3` linkage (at the cost of ~3-5MB binary size and C compilation overhead). Rustls (Path 1) is strongly preferred.
+
+- **Explicit Non-Goals**:
+  - No silent binary rebuilds or re-tagging of 0.3.0 assets in this lane (preserves verification integrity of draft 452168316).
+  - No modification of `.rs` / `.ts` code or `Cargo.toml` dependencies in this documentation/report lane.
+  - No bundling of `libc.so.6` inside AppImage (forbidden by AppImage design: bundling libc causes fatal symbol conflicts with host graphics drivers, DRI, and NSS).

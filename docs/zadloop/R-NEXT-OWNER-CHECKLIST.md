@@ -103,6 +103,10 @@ closed) and the F3 report (smoke-script S4/S5 follow-up). Item 14 was added by p
   check` exits 0 for the desktop app (or every remaining notice is enumerated in an OD and ignored
   with that OD cited in `deny.toml`).
 
+### 15. Review Linux wider-compatibility build proposal for post-0.3.0 — packet: UX F6
+- **What to do:** Shipped 0.3.0 Linux x86_64 binaries (`warsha`, `warshad`, `.deb`, `.AppImage`) require `GLIBC >= 2.39` and `libssl.so.3` due to the GitHub Actions `ubuntu-latest` runner (Ubuntu 24.04). Pre-builts do not execute on older distributions such as Ubuntu 22.04 LTS (GLIBC 2.35) or Debian 12 Bookworm (GLIBC 2.36). Review the wider-compatibility build proposal in `DECISIONS.md` (`D-RN-UX-F6-1`) recommending: (1) `default-features = false` on `reqwest` to switch to pure `rustls` and eliminate `libssl.so.3` dynamic linkage; (2) target `x86_64-unknown-linux-musl` for fully static CLI and daemon binaries with zero glibc dependency; (3) build desktop Linux packages inside an `ubuntu-22.04` (GLIBC 2.35) or Debian 12 container to make the AppImage and .deb run across all LTS distros.
+- **Pass looks like:** Owner accepts or schedules the wider-compatibility build changes for the next release (0.3.1 / 0.4.0).
+
 ## Fleet notes
 
 - [ ] Probe `codex exec --json` parsing when codex is installed on a host (N0's JSONL parser is fixture-tested only; codex absent on the run host).
