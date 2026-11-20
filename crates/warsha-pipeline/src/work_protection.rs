@@ -486,6 +486,90 @@ mod tests {
             classify_command("cat", &["/etc/passwd".to_string()]),
             RiskClass::Risky
         );
+        assert_eq!(
+            classify_command("pnpm", &["run".to_string(), "build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pnpm", &["exec".to_string(), "foo".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("yarn", &["run".to_string(), "build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("yarn", &["exec".to_string(), "foo".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("npm", &["x".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("npm", &["start".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("npm", &["test".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("npm", &["run-script".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["r".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["b".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["-p".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["--print".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("nodejs", &["-p".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("bun", &["-e".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("deno", &["task".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("go", &["generate".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-E".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rails", &["runner".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("dotnet", &["run".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("git", &["rebase".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("git", &["submodule".to_string()]),
+            RiskClass::Risky
+        );
     }
 
     #[test]
