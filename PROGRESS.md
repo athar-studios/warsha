@@ -1,5 +1,23 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — Pre-release gate matrix (r-next/integration@d2a4e3d)
+- **Commands**:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0
+  - `cargo deny check root`: exit 0
+  - `gitleaks detect --source=. --no-git`: exit 1 (2 findings)
+  - `node scripts/check-arch.mjs`: 5 rules 0 violations
+  - `node scripts/check-versions.mjs`: aligned
+  - `node scripts/check-wire-contract.mjs`: 11 checks 0 violations
+  - `node scripts/check-engineering-policy.mjs`: 8 checks 0 failures
+
+| Severity | Finding |
+| :--- | :--- |
+| HIGH | None (deny 0, no secret exfiltration paths found) |
+| MEDIUM | None |
+| LOW | 2 gitleaks generic-secret hits in `docs/book/run-modes.html:338` and `docs/book/print.html:5701`, both literal `<redacted>` placeholder in docs text, false positives, no remediation. |
+
+
 ## Run 2026-11-20 — R2 FIX-LANE INTEGRATION
 - **Changes**: Merged lanes H1, H2, M1, SYM, M5.
 - **Risky Commands**: Unified H1/H2 policies in `crates/warsha-pipeline/src/risky_commands.rs`.
@@ -7271,3 +7289,4 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
   (out-of-scope empty-fallback hunk reverted before commit).
 - Gates on merged tip: fmt 0, versions aligned, arch 5/0, wire 11/0, policy 8/0,
   clippy `-D warnings` 0, pipeline 527 + warshad 295 pass.
+
