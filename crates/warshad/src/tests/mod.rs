@@ -1,5 +1,5 @@
 use super::*;
-use warsha_providers::InMemorySecretStore;
+use warsha_providers::{InMemorySecretStore, OneClickProvider};
 
 #[test]
 fn the_default_backend_kit_comes_from_the_run_project() {
@@ -1172,6 +1172,43 @@ fn a_providers_endpoint_falls_back_to_its_kinds_default() {
                 .default_base_url()
                 .expect("qwen has a default")
         )
+    );
+
+    // Standard vendor kinds default to their canonical endpoints when none is named.
+    let openai = StoredProvider {
+        name: "openai".to_string(),
+        kind: "openai".to_string(),
+        api_base: None,
+        enabled: true,
+        created_at: 1_700_000_000,
+    };
+    assert_eq!(
+        provider_endpoint(&openai).as_deref(),
+        Some("https://api.openai.com/v1")
+    );
+
+    let anthropic = StoredProvider {
+        name: "anthropic".to_string(),
+        kind: "anthropic".to_string(),
+        api_base: None,
+        enabled: true,
+        created_at: 1_700_000_000,
+    };
+    assert_eq!(
+        provider_endpoint(&anthropic).as_deref(),
+        Some("https://api.anthropic.com")
+    );
+
+    let ollama = StoredProvider {
+        name: "ollama".to_string(),
+        kind: "ollama".to_string(),
+        api_base: None,
+        enabled: true,
+        created_at: 1_700_000_000,
+    };
+    assert_eq!(
+        provider_endpoint(&ollama).as_deref(),
+        Some("http://127.0.0.1:11434")
     );
 
     // A custom endpoint is the owner's to name: no default URL, no default

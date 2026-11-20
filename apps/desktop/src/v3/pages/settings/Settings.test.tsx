@@ -391,12 +391,12 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
 
 function renderSettings(
   initialPath = '/settings/general',
-  client: WarshaClient = createMockClient(),
+  client: WarshaClient | null = createMockClient(),
   mode: 'simple' | 'developers' = 'simple',
   locale: 'ar' | 'en' = 'ar'
 ) {
   return render(
-    <ClientProvider client={client}>
+    <ClientProvider client={client ?? undefined}>
       <CapabilitiesProvider
         initialCapabilities={{
           daemon: true,
@@ -788,7 +788,7 @@ describe('SettingsPage (Slice 1)', () => {
     expect(client.recordPreference).not.toHaveBeenCalled();
   });
 
-  it('validates provider form in ModelsSection and refuses empty name or key', async () => {
+  it('validates provider form in ModelsSection and refuses empty name or key with localized messages', async () => {
     const client = createMockClient();
     renderSettings('/settings/models', client);
     await waitFor(() => expect(screen.getByTestId('settings-section-models')).toBeDefined());
@@ -796,9 +796,117 @@ describe('SettingsPage (Slice 1)', () => {
     fireEvent.click(document.querySelector('button[data-action="settings.provider.add.open"]') as HTMLElement);
     await waitFor(() => expect(screen.getByTestId('add-provider-dialog')).toBeDefined());
 
+    // Both empty: shows required message
     fireEvent.click(document.querySelector('button[data-action="settings.provider.add.save"]') as HTMLElement);
-    await waitFor(() => expect(document.querySelector('.w-banner--danger')).not.toBeNull());
+    await waitFor(() => {
+      expect(document.querySelector('.w-banner--danger')).not.toBeNull();
+      expect(screen.getByText(/يرجى إدخال اسم المزوّد ومفتاح API\.|Please enter provider name and API key\./)).toBeDefined();
+    });
     expect(client.addProvider).not.toHaveBeenCalled();
+
+    // Name filled, key empty: shows key_required message
+    fireEvent.change(screen.getByTestId('provider-form-name').querySelector('input') as HTMLInputElement, {
+      target: { value: 'my-custom-provider' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.save"]') as HTMLElement);
+    await waitFor(() => {
+      expect(screen.getByText(/يرجى إدخال مفتاح API\.|Please enter an API key\./)).toBeDefined();
+    });
+    expect(client.addProvider).not.toHaveBeenCalled();
+
+    // Key filled, name empty: shows name_required message
+    fireEvent.change(screen.getByTestId('provider-form-name').querySelector('input') as HTMLInputElement, {
+      target: { value: '' },
+    });
+    fireEvent.change(screen.getByTestId('provider-form-key').querySelector('input') as HTMLInputElement, {
+      target: { value: 'sk-secret-key-123' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.save"]') as HTMLElement);
+    await waitFor(() => {
+      expect(screen.getByText(/يرجى إدخال اسم المزوّد\.|Please enter a provider name\./)).toBeDefined();
+    });
+    expect(client.addProvider).not.toHaveBeenCalled();
+    expect(screen.getByTestId('add-provider-dialog')).toBeDefined();
+  });
+
+  it('persists provider and reloads provider list on successful add in ModelsSection', async () => {
+    const listProviders = vi.fn().mockResolvedValue([
+      { name: 'prov-alpha', kind: 'openai', enabled: true },
+      { name: 'prov-beta', kind: 'deepseek', enabled: true },
+    ]);
+    const addProvider = vi.fn().mockResolvedValue({ name: 'prov-beta', kind: 'deepseek', enabled: true });
+    const client = createMockClient({
+      listProviders,
+      addProvider,
+    });
+    renderSettings('/settings/models', client);
+    await waitFor(() => expect(screen.getByTestId('settings-section-models')).toBeDefined());
+    const initialCalls = listProviders.mock.calls.length;
+
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('add-provider-dialog')).toBeDefined());
+
+    fireEvent.change(screen.getByTestId('provider-form-name').querySelector('input') as HTMLInputElement, {
+      target: { value: 'prov-beta' },
+    });
+    fireEvent.change(screen.getByTestId('provider-form-key').querySelector('input') as HTMLInputElement, {
+      target: { value: 'sk-deepseek-key' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.save"]') as HTMLElement);
+
+    await waitFor(() => {
+      expect(addProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'prov-beta', key: 'sk-deepseek-key' })
+      );
+      expect(listProviders.mock.calls.length).toBeGreaterThan(initialCalls);
+      expect(screen.queryByTestId('add-provider-dialog')).toBeNull();
+    });
+  });
+
+  it('surfaces daemon error on dialog banner when addProvider fails and keeps dialog open', async () => {
+    const client = createMockClient({
+      addProvider: vi.fn().mockRejectedValue(new Error('RPC error -32603: connection refused to daemon')),
+    });
+    renderSettings('/settings/models', client);
+    await waitFor(() => expect(screen.getByTestId('settings-section-models')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('add-provider-dialog')).toBeDefined());
+
+    fireEvent.change(screen.getByTestId('provider-form-name').querySelector('input') as HTMLInputElement, {
+      target: { value: 'failing-prov' },
+    });
+    fireEvent.change(screen.getByTestId('provider-form-key').querySelector('input') as HTMLInputElement, {
+      target: { value: 'sk-fail' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.save"]') as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-provider-dialog')).toBeDefined();
+      expect(screen.getByText(/connection refused to daemon/)).toBeDefined();
+    });
+    expect(client.addProvider).toHaveBeenCalled();
+  });
+
+  it('surfaces localized error on dialog when client is not connected', async () => {
+    renderSettings('/settings/models', null);
+    await waitFor(() => expect(screen.getByTestId('settings-section-models')).toBeDefined());
+
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.open"]') as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('add-provider-dialog')).toBeDefined());
+
+    fireEvent.change(screen.getByTestId('provider-form-name').querySelector('input') as HTMLInputElement, {
+      target: { value: 'orphan-prov' },
+    });
+    fireEvent.change(screen.getByTestId('provider-form-key').querySelector('input') as HTMLInputElement, {
+      target: { value: 'sk-orphan' },
+    });
+    fireEvent.click(document.querySelector('button[data-action="settings.provider.add.save"]') as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-provider-dialog')).toBeDefined();
+      expect(screen.getByText(/العميل غير متصل بالخادم\.|Daemon client is not connected\./)).toBeDefined();
+    });
   });
 
   it('validates custom model form in ModelsSection and refuses empty model ID', async () => {

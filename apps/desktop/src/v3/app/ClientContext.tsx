@@ -20,7 +20,15 @@ export function ClientProvider({ client: clientProp, children }: ClientProviderP
       return;
     }
 
-    readDaemonEndpoint(invoke)
+    const readConfig = async (key: string): Promise<string> => {
+      try {
+        return await invoke<string>('get_config', { key });
+      } catch {
+        return '';
+      }
+    };
+
+    readDaemonEndpoint(readConfig)
       .then((endpoint) => {
         if (endpoint.baseUrl) {
           setResolvedClient(createClient(endpoint.baseUrl, endpoint.token));
