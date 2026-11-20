@@ -35,8 +35,8 @@ release.
 | Windows | `Warsha_<version>_x64-setup.exe` | `desktop-build` | NSIS fallback |
 | macOS | `Warsha_<version>_x64.dmg` | `desktop-build` | Intel |
 | macOS | `Warsha_<version>_aarch64.dmg` | `desktop-build` | Apple Silicon |
-| Linux | `warsha_<version>_amd64.deb` | `desktop-build` | Debian/Ubuntu |
-| Linux | `warsha_<version>_amd64.AppImage` | `desktop-build` | distro-independent |
+| Linux | `warsha_<version>_amd64.deb` | `desktop-build` | Debian/Ubuntu (0.3.0 requires GLIBC >= 2.39, libssl.so.3) |
+| Linux | `warsha_<version>_amd64.AppImage` | `desktop-build` | requires host GLIBC >= 2.39 in 0.3.0 (distro-independent AppImage targeted post-0.3.0, see D-RN-UX-F6-1) |
 | CLI | `warsha-linux`, `warsha-macos`, `warsha-windows.exe` | `rust-build` | stripped on Linux/macOS |
 | Daemon | `warshad-linux`, `warshad-macos`, `warshad-windows.exe` | `rust-build` | starts with the CLI or the app |
 
