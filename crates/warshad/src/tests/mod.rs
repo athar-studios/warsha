@@ -2700,7 +2700,7 @@ async fn providers_check_models_rpc() {
     }
 
     let diff = rpc
-        .check_provider_models(&owner_ext(), "ollama_test".to_string())
+        .check_provider_models(&owner_ext(), "ollama_test".to_string(), None, None, None)
         .await
         .expect("check_provider_models succeeds");
     assert_eq!(diff.provider, "ollama_test");
@@ -2708,9 +2708,109 @@ async fn providers_check_models_rpc() {
     assert_eq!(diff.new_models[0].id, "qwen2.5-coder:7b");
 
     assert!(rpc
-        .check_provider_models(&owner_ext(), "non_existent".to_string())
+        .check_provider_models(&owner_ext(), "non_existent".to_string(), None, None, None,)
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn providers_check_models_diffs_against_local_catalog() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    state
+        .settings
+        .save_custom_model(&warsha_store::StoredCustomModel {
+            provider: "ollama_test".to_string(),
+            model_id: "qwen2.5-coder:7b".to_string(),
+            display_name: Some("Local Qwen".to_string()),
+            context_window: Some(32_000),
+            enabled: true,
+        })
+        .await
+        .expect("save custom model succeeds");
+
+    {
+        let mut router = state.providers.write().await;
+        router.register_provider(Box::new(
+            warsha_providers::MockProvider::new("ollama_test").with_models(vec![
+                warsha_providers::ModelInfo {
+                    id: "qwen2.5-coder:7b".to_string(),
+                    name: "Qwen 2.5 Coder 7B".to_string(),
+                    provider: "ollama_test".to_string(),
+                    context_window: 32_000,
+                    max_output: 8_192,
+                    pricing: warsha_core::ModelPricing {
+                        input_per_million_cents: 0,
+                        output_per_million_cents: 0,
+                    },
+                },
+                warsha_providers::ModelInfo {
+                    id: "llama3.2:3b".to_string(),
+                    name: "Llama 3.2 3B".to_string(),
+                    provider: "ollama_test".to_string(),
+                    context_window: 8_192,
+                    max_output: 2_048,
+                    pricing: warsha_core::ModelPricing {
+                        input_per_million_cents: 0,
+                        output_per_million_cents: 0,
+                    },
+                },
+            ]),
+        ));
+    }
+
+    let diff = rpc
+        .check_provider_models(&owner_ext(), "ollama_test".to_string(), None, None, None)
+        .await
+        .expect("check_provider_models succeeds");
+    assert_eq!(diff.provider, "ollama_test");
+    assert_eq!(diff.retained_count, 1);
+    assert_eq!(diff.new_models.len(), 1);
+    assert_eq!(diff.new_models[0].id, "llama3.2:3b");
+    assert_eq!(diff.updated_catalog.len(), 2);
+}
+
+#[tokio::test]
+async fn providers_check_models_surfaces_error_without_leaking_key() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let secret = "sk-live-super-secret-key-12345";
+    state
+        .secrets
+        .store("failing_provider", secret)
+        .await
+        .expect("store secret succeeds");
+
+    {
+        let mut router = state.providers.write().await;
+        router.register_provider(Box::new(
+            warsha_providers::MockProvider::new("failing_provider").with_failure(
+                warsha_providers::ProviderError::Auth(format!("rejected key {secret}")),
+            ),
+        ));
+    }
+
+    let err = rpc
+        .check_provider_models(
+            &owner_ext(),
+            "failing_provider".to_string(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("failing provider must surface an error");
+
+    let err_msg = err.to_string();
+    assert!(
+        !err_msg.contains(secret),
+        "error must not leak secret: {err_msg}"
+    );
+    assert!(err_msg.contains("rejected key") || err_msg.contains("[REDACTED]"));
 }
 
 // ---- Re-audit LOAD-1 finding 1: the tier table has to bind the read surface too.

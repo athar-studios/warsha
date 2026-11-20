@@ -54,6 +54,8 @@ export default {
   'onboarding.validation_url_invalid': 'أدخل عنوان URL صحيحًا',
   'onboarding.validation_model_required': 'أدخل معرف النموذج',
   'onboarding.no_models_found': 'لم يتم العثور على نماذج من المزود',
+  'onboarding.model_not_offered': 'النموذج غير متوفر لدى هذا المزود',
+  'onboarding.manual_model_fallback': 'أو أدخل معرّف النموذج يدوياً',
   'onboarding.idea_required': 'اكتب فكرة مشروعك أولًا',
   'onboarding.provider_configured_badge': 'متصل',
 };

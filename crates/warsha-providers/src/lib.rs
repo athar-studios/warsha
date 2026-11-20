@@ -28,7 +28,8 @@ pub use fake::{FakeProvider, FAKE_MODEL_ID, FAKE_PROVIDER_ID};
 pub use ollama::OllamaProvider;
 pub use openai::{delete_key, load_key, store_key, OpenAIProvider};
 pub use provider_setup::{
-    probe_endpoint, ConnectionTestResult, OneClickProvider, ProviderSetupWizard, PROBE_TIMEOUT,
+    probe_endpoint, probe_models, ConnectionTestResult, OneClickProvider, ProviderSetupWizard,
+    PROBE_TIMEOUT,
 };
 pub use provider_update::{
     check_provider_model_updates, latest_versions, reconcile_model_catalog, DetectedProvider,
@@ -296,6 +297,12 @@ impl ChatProvider for MockProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
+        if self.should_fail {
+            return Err(self
+                .fail_with
+                .clone()
+                .unwrap_or_else(|| ProviderError::Other("mock list_models failure".to_string())));
+        }
         Ok(self.models.clone())
     }
 

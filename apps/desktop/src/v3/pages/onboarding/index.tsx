@@ -86,7 +86,7 @@ export function isValidHttpUrl(value: string): boolean {
   return /^https?:\/\/[^\s]+$/i.test(value.trim());
 }
 
-export function sanitizeSecretError(err: unknown, secret: string): string {
+export function sanitizeSecretError(err: unknown, secret?: string): string {
   const msg = err instanceof Error ? err.message : String(err);
   const trimmed = msg.trim();
   if (!trimmed) return '';

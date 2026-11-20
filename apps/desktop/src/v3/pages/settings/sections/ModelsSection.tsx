@@ -3,6 +3,7 @@ import {
   ALL_ROLES,
   type AuthStatus,
   type CustomModelRecord,
+  type ModelCatalogDiff,
   type ModelInfo,
   type ProviderConfig,
   type Role,
@@ -41,6 +42,18 @@ interface ModelOption {
   label: string;
 }
 
+export function sanitizeSecretError(err: unknown, secret?: string): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  let trimmed = msg.trim();
+  if (!trimmed) return '';
+  if (secret && secret.trim()) {
+    trimmed = trimmed.split(secret.trim()).join('[redacted]');
+  }
+  trimmed = trimmed.replace(/Bearer\s+([a-zA-Z0-9_\-\.]+)/gi, 'Bearer [redacted]');
+  trimmed = trimmed.replace(/sk-[a-zA-Z0-9_\-]{6,}/g, '[redacted]');
+  return trimmed;
+}
+
 export function ModelsSection(): React.ReactElement {
   const t = useT();
   const client = useClient();
@@ -54,6 +67,8 @@ export function ModelsSection(): React.ReactElement {
   const [customModels, setCustomModels] = useState<CustomModelRecord[]>([]);
   const [roleRoutings, setRoleRoutings] = useState<RoleRouting[]>([]);
   const [fetchedModels, setFetchedModels] = useState<Record<string, ModelInfo[]>>({});
+  const [fetchErrors, setFetchErrors] = useState<Record<string, string>>({});
+  const [catalogDiffs, setCatalogDiffs] = useState<Record<string, ModelCatalogDiff>>({});
   const [testResults, setTestResults] = useState<Record<string, 'ok' | 'fail'>>({});
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -64,6 +79,11 @@ export function ModelsSection(): React.ReactElement {
   const [formKey, setFormKey] = useState('');
   const [formApiBase, setFormApiBase] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const [dialogDiscoveredModels, setDialogDiscoveredModels] = useState<ModelInfo[]>([]);
+  const [dialogDiscoveredFetched, setDialogDiscoveredFetched] = useState(false);
+  const [dialogModelsError, setDialogModelsError] = useState<string | null>(null);
+  const [dialogSelectedModel, setDialogSelectedModel] = useState('');
+  const [dialogManualModel, setDialogManualModel] = useState('');
 
   // Destructive confirmation dialogs
   const [removeProviderTarget, setRemoveProviderTarget] = useState<ProviderConfig | null>(null);
@@ -143,6 +163,11 @@ export function ModelsSection(): React.ReactElement {
     setFormKey('');
     setFormApiBase('');
     setFormError(null);
+    setDialogDiscoveredModels([]);
+    setDialogDiscoveredFetched(false);
+    setDialogModelsError(null);
+    setDialogSelectedModel('');
+    setDialogManualModel('');
   };
 
   const addProviderAction = useAction('settings.provider.add.save', async () => {
@@ -172,6 +197,11 @@ export function ModelsSection(): React.ReactElement {
         key: cleanKey,
         ...(formApiBase.trim() ? { api_base: formApiBase.trim() } : {}),
       });
+
+      const effectiveModel = dialogManualModel.trim() || dialogSelectedModel;
+      if (effectiveModel) {
+        await client.addCustomModel(cleanName, effectiveModel);
+      }
       closeAddDialog();
       setStatusMessage(t('settings.common.action_done'));
       await loadData();
@@ -180,6 +210,39 @@ export function ModelsSection(): React.ReactElement {
       setFormError(message.replace(/^RPC error -?\d+:\s*/, ''));
     }
   });
+
+  const dialogFetchModelsAction = useAction(
+    'settings.provider.form.models.fetch',
+    async () => {
+      const cleanKey = formKey.trim();
+      const cleanUrl = formApiBase.trim();
+      const cleanName = formName.trim() || 'custom';
+      if (!cleanKey) {
+        setFormError(t('onboarding.validation_key_required'));
+        return;
+      }
+      setDialogModelsError(null);
+      setFormError(null);
+      try {
+        const diff = await client?.checkProviderModels(cleanName, {
+          api_base: cleanUrl || undefined,
+          key: cleanKey,
+          kind: formKind,
+        });
+        const models = diff?.updated_catalog ?? [];
+        setDialogDiscoveredModels(models);
+        setDialogDiscoveredFetched(true);
+        if (models.length > 0 && !dialogSelectedModel) {
+          setDialogSelectedModel(models[0].id);
+        }
+      } catch (err) {
+        const cleanMsg = sanitizeSecretError(err, cleanKey);
+        setDialogModelsError(
+          cleanMsg || t('settings.providers.models_fetch_failed', { error: 'Unknown' })
+        );
+      }
+    }
+  );
 
   const testProviderAction = useAction('settings.provider.test', async (providerName: string) => {
     if (!client) return;
@@ -196,11 +259,27 @@ export function ModelsSection(): React.ReactElement {
     'settings.provider.models.fetch',
     async (providerName: string) => {
       if (!client) return;
-      const diff = await client.checkProviderModels(providerName);
-      setFetchedModels((prev) => ({ ...prev, [providerName]: diff.updated_catalog }));
-      setStatusMessage(
-        t('settings.providers.models_fetched', { count: diff.updated_catalog.length })
-      );
+      setFetchErrors((prev) => {
+        const next = { ...prev };
+        delete next[providerName];
+        return next;
+      });
+      try {
+        const diff = await client.checkProviderModels(providerName);
+        setCatalogDiffs((prev) => ({ ...prev, [providerName]: diff }));
+        setFetchedModels((prev) => ({ ...prev, [providerName]: diff.updated_catalog }));
+        setStatusMessage(
+          t('settings.providers.models_fetched', { count: diff.updated_catalog.length })
+        );
+      } catch (err) {
+        const cleanMsg = sanitizeSecretError(err);
+        setFetchErrors((prev) => ({
+          ...prev,
+          [providerName]:
+            cleanMsg || t('settings.providers.models_fetch_failed', { error: 'Unknown' }),
+        }));
+        throw err;
+      }
     }
   );
 
@@ -331,6 +410,7 @@ export function ModelsSection(): React.ReactElement {
             size="sm"
             icon={<IconPlus size={16} />}
             data-action="settings.provider.add.open"
+            data-testid="provider-add-button"
             onClick={() => setAddOpen(true)}
           >
             {t('settings.providers.add')}
@@ -376,7 +456,12 @@ export function ModelsSection(): React.ReactElement {
               const catalog = fetchedModels[p.name];
               const authStatus = authStatuses[p.name];
               return (
-                <div key={p.name} className="v3-settings-row" data-testid={`provider-row-${p.name}`}>
+                <div
+                  key={p.name}
+                  className="v3-settings-row"
+                  style={{ flexWrap: 'wrap' }}
+                  data-testid={`provider-row-${p.name}`}
+                >
                   <span className="v3-settings-row-icon" aria-hidden="true">
                     {p.kind === 'custom' ? <IconGlobe size={18} /> : <IconCpu size={18} />}
                   </span>
@@ -487,6 +572,105 @@ export function ModelsSection(): React.ReactElement {
                       onClick={() => setRemoveProviderTarget(p)}
                     />
                   </div>
+                  {fetchErrors[p.name] && (
+                    <div
+                      className="v3-provider-fetch-error"
+                      data-testid={`provider-fetch-error-${p.name}`}
+                      style={{
+                        width: '100%',
+                        marginTop: 'var(--w-space-2)',
+                        padding: 'var(--w-space-2) var(--w-space-3)',
+                        borderRadius: 'var(--w-radius-md)',
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        color: 'var(--w-danger, #ef4444)',
+                        fontSize: 'var(--w-font-size-xs)',
+                      }}
+                    >
+                      <bdi dir="auto">
+                        {t('settings.providers.models_fetch_failed', {
+                          error: fetchErrors[p.name],
+                        })}
+                      </bdi>
+                    </div>
+                  )}
+                  {catalogDiffs[p.name] && (
+                    <div
+                      className="v3-provider-models-diff"
+                      data-testid={`provider-models-list-${p.name}`}
+                      style={{
+                        width: '100%',
+                        marginTop: 'var(--w-space-2)',
+                        padding: 'var(--w-space-3)',
+                        borderRadius: 'var(--w-radius-md)',
+                        background: 'var(--w-surface-variant, #f8fafc)',
+                        border: '1px solid var(--w-border-subtle, #e2e8f0)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--w-space-2)',
+                          marginBottom: 'var(--w-space-2)',
+                          fontSize: 'var(--w-font-size-xs)',
+                          color: 'var(--w-text-muted)',
+                        }}
+                      >
+                        <span style={{ fontWeight: 600 }}>
+                          {t('settings.providers.live_models_title')}
+                        </span>
+                        <StatusPill
+                          status="done"
+                          label={t('settings.providers.new_models_count', {
+                            count: catalogDiffs[p.name].new_models.length,
+                          })}
+                        />
+                        <StatusPill
+                          status="idle"
+                          label={t('settings.providers.retained_models_count', {
+                            count: catalogDiffs[p.name].retained_count,
+                          })}
+                        />
+                      </div>
+                      {catalogDiffs[p.name].updated_catalog.length === 0 ? (
+                        <span
+                          style={{
+                            fontSize: 'var(--w-font-size-xs)',
+                            color: 'var(--w-text-muted)',
+                          }}
+                        >
+                          {t('onboarding.no_models_found')}
+                        </span>
+                      ) : (
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: 'var(--w-space-1)',
+                          }}
+                        >
+                          {catalogDiffs[p.name].updated_catalog.map((m) => (
+                            <span
+                              key={m.id}
+                              data-testid={`provider-model-item-${p.name}-${m.id}`}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '2px 8px',
+                                borderRadius: 'var(--w-radius-sm)',
+                                background: 'var(--w-surface, #ffffff)',
+                                border: '1px solid var(--w-border, #cbd5e1)',
+                                fontSize: 'var(--w-font-size-xs)',
+                                fontFamily: 'monospace',
+                              }}
+                            >
+                              {m.id}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -713,6 +897,72 @@ export function ModelsSection(): React.ReactElement {
             dir="ltr"
             data-testid="provider-form-api-base"
           />
+
+          <div style={{ marginTop: 'var(--w-space-1)' }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={dialogFetchModelsAction.pending}
+              data-action="settings.provider.form.models.fetch"
+              data-testid="provider-form-fetch-models-btn"
+              onClick={() => {
+                void dialogFetchModelsAction.run();
+              }}
+            >
+              {dialogFetchModelsAction.pending
+                ? t('settings.providers.fetching_models')
+                : t('settings.providers.fetch_models')}
+            </Button>
+          </div>
+
+          {dialogModelsError && (
+            <Banner variant="danger" data-testid="provider-form-models-error">
+              <bdi dir="auto">{dialogModelsError}</bdi>
+            </Banner>
+          )}
+
+          {dialogDiscoveredModels.length > 0 && (
+            <Select
+              label={t('settings.providers.select_model')}
+              options={dialogDiscoveredModels.map((m) => ({ value: m.id, label: m.id }))}
+              value={dialogSelectedModel}
+              onChange={(e) => {
+                setDialogSelectedModel(e.target.value);
+                setDialogManualModel('');
+              }}
+              data-testid="provider-form-model-select"
+            />
+          )}
+
+          <TextField
+            label={t('settings.providers.manual_model')}
+            placeholder={t('onboarding.custom_model_placeholder')}
+            value={dialogManualModel}
+            onChange={(e) => {
+              setDialogManualModel(e.target.value);
+            }}
+            dir="ltr"
+            data-testid="provider-form-model-manual"
+          />
+
+          {dialogDiscoveredFetched &&
+            dialogDiscoveredModels.length > 0 &&
+            dialogManualModel.trim() &&
+            !dialogDiscoveredModels.some(
+              (m) => m.id.toLowerCase() === dialogManualModel.trim().toLowerCase()
+            ) && (
+              <div
+                data-testid="provider-form-model-warning"
+                style={{
+                  color: 'var(--w-warning, #f59e0b)',
+                  fontSize: 'var(--w-font-size-xs)',
+                  marginTop: '-4px',
+                }}
+              >
+                {t('settings.providers.model_not_offered')}
+              </div>
+            )}
+
           <div className="v3-settings-dialog-actions">
             <Button
               variant="ghost"

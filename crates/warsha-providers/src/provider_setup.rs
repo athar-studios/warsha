@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::HealthCheck;
+use crate::{HealthCheck, ModelInfo, ProviderError};
 
 /// How long [`probe_endpoint`] waits for an answer.
 ///
@@ -328,10 +328,107 @@ pub async fn probe_endpoint(base_url: &str, api_key: &str) -> HealthCheck {
             status.as_u16()
         ))
     } else {
-        unhealthy(format!(
-            "the endpoint answered HTTP {} instead of a model list",
-            status.as_u16()
-        ))
+        let body = response.text().await.unwrap_or_default();
+        let scrubbed = crate::scrub_key(&body, api_key);
+        let detail = if scrubbed.trim().is_empty() {
+            format!(
+                "the endpoint answered HTTP {} instead of a model list",
+                status.as_u16()
+            )
+        } else {
+            let trimmed = scrubbed.trim();
+            let short = if trimmed.len() > 200 {
+                &trimmed[..200]
+            } else {
+                trimmed
+            };
+            format!("the endpoint answered HTTP {}: {}", status.as_u16(), short)
+        };
+        unhealthy(detail)
+    }
+}
+
+/// Probe a provider's `/models` endpoint directly to fetch available models without saving.
+///
+/// Keys are never echoed in errors; bodies are scrubbed using [`crate::scrub_key`].
+pub async fn probe_models(base_url: &str, api_key: &str) -> Result<Vec<ModelInfo>, ProviderError> {
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+    let client = match Client::builder().timeout(PROBE_TIMEOUT).build() {
+        Ok(client) => client,
+        Err(error) => {
+            return Err(ProviderError::Other(format!(
+                "the HTTP client could not be built: {error}"
+            )))
+        }
+    };
+
+    let response = match client.get(&url).bearer_auth(api_key).send().await {
+        Ok(response) => response,
+        Err(error) => return Err(ProviderError::Other(describe_transport(&error))),
+    };
+
+    let status = response.status();
+    if status.is_success() {
+        let text = response
+            .text()
+            .await
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+        let data: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| ProviderError::Other(format!("invalid JSON in models response: {e}")))?;
+
+        let raw_list = if let Some(arr) = data.get("data").and_then(|v| v.as_array()) {
+            arr.clone()
+        } else if let Some(arr) = data.as_array() {
+            arr.clone()
+        } else if let Some(arr) = data.get("models").and_then(|v| v.as_array()) {
+            arr.clone()
+        } else {
+            Vec::new()
+        };
+
+        let models = raw_list
+            .iter()
+            .filter_map(|m| {
+                let id = m
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| m.get("name").and_then(|v| v.as_str()))?;
+                Some(ModelInfo {
+                    id: id.to_string(),
+                    name: id.to_string(),
+                    provider: String::new(),
+                    context_window: 0,
+                    max_output: 0,
+                    pricing: warsha_core::ModelPricing {
+                        input_per_million_cents: 0,
+                        output_per_million_cents: 0,
+                    },
+                })
+            })
+            .collect();
+
+        Ok(models)
+    } else {
+        let body = response.text().await.unwrap_or_default();
+        let scrubbed = crate::scrub_key(&body, api_key);
+        let detail = if scrubbed.trim().is_empty() {
+            format!("HTTP {}", status.as_u16())
+        } else {
+            let trimmed = scrubbed.trim();
+            let short = if trimmed.len() > 200 {
+                &trimmed[..200]
+            } else {
+                trimmed
+            };
+            format!("HTTP {}: {}", status.as_u16(), short)
+        };
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            Err(ProviderError::Auth(format!(
+                "the endpoint refused the API key: {detail}"
+            )))
+        } else {
+            Err(ProviderError::Http(status.as_u16(), detail))
+        }
     }
 }
 
