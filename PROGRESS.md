@@ -1,5 +1,10 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — UX fixes F1-F7 merged locally (D-UX-PROVIDER-1, D-RN-UX-SERVER-WINDOWS, D-RN-UX-MODELS-1, D-RN-UX-CODE-STAGE-1, D-RN-UX-UPTIME-1, D-RN-UX-F6-1, F7)
+- **Scope**: F1 provider add, F2 server status, F3 model discovery, F4 code stage, F5 uptime, F6 Linux runtime docs, F7 search label. Local merge only in `r-next/integration`; no push/tag/publish.
+- **Merges**: `f4fdbc1`/`a20f619` (F1), `c9321af`/`3cb7189` (F2), `616f589`/`d48c659` (F3), `a2c9e2b`/`1b2c158` (F4), `0cc6c52`/`cbae29e` (F5), `46088e8`/`7c5eee2` (F6), `6403049`/`deb6911` (F7).
+- **Gates (verified myself in this tree)**: `cargo fmt --check` exit 0; `cargo clippy --workspace --all-targets -- -D warnings` exit 0; `cargo test -p warshad --lib` 300 passed; `cargo test -p warsha-pipeline --lib` 538 passed; uptime 2/2; `tsc --noEmit` exit 0; policy 8/0, versions aligned 0.3.0, arch 5/0, wire 11/0, i18n-v3 1036 keys 0.
+
 ## Run 2026-11-20 — Official Release 0.3.0 (v0.3.0 published)
 - **Authorization**: Owner explicit confirmation ("yes execute publish now") overriding ENGINEERING_POLICY §8 for release 0.3.0.
 - **Pre-release Verification**:
