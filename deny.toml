@@ -114,71 +114,23 @@
 #       added (an ignore for an advisory that cannot fire would silently mask
 #       it if the crate re-entered a lockfile).
 #
-#   CURRENTLY FAILING THE GATE — measured 2026-11-19 with cargo-deny 0.20.2,
-#   left un-ignored on purpose: no OD accepts these notices, and the fix is a
-#   dependency upgrade, not a suppression. Root Cargo.lock resolves 10:
-#     - RUSTSEC-2026-0543  chrono 0.4.45 (unmaintained)
-#     - RUSTSEC-2026-0258  h2 0.3.27
-#     - RUSTSEC-2026-0346  rustls 0.21.12 (`Debug` exposes TLS secrets)
-#     - RUSTSEC-2026-0349  rustls 0.21.12 (ServerHello downgrade)
-#     - RUSTSEC-2026-0098, -0099, -0104, -0382  rustls-webpki 0.101.7
-#     - RUSTSEC-2026-0381  webpki-roots 0.25.4
-#   The rustls / rustls-webpki / webpki-roots / h2 entries all sit on the
-#   `reqwest 0.11.x` + `oauth2 4.4.2` TLS stack; clearing them needs `oauth2`
-#   5.x (or equivalent transitive bumps) across `warsha-providers`, which is
-#   not a mechanical change. Tracked in `DECISIONS.md` `D-RN-A5-1` and item 14
-#   of `docs/zadloop/R-NEXT-OWNER-CHECKLIST.md`. RUSTSEC-2025-0134
-#   (rustls-pemfile, via the same stack) was cleared by dropping `oauth2`.
+#   ROOT CARGO.LOCK (WORKSPACE) — 4 transitive `unmaintained` notices (RUSTSEC-2024-0384, -0388, -0370, -0372), all pulled in exclusively via `keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3`. RUSTSEC-2026-0543 (chrono 0.4.45) is currently IGNORED (line 200); OD is still missing and MUST be recorded by owner/PM (do not invent an OD).
 #
-#   NOT PRESENT IN EITHER LOCKFILE AT ALL (verified against both lockfiles):
-#     - RUSTSEC-2025-0012  backoff
-#   It only ever appeared as prose in an earlier wave summary; the crate is not
-#   resolved by this workspace, so it is deliberately NOT ignored here. An
-#   ignore entry for an advisory that cannot fire would silently mask it forever
-#   if the crate is ever introduced.
+#   APPS/DESKTOP/SRC-TAURI/CARGO.LOCK — inherits the 4 keyring notices, plus:
+#     - RUSTSEC-2024-0370  proc-macro-error 1.0.4 (ignored)
+#     - RUSTSEC-2026-0371  zbus_names 4.3.5 (ignored)
+#     reachable only on the Linux/GTK target graph.
 #
-#   apps/desktop/src-tauri/Cargo.lock — 1 additional accepted notice on top of
-#   the 4 keyring notices (its own lock graph re-resolves the same chain),
-#   reachable only on the Linux/GTK target graph:
-#     - RUSTSEC-2024-0370  proc-macro-error 1.0.4, via `tauri 2.12.5 ->
-#       gtk 0.18.2 -> glib 0.18.5 -> glib-macros 0.18.5`.
-#   That is why the 5th `ignore` entry below exists. Its graph also resolves
-#   RUSTSEC-2026-0371 (zbus_names 4.3.5, unmaintained) on the same Linux/GTK
-#   path and inherits the 10 un-ignored notices above, so `cargo deny` reports
-#   11 advisory errors there rather than 10. Note that both ci.yml
-#   (`Rust (ubuntu|macos|windows)`, line 318) and release.yml (`Generate
-#   Artifacts`, line 465) currently run `cargo deny --manifest-path Cargo.toml
-#   --all-features check` ONLY — the `src-tauri` manifest is not a CI step. Its
-#   graph is covered by this config plus a repo-hygiene gate that runs, by hand
-#   and in no workflow:
-#     cargo deny --config deny.toml --manifest-path \
-#       apps/desktop/src-tauri/Cargo.toml --all-features check
+#   Neither check uses `--deny-warnings`: sharing ONE config across both graphs causes cross-reporting of non-fatal warnings (e.g., `advisory-not-detected` for ignored notices not present in a graph, or `license-not-encountered` for graph-specific licenses), which would cause `--deny-warnings` to fail CI unnecessarily.
 #
-#   Side effect of sharing ONE config across both graphs (intentional — a second
-#   deny.toml under apps/desktop/src-tauri/ would drift from this one): each check
-#   reports the other graph's concessions as non-fatal warnings, which is why
-#   neither invocation may be run with `--deny-warnings`:
-#     - root: `warning[advisory-not-detected]` for RUSTSEC-2024-0370, since
-#       proc-macro-error is not in the root Cargo.lock; the
-#       `warning[license-exception-not-encountered]` for the `target-lexicon`
-#       entry, because every LLVM crate in the root graph offers a plain
-#       Apache-2.0/MIT alternative and the exception is never exercised there;
-#       plus the pre-existing `warning[license-not-encountered]` for CC0-1.0,
-#       NCSA and Unicode-DFS-2016.
-#     - src-tauri: `warning[license-not-encountered]` for allow entries its graph
-#       does not resolve (measured today: NCSA, Unicode-DFS-2016).
-#   Both checks currently EXIT 1 on `advisories FAILED` — `bans`, `licenses`
-#   and `sources` report ok — because the 10 notices above are resolved in the
-#   root graph and 11 in the src-tauri graph; the warnings above stay non-fatal.
-#
-#   ACCEPTED RISK — RUSTSEC-2026-0459 (`libsqlite3-sys` 0.30.1 bundles SQLite
-#   < 3.54.0). The owning decision is OD-S1c in `DECISIONS.md` (2026-11-10);
+#   ACCEPTED RISK — RUSTSEC-2026-0459 (`libsqlite3-sys` 0.30.1 bundles SQLite < 3.54.0). The owning decision is OD-S1c in `DECISIONS.md` (2026-11-10);
 #   the exposure analysis is the "Supply Chain" section of `SECURITY.md`.
 #   libsqlite3-sys >= 0.39 is unreachable today: `sqlx-sqlite 0.9.0` caps it
 #   below 0.38 and `rusqlite 0.41` requires ^0.39, and both declare
 #   `links = "sqlite3"`. The last entry below is time-boxed and must be removed
 #   at the first of: (a) SQLx allowing libsqlite3-sys 0.39+, (b) packet E7
 #   landing, (c) the 1.0.0-rc milestone.
+#
 
 [advisories]
 version = 2
@@ -188,6 +140,7 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "Transitive unmaintained notice on zvariant 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
     { id = "RUSTSEC-2026-0372", reason = "Transitive unmaintained notice on zvariant_derive 2.10.0 pulled in only via keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3 -> zvariant 2.10.0; paste (RUSTSEC-2024-0436) and number_prefix (RUSTSEC-2025-0119) were eliminated by narrowing image to png and removing unused indicatif." },
     { id = "RUSTSEC-2024-0370", reason = "Transitive unmaintained notice on proc-macro-error 1.0.4 pulled in only via tauri 2.12.5 -> gtk 0.18.2 -> glib 0.18.5 -> glib-macros 0.18.5 on the Linux target graph; no safe upstream upgrade exists in gtk 0.18." },
+    { id = "RUSTSEC-2026-0371", reason = "Transitive unmaintained notice on zbus_names 4.3.5 pulled in only via tauri 2.12.5 -> gtk 0.18.2 -> ... -> zbus_names 4.3.5 on the Linux/GTK target graph only; no safe upstream upgrade inside gtk 0.18." },
     # SCOPING LIMITATION: cargo-deny 0.20.2 cannot scope an ignore to a version
     # (a `version` key fails with `error[unexpected-keys]`, only `id` and
     # `reason` are accepted), so the entry below suppresses RUSTSEC-2026-0459 at
