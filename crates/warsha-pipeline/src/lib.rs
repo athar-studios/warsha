@@ -77,6 +77,8 @@ pub use crate::mcp_http::{
     McpHttpClient, McpHttpError, McpHttpReply, McpHttpRequest, SseDecoder, SseEvent, HTTP_ACCEPT,
     HTTP_PROTOCOL_VERSION,
 };
+#[cfg(test)]
+mod code_stage_tests;
 mod observability;
 mod orchestrator;
 mod post_launch;
@@ -1277,6 +1279,42 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             ));
         }
 
+        let plan_text = run
+            .artifacts
+            .get("plan_tasks")
+            .or_else(|| run.artifacts.get("plan"))
+            .map(|a| a.content.clone())
+            .or_else(|| run.artifacts.get("brief").map(|a| a.content.clone()))
+            .unwrap_or_default();
+
+        let mut task_context = HashMap::from([
+            ("project".to_string(), project.name.clone()),
+            ("language".to_string(), language.to_string()),
+            ("run".to_string(), run.id.0.to_string()),
+            ("stage".to_string(), stage_to_string(stage).to_string()),
+            (
+                "coding_cli_timeout_seconds".to_string(),
+                timeout.to_string(),
+            ),
+            // B2: the CLI stage is launched to match the run's confinement
+            // and approval mode (the mapping table in warsha-backends).
+            (
+                "confinement".to_string(),
+                run.confinement.unwrap_or_default().to_string(),
+            ),
+            (
+                "approval_mode".to_string(),
+                project.permissions.approval_mode.to_string(),
+            ),
+            (
+                "read_only_backstop".to_string(),
+                self.read_only_backstop.to_string(),
+            ),
+        ]);
+        if !plan_text.is_empty() {
+            task_context.insert("plan".to_string(), plan_text);
+        }
+
         let task = CodingTask {
             id: Ulid::new(),
             run_id: run.id,
@@ -1287,30 +1325,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             branch_name: format!("warsha/run-{}", run.id.0),
             base_branch: "HEAD".to_string(),
             files: Vec::new(),
-            context: HashMap::from([
-                ("project".to_string(), project.name.clone()),
-                ("language".to_string(), language.to_string()),
-                ("run".to_string(), run.id.0.to_string()),
-                ("stage".to_string(), stage_to_string(stage).to_string()),
-                (
-                    "coding_cli_timeout_seconds".to_string(),
-                    timeout.to_string(),
-                ),
-                // B2: the CLI stage is launched to match the run's confinement
-                // and approval mode (the mapping table in warsha-backends).
-                (
-                    "confinement".to_string(),
-                    run.confinement.unwrap_or_default().to_string(),
-                ),
-                (
-                    "approval_mode".to_string(),
-                    project.permissions.approval_mode.to_string(),
-                ),
-                (
-                    "read_only_backstop".to_string(),
-                    self.read_only_backstop.to_string(),
-                ),
-            ]),
+            context: task_context,
         };
         let session_id = warsha_core::SessionId::new();
         let session = warsha_core::Session {
@@ -2208,31 +2223,36 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             result = result.replace("{{prd}}", prd);
         }
 
-        // Replace {{design}} with design content
-        if let Some(design) = context
-            .get("design")
-            .and_then(|v| v.get("content"))
-            .and_then(|v| v.as_str())
-        {
-            result = result.replace("{{design}}", design);
-        }
-
-        // Replace {{architecture}} with architecture content
+        // Replace {{design}} and {{architecture}} with design / architecture content
         if let Some(arch) = context
             .get("design")
+            .or_else(|| context.get("architecture"))
             .and_then(|v| v.get("content"))
             .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
         {
+            result = result.replace("{{design}}", arch);
             result = result.replace("{{architecture}}", arch);
+            if !result.contains(arch)
+                && (template.contains("architecture") || template.contains("Architecture"))
+            {
+                result.push_str(&format!("\n\n## Architecture / Design Spec\n\n{arch}\n"));
+            }
         }
 
-        // Replace {{task}} with task description
+        // Replace {{task}} and {{plan}} with task description
         if let Some(task) = context
             .get("plan_tasks")
+            .or_else(|| context.get("plan"))
             .and_then(|v| v.get("content"))
             .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
         {
             result = result.replace("{{task}}", task);
+            result = result.replace("{{plan}}", task);
+            if !result.contains(task) {
+                result.push_str(&format!("\n\n## Implementation Plan / Tasks\n\n{task}\n"));
+            }
         }
 
         // Replace {{code}} with code content
