@@ -1,5 +1,48 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-20 — Local checklist & gate matrix verification (F1-F7 local-only)
+- **Scope**: F1-F7 UX fixes verification and local checklist completion in `.agents/worktrees/r-next-integration` on branch `r-next/integration`. Local-only; no push, no tag move, no publish, no network send, main untouched, remotes unmodified.
+- **Sync Check**:
+  - `git fetch origin r-next/integration`: fetch only.
+  - Local HEAD: `e554a1681f23e238035025441643f243e105db6f`.
+  - Origin HEAD: `5dbd95de8fb0029435ada41246c89e17777f3bc5`.
+  - Ahead count: 15 commits ahead of `origin/r-next/integration`. Confirmed no remote changes beyond 5dbd95d.
+- **Install Verification (local only)**:
+  - `CARGO_HOME=/tmp/cargo-home cargo build --release --bin warsha --bin warshad`: exit code 0.
+  - `./target/release/warsha --version`: `warsha 0.3.0` (exit code 0).
+  - No system-wide install, no publish, `~/.local` untouched; target-dir binaries used.
+- **Merge Completeness**:
+  - Verified `git log --oneline origin/r-next/integration..HEAD` contains all 7 UX lanes F1-F7 merges and lane commits plus records commit `e554a16`:
+    - F1: merge `a20f619` (lane commit `f4fdbc1`: fix truthful add-provider flow, D-UX-PROVIDER-1)
+    - F2: merge `3cb7189` (lane commit `c9321af`: fix truthful daemon status, D-UX-SERVER-1)
+    - F3: merge `d48c659` (lane commit `616f589`: fix truthful model discovery, D-UX-MODELS-1)
+    - F4: merge `1b2c158` (lane commit `a2c9e2b`: fix Code stage receives plan context, D-UX-CODE-1)
+    - F5: merge `cbae29e` (lane commit `0cc6c52`: fix truthful daemon uptime, D-UX-UPTIME-1)
+    - F6: merge `7c5eee2` (lane commit `46088e8`: docs Linux runtime requirements, D-RN-UX-F6-1)
+    - F7: merge `deb6911` (lane commit `6403049`: fix settings search localized label)
+    - Records: `e554a16` (docs(ux): record F1-F5 decisions and F1-F7 merge run entry)
+- **Gate Matrix (CARGO_HOME=/tmp/cargo-home)**:
+  - `cargo fmt --check`: exit code 0 (clean, no diff)
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit code 0 (0 warnings, 0 errors)
+  - `cargo test -p warshad --lib`: exit code 0 (300 passed; 0 failed; 4 ignored)
+  - `cargo test -p warsha-pipeline --lib`: exit code 0 (538 passed; 0 failed; 7 ignored)
+  - `node_modules/.bin/tsc --noEmit -p apps/desktop/tsconfig.json`: exit code 0 (0 errors)
+  - `node scripts/check-engineering-policy.mjs`: exit code 0 (8 checks, 0 failures)
+  - `node scripts/check-versions.mjs`: exit code 0 (versions: aligned, 0.3.0, versionCode 300)
+  - `node scripts/check-arch.mjs`: exit code 0 (5 rules, 0 violations)
+  - `node scripts/check-wire-contract.mjs`: exit code 0 (11 checks, 0 violations)
+  - `node scripts/ci/i18n-gate.mjs`: exit code 0 (1036 keys, 0 violations)
+- **Decisions Verified**:
+  - `D-UX-PROVIDER-1` present in DECISIONS.md (line 2)
+  - `D-RN-UX-SERVER-WINDOWS` present in DECISIONS.md (line 7)
+  - `D-RN-UX-MODELS-1` present in DECISIONS.md (line 12)
+  - `D-RN-UX-CODE-STAGE-1` present in DECISIONS.md (line 17)
+  - `D-RN-UX-UPTIME-1` present in DECISIONS.md (line 22)
+  - `D-RN-UX-F6-1` present in DECISIONS.md (line 2221)
+  - F7 search label change documented and tested; no architectural decision needed.
+- **Status**:
+FIXES COMPLETE — AWAITING CLAUDE VERIFICATION
+
 ## Run 2026-11-20 — UX fixes F1-F7 merged locally (D-UX-PROVIDER-1, D-RN-UX-SERVER-WINDOWS, D-RN-UX-MODELS-1, D-RN-UX-CODE-STAGE-1, D-RN-UX-UPTIME-1, D-RN-UX-F6-1, F7)
 - **Scope**: F1 provider add, F2 server status, F3 model discovery, F4 code stage, F5 uptime, F6 Linux runtime docs, F7 search label. Local merge only in `r-next/integration`; no push/tag/publish.
 - **Merges**: `f4fdbc1`/`a20f619` (F1), `c9321af`/`3cb7189` (F2), `616f589`/`d48c659` (F3), `a2c9e2b`/`1b2c158` (F4), `0cc6c52`/`cbae29e` (F5), `46088e8`/`7c5eee2` (F6), `6403049`/`deb6911` (F7).
