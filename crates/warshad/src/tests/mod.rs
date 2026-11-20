@@ -2814,6 +2814,63 @@ async fn providers_check_models_surfaces_error_without_leaking_key() {
     assert!(err_msg.contains("rejected key") || err_msg.contains("[REDACTED]"));
 }
 
+#[tokio::test]
+async fn check_models_uses_kind_default_without_url() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+    let port = listener.local_addr().expect("the bound address").port();
+    let mock_url = format!("http://127.0.0.1:{port}/v1");
+
+    // Spawn mock HTTP server returning an OpenAI-compatible models list
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut reader = BufReader::new(stream.try_clone().expect("a cloned stream"));
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok() && line != "\r\n" {
+                line.clear();
+            }
+            let body = r#"{"data":[{"id":"gpt-4o","object":"model"}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    std::env::set_var("WARSHA_TEST_DEFAULT_BASE_URL", &mock_url);
+    struct EnvGuard;
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var("WARSHA_TEST_DEFAULT_BASE_URL");
+        }
+    }
+    let _guard = EnvGuard;
+
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    // Call check_provider_models with kind "openai", key, and NO api_base (None)
+    let diff = rpc
+        .check_provider_models(
+            &owner_ext(),
+            "new_openai_provider".to_string(),
+            None,
+            Some("sk-test-key".to_string()),
+            Some("openai".to_string()),
+        )
+        .await
+        .expect("check_provider_models with preset kind should succeed via mock server, not fail with not-found");
+
+    assert_eq!(diff.provider, "new_openai_provider");
+    assert_eq!(diff.new_models.len(), 1);
+    assert_eq!(diff.new_models[0].id, "gpt-4o");
+}
+
 // ---- Re-audit LOAD-1 finding 1: the tier table has to bind the read surface too.
 //
 // 24 of the 56 methods were declared without `with_extensions`, so their handlers had

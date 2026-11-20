@@ -49,8 +49,8 @@ export function sanitizeSecretError(err: unknown, secret?: string): string {
   if (secret && secret.trim()) {
     trimmed = trimmed.split(secret.trim()).join('[redacted]');
   }
-  trimmed = trimmed.replace(/Bearer\s+([a-zA-Z0-9_\-\.]+)/gi, 'Bearer [redacted]');
-  trimmed = trimmed.replace(/sk-[a-zA-Z0-9_\-]{6,}/g, '[redacted]');
+  trimmed = trimmed.replace(/Bearer\s+([a-zA-Z0-9_.-]+)/gi, 'Bearer [redacted]');
+  trimmed = trimmed.replace(/sk-[a-zA-Z0-9_-]{6,}/g, '[redacted]');
   return trimmed;
 }
 
@@ -581,8 +581,8 @@ export function ModelsSection(): React.ReactElement {
                         marginTop: 'var(--w-space-2)',
                         padding: 'var(--w-space-2) var(--w-space-3)',
                         borderRadius: 'var(--w-radius-md)',
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        color: 'var(--w-danger, #ef4444)',
+                        background: 'var(--w-danger-soft)',
+                        color: 'var(--w-danger)',
                         fontSize: 'var(--w-font-size-xs)',
                       }}
                     >
@@ -602,8 +602,8 @@ export function ModelsSection(): React.ReactElement {
                         marginTop: 'var(--w-space-2)',
                         padding: 'var(--w-space-3)',
                         borderRadius: 'var(--w-radius-md)',
-                        background: 'var(--w-surface-variant, #f8fafc)',
-                        border: '1px solid var(--w-border-subtle, #e2e8f0)',
+                        background: 'var(--w-sunken)',
+                        border: 'var(--w-border-width) solid var(--w-line)',
                       }}
                     >
                       <div
@@ -656,12 +656,12 @@ export function ModelsSection(): React.ReactElement {
                               style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                padding: '2px 8px',
+                                padding: 'var(--w-space-1) var(--w-space-2)',
                                 borderRadius: 'var(--w-radius-sm)',
-                                background: 'var(--w-surface, #ffffff)',
-                                border: '1px solid var(--w-border, #cbd5e1)',
+                                background: 'var(--w-surface)',
+                                border: 'var(--w-border-width) solid var(--w-line)',
                                 fontSize: 'var(--w-font-size-xs)',
-                                fontFamily: 'monospace',
+                                fontFamily: 'var(--w-font-mono)',
                               }}
                             >
                               {m.id}
@@ -954,9 +954,9 @@ export function ModelsSection(): React.ReactElement {
               <div
                 data-testid="provider-form-model-warning"
                 style={{
-                  color: 'var(--w-warning, #f59e0b)',
+                  color: 'var(--w-attention)',
                   fontSize: 'var(--w-font-size-xs)',
-                  marginTop: '-4px',
+                  marginTop: 'calc(var(--w-space-1) * -1)',
                 }}
               >
                 {t('settings.providers.model_not_offered')}
