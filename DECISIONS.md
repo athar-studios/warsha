@@ -2170,3 +2170,25 @@ P9-redo fixes the first P9 attempt's job-ordering race (release now needs manife
   reverted worker's out-of-scope empty-catalog fallback before commit.
 - No test weakened (11 assert_eq/assert! kept, 0 contains-weakened).
 D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
+
+## D-RN-R2-H1: Reconcile H1 command policy and risky commands
+- Retained prefix-match for `=` patterns in `work_protection.rs`
+- Added git scan skipping in `command_policy.rs`
+- Exported verification tests in `lib.rs` and created `verification_tests_impl.rs`
+
+## D-RN-R2-H2: Merge broad risky commands table
+- Broadened patterns for node, cargo, npm, pnpm, yarn, etc.
+- Added git, rails, dotnet dangerous commands to `risky_commands.rs`
+
+## D-RN-R2-M1: Tailscale remote bind and token validation
+- `RemoteBind::Tailscale => false` unconditional
+- Enforced 32-character tokens for Tailscale in `startup.rs`
+
+## D-RN-R2-SYM: Symlink test gating and containment
+- Gated unix symlink tests with `#[cfg(unix)]`
+- Fixed cross-platform containment tests using `fresh_tempdir`
+- Restored `ask_without_a_run_id_never_registers` test
+
+## D-RN-R2-M5: Cargo deny rules
+- Ignored RUSTSEC-2026-0371
+- Updated stale header comments in `deny.toml`
