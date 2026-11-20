@@ -1,8 +1,16 @@
+import path from 'path';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@warsha/ui': path.resolve(__dirname, '../../packages/ui/src'),
+      '@warsha/i18n': path.resolve(__dirname, '../../packages/i18n/src'),
+      '@warsha/client': path.resolve(__dirname, '../../packages/client/src'),
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

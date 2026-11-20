@@ -2858,8 +2858,16 @@ export class WarshaClient
    * of, or one whose endpoint refuses the key, is the daemon's error and arrives here as
    * one — the screens show it on the row it belongs to.
    */
-  async checkProviderModels(name: string): Promise<ModelCatalogDiff> {
-    const row = await this.rpc<unknown>('providers.check_models', { name });
+  async checkProviderModels(
+    name: string,
+    options?: { api_base?: string; key?: string; kind?: string }
+  ): Promise<ModelCatalogDiff> {
+    const row = await this.rpc<unknown>('providers.check_models', {
+      name,
+      api_base: options?.api_base ?? null,
+      key: options?.key ?? null,
+      kind: options?.kind ?? null,
+    });
     return decodeModelCatalogDiff(row);
   }
 

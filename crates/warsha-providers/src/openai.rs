@@ -115,7 +115,9 @@ impl OpenAIProvider {
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
         if !resp.status().is_success() {
-            return Err(ProviderError::Other(format!("HTTP {}", resp.status())));
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(map_openai_error(status, body, Some(&self._api_key)));
         }
 
         let data: serde_json::Value = resp
@@ -201,7 +203,10 @@ impl ChatProvider for OpenAIProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
-        Ok(self.models.clone())
+        match self.fetch_models().await {
+            Ok(models) if !models.is_empty() => Ok(models),
+            _ => Ok(self.models.clone()),
+        }
     }
 
     async fn health(&self) -> Result<HealthCheck> {

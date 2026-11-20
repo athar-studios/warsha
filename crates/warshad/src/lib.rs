@@ -1326,8 +1326,49 @@ impl WarshaApiServer for WarshaRpc {
         &self,
         ext: &RpcExtensions,
         name: String,
+        api_base: Option<String>,
+        key: Option<String>,
+        _kind: Option<String>,
     ) -> RpcResult<warsha_providers::ModelCatalogDiff> {
         self.authorize(ext, "providers.check_models").await?;
+
+        let api_base = api_base.filter(|s| !s.trim().is_empty());
+        let key = key.filter(|s| !s.trim().is_empty());
+
+        if let (Some(url), Some(k)) = (&api_base, &key) {
+            let discovered = warsha_providers::probe_models(url, k).await.map_err(|e| {
+                let sanitized =
+                    warsha_core::mask_secrets(&warsha_providers::scrub_key(&e.to_string(), k));
+                rpc_error(sanitized)
+            })?;
+            return Ok(warsha_providers::reconcile_model_catalog(
+                &name,
+                &[],
+                discovered,
+            ));
+        }
+
+        let current_catalog = self
+            .state
+            .settings
+            .list_custom_models()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|m| m.provider.eq_ignore_ascii_case(&name))
+            .map(|m| warsha_providers::ModelInfo {
+                id: m.model_id.clone(),
+                name: m.display_name.unwrap_or(m.model_id),
+                provider: m.provider,
+                context_window: m.context_window.unwrap_or(0),
+                max_output: 0,
+                pricing: warsha_core::ModelPricing {
+                    input_per_million_cents: 0,
+                    output_per_million_cents: 0,
+                },
+            })
+            .collect::<Vec<_>>();
+
         // A handle rather than a lock held across the catalog call (audit N-3): this
         // reaches the provider over the network, and a read guard kept through it would
         // make an owner's `providers.add` wait for a round trip it has nothing to do with.
@@ -1335,10 +1376,22 @@ impl WarshaApiServer for WarshaRpc {
             let guard = self.state.providers.read().await;
             (*guard).clone()
         };
+
+        let stored_key = self.state.secrets.load(&name).await.ok();
+
         router
-            .check_model_updates(&name, &[])
+            .check_model_updates(&name, &current_catalog)
             .await
-            .map_err(|e| rpc_error(e.to_string()))
+            .map_err(|e| {
+                let err_str = e.to_string();
+                let scrubbed = if let Some(ref k) = stored_key {
+                    warsha_providers::scrub_key(&err_str, k)
+                } else {
+                    err_str
+                };
+                let sanitized = warsha_core::mask_secrets(&scrubbed);
+                rpc_error(sanitized)
+            })
     }
 
     async fn provider_quota(

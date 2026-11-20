@@ -54,6 +54,8 @@ export default {
   'onboarding.validation_url_invalid': 'Enter a valid URL starting with http:// or https://',
   'onboarding.validation_model_required': 'Enter a model ID',
   'onboarding.no_models_found': 'No models returned from provider',
+  'onboarding.model_not_offered': 'Model not offered by this provider',
+  'onboarding.manual_model_fallback': 'Or enter model ID manually',
   'onboarding.idea_required': 'Describe your project idea first',
   'onboarding.provider_configured_badge': 'Connected',
 };

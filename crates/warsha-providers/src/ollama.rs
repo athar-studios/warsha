@@ -242,7 +242,10 @@ impl ChatProvider for OllamaProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
-        Ok(self.models.clone())
+        match self.fetch_models().await {
+            Ok(models) if !models.is_empty() => Ok(models),
+            _ => Ok(self.models.clone()),
+        }
     }
 
     async fn health(&self) -> Result<HealthCheck> {
