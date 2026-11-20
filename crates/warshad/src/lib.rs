@@ -25,7 +25,7 @@ use warsha_pipeline::{
     ProcessSummary, Routine, RunMode, RunModeConfig, RunWorktree, StoreReview, StoreReviewStore,
     AGENT_ROLE,
 };
-use warsha_providers::{probe_endpoint, HealthCheck, OneClickProvider, ProviderSetupWizard};
+use warsha_providers::{probe_endpoint, HealthCheck, ProviderSetupWizard};
 use warsha_store::{SecretaryConversation, SecretaryTurn, Store, StoredProvider};
 
 mod auth;
@@ -103,7 +103,7 @@ pub mod api;
 mod api_estimate;
 #[allow(unused_imports)] // read only by `mod tests`
 pub(crate) use api::provider_model;
-pub(crate) use api::{non_empty, provider_endpoint};
+pub(crate) use api::{default_base_url_for_kind, non_empty, provider_endpoint};
 pub use api::{
     AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, CostEstimate,
     GateSummary, GateSummaryState, HealthCapabilities, HealthResponse, ProviderQuotaStatus,
@@ -1201,11 +1201,9 @@ impl WarshaApiServer for WarshaRpc {
 
         // The endpoint has to be known before anything is stored: the kind's
         // default when the caller sent none, and a refusal when there is none.
-        let endpoint = api_base.clone().or_else(|| {
-            OneClickProvider::from_tag(&kind)
-                .and_then(OneClickProvider::default_base_url)
-                .map(str::to_string)
-        });
+        let endpoint = api_base
+            .clone()
+            .or_else(|| default_base_url_for_kind(&kind).map(str::to_string));
         let Some(endpoint) = endpoint else {
             return Err(provider_refusal(format!(
                 "no base URL is known for provider kind {kind}; send api_base with the provider"

@@ -705,3 +705,30 @@ async fn a_key_pasted_with_surrounding_whitespace_is_stored_trimmed() {
 
     daemon.shutdown().await;
 }
+
+#[tokio::test]
+async fn providers_add_supports_standard_vendor_kinds_without_api_base() {
+    let data_dir = fresh_tempdir();
+    let secrets = Arc::new(InMemorySecretStore::new());
+
+    let (daemon, rpc) = daemon_over(data_dir.path(), secrets.clone()).await;
+
+    // Adding openai with no api_base uses canonical default
+    rpc.call(
+        "providers.add",
+        json!({
+            "name": "my-openai",
+            "kind": "openai",
+            "key": CANARY_KEY,
+            "api_base": null,
+        }),
+    )
+    .await;
+
+    let list = rpc.call("providers.list", json!([])).await;
+    let providers = list.as_array().expect("providers is a list");
+    let found = providers.iter().find(|p| p["name"] == "my-openai");
+    assert!(found.is_some(), "my-openai should be saved");
+
+    daemon.shutdown().await;
+}

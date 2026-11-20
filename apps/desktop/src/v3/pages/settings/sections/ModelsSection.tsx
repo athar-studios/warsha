@@ -148,22 +148,37 @@ export function ModelsSection(): React.ReactElement {
   const addProviderAction = useAction('settings.provider.add.save', async () => {
     const cleanName = formName.trim();
     const cleanKey = formKey.trim();
-    if (!cleanName || !cleanKey) {
+    if (!cleanName && !cleanKey) {
       setFormError(t('settings.providers.validation.required'));
       return;
     }
+    if (!cleanName) {
+      setFormError(t('settings.providers.validation.name_required'));
+      return;
+    }
+    if (!cleanKey) {
+      setFormError(t('settings.providers.validation.key_required'));
+      return;
+    }
     setFormError(null);
-    if (client) {
+    if (!client) {
+      setFormError(t('settings.providers.error.no_client'));
+      return;
+    }
+    try {
       await client.addProvider({
         name: cleanName,
         kind: formKind,
         key: cleanKey,
         ...(formApiBase.trim() ? { api_base: formApiBase.trim() } : {}),
       });
+      closeAddDialog();
+      setStatusMessage(t('settings.common.action_done'));
+      await loadData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setFormError(message.replace(/^RPC error -?\d+:\s*/, ''));
     }
-    closeAddDialog();
-    setStatusMessage(t('settings.common.action_done'));
-    await loadData();
   });
 
   const testProviderAction = useAction('settings.provider.test', async (providerName: string) => {
