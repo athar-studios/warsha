@@ -7350,3 +7350,19 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
     - `node scripts/ci/actions-gate.mjs`: `actions: 193 registered, 193 used, 0 violations`.
 - **Status**: Merged into r-next/integration. No git pushes, no tags.
 
+## Run 2026-11-20 — FIX-UX-SEARCH (UX issue F7: settings.search.label raw key)
+- **Problem**: Raw i18n key `settings.search.label` was displayed in Arabic UI (and English UI) above the search input in `apps/desktop/src/v3/pages/settings/SettingsNav.tsx`. Key was omitted from `packages/i18n/src/v3/ar/settings.ts` and `packages/i18n/src/v3/en/settings.ts` when instant search was introduced in `ed9666d`.
+- **Fix**:
+  - Added `'settings.search.label': 'بحث في الإعدادات'` to `packages/i18n/src/v3/ar/settings.ts`.
+  - Added `'settings.search.label': 'Search settings'` to `packages/i18n/src/v3/en/settings.ts`.
+- **Proving Tests**:
+  - `packages/i18n/src/v3/index.test.ts`: Added test asserting `settings.search.label` translates accurately to Arabic (`بحث في الإعدادات`) and English (`Search settings`) with exact catalog parity.
+  - `apps/desktop/src/v3/pages/settings/Settings.test.tsx`: Added integration test asserting that the rendered search field label contains `'بحث في الإعدادات'` in Arabic locale and `'Search settings'` in English locale, and explicitly does not leak the raw key `settings.search.label`.
+- **Gates & Verification**:
+  - `node scripts/ci/i18n-gate.mjs`: PASSED (1022 keys, 0 violations, exit code 0).
+  - `@warsha/i18n` vitest suite: PASSED (59 tests across 2 files, exit code 0).
+  - `apps/desktop` vitest suite (`Settings.test.tsx`): PASSED (38 tests, exit code 0).
+  - `apps/desktop` typecheck (`tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json`): PASSED (exit code 0).
+  - ESLint on touched files: PASSED (0 errors, 0 warnings, exit code 0).
+  - Rust checks: N/A (no Rust code modified).
+

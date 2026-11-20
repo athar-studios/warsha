@@ -48,6 +48,13 @@ describe('i18n v3', () => {
     expect(readStoredLocale(storage)).toBe('ar');
   });
 
+  it('translates settings.search.label in both Arabic and English', () => {
+    expect(translate('ar', 'settings.search.label')).toBe('بحث في الإعدادات');
+    expect(translate('en', 'settings.search.label')).toBe('Search settings');
+    expect(catalogs.ar['settings.search.label']).toBe('بحث في الإعدادات');
+    expect(catalogs.en['settings.search.label']).toBe('Search settings');
+  });
+
   it('has identical keys across Arabic and English catalogs', () => {
     const arKeys = Object.keys(catalogs.ar).sort();
     const enKeys = Object.keys(catalogs.en).sort();

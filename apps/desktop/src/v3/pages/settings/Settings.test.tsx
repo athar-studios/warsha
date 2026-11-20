@@ -459,6 +459,30 @@ describe('SettingsPage (Slice 1)', () => {
     expect(nav.querySelector('button[data-action="settings.advanced.toggle"]')).toBeNull();
   });
 
+  it('renders a proper localized label for the settings search input without leaking raw keys', async () => {
+    // In Arabic locale
+    const { unmount } = renderSettings('/settings/general', createMockClient(), 'simple', 'ar');
+    await waitFor(() => expect(screen.getByTestId('settings-section-general')).toBeDefined());
+
+    const searchContainerAr = screen.getByTestId('settings-search-input');
+    const labelAr = searchContainerAr.querySelector('label');
+    expect(labelAr).not.toBeNull();
+    expect(labelAr?.textContent).toBe('بحث في الإعدادات');
+    expect(labelAr?.textContent).not.toBe('settings.search.label');
+
+    unmount();
+
+    // In English locale
+    renderSettings('/settings/general', createMockClient(), 'simple', 'en');
+    await waitFor(() => expect(screen.getByTestId('settings-section-general')).toBeDefined());
+
+    const searchContainerEn = screen.getByTestId('settings-search-input');
+    const labelEn = searchContainerEn.querySelector('label');
+    expect(labelEn).not.toBeNull();
+    expect(labelEn?.textContent).toBe('Search settings');
+    expect(labelEn?.textContent).not.toBe('settings.search.label');
+  });
+
   it('switches language, theme, mode and saves default budget in GeneralSection', async () => {
     const client = createMockClient();
     renderSettings('/settings/general', client, 'simple', 'ar');
