@@ -1,5 +1,32 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Reconcile fix-r3-ci Uncommitted Lane State into r-next/integration
+- **Scope**: Reconcile uncommitted F3/CI fixes from lane `.agents/worktrees/fix-r3-ci` (detached at `6002ee7`) into `.agents/worktrees/r-next-integration` (branch `r-next/integration`, tip `7899deb`). Re-run all verification gates and record status anew. Local-only: no push, no tag, no publish, main untouched.
+- **Per-File Reconciliation & Semantic Hunks Analysis**:
+  | File | Status | Semantic Hunks Present | Resolution |
+  |---|---|---|---|
+  | `apps/desktop/src/v3/data/useHealth.ts` | DIFFER (1 blank line) | `isDaemonHealthy` + `uptimeSeconds?` present | Kept integration/banner version; dropped lane blank line |
+  | `apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx` | BYTE-IDENTICAL | Token variables (`var(--w-font-mono)`, `var(--w-font-size-xs)`) + regex escapes present | Kept integration tip (already landed via `12ce988` / `723e142`) |
+  | `crates/warsha-providers/src/provider_setup.rs` | BYTE-IDENTICAL | `floor_char_boundary(200)` in both probe paths + `probe_handles_non_ascii_utf8_truncation_without_panic` present | Kept integration tip (already landed via `12ce988` / `723e142`) |
+  | `crates/warshad/src/api.rs` | BYTE-IDENTICAL | `WARSHA_TEST_DEFAULT_BASE_URL` override + `OneClickProvider::from_tag` + `Box::leak` fallback present | Kept integration tip (already landed via `12ce988` / `723e142`) |
+  | `crates/warshad/src/lib.rs` | BYTE-IDENTICAL | `check_provider_models` uses `kind` + `default_base_url_for_kind` fallback present | Kept integration tip (already landed via `12ce988` / `723e142`) |
+  | `crates/warshad/src/tests/mod.rs` | BYTE-IDENTICAL | `check_models_uses_kind_default_without_url` test present | Kept integration tip (already landed via `12ce988` / `723e142`) |
+- **Reconciliation Verdict**: No-op for code branch/merge. 5/6 files are byte-identical; `useHealth.ts` differs solely by 1 blank line with integration holding the required banner version. No missing semantic hunks found; no `fix-r3-ci-reconcile` branch, commit, or merge needed.
+- **Gate Matrix (CARGO_HOME=/tmp/cargo-home)**:
+  - `cargo fmt --check`: exit code 0 (clean, no diff).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit code 0 (0 warnings, 0 errors).
+  - `cargo test -p warsha-providers --lib`: exit code 0 (61 passed; 0 failed; 0 ignored).
+  - `cargo test -p warshad --lib`: exit code 0 (301 passed; 0 failed; 4 ignored).
+  - `cargo test -p warsha-pipeline --lib`: exit code 0 (540 passed; 0 failed; 7 ignored).
+  - `node_modules/.bin/tsc --noEmit -p apps/desktop/tsconfig.json`: exit code 0 (0 errors).
+  - `node scripts/check-engineering-policy.mjs`: exit code 0 (8 checks, 0 failures).
+  - `node scripts/check-versions.mjs`: exit code 0 (versions: aligned 0.3.0, versionCode 300).
+  - `node scripts/check-arch.mjs`: exit code 0 (5 rules, 0 violations).
+  - `node scripts/check-wire-contract.mjs`: exit code 0 (11 checks, 0 violations).
+  - `node scripts/ci/i18n-gate.mjs .`: exit code 0 (1036 keys, 0 violations).
+- **Status**:
+FIXES COMPLETE — AWAITING CLAUDE VERIFICATION
+
 ## Run 2026-11-21 — Merge 4 Verified Round-3 Fix Lanes into r-next/integration
 - **Scope**: Local merge of 4 verified round-3 fix lanes into `r-next/integration` (`.agents/worktrees/r-next-integration`) from base tip `6002ee7`. Local-only: no push, no tag move, no publish, main untouched, tip unpushed.
 - **Lane Branches and Merges**:
