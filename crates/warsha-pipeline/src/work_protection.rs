@@ -357,10 +357,15 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             if risky.argument_pattern == "*" && !risky.check_arguments_only {
                 return RiskClass::Risky;
             }
-            if args
-                .iter()
-                .any(|arg| risky.argument_pattern.split('|').any(|p| p == arg))
-            {
+            if args.iter().any(|arg| {
+                risky.argument_pattern.split('|').any(|p| {
+                    if p.ends_with('=') {
+                        arg.starts_with(p)
+                    } else {
+                        p == arg
+                    }
+                })
+            }) {
                 return RiskClass::Risky;
             }
         }

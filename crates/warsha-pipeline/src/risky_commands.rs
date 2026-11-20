@@ -39,14 +39,20 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     // Inline code execution
     RiskyCommandDefinition {
         program: "node",
-        argument_pattern: "-e|--eval|-pe",
+        argument_pattern: "-e|--eval|-pe|-p|--print|--eval=|--evaluate",
         reason: "Node inline code",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
         program: "nodejs",
-        argument_pattern: "-e|--eval|-pe",
+        argument_pattern: "-e|--eval|-pe|-p|--print|--eval=|--evaluate",
         reason: "Node inline code",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "cmake",
+        argument_pattern: "-E",
+        reason: "CMake environment execution",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {

@@ -100,6 +100,8 @@ mod status_truth;
 /// Test-only helpers shared by this crate's test modules.
 #[cfg(test)]
 pub(crate) mod test_util;
+#[cfg(test)]
+mod verification_tests_impl;
 mod work_protection;
 
 pub use crate::agent_loop::{
