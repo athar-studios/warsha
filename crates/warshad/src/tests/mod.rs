@@ -6897,7 +6897,7 @@ async fn tailscale_bind_also_serves_the_loopback_companion() {
     let temp = crate::test_util::fresh_tempdir();
     let config = DaemonConfig {
         data_dir: temp.path().to_path_buf(),
-        auth_token: "tailscale-token".to_string(),
+        auth_token: "tailscale-token-0123456789abcdef".to_string(),
         http_port: 0,
         ws_port: 0,
         remote_bind: RemoteBind::Tailscale,
@@ -6944,7 +6944,7 @@ async fn tailscale_bind_without_an_interface_refuses_to_start() {
     let temp = crate::test_util::fresh_tempdir();
     let config = DaemonConfig {
         data_dir: temp.path().to_path_buf(),
-        auth_token: "tailscale-token".to_string(),
+        auth_token: "tailscale-token-0123456789abcdef".to_string(),
         http_port: 0,
         ws_port: 0,
         remote_bind: RemoteBind::Tailscale,
@@ -6978,4 +6978,24 @@ async fn auth_token_must_be_long_enough_for_non_loopback() {
     std::env::set_var("WARSHA_AUTH_TOKEN", "a".repeat(32));
     crate::startup::apply_env_overrides(config.clone())
         .expect("32-char token on non-loopback must pass");
+}
+
+#[tokio::test]
+async fn validate_token_for_config_tailscale_requires_long_token() {
+    let mut config = DaemonConfig {
+        remote_bind: RemoteBind::Tailscale,
+        ..Default::default()
+    };
+
+    // Empty token should fail
+    config.auth_token = "".to_string();
+    assert!(crate::startup::validate_token_for_config(&config).is_err());
+
+    // 15-char token should fail
+    config.auth_token = "tailscale-token".to_string();
+    assert!(crate::startup::validate_token_for_config(&config).is_err());
+
+    // 32-char token should pass
+    config.auth_token = "a".repeat(32);
+    assert!(crate::startup::validate_token_for_config(&config).is_ok());
 }

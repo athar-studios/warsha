@@ -1020,17 +1020,14 @@ pub async fn load_or_create_config(config_path: Option<&Path>) -> Result<DaemonC
     apply_env_overrides(config)
 }
 
-fn validate_token_for_config(config: &DaemonConfig) -> Result<()> {
+pub(crate) fn validate_token_for_config(config: &DaemonConfig) -> Result<()> {
     let is_loopback = match config.remote_bind {
         RemoteBind::Localhost => true,
         RemoteBind::Default => config
             .bind_host
             .parse::<std::net::IpAddr>()
             .is_ok_and(|ip| ip.is_loopback()),
-        RemoteBind::Tailscale => config
-            .bind_host
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback()),
+        RemoteBind::Tailscale => false,
     };
     if !is_loopback {
         if let Err(e) = crate::auth::validate_token(&config.auth_token) {
