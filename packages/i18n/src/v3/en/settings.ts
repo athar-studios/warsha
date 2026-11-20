@@ -375,6 +375,7 @@ export default {
   'settings.backend.saved': 'Backend configuration updated.',
 
   'settings.about.version': 'Daemon version',
+  'settings.about.uptime': 'Uptime',
   'settings.about.status': 'Daemon status',
   'settings.about.status.ok': 'Connected',
   'settings.about.status.down': 'Unavailable',

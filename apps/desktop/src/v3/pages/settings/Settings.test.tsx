@@ -590,9 +590,12 @@ describe('SettingsPage (Slice 1)', () => {
   });
 
   it('renders health info and supports refresh and copy in AboutSection', async () => {
-    const client = createMockClient();
+    const client = createMockClient({
+      health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.3.0', uptimeSeconds: 125 }),
+    });
     renderSettings('/settings/about', client);
     await waitFor(() => expect(screen.getByTestId('settings-section-about')).toBeDefined());
+    await waitFor(() => expect(screen.getByText('2m 5s')).toBeDefined());
 
     fireEvent.click(document.querySelector('button[data-action="settings.about.health.refresh"]') as HTMLElement);
     await waitFor(() => expect(client.health).toHaveBeenCalled());

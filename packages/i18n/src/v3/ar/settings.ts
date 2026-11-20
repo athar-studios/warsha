@@ -375,6 +375,7 @@ export default {
   'settings.backend.saved': 'تمّ تحديث إعدادات الواجهة الخلفية.',
 
   'settings.about.version': 'إصدار الخادم',
+  'settings.about.uptime': 'مدة التشغيل',
   'settings.about.status': 'حالة الخادم',
   'settings.about.status.ok': 'متّصل',
   'settings.about.status.down': 'غير متاح',

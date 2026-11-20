@@ -603,6 +603,7 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         // A hand-built state has no background pump draining the store bus, so this
         // sequencer simply starts empty; direct RPC calls read the store, not this.
         events: std::sync::Arc::new(warshad::EventSequencer::new()),
+        start_time: std::time::Instant::now(),
     })
 }
 

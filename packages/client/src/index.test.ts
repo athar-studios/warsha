@@ -235,7 +235,9 @@ describe('client', () => {
   it('sends the three fields projects.create requires', async () => {
     // Measured live: a params object with fewer entries than the daemon has required
     // arguments answers -32602 "missing field 'description'" (DECISIONS.md 2026-11-03).
-    fetchMock.mockResolvedValueOnce(okResponse({ id: 'p', name: 'n', createdAt: '', updatedAt: '' }));
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ id: 'p', name: 'n', createdAt: '', updatedAt: '' })
+    );
 
     await client.createProject('n', 'd', 'en');
 
@@ -278,7 +280,10 @@ describe('client', () => {
     expect(row.projectId).toBe('proj-1');
     expect(row.createdAt).toBe('2026-11-18T10:00:00Z');
     expect(row.updatedAt).toBe('2026-11-18T11:00:00Z');
-    expect(decodeSecretaryThread({ id: 'g', project_id: null, created_at: 'x', updated_at: 'y' }).projectId).toBeNull();
+    expect(
+      decodeSecretaryThread({ id: 'g', project_id: null, created_at: 'x', updated_at: 'y' })
+        .projectId
+    ).toBeNull();
     expect(() => decodeSecretaryThread('no')).toThrow(/not a JSON object/);
   });
 
@@ -292,7 +297,10 @@ describe('client', () => {
     };
     const good = decodeSecretaryTurn({
       ...base,
-      proposal_json: JSON.stringify({ label: 'Run it', action: { run_start: { project_id: 'p1', idea: 'x' } } }),
+      proposal_json: JSON.stringify({
+        label: 'Run it',
+        action: { run_start: { project_id: 'p1', idea: 'x' } },
+      }),
       refs_owner_message: 'turn-0',
     });
     expect(good.role).toBe('secretary');
@@ -332,13 +340,24 @@ describe('client', () => {
     expect(refd.refsOwnerMessage).toBe('owner-9');
     const camel = decodeSecretaryChatReply({ ...wire, refsOwnerMessage: 'owner-8' });
     expect(camel.refsOwnerMessage).toBe('owner-8');
-    const bare = decodeSecretaryChatReply({ reply: 'r', proposal: null, conversation_id: 'c', turn_id: 't' });
+    const bare = decodeSecretaryChatReply({
+      reply: 'r',
+      proposal: null,
+      conversation_id: 'c',
+      turn_id: 't',
+    });
     expect(bare.proposal).toBeNull();
     expect(() => decodeSecretaryChatReply({ reply: 'r' })).toThrow(/missing conversation_id/);
   });
 
   it('sends `language` on secretary.chat only when given', async () => {
-    const wire = { reply: 'ok', proposal: null, conversation_id: 'c', turn_id: 't', refs_owner_message: 'o1' };
+    const wire = {
+      reply: 'ok',
+      proposal: null,
+      conversation_id: 'c',
+      turn_id: 't',
+      refs_owner_message: 'o1',
+    };
     fetchMock.mockResolvedValueOnce(okResponse(wire));
     const withLang = await client.secretaryChat('p1', null, 'hello', 'ar');
     expect(withLang.refsOwnerMessage).toBe('o1');
@@ -355,7 +374,12 @@ describe('client', () => {
 
   it('reads a null budget ceiling as no budget, and refuses a malformed one', async () => {
     fetchMock.mockResolvedValueOnce(
-      okResponse({ project_id: 'proj-1', budget_cents: null, spent_cents: 0, remaining_cents: null })
+      okResponse({
+        project_id: 'proj-1',
+        budget_cents: null,
+        spent_cents: 0,
+        remaining_cents: null,
+      })
     );
 
     await expect(client.getProjectBudget('proj-1' as ProjectId)).resolves.toEqual({
@@ -365,7 +389,12 @@ describe('client', () => {
     });
 
     fetchMock.mockResolvedValueOnce(
-      okResponse({ project_id: 'proj-1', budget_cents: 1200, spent_cents: 'four', remaining_cents: 0 })
+      okResponse({
+        project_id: 'proj-1',
+        budget_cents: 1200,
+        spent_cents: 'four',
+        remaining_cents: 0,
+      })
     );
     await expect(client.getProjectBudget('proj-1' as ProjectId)).rejects.toThrow(
       'Malformed RPC result from budget.show: "spent_cents" is not a number'
@@ -659,6 +688,7 @@ describe('client', () => {
     const health = await client.health();
     expect(health.capabilities.runControls).toBe(true);
     expect(health.status).toBe('healthy');
+    expect(health.uptimeSeconds).toBe(12);
 
     fetchMock.mockResolvedValueOnce(
       okResponse({
@@ -834,9 +864,7 @@ describe('configured provider and agent wiring (C2)', () => {
   }
 
   it('adds a provider with the daemon argument names and never reads a key back', async () => {
-    fetchMock.mockResolvedValueOnce(
-      okResponse({ name: 'my-qwen', kind: 'qwen', enabled: true })
-    );
+    fetchMock.mockResolvedValueOnce(okResponse({ name: 'my-qwen', kind: 'qwen', enabled: true }));
 
     await client.addProvider({ name: 'my-qwen', kind: 'qwen', key: 'sk-secret-123' });
 
@@ -884,7 +912,12 @@ describe('configured provider and agent wiring (C2)', () => {
     const diff = await client.checkProviderModels('custom-router');
 
     expect(lastBody().method).toBe('providers.check_models');
-    expect(lastBody().params).toEqual({ name: 'custom-router' });
+    expect(lastBody().params).toEqual({
+      name: 'custom-router',
+      api_base: null,
+      key: null,
+      kind: null,
+    });
     expect(diff.provider).toBe('custom-router');
     expect(diff.total_count).toBe(1);
     expect(diff.updated_catalog).toHaveLength(1);
@@ -1676,7 +1709,11 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
       updatedAt: '2026-10-28T00:05:00Z',
       // B1: a payload without the permissions object decodes to the new-project default
       // (workspace-write x ask-for-risky), never to undefined.
-      permissions: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+      permissions: {
+        confinement: 'workspace-write',
+        approvalMode: 'ask-for-risky',
+        isOverride: false,
+      },
     });
   });
 
@@ -1693,7 +1730,11 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
       name: 'P',
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-02T00:00:00Z',
-      permissions: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+      permissions: {
+        confinement: 'workspace-write',
+        approvalMode: 'ask-for-risky',
+        isOverride: false,
+      },
     });
   });
 
@@ -1754,9 +1795,9 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
   });
 
   it('decodes run_mode: absent -> agent, valid mode preserved, junk throws strict decode error', () => {
-    expect(
-      decodeRunSummary({ id: 'run-absent', project_id: 'p', status: 'running' }).runMode
-    ).toBe('agent');
+    expect(decodeRunSummary({ id: 'run-absent', project_id: 'p', status: 'running' }).runMode).toBe(
+      'agent'
+    );
     expect(
       decodeRunSummary({ id: 'run-null', project_id: 'p', status: 'running', run_mode: null })
         .runMode
@@ -1847,7 +1888,11 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
         name: 'P',
         createdAt: '2026-10-28T00:00:00Z',
         updatedAt: '2026-10-28T00:00:00Z',
-        permissions: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+        permissions: {
+          confinement: 'workspace-write',
+          approvalMode: 'ask-for-risky',
+          isOverride: false,
+        },
       },
     ]);
 
@@ -1932,7 +1977,11 @@ describe('summary decoding — the snake_case wire into camelCase screens (P0 bl
       name: 'n',
       createdAt: '2026-10-28T00:00:00Z',
       updatedAt: '2026-10-28T00:00:00Z',
-      permissions: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+      permissions: {
+        confinement: 'workspace-write',
+        approvalMode: 'ask-for-risky',
+        isOverride: false,
+      },
     });
 
     fetchMock.mockResolvedValueOnce(
@@ -2287,8 +2336,18 @@ const RUN_MODE_DECODED: RunModeConfig = {
   allowedHosts: [],
   relayUrl: null,
 };
-const PREFERENCE_ROW = { key: 'dark mode', score: 2.5, evidence_count: 3, last_updated: 1764939300 };
-const PREFERENCE_DECODED = { key: 'dark mode', score: 2.5, evidenceCount: 3, lastUpdated: 1764939300 };
+const PREFERENCE_ROW = {
+  key: 'dark mode',
+  score: 2.5,
+  evidence_count: 3,
+  last_updated: 1764939300,
+};
+const PREFERENCE_DECODED = {
+  key: 'dark mode',
+  score: 2.5,
+  evidenceCount: 3,
+  lastUpdated: 1764939300,
+};
 const SIGNAL: PreferenceSignal = {
   id: 'sig-1',
   projectId: 'p-1',
@@ -2531,9 +2590,13 @@ describe('wiring client methods (M16/M19/M20)', () => {
 
   it('decodes every routine state variant (idle, running, paused, failed)', () => {
     expect(decodeRoutine({ ...ROUTINE_ROW, state: 'idle' }, 'routines.get').state).toBe('idle');
-    expect(decodeRoutine({ ...ROUTINE_ROW, state: 'running' }, 'routines.get').state).toBe('running');
+    expect(decodeRoutine({ ...ROUTINE_ROW, state: 'running' }, 'routines.get').state).toBe(
+      'running'
+    );
     expect(decodeRoutine({ ...ROUTINE_ROW, state: 'paused' }, 'routines.get').state).toBe('paused');
-    expect(decodeRoutine({ ...ROUTINE_ROW, state: { failed: 'boom' } }, 'routines.get').state).toEqual({
+    expect(
+      decodeRoutine({ ...ROUTINE_ROW, state: { failed: 'boom' } }, 'routines.get').state
+    ).toEqual({
       failed: 'boom',
     });
   });
@@ -2643,9 +2706,9 @@ describe('gate evidence (R-BRIDGE-B2)', () => {
   it('dials gates.evidence with run_id, program and args — no shell, no merged command', async () => {
     fetchMock.mockResolvedValueOnce(okResponse(GATE_EVIDENCE_ROW));
 
-    await expect(
-      client.gateEvidence('run-1' as RunId, 'pnpm', ['-r', 'test'])
-    ).resolves.toEqual(GATE_EVIDENCE_DECODED);
+    await expect(client.gateEvidence('run-1' as RunId, 'pnpm', ['-r', 'test'])).resolves.toEqual(
+      GATE_EVIDENCE_DECODED
+    );
 
     expect(sentMethod(0)).toBe('gates.evidence');
     // The program and its arguments travel as two fields, exactly as the daemon binds
@@ -2727,9 +2790,9 @@ describe('gate evidence (R-BRIDGE-B2)', () => {
     for (const name of ['project_id', 'process_id', 'url', 'status']) {
       const preview: Record<string, unknown> = { ...GATE_EVIDENCE_ROW.preview };
       delete preview[name];
-      expect(() =>
-        decodeGateEvidence({ ...GATE_EVIDENCE_ROW, preview }, 'gates.evidence')
-      ).toThrow(`"${name}"`);
+      expect(() => decodeGateEvidence({ ...GATE_EVIDENCE_ROW, preview }, 'gates.evidence')).toThrow(
+        `"${name}"`
+      );
     }
   });
 
@@ -2770,9 +2833,9 @@ describe('gate evidence (R-BRIDGE-B2)', () => {
     ];
     for (const [name, value] of previewCases) {
       const preview = { ...GATE_EVIDENCE_ROW.preview, [name]: value };
-      expect(() =>
-        decodeGateEvidence({ ...GATE_EVIDENCE_ROW, preview }, 'gates.evidence')
-      ).toThrow(`"${name}"`);
+      expect(() => decodeGateEvidence({ ...GATE_EVIDENCE_ROW, preview }, 'gates.evidence')).toThrow(
+        `"${name}"`
+      );
     }
   });
 
@@ -2903,7 +2966,12 @@ describe('mcp approvals and permissions (R-BRIDGE-B3b)', () => {
     fetchMock.mockResolvedValueOnce(okResponse(MCP_PERMISSION_ROW));
     await expect(
       client.mcpPermissionsSet('github', 'create_issue', 'agent', 'deny')
-    ).resolves.toEqual({ server: 'github', tool: 'create_issue', role: 'agent', permission: 'allow' });
+    ).resolves.toEqual({
+      server: 'github',
+      tool: 'create_issue',
+      role: 'agent',
+      permission: 'allow',
+    });
     expect(sentMethod(0)).toBe('mcp.permissions.set');
     expect(sentParams(0)).toEqual({
       server: 'github',

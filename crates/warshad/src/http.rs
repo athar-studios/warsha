@@ -36,7 +36,7 @@ async fn health_handler(State(state): State<Arc<DaemonState>>) -> impl IntoRespo
     Json(HealthResponse {
         status,
         version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime_seconds: 0,
+        uptime_seconds: state.start_time.elapsed().as_secs(),
         capabilities,
     })
 }

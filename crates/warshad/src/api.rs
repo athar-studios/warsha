@@ -903,6 +903,30 @@ pub struct AuthCompleteResponse {
     pub message: String,
 }
 
+/// The default base URL for `kind` when the owner supplied none.
+///
+/// Recognises the one-click presets plus standard vendor kinds (`openai`,
+/// `anthropic`, `ollama`). Returns `None` for custom endpoints and unrecognized kinds.
+pub(crate) fn default_base_url_for_kind(kind: &str) -> Option<&'static str> {
+    if let Some(one_click) = OneClickProvider::from_tag(kind) {
+        if let Some(url) = one_click.default_base_url() {
+            return Some(url);
+        }
+    }
+    let normalised: String = kind
+        .trim()
+        .chars()
+        .flat_map(|c| c.to_lowercase())
+        .map(|c| if c == '-' || c == ' ' { '_' } else { c })
+        .collect();
+    match normalised.as_str() {
+        "openai" => Some("https://api.openai.com/v1"),
+        "anthropic" | "claude" => Some("https://api.anthropic.com"),
+        "ollama" => Some("http://127.0.0.1:11434"),
+        _ => None,
+    }
+}
+
 /// The endpoint `provider` is tested against: the owner's own, else its kind's
 /// published default. `None` only for a kind with neither.
 ///
@@ -910,11 +934,10 @@ pub struct AuthCompleteResponse {
 /// call the same endpoint: two rules about where a provider lives, in two files, are
 /// two rules that will disagree.
 pub(crate) fn provider_endpoint(provider: &StoredProvider) -> Option<String> {
-    provider.api_base.clone().or_else(|| {
-        OneClickProvider::from_tag(&provider.kind)
-            .and_then(OneClickProvider::default_base_url)
-            .map(str::to_string)
-    })
+    provider
+        .api_base
+        .clone()
+        .or_else(|| default_base_url_for_kind(&provider.kind).map(str::to_string))
 }
 
 /// The model `provider` is tested with: its kind's published default, or `""` when

@@ -92,6 +92,7 @@ async fn health_reports_probed_capabilities() {
         provider_factory: state.provider_factory.clone(),
         pairing_origin: std::sync::OnceLock::new(),
         events: state.events.clone(),
+        start_time: state.start_time,
     };
     let degraded_rpc = WarshaRpc::new(Arc::new(degraded_state));
     let degraded_health = degraded_rpc
@@ -202,4 +203,80 @@ fn health_decodes_an_old_payload_with_run_controls_defaulting_to_false() {
     let round_trip: HealthCapabilities =
         serde_json::from_str(&encoded).expect("its own payload decodes");
     assert_eq!(round_trip, caps);
+}
+
+#[tokio::test]
+async fn http_health_reports_monotonic_uptime_growth() {
+    use axum::extract::ConnectInfo;
+    use tower::ServiceExt;
+
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = tests::test_state(temp.path()).await;
+    let app = http_app(state.clone());
+
+    let make_req = || {
+        let mut req = axum::http::Request::builder()
+            .uri("/health")
+            .body(axum::body::Body::empty())
+            .expect("valid request");
+        req.extensions_mut()
+            .insert(ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                40_000,
+            ))));
+        req
+    };
+
+    let res1 = app.clone().oneshot(make_req()).await.expect("app responds");
+    let bytes1 = axum::body::to_bytes(res1.into_body(), usize::MAX)
+        .await
+        .expect("collect body");
+    let health1: HealthResponse =
+        serde_json::from_slice(&bytes1).expect("deserialize health response");
+    let t1 = health1.uptime_seconds;
+
+    // Time passes: at least 1.1s
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    let res2 = app.clone().oneshot(make_req()).await.expect("app responds");
+    let bytes2 = axum::body::to_bytes(res2.into_body(), usize::MAX)
+        .await
+        .expect("collect body");
+    let health2: HealthResponse =
+        serde_json::from_slice(&bytes2).expect("deserialize health response");
+    let t2 = health2.uptime_seconds;
+
+    assert!(
+        t2 > 0,
+        "uptime must be > 0 after time passes (observed {t2})"
+    );
+    assert!(t2 > t1, "uptime must grow monotonically: t1={t1}, t2={t2}");
+}
+
+#[tokio::test]
+async fn rpc_health_reports_truthful_uptime_from_state_start_time() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = tests::test_state(temp.path()).await;
+    let owner = tests::owner_ext();
+
+    let rpc1 = WarshaRpc::new(state.clone());
+    let h1 = rpc1.health(&owner).await.expect("health succeeds");
+
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    // Creating a fresh WarshaRpc must NOT reset the daemon uptime
+    let rpc2 = WarshaRpc::new(state.clone());
+    let h2 = rpc2.health(&owner).await.expect("health succeeds");
+
+    assert!(
+        h2.uptime_seconds > 0,
+        "RPC uptime must be > 0 after 1s (got {})",
+        h2.uptime_seconds
+    );
+    assert!(
+        h2.uptime_seconds > h1.uptime_seconds,
+        "RPC uptime must grow monotonically: h1={}, h2={}",
+        h1.uptime_seconds,
+        h2.uptime_seconds
+    );
 }

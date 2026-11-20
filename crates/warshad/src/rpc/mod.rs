@@ -44,10 +44,8 @@ pub struct WarshaRpc {
 
 impl WarshaRpc {
     pub fn new(state: Arc<DaemonState>) -> Self {
-        Self {
-            state,
-            start_time: std::time::Instant::now(),
-        }
+        let start_time = state.start_time;
+        Self { state, start_time }
     }
 
     /// Resolve the Secretary's daily spend cap in cents:

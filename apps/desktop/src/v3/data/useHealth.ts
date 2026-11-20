@@ -7,6 +7,7 @@ import { useResource } from './useResource';
 export interface HealthInfo {
   status: string;
   version: string;
+  uptimeSeconds?: number;
 }
 
 export function isDaemonHealthy(status?: string | null): boolean {
