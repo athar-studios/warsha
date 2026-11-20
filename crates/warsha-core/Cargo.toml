@@ -15,4 +15,4 @@ ulid = { workspace = true, features = ["serde"] }
 semver = { workspace = true }
 
 [dev-dependencies]
-pretty_assertions = "1.4"
+pretty_assertions = "1.4.1"
