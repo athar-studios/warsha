@@ -1647,21 +1647,43 @@ mod protection_tests {
         assert!(res.success);
 
         // Read outside via symlink (refused)
+        let outside_temp = fresh_tempdir();
+        let outside_file = outside_temp.path().join("outside.txt");
+        std::fs::write(&outside_file, "outside content").unwrap();
+
         let link_path = dir.join("link.txt");
         #[cfg(unix)]
-        std::os::unix::fs::symlink("../outside.txt", &link_path).unwrap();
+        std::os::unix::fs::symlink(&outside_file, &link_path).unwrap();
         #[cfg(windows)]
-        let _ = std::os::windows::fs::symlink_file("../outside.txt", &link_path);
+        let _ = std::os::windows::fs::symlink_file(&outside_file, &link_path);
 
-        let read_result = executor.read_file("link.txt");
-
-        // If symlink was created (unix or successful windows creation), verify it's refused.
-        // If windows symlink creation failed, we skip the refusal check.
-        if link_path.exists() {
+        #[cfg(unix)]
+        {
+            assert!(link_path.exists(), "symlink target must exist");
+            let read_result = executor.read_file("link.txt");
             assert!(matches!(
                 read_result,
                 Err(ToolError::PathEscapesWorkingDir(_))
             ));
+        }
+        #[cfg(windows)]
+        {
+            if link_path.exists() {
+                let read_result = executor.read_file("link.txt");
+                assert!(matches!(
+                    read_result,
+                    Err(ToolError::PathEscapesWorkingDir(_))
+                ));
+            } else {
+                // If Windows unprivileged symlink creation failed, verify escape refusal
+                // via direct outside path to ensure the check remains non-vacuous.
+                let outside_str = outside_file.to_str().unwrap();
+                let read_result = executor.read_file(outside_str);
+                assert!(matches!(
+                    read_result,
+                    Err(ToolError::PathEscapesWorkingDir(_))
+                ));
+            }
         }
     }
 
