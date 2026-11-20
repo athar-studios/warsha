@@ -114,7 +114,7 @@
 #       added (an ignore for an advisory that cannot fire would silently mask
 #       it if the crate re-entered a lockfile).
 #
-#   ROOT CARGO.LOCK (WORKSPACE) — 4 transitive `unmaintained` notices (RUSTSEC-2024-0384, -0388, -0370, -0372), all pulled in exclusively via `keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3`. RUSTSEC-2026-0543 (chrono 0.4.45) is currently IGNORED (line 200); OD is still missing and MUST be recorded by owner/PM (do not invent an OD).
+#   ROOT CARGO.LOCK (WORKSPACE) — 4 transitive `unmaintained` notices (RUSTSEC-2024-0384, -0388, -2026-0370, -2026-0372), all pulled in exclusively via `keyring 1.2.1 -> secret-service 2.0.2 -> zbus 1.9.3`. RUSTSEC-2026-0543 (chrono 0.4.45): owner decision 2026-11-20 explicitly rejects the ignore; requires upgrade/replacement + full ignore removal; no ignore entry is kept.
 #
 #   APPS/DESKTOP/SRC-TAURI/CARGO.LOCK — inherits the 4 keyring notices, plus:
 #     - RUSTSEC-2024-0370  proc-macro-error 1.0.4 (ignored)
@@ -150,7 +150,6 @@ ignore = [
     # End conditions from OD-S1c — remove this entry at the first of:
     # (a) SQLx allowing libsqlite3-sys 0.39+, (b) packet E7 landing,
     # (c) the 1.0.0-rc milestone.
-    { id = "RUSTSEC-2026-0543", reason = "ACCEPTED RISK: chrono 0.4.45 is unmaintained; no safe upgrade to jiff/time available without massive API surface disruption across all 11 workspace crates. Documented as owner-accepted debt." },
     { id = "RUSTSEC-2026-0459", reason = "ACCEPTED RISK by owner (OD-S1c, DECISIONS.md 2026-11-10): libsqlite3-sys 0.30.1 bundles SQLite < 3.54.0; the vector is local (AV:L/UI:P) and requires opening an attacker-influenced database with a sibling -wal. The fix needs libsqlite3-sys >= 0.39, unreachable while sqlx-sqlite 0.9.0 caps it below 0.38 and rusqlite 0.41 requires ^0.39 (both link the native sqlite3 library). Every production open is <data_dir>/warsha.db inside Warsha's own data directory (SECURITY.md, Supply Chain). Remove this entry at the first of: (a) SQLx allowing libsqlite3-sys 0.39+, (b) packet E7 landing, (c) the 1.0.0-rc milestone." },
 ]
 

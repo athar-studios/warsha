@@ -7414,3 +7414,17 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
   - ESLint on touched files: PASSED (0 errors, 0 warnings, exit code 0).
   - Rust checks: N/A (no Rust code modified).
 
+## Run 2026-11-20 — FIX-R3-GOVERN (N-M6 chrono governance + N-M5 symlink test + N-M7 verifier test)
+- **N-M6 (Chrono Governance & deny.toml)**:
+  - Owner decision (2026-11-20, D-RN-OD-CHRONO): explicitly rejects `RUSTSEC-2026-0543` ignore entry; mandates upgrade or replacement. Removed chrono ignore from `deny.toml`.
+  - Corrected `deny.toml` header mislabeling `RUSTSEC-2024-0370/-0372` to `RUSTSEC-2026-0370/-0372` for zvariant.
+  - Corrected `DECISIONS.md:2187` false claim that no new deny.toml ignore entries were added (`RUSTSEC-2026-0371` was added).
+  - Recorded technical reality: Chrono upgrade is impossible (0.4.45 is newest, all versions affected per RUSTSEC-2026-0543); full replacement touches 171 occurrences across 70 files in 8 crates. With the ignore removed per owner decision, `cargo deny check` reports `error[unmaintained]: chrono is unmaintained` (active blocker).
+- **N-M5 (agent_tools symlink containment test)**:
+  - Fixed vacuous `test_read_file_symlink_containment` in `crates/warsha-pipeline/src/agent_tools.rs`: creates real target file outside the working directory, creates symlink, and asserts `read_file("link.txt")` returns `Err(PathEscapesWorkingDir(_))` unconditionally on Unix and on Windows (with direct outside-path fallback if unprivileged symlink creation fails).
+- **N-M7 (verify-release-artifacts test)**:
+  - Updated `scripts/verify-release-artifacts.test.mjs`: missing `aarch64` asserts `ok: true`, notes containing `aarch64`, and `report.arch: "x86_64-only"`.
+  - Added test asserting that missing required `x86_64` asset fails closed.
+  - All 9 tests passing (9/9 pass, 0 fail).
+
+

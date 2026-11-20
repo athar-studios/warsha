@@ -65,11 +65,19 @@ test("a mismatched digest fails", (t) => {
   assert.ok(result.problems.some((p) => p.includes("sha256 does not match")));
 });
 
-test("a missing required asset fails", (t) => {
+test("missing aarch64 asset is an informational note (x86_64-only release)", (t) => {
   const dir = makeRelease(t, { omit: ["warshad-aarch64-apple-darwin"] });
   const result = verifyRelease({ dir, tag: TAG, version: VERSION, scope: "signed", releaseExists: "no" });
+  assert.equal(result.ok, true, result.problems.join("; "));
+  assert.ok(result.notes.some((p) => p.includes("aarch64")));
+  assert.equal(result.report.arch, "x86_64-only");
+});
+
+test("a missing required x86_64 asset fails", (t) => {
+  const dir = makeRelease(t, { omit: ["warshad-x86_64-unknown-linux-musl"] });
+  const result = verifyRelease({ dir, tag: TAG, version: VERSION, scope: "signed", releaseExists: "no" });
   assert.equal(result.ok, false);
-  assert.ok(result.problems.some((p) => p.includes("missing daemon asset for aarch64")));
+  assert.ok(result.problems.some((p) => p.includes("missing daemon asset for x86_64")));
 });
 
 test("an existing release for the tag fails", (t) => {
