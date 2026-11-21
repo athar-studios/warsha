@@ -83,6 +83,7 @@ export default {
   'settings.general.budget.save': 'حفظ الميزانية الافتراضية',
   'settings.general.budget.saved': 'تمّ حفظ الميزانية الافتراضية بنجاح.',
   'settings.general.budget.invalid': 'أدخل قيمة رقمية موجبة صالحة.',
+  'settings.general.budget.too_high': 'لا يمكن أن تتجاوز الميزانية الافتراضية {max} دولار.',
 
   'settings.providers.add': 'أضف مزوّدًا',
   'settings.providers.empty.title': 'لا يوجد مزوّدون بعد',

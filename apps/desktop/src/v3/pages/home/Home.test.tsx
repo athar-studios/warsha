@@ -431,7 +431,22 @@ describe('HomePage', () => {
     expect(screen.getByTestId('route-inspector').textContent).toBe('/onboarding');
   });
 
-  it('opens defaults Sheet, records default budget preference, and navigates to /settings/models', async () => {
+  it('shows a default budget saved elsewhere (Settings) when the window regains focus, without a restart', async () => {
+    await renderHome({ locale: 'en' });
+    // Legacy row from SAMPLE_PREFS while nothing is stored as a plain value yet.
+    await waitFor(() => expect(screen.getByText('$25')).toBeDefined());
+
+    // Settings saved 12 (no Tauri shell under test, so the localStorage mirror is the store).
+    window.localStorage.setItem('warsha.default_budget_usd', '12');
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    await waitFor(() => expect(screen.getByText('$12')).toBeDefined());
+    window.localStorage.removeItem('warsha.default_budget_usd');
+  });
+
+  it('opens defaults Sheet, sets the default budget value, and navigates to /settings/models', async () => {
     const { client } = await renderHome({ locale: 'en' });
 
     await waitFor(() => {
@@ -452,12 +467,13 @@ describe('HomePage', () => {
       await Promise.resolve();
     });
 
-    expect(client.recordPreference).toHaveBeenCalledWith(
-      expect.objectContaining({
-        target: 'default_budget_usd',
-        weight: 50,
-      })
-    );
+    // The default budget is a plain set (no Tauri shell under test, so the mirror is the store); it must
+    // never go through the accumulating preference-score API again.
+    await waitFor(() => {
+      expect(window.localStorage.getItem('warsha.default_budget_usd')).toBe('50');
+    });
+    expect(client.recordPreference).not.toHaveBeenCalled();
+    window.localStorage.removeItem('warsha.default_budget_usd');
 
     const modelsBtn = document.querySelector('[data-action="home.defaults.models.open"]') as HTMLElement;
     fireEvent.click(modelsBtn);

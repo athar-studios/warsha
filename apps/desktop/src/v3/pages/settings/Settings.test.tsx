@@ -509,11 +509,12 @@ describe('SettingsPage (Slice 1)', () => {
     const saveBtn = document.querySelector('button[data-action="settings.budget-default.save"]') as HTMLElement;
     fireEvent.click(saveBtn);
 
+    // A plain set of the value (the mirror is the store without a Tauri shell), never a preference-score write.
     await waitFor(() => {
-      expect(client.recordPreference).toHaveBeenCalledWith(
-        expect.objectContaining({ target: 'default_budget_usd', weight: 25 })
-      );
+      expect(window.localStorage.getItem('warsha.default_budget_usd')).toBe('25');
     });
+    expect(client.recordPreference).not.toHaveBeenCalled();
+    window.localStorage.removeItem('warsha.default_budget_usd');
   });
 
   it('shows error banner and retries in GeneralSection when preferences.list fails', async () => {
@@ -526,10 +527,14 @@ describe('SettingsPage (Slice 1)', () => {
     renderSettings('/settings/general', client);
     await waitFor(() => expect(screen.getByRole('alert')).toBeDefined());
 
+    const callsBeforeRetry = listPreferences.mock.calls.length;
     const retryBtn = document.querySelector('button[data-action="settings.error.retry"]') as HTMLElement;
     fireEvent.click(retryBtn);
 
-    await waitFor(() => expect(listPreferences).toHaveBeenCalledTimes(2));
+    // The retry reads again (the legacy fallback may ask more than one project) and the error clears.
+    await waitFor(() => expect(listPreferences.mock.calls.length).toBeGreaterThan(callsBeforeRetry));
+    await waitFor(() => expect(screen.getByTestId('settings-section-general')).toBeDefined());
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('handles provider add (password key), test, fetch models, and remove dialog in ModelsSection', async () => {

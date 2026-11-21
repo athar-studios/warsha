@@ -16,24 +16,16 @@ import { useClient } from '../../../app/ClientContext';
 import { useDataReady } from '../../../app/DataReadyContext';
 import { type AppMode, useDensity } from '../../../app/DensityContext';
 import { type ThemeMode, useTheme } from '../../../app/ThemeContext';
+import {
+  DEFAULT_BUDGET_FALLBACK_USD,
+  MAX_DEFAULT_BUDGET_USD,
+  parseDefaultBudget,
+  readDefaultBudget,
+  writeDefaultBudget,
+} from '../../../app/defaultBudget';
 import { readSoundCuesEnabled, writeSoundCuesEnabled } from '../../../app/soundCues';
 import { detectModelContext } from '../../../webmcp/modelContext';
 import { readWebMcpEnabled, subscribeWebMcpEnabled, writeWebMcpEnabled } from '../../../webmcp/setting';
-
-const DEFAULT_BUDGET_STORAGE_KEY = 'warsha.default_budget_usd';
-
-function readStoredBudgetFallback(): string {
-  if (typeof window === 'undefined') return '10';
-  try {
-    const val = window.localStorage.getItem(DEFAULT_BUDGET_STORAGE_KEY);
-    if (val && Number.isFinite(Number(val)) && Number(val) > 0) {
-      return val;
-    }
-  } catch {
-    // Ignore storage access errors
-  }
-  return '10';
-}
 
 export function GeneralSection(): React.ReactElement {
   const t = useT();
@@ -46,7 +38,7 @@ export function GeneralSection(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [budgetInput, setBudgetInput] = useState<string>(() => readStoredBudgetFallback());
+  const [budgetInput, setBudgetInput] = useState<string>(String(DEFAULT_BUDGET_FALLBACK_USD));
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [budgetSaved, setBudgetSaved] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -68,20 +60,10 @@ export function GeneralSection(): React.ReactElement {
     setLoadFailed(false);
     setLoadError(null);
 
-    if (!client) {
-      setLoading(false);
-      setReady(true);
-      return;
-    }
-
-    client
-      .listPreferences('global')
-      .then((prefs) => {
+    readDefaultBudget(client)
+      .then((value) => {
         if (!active) return;
-        const found = prefs.find((p) => p.key === 'default_budget_usd');
-        if (found && Number.isFinite(found.score) && found.score > 0) {
-          setBudgetInput(String(found.score));
-        }
+        setBudgetInput(String(value));
         setLoading(false);
         setReady(true);
       })
@@ -99,33 +81,21 @@ export function GeneralSection(): React.ReactElement {
   }, [client, reloadNonce, setReady]);
 
   const saveBudgetAction = useAction('settings.budget-default.save', async () => {
-    const parsed = Number(budgetInput.trim());
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setBudgetError(t('settings.general.budget.invalid'));
+    const parsed = parseDefaultBudget(budgetInput);
+    if (!parsed.ok) {
+      setBudgetError(
+        parsed.reason === 'too-high'
+          ? t('settings.general.budget.too_high', { max: MAX_DEFAULT_BUDGET_USD })
+          : t('settings.general.budget.invalid')
+      );
       return;
     }
     setBudgetError(null);
     setBudgetSaved(false);
 
-    if (client) {
-      await client.recordPreference({
-        id: `budget-default-${Date.now()}`,
-        projectId: 'global',
-        ownerId: 'owner',
-        kind: 'edit',
-        target: 'default_budget_usd',
-        weight: parsed,
-        recordedAt: Math.floor(Date.now() / 1000),
-      });
-    }
-
-    if (typeof window !== 'undefined') {
-      try {
-        window.localStorage.setItem(DEFAULT_BUDGET_STORAGE_KEY, String(parsed));
-      } catch {
-        // Ignore storage errors
-      }
-    }
+    // A plain set: the stored value is replaced, never added to (see app/defaultBudget.ts).
+    await writeDefaultBudget(parsed.value);
+    setBudgetInput(String(parsed.value));
     setBudgetSaved(true);
   });
 
@@ -509,6 +479,7 @@ export function GeneralSection(): React.ReactElement {
           <TextField
             type="number"
             min="1"
+            max={String(MAX_DEFAULT_BUDGET_USD)}
             step="1"
             dir="ltr"
             prefix="$"

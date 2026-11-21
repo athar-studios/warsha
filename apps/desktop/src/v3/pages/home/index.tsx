@@ -27,9 +27,10 @@ import { useCapabilities } from '../../app/CapabilitiesContext';
 import { useClient } from '../../app/ClientContext';
 import { useDataReady } from '../../app/DataReadyContext';
 import { useDensity } from '../../app/DensityContext';
+import { MAX_DEFAULT_BUDGET_USD, parseDefaultBudget, writeDefaultBudget } from '../../app/defaultBudget';
 import { notify } from '../../app/toast';
 import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../copy/stages';
-import { useModels, usePreferences, useProjects, useQuotaGauge, useRoles } from '../../data';
+import { useDefaultBudget, useModels, useProjects, useQuotaGauge, useRoles } from '../../data';
 import { useResource } from '../../data/useResource';
 import { useNavigate } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
@@ -300,7 +301,8 @@ export default function HomePage(): React.ReactElement {
   const projectsResult = useProjects();
   const rolesResult = useRoles();
   const modelsResult = useModels();
-  const preferencesResult = usePreferences('*');
+  // The default budget is a plain set/read value, re-read on mount, on focus and after any save.
+  const defaultBudgetResult = useDefaultBudget();
 
   const quotaGauge = useQuotaGauge();
   const [alertSnapshot, setAlertSnapshot] = useState<{ oldestWaitingGateAt: string | null; failedRuns: RunSummary[]; maxSpendPercent: number | null }>({ oldestWaitingGateAt: null, failedRuns: [], maxSpendPercent: null });
@@ -362,9 +364,7 @@ export default function HomePage(): React.ReactElement {
     return findCoordinatorModel(rolesResult.data, modelsResult.data);
   }, [rolesResult.data, modelsResult.data]);
 
-  const defaultBudget = useMemo(() => {
-    return findDefaultBudget(preferencesResult.data);
-  }, [preferencesResult.data]);
+  const defaultBudget = defaultBudgetResult.value;
 
   const [sheetBudgetValue, setSheetBudgetValue] = useState<number | string>(defaultBudget);
 
@@ -541,21 +541,21 @@ export default function HomePage(): React.ReactElement {
 
   // Action: home.defaults.budget.save
   const budgetSaveAction = useAction('home.defaults.budget.save', async () => {
-    if (!client) return;
-    const num =
-      typeof sheetBudgetValue === 'number'
-        ? sheetBudgetValue
-        : Number(sheetBudgetValue) || defaultBudget;
+    const parsed = parseDefaultBudget(sheetBudgetValue);
+    if (!parsed.ok) {
+      notify({
+        type: 'error',
+        message:
+          parsed.reason === 'too-high'
+            ? t('settings.general.budget.too_high', { max: MAX_DEFAULT_BUDGET_USD })
+            : t('settings.general.budget.invalid'),
+        actionId: 'home.defaults.budget.save',
+      });
+      return;
+    }
 
-    await client.recordPreference({
-      id: `sig-budget-${Date.now()}`,
-      projectId: '*',
-      ownerId: 'owner',
-      kind: 'edit',
-      target: 'default_budget_usd',
-      weight: num,
-      recordedAt: Math.floor(Date.now() / 1000),
-    });
+    // A plain set (see app/defaultBudget.ts): the stored value is replaced, never added to.
+    await writeDefaultBudget(parsed.value);
 
     notify({
       type: 'success',
@@ -563,7 +563,7 @@ export default function HomePage(): React.ReactElement {
       actionId: 'home.defaults.budget.save',
     });
 
-    preferencesResult.reload();
+    defaultBudgetResult.reload();
   });
 
   // Action: home.retry

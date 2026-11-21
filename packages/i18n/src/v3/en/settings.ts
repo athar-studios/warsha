@@ -83,6 +83,7 @@ export default {
   'settings.general.budget.save': 'Save default budget',
   'settings.general.budget.saved': 'Default budget saved.',
   'settings.general.budget.invalid': 'Enter a valid positive number.',
+  'settings.general.budget.too_high': 'The default budget can be at most ${max}.',
 
   'settings.providers.add': 'Add provider',
   'settings.providers.empty.title': 'No providers configured yet',

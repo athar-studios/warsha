@@ -21,8 +21,9 @@ import { useAction } from '../../actions';
 import { useCapabilities, useReloadCapabilities } from '../../app/CapabilitiesContext';
 import { useClient } from '../../app/ClientContext';
 import { useDataReady } from '../../app/DataReadyContext';
+import { readDefaultBudget } from '../../app/defaultBudget';
 import { notify } from '../../app/toast';
-import { usePreferences, useProviders } from '../../data';
+import { useDefaultBudget, useProviders } from '../../data';
 import { reloadAllProjects } from '../../data/useProjects';
 import { useNavigate } from '../../router';
 
@@ -150,11 +151,9 @@ export default function OnboardingPage(): React.ReactElement {
   const capabilities = useCapabilities();
   const reloadCapabilities = useReloadCapabilities();
   const providersResult = useProviders();
-  const preferencesResult = usePreferences('*');
+  const defaultBudgetResult = useDefaultBudget();
 
-  const defaultBudget = useMemo(() => {
-    return findDefaultBudget(preferencesResult.data);
-  }, [preferencesResult.data]);
+  const defaultBudget = defaultBudgetResult.value;
 
   const [step, setStep] = useState<OnboardingStep>(readInitialStep);
   const [selectedKind, setSelectedKind] = useState<string>('deep_seek');
@@ -449,14 +448,13 @@ export default function OnboardingPage(): React.ReactElement {
       reloadAllProjects();
       await client.startRun(project.id, trimmed);
 
+      // Read the stored value fresh at the moment of starting, so a slow first read cannot start the project
+      // with the fresh-install default.
       let budgetUsd = defaultBudget;
-      if ((!preferencesResult.data || preferencesResult.data.length === 0) && client) {
-        try {
-          const directPrefs = await client.listPreferences('*');
-          budgetUsd = findDefaultBudget(directPrefs);
-        } catch {
-          // Fall back to defaultBudget (defaults to 10)
-        }
+      try {
+        budgetUsd = await readDefaultBudget(client);
+      } catch {
+        // Keep the last value the hook read (the fresh-install default at worst).
       }
       const budgetCents = Math.round(Number(budgetUsd) * 100);
 

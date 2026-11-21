@@ -18,6 +18,7 @@ export * from './useDevices';
 export * from './usePreview';
 export * from './useArtifacts';
 export * from './usePreferences';
+export * from './useDefaultBudget';
 export * from './useHealth';
 export * from './useFiles';
 export * from './useAgent';

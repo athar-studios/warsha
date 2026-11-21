@@ -16,7 +16,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAction } from '../../../actions';
 import { useClient } from '../../../app/ClientContext';
 import { useDataReady } from '../../../app/DataReadyContext';
-import { useProjects } from '../../../data';
+import { useDefaultBudget, useProjects } from '../../../data';
 
 export function BudgetsSection(): React.ReactElement {
   const t = useT();
@@ -27,18 +27,8 @@ export function BudgetsSection(): React.ReactElement {
   const [loadingBudgets, setLoadingBudgets] = useState(false);
   const [budgetMap, setBudgetMap] = useState<Record<string, BudgetStatus>>({});
   const [inputMap, setInputMap] = useState<Record<string, string>>({});
-  const [defaultBudget, setDefaultBudget] = useState<number>(10);
+  const defaultBudget = useDefaultBudget().value;
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!client) return;
-    client.listPreferences('global').then((prefs) => {
-      const found = prefs.find((p) => p.key === 'default_budget_usd');
-      if (found && Number.isFinite(found.score) && found.score > 0) {
-        setDefaultBudget(found.score);
-      }
-    }).catch(() => {});
-  }, [client]);
 
   useEffect(() => {
     setReady(status !== 'loading' && !loadingBudgets);
