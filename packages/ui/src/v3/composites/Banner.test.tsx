@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -44,5 +46,24 @@ describe('Banner composite', () => {
     const closeBtn = screen.getByRole('button', { name: 'إغلاق التنبيه' });
     fireEvent.click(closeBtn);
     expect(handleDismiss).toHaveBeenCalledOnce();
+  });
+
+  it('renders long message without clipping class and with wrap/scroll styles', () => {
+    const longMessage = 'A'.repeat(500);
+    render(
+      <Banner variant="danger" title="خطأ غير متوقع">
+        {longMessage}
+      </Banner>
+    );
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toBeInTheDocument();
+    expect(banner.className).not.toMatch(/clip|truncate/);
+
+    const content = screen.getByText(longMessage);
+    expect(content).toBeInTheDocument();
+    expect(content.className).not.toMatch(/clip|truncate/);
+    expect(content.style.overflowWrap).toBe('anywhere');
+    expect(content.style.wordBreak).toBe('break-word');
   });
 });

@@ -35,7 +35,7 @@ export default {
   'developers.detail.step_duration': '+{duration}',
   'developers.detail.load_tail': 'Load output tail',
   'developers.detail.no_telemetry': 'This backend does not report live telemetry.',
-  'developers.budget': 'Budget: {spent} ¢ of {cap} ¢',
+  'developers.budget': 'Budget: {spent} of {cap}',
   'developers.burn': 'Burn: {rate}',
   'developers.export.receipt': 'Export Receipt',
   'developers.cost.packet': 'Cost per merged packet: {value}',

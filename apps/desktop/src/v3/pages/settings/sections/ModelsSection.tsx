@@ -46,11 +46,47 @@ export function sanitizeSecretError(err: unknown, secret?: string): string {
   const msg = err instanceof Error ? err.message : String(err);
   let trimmed = msg.trim();
   if (!trimmed) return '';
+
+  // Redact caller-provided secret and common token patterns
   if (secret && secret.trim()) {
     trimmed = trimmed.split(secret.trim()).join('[redacted]');
   }
   trimmed = trimmed.replace(/Bearer\s+([a-zA-Z0-9_.-]+)/gi, 'Bearer [redacted]');
   trimmed = trimmed.replace(/sk-[a-zA-Z0-9_-]{6,}/g, '[redacted]');
+
+  // Strip leading RPC error envelope if present
+  trimmed = trimmed.replace(/^RPC error -?\d+:\s*/i, '');
+
+  // Strip duplicate HTTP status prefix (e.g. "HTTP 400: HTTP 400:" -> "HTTP 400:")
+  trimmed = trimmed.replace(/^(HTTP\s+\d+:\s*)(?:HTTP\s+\d+:\s*)+/i, '$1');
+
+  // Sanitize raw RPC JSON dump to extract inner message
+  const jsonMatch = trimmed.match(/^(?:(HTTP\s+\d+:\s*))?(\{[\s\S]*\})$/i);
+  if (jsonMatch) {
+    const httpPrefix = jsonMatch[1] ?? '';
+    const rawJson = jsonMatch[2];
+    try {
+      const parsed = JSON.parse(rawJson);
+      let extracted: string | null = null;
+      if (
+        typeof parsed?.error === 'object' &&
+        parsed.error !== null &&
+        typeof parsed.error.message === 'string'
+      ) {
+        extracted = parsed.error.message;
+      } else if (typeof parsed?.error === 'string') {
+        extracted = parsed.error;
+      } else if (typeof parsed?.message === 'string') {
+        extracted = parsed.message;
+      }
+      if (extracted) {
+        trimmed = `${httpPrefix}${extracted.trim()}`;
+      }
+    } catch {
+      // Not valid JSON, keep as-is
+    }
+  }
+
   return trimmed;
 }
 
@@ -79,6 +115,7 @@ export function ModelsSection(): React.ReactElement {
   const [formKey, setFormKey] = useState('');
   const [formApiBase, setFormApiBase] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const [savePending, setSavePending] = useState(false);
   const [dialogDiscoveredModels, setDialogDiscoveredModels] = useState<ModelInfo[]>([]);
   const [dialogDiscoveredFetched, setDialogDiscoveredFetched] = useState(false);
   const [dialogModelsError, setDialogModelsError] = useState<string | null>(null);
@@ -163,6 +200,7 @@ export function ModelsSection(): React.ReactElement {
     setFormKey('');
     setFormApiBase('');
     setFormError(null);
+    setSavePending(false);
     setDialogDiscoveredModels([]);
     setDialogDiscoveredFetched(false);
     setDialogModelsError(null);
@@ -190,6 +228,7 @@ export function ModelsSection(): React.ReactElement {
       setFormError(t('settings.providers.error.no_client'));
       return;
     }
+    setSavePending(true);
     try {
       await client.addProvider({
         name: cleanName,
@@ -206,8 +245,9 @@ export function ModelsSection(): React.ReactElement {
       setStatusMessage(t('settings.common.action_done'));
       await loadData();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setFormError(message.replace(/^RPC error -?\d+:\s*/, ''));
+      setFormError(sanitizeSecretError(err, cleanKey));
+    } finally {
+      setSavePending(false);
     }
   });
 
@@ -857,8 +897,21 @@ export function ModelsSection(): React.ReactElement {
         className="v3-provider-dialog"
         data-testid="add-provider-dialog"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
-          {formError && <Banner variant="danger">{formError}</Banner>}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--w-space-3)',
+            minInlineSize: 0,
+            maxInlineSize: '100%',
+            boxSizing: 'border-box',
+          }}
+        >
+          {formError && (
+            <Banner variant="danger">
+              <bdi dir="auto">{formError}</bdi>
+            </Banner>
+          )}
           <TextField
             label={t('settings.providers.form.name')}
             required
@@ -978,7 +1031,7 @@ export function ModelsSection(): React.ReactElement {
             </Button>
             <Button
               variant="primary"
-              loading={addProviderAction.pending}
+              loading={savePending || addProviderAction.pending}
               data-action="settings.provider.add.save"
               onClick={() => {
                 void addProviderAction.run();

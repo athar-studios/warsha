@@ -35,7 +35,7 @@ export default {
   'developers.detail.step_duration': '+{duration}',
   'developers.detail.load_tail': 'حمّل ذيل المخرجات',
   'developers.detail.no_telemetry': 'هذه الخلفية لا تُبلّغ عن قياسات حية.',
-  'developers.budget': 'الميزانية: {spent} ¢ من {cap} ¢',
+  'developers.budget': 'الميزانية: {spent} من {cap}',
   'developers.burn': 'معدل الحرق: {rate}',
   'developers.export.receipt': 'تصدير الإيصال',
   'developers.cost.packet': 'تكلفة الحزمة المدمجة: {value}',

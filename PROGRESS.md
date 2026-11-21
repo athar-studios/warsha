@@ -59,6 +59,24 @@
 - **Decision**: `D-RN-RETEST-KEYRING-1` in `DECISIONS.md`.
 
 ## Run 2026-11-21 — GUI Merge Verification (START+NAV+PROVIDER+POLISH in r-next/integration)
+## Run 2026-11-21 — Fix Windows/Linux GUI minors from retest (fix-retest-minors lane)
+- **Scope**: Fix Windows/Linux GUI minors from 2026-11-21 retest (items 5-10 from `/tmp/retest-windows.md` + `/tmp/retest-linux.md` N-5) in Warsha 0.3.0. Worktree: `.agents/worktrees/fix-retest-minors`, branch `fix-retest-minors` (base `f7b6797`).
+- **Items fixed**:
+  1. Developers budget cents formatting: divided by 100 with 2 decimals (`formatCentsAsDollars`) in `apps/desktop/src/v3/pages/developers/index.tsx`; updated `packages/i18n/src/v3/{en,ar}/developers.ts` to `Budget: {spent} of {cap}` / `الميزانية: {spent} من {cap}` (tested pantry $10.00 case).
+  2. Project name CSS ellipsis: applied RTL-safe CSS ellipsis (`minInlineSize: 0`, `maxInlineSize: '100%'`, `overflow: 'hidden'`, `textOverflow: 'ellipsis'`, `whiteSpace: 'nowrap'`) with `<bdi dir="auto">` and `title` tooltip attributes in project card titles and table rows (`apps/desktop/src/v3/pages/home/index.tsx`).
+  3. Factory station tiles black: fixed SVG tile styling in `apps/desktop/src/v3/pages/factory/Floor.tsx` by replacing non-existent CSS variables (`--w-surface-muted`, `--w-border`) with valid tokens (`--w-sunken`, `--w-line`). Schematic art documented as deferred.
+  4. Toasts bounded auto-dismiss: updated `AUTO_DISMISS_DURATION` to 10s (10000ms) for non-blocking toasts in `packages/ui/src/v3/composites/Toast.tsx`; sticky errors (`duration: 0`) remain persistent and dismissible via ×.
+  5. Key field retention on successful save: Onboarding item (`apps/desktop/src/v3/pages/onboarding/index.tsx`) deliberately deferred per task instruction "Do NOT edit onboarding".
+  6. Error banners wrapping & sanitization: enhanced `sanitizeSecretError` in `ModelsSection.tsx` to strip leading RPC envelopes, deduplicate `(HTTP \d+:)+` prefixes, redact secrets, and unwrap JSON RPC error payloads. Converted `packages/ui/src/v3/composites/Banner.tsx` to logical properties, wrapping (`overflowWrap: 'anywhere'`), and bounded scroll (`maxBlockSize: '16rem'`, `overflowY: 'auto'`) without clipping class (fixes 401 RTL right-edge truncation).
+  7. Settings save button stuck loading on failure: added `savePending` state in `ModelsSection.tsx` resetting in `finally` and bound `loading={savePending || addProviderAction.pending}`.
+- **Language Review**: Updated `developers.budget` verified native-natural in English and Arabic per owner order 2026-11-21.
+- **Gate Matrix**:
+  - `./node_modules/.bin/tsc --noEmit -p apps/desktop/tsconfig.json`: PASSED (0 errors).
+  - `./node_modules/.bin/eslint <changed files>`: PASSED (0 errors, 0 warnings).
+  - `./node_modules/.bin/vitest run <changed test files>`: PASSED (10/10 UI tests, 20/20 desktop tests).
+  - `node scripts/ci/actions-gate.mjs`: PASSED (194 registered, 194 used, 0 violations).
+  - `node scripts/ci/i18n-gate.mjs`: PASSED (1040 keys, 0 violations).
+- **Decisions**: Logged `D-RN-RETEST-MINORS-1` in `DECISIONS.md`.
 - **Scope**: Merge the four verified GUI fix lanes into `r-next/integration` tip and run the gate matrix on the merged tree. Local-only: no push, no tag, no publish, main untouched.
 - **Merges**:
   - `382474d` fix-gui-start-lane: run-less budget pending consumed at start_run + home order + reload bus (N2/N3).

@@ -32,7 +32,7 @@ export interface ToastContextValue {
 }
 
 export const MAX_VISIBLE_TOASTS = 3;
-export const AUTO_DISMISS_DURATION = 5000;
+export const AUTO_DISMISS_DURATION = 10000;
 
 const ToastContext = React.createContext<ToastContextValue | null>(null);
 

@@ -138,8 +138,8 @@ export const Floor: React.FC<FloorProps> = ({
               width={station.width}
               height={110}
               rx="8"
-              fill="var(--w-surface-muted)"
-              stroke="var(--w-border)"
+              fill="var(--w-sunken)"
+              stroke="var(--w-line)"
             />
             <text
               x={station.x + station.width / 2}
@@ -158,8 +158,8 @@ export const Floor: React.FC<FloorProps> = ({
           width={BREAK_AREA.width}
           height={80}
           rx="8"
-          fill="var(--w-surface-muted)"
-          stroke="var(--w-border)"
+          fill="var(--w-sunken)"
+          stroke="var(--w-line)"
           strokeDasharray="6 4"
         />
         <text
@@ -211,7 +211,7 @@ export const Floor: React.FC<FloorProps> = ({
               <circle
                 r={AGENT_RADIUS}
                 fill={fill}
-                stroke={selected ? 'var(--w-text)' : 'var(--w-border)'}
+                stroke={selected ? 'var(--w-text)' : 'var(--w-line)'}
                 strokeWidth={selected ? 3 : 1}
               />
               <text y={4} textAnchor="middle" fontSize="9" fill="var(--w-text-on-accent)">

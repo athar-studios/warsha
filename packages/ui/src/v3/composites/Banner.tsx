@@ -96,6 +96,7 @@ export const Banner: React.FC<BannerProps> = ({
         fontSize: 'var(--w-font-size-sm)',
         lineHeight: 'var(--w-line-height-sm)',
         boxSizing: 'border-box',
+        maxInlineSize: '100%',
         ...style,
       }}
     >
@@ -106,24 +107,46 @@ export const Banner: React.FC<BannerProps> = ({
           display: 'inline-flex',
           alignItems: 'center',
           flexShrink: 0,
-          marginTop: 'var(--w-space-1)',
+          marginBlockStart: 'var(--w-space-1)',
         }}
       >
         {displayIcon}
       </span>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div
+        style={{
+          flex: '1 1 auto',
+          minInlineSize: 0,
+          minWidth: 0,
+          maxInlineSize: '100%',
+          overflowWrap: 'anywhere',
+          wordBreak: 'break-word',
+        }}
+      >
         {title && (
           <div
             style={{
               fontWeight: 'var(--w-font-weight-semibold)',
-              marginBottom: children ? 'var(--w-space-1)' : 0,
+              marginBlockEnd: children ? 'var(--w-space-1)' : 0,
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word',
             }}
           >
             {title}
           </div>
         )}
-        {children && <div>{children}</div>}
+        {children && (
+          <div
+            style={{
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word',
+              maxBlockSize: '16rem',
+              overflowY: 'auto',
+            }}
+          >
+            {children}
+          </div>
+        )}
       </div>
 
       {action && (
