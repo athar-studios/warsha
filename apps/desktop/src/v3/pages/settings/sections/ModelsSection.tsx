@@ -212,7 +212,7 @@ export function ModelsSection(): React.ReactElement {
   });
 
   const dialogFetchModelsAction = useAction(
-    'settings.provider.form.models.fetch',
+    'settings.provider.models.fetch',
     async () => {
       const cleanKey = formKey.trim();
       const cleanUrl = formApiBase.trim();
@@ -908,7 +908,7 @@ export function ModelsSection(): React.ReactElement {
               variant="secondary"
               size="sm"
               loading={dialogFetchModelsAction.pending}
-              data-action="settings.provider.form.models.fetch"
+              data-action="settings.provider.models.fetch"
               data-testid="provider-form-fetch-models-btn"
               onClick={() => {
                 void dialogFetchModelsAction.run();
