@@ -50,7 +50,7 @@ describe('V3App', () => {
 
   it('renders Onboarding page at /onboarding', () => {
     render(<V3App initialRoute="/onboarding" />);
-    expect(screen.getByRole('heading', { level: 1, name: /Onboarding|التهيئة الأولى/ })).toBeDefined();
+    expect(screen.getByRole('heading', { level: 1, name: /Get started|لنبدأ/ })).toBeDefined();
   });
 
   // R-UI-3 D3-d/T2: the page title takes its size and leading from the 3xl tokens. jsdom has no layout engine and

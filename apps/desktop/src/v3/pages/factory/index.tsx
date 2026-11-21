@@ -1,6 +1,6 @@
 import type { RunId, WarshaClient, WarshaEvent } from '@warsha/client';
-import { useT } from '@warsha/i18n/v3';
-import { Banner, Button } from '@warsha/ui/v3';
+import { useLocale, useT } from '@warsha/i18n/v3';
+import { Banner, Button, EmptyState, IconUsers } from '@warsha/ui/v3';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useClient } from '../../app/ClientContext';
@@ -9,6 +9,7 @@ import { AgentPanel, lastFileOf } from './AgentPanel';
 import { Floor } from './Floor';
 import type { AgentStatus } from './state';
 import { reduceEvents } from './state';
+import './factory.css';
 
 /**
  * E3 Factory floor (plan §8, ### E3). The owner's overview of every working
@@ -94,6 +95,7 @@ export const FactoryPage: React.FC = () => {
   const contextClient = useClient();
   const client = contextClient as WarshaClient;
   const t = useT();
+  const { dir } = useLocale();
   const [view, setView] = useState<ViewMode>('floor');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [stoppedRuns, setStoppedRuns] = useState<Set<string>>(new Set());
@@ -179,10 +181,40 @@ export const FactoryPage: React.FC = () => {
 
   return (
     <div className="factory-page" data-testid="factory-page">
-      <h1>{t('factory.title')}</h1>
+      <header className="factory-header">
+        <h1 className="factory-title">{t('factory.title')}</h1>
+        <div className="factory-owner-corner" data-testid="factory-owner-corner">
+          <Button
+            variant="ghost"
+            data-action="factory.view.toggle"
+            aria-pressed={view === 'list'}
+            onClick={switchView}
+          >
+            {view === 'floor' ? t('factory.listView') : t('factory.floorView')}
+          </Button>
+          <Button
+            variant="danger"
+            data-action="factory.stop.all"
+            onClick={() => void stopAll()}
+            disabled={stoppedRuns.size >= activeRunIds.length && activeRunIds.length > 0}
+          >
+            {t('factory.stopAll')}
+          </Button>
+        </div>
+      </header>
       {error !== null && (
         <Banner variant="danger" data-testid="factory-error">
-          {error}
+          <div className="factory-banner-row">
+            <span>{error}</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              data-action="factory.retry"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              {t('common.retry')}
+            </Button>
+          </div>
         </Banner>
       )}
       {stopError !== null && (
@@ -190,42 +222,15 @@ export const FactoryPage: React.FC = () => {
           {stopError}
         </Banner>
       )}
-      <div
-        className="factory-owner-corner"
-        data-testid="factory-owner-corner"
-        style={{ display: 'flex', gap: 'var(--w-space-3)', paddingBlockEnd: 'var(--w-space-3)' }}
-      >
-        <Button
-          data-action="factory.stop.all"
-          onClick={() => void stopAll()}
-          disabled={stoppedRuns.size >= activeRunIds.length && activeRunIds.length > 0}
-        >
-          {t('factory.stopAll')}
-        </Button>
-        <Button
-          data-action="factory.view.toggle"
-          aria-pressed={view === 'list'}
-          onClick={switchView}
-        >
-          {view === 'floor' ? t('factory.listView') : t('factory.floorView')}
-        </Button>
-      </div>
-      {agents.length === 0 && (
-        <Banner variant="info" data-testid="factory-empty">
-          {t('factory.empty')}
-        </Banner>
+      {agents.length === 0 && error === null && (
+        <EmptyState
+          data-testid="factory-empty"
+          icon={<IconUsers />}
+          title={t('factory.empty')}
+          description={t('factory.empty.desc')}
+        />
       )}
-      <div
-        aria-live="polite"
-        data-testid="factory-list-status"
-        style={{
-          position: 'absolute',
-          inlineSize: 1,
-          blockSize: 1,
-          overflow: 'hidden',
-          clipPath: 'inset(50%)',
-        }}
-      >
+      <div aria-live="polite" data-testid="factory-list-status" className="visually-hidden">
         {view === 'list' ? t('factory.listViewHint') : ''}
       </div>
       {view === 'floor' ? (
@@ -237,38 +242,51 @@ export const FactoryPage: React.FC = () => {
           onSelect={setSelectedKey}
           swarmCounts={swarmCounts}
           t={t}
+          dir={dir}
         />
       ) : (
-        <table data-testid="factory-list-view">
-          <caption className="visually-hidden">{t('factory.listViewHint')}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{t('factory.list.agent')}</th>
-              <th scope="col">{t('factory.list.state')}</th>
-              <th scope="col">{t('factory.list.run')}</th>
-              <th scope="col">{t('factory.list.role')}</th>
-              <th scope="col">{t('factory.list.action')}</th>
-              <th scope="col">{t('factory.list.cost')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {agents.map((agent) => (
-              <tr
-                key={agent.key}
-                onClick={() => setSelectedKey(agent.key)}
-                data-action="factory.agent.view"
-                data-testid={`factory-list-row-${agent.key}`}
-              >
-                <td>{agent.key}</td>
-                <td>{t(`factory.state.${agent.state}`)}</td>
-                <td>{agent.runId}</td>
-                <td>{agent.role ?? '—'}</td>
-                <td>{agent.lastAction}</td>
-                <td>{`${agent.costCents}¢`}</td>
+        <div className="factory-table-wrap">
+          <table className="factory-table" data-testid="factory-list-view">
+            <caption className="visually-hidden">{t('factory.listViewHint')}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('factory.list.agent')}</th>
+                <th scope="col">{t('factory.list.state')}</th>
+                <th scope="col">{t('factory.list.run')}</th>
+                <th scope="col">{t('factory.list.role')}</th>
+                <th scope="col">{t('factory.list.action')}</th>
+                <th scope="col">{t('factory.list.cost')}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {agents.map((agent) => (
+                <tr
+                  key={agent.key}
+                  onClick={() => setSelectedKey(agent.key)}
+                  data-action="factory.agent.view"
+                  data-testid={`factory-list-row-${agent.key}`}
+                >
+                  <td>
+                    <bdi className="factory-mono">{agent.key}</bdi>
+                  </td>
+                  <td>{t(`factory.state.${agent.state}`)}</td>
+                  <td>
+                    <bdi className="factory-mono">{agent.runId}</bdi>
+                  </td>
+                  <td>
+                    <bdi dir="ltr">{agent.role ?? '—'}</bdi>
+                  </td>
+                  <td>
+                    <bdi dir="auto">{agent.lastAction}</bdi>
+                  </td>
+                  <td>
+                    <bdi dir="ltr">{`${agent.costCents}¢`}</bdi>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {selected !== null && (
         <AgentPanel

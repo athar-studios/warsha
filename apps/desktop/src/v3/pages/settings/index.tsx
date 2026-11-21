@@ -1,4 +1,5 @@
 // apps/desktop/src/v3/pages/settings/index.tsx — Settings page shell (UI_V3_PLAN §3.7)
+import { useT } from '@warsha/i18n/v3';
 import React, { useEffect, useState } from 'react';
 
 import { useDensity } from '../../app/DensityContext';
@@ -32,6 +33,7 @@ import {
 import './settings.css';
 
 export default function SettingsPage(): React.ReactElement {
+  const t = useT();
   const { params } = useRoute();
   const navigate = useNavigate();
   const { mode } = useDensity();
@@ -110,6 +112,7 @@ export default function SettingsPage(): React.ReactElement {
       data-narrow={narrow ? 'true' : 'false'}
       data-testid="settings-page"
     >
+      <h1 className="v3-settings-title">{t('settings.title')}</h1>
       <SettingsNav
         activeSection={activeSection}
         onSelectSection={handleSelectSection}

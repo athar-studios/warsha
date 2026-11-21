@@ -6,12 +6,23 @@
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--w-space-6);
-  max-width: var(--w-content);
+  max-inline-size: var(--w-content);
   margin-inline: auto;
-  padding-block: var(--w-space-6);
-  padding-inline: var(--w-space-4);
+  /* Same page rhythm as Projects, Inbox, Factory and Developers. */
+  padding-block-start: var(--w-space-8);
+  padding-block-end: var(--w-space-10);
+  padding-inline: var(--w-space-5);
   box-sizing: border-box;
-  width: 100%;
+  inline-size: 100%;
+}
+
+.v3-settings-title {
+  flex: 1 1 100%;
+  margin-block: 0;
+  font-size: var(--w-font-size-3xl);
+  line-height: var(--w-line-height-3xl);
+  font-weight: var(--w-font-weight-bold);
+  color: var(--w-text);
 }
 
 .v3-settings-nav {

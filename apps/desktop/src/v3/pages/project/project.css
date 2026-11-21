@@ -47,7 +47,7 @@
 }
 
 .v3-secretary-turn--owner {
-  background: var(--w-surface-2);
+  background: var(--w-sunken);
 }
 
 .v3-secretary-turn--secretary {
@@ -155,7 +155,7 @@
   font-size: var(--w-font-size-2xl);
   font-weight: var(--w-font-weight-bold);
   color: var(--w-text);
-  line-height: var(--w-line-height-tight);
+  line-height: var(--w-line-height-2xl);
 }
 
 .v3-project-header-actions {
@@ -207,7 +207,7 @@
   display: flex;
   align-items: center;
   gap: var(--w-space-2);
-  color: var(--w-attention-text);
+  color: var(--w-attention);
   font-size: var(--w-font-size-xs);
   font-weight: var(--w-font-weight-bold);
   text-transform: uppercase;
@@ -218,7 +218,7 @@
   font-size: var(--w-font-size-xl);
   font-weight: var(--w-font-weight-bold);
   color: var(--w-text);
-  line-height: var(--w-line-height-snug);
+  line-height: var(--w-line-height-xl);
 }
 
 .v3-project-decision-actions {

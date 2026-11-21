@@ -652,7 +652,7 @@ export default function OnboardingPage(): React.ReactElement {
                     data-testid={`onboarding-provider-${preset.kind}`}
                     onClick={() => handlePickProvider(preset.kind)}
                   >
-                    <span>{t(preset.labelKey)}</span>
+                    <bdi dir="auto">{t(preset.labelKey)}</bdi>
                     {isConfigured && (
                       <StatusPill status="done" label={t('onboarding.provider_configured_badge')} />
                     )}

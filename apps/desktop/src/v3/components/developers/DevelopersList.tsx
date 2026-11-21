@@ -73,7 +73,7 @@ const DevelopersList: React.FC<Props> = ({ sessions, depth = 0, onSelect, figure
               alignItems: 'center',
               gap: 'var(--w-space-2)',
               paddingInlineStart: depth === 0 ? 'var(--w-space-3)' : 'calc(var(--w-space-3) + var(--w-space-4))',
-              borderBlockEnd: 'var(--w-border-width) solid var(--w-border)',
+              borderBlockEnd: 'var(--w-border-width) solid var(--w-line)',
               cursor: 'pointer',
             }}
           >

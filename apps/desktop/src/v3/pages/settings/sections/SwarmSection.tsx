@@ -203,7 +203,7 @@ export function SwarmSection(): React.ReactElement {
                   void saveAction.run(p.id, row.enableSwarm, value);
                 }}
                 style={{
-                  inlineSize: 'var(--w-space-16)',
+                  inlineSize: 'var(--w-space-10)',
                   paddingBlock: 'var(--w-space-1)',
                   paddingInline: 'var(--w-space-2)',
                 }}

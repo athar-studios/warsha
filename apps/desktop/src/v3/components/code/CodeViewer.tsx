@@ -10,10 +10,13 @@ import { search, searchKeymap } from '@codemirror/search';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView, lineNumbers, highlightActiveLine, highlightSpecialChars, drawSelection, dropCursor, keymap } from '@codemirror/view';
 import { useT } from '@warsha/i18n/v3';
+import { Banner, EmptyState, IconCode } from '@warsha/ui/v3';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { useClient } from '../../app/ClientContext';
 import { useRoute } from '../../router/Router';
+
+import { CodeSkeleton } from './CodeSkeleton';
 
 const langMap: Record<string, Extension> = {
   rs: rust(),
@@ -54,6 +57,7 @@ const CodeViewer: React.FC = () => {
   const t = useT();
   const client = useClient();
   const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const hashSearch = useHashSearch();
   const searchParams = new URLSearchParams(hashSearch);
@@ -66,6 +70,7 @@ const CodeViewer: React.FC = () => {
 
     let mounted = true;
     setFailed(false);
+    setLoading(true);
 
     async function loadFile() {
       try {
@@ -111,6 +116,8 @@ const CodeViewer: React.FC = () => {
       } catch (err) {
         console.error('Failed to load file', err);
         if (mounted) setFailed(true);
+      } finally {
+        if (mounted) setLoading(false);
       }
     }
 
@@ -124,15 +131,33 @@ const CodeViewer: React.FC = () => {
   }, [projectId, filePath, line, client]);
 
   if (!filePath || !projectId) {
-    return <div data-testid="code-viewer-empty">{t('common.empty')}</div>;
+    return (
+      <EmptyState
+        data-testid="code-viewer-empty"
+        icon={<IconCode />}
+        title={t('code.empty_title')}
+        description={t('code.empty_desc')}
+      />
+    );
   }
-  if (!client) return <div>{t('code.loading')}</div>;
+  if (!client) return <CodeSkeleton label={t('code.loading')} />;
 
   return (
-    <>
-      {failed ? <div role="alert" data-testid="code-viewer-error">{t('common.error')}</div> : null}
-      <div ref={editorRef} data-testid="code-viewer-tab" />
-    </>
+    <div className="v3-code-viewer">
+      <div className="v3-code-viewer-header">
+        <bdi className="v3-code-viewer-path" dir="ltr">
+          {filePath}
+        </bdi>
+        <span className="v3-code-viewer-badge">{t('code.readOnly')}</span>
+      </div>
+      {failed ? (
+        <Banner variant="danger" data-testid="code-viewer-error">
+          {t('code.error')}
+        </Banner>
+      ) : null}
+      {loading && !failed ? <CodeSkeleton label={t('code.loading')} /> : null}
+      <div ref={editorRef} className="v3-code-viewer-editor" data-testid="code-viewer-tab" />
+    </div>
   );
 };
 

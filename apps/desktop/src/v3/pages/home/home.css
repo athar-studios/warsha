@@ -10,7 +10,7 @@
 .v3-home-needsyou {
   margin-block: var(--w-space-6);
   padding: var(--w-space-4);
-  background: var(--w-surface-2);
+  background: var(--w-sunken);
   border-radius: var(--w-radius-lg);
 }
 

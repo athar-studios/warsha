@@ -145,7 +145,7 @@ test.describe('Frame journeys', () => {
 
     const banner = page.locator('[role="region"][aria-label="حالة الخادم"]');
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText('لا يمكن الوصول إلى خادم ورشة — إعادة المحاولة');
+    await expect(banner).toContainText('تعذّر الوصول إلى خادم ورشة — أعِد المحاولة');
 
     await act(page, 'frame.daemon.retry');
     const call = await expectRpc(page, 'health');

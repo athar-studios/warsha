@@ -129,7 +129,7 @@ test.describe('Home journeys', () => {
 
   for (const [lang, idea] of [
     ['en', 'Retry failed run'],
-    ['ar', 'إعادة تشغيل المحاولة الفاشلة'],
+    ['ar', 'أعِد التشغيل الذي تعثّر'],
   ] as const) {
     test(`home.run.retry sends runs.start with the localized idea (${lang})`, async ({ page }) => {
       await openV3(page, '/', {

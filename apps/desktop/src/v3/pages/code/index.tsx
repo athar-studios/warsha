@@ -2,6 +2,8 @@ import { useT } from '@warsha/i18n/v3';
 import React, { lazy, Suspense, useEffect } from 'react';
 
 import { useDataReady } from '../../app/DataReadyContext';
+import { CodeSkeleton } from '../../components/code/CodeSkeleton';
+import './code.css';
 
 const CodeViewer = lazy(() => import(/* webpackChunkName: "code-viewer" */ '../../components/code/CodeViewer'));
 
@@ -15,8 +17,8 @@ const CodePage: React.FC = () => {
   }, [setReady]);
 
   return (
-    <div data-testid="code-page">
-      <Suspense fallback={<div>{t('code.loading')}</div>}>
+    <div className="v3-code-page" data-testid="code-page">
+      <Suspense fallback={<CodeSkeleton label={t('code.loading')} />}>
         <CodeViewer />
       </Suspense>
     </div>

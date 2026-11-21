@@ -1,9 +1,9 @@
 export default {
   'projects.title': 'Projects',
-  'projects.subtitle': 'Board to track and manage all your projects and stages',
+  'projects.subtitle': 'Every project, where it stands and what it has cost so far.',
   'projects.new': 'New project',
   'projects.search': 'Search',
-  'projects.search_placeholder': 'Search by project name or stage...',
+  'projects.search_placeholder': 'Search by project name or stage…',
   'projects.search_label': 'Search projects',
   'projects.sort': 'Sort',
   'projects.sort_name_asc': 'Name ascending',

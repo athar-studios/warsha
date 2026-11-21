@@ -4,7 +4,15 @@
 // children grouped under their parent, receipt export.
 import type { ProjectId, ProjectSummary, RunSubtask, RunSummary, RunId, Session, WarshaEvent } from '@warsha/client';
 import { useT } from '@warsha/i18n/v3';
-import { Banner, Button, Select } from '@warsha/ui/v3';
+import {
+  Banner,
+  Button,
+  EmptyState,
+  IconDownload,
+  IconTerminal,
+  Select,
+  Skeleton,
+} from '@warsha/ui/v3';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAction } from '../../actions';
@@ -12,6 +20,7 @@ import { useClient } from '../../app/ClientContext';
 import DevelopersList from '../../components/developers/DevelopersList';
 
 import SessionDetail from './SessionDetail';
+import './developers.css';
 import { formatMs } from './format';
 import { buildReceipt, burnRateCentsPerHour, costPerPacketCents, groupByParent, runCostCents, sessionMetrics } from './metrics';
 
@@ -22,6 +31,12 @@ export function formatCentsAsDollars(cents: number | null | undefined): string {
 
 const DevelopersPage: React.FC = () => {
   const t = useT();
+  /** Role filter label: the plain role name where the catalog has one, the role id otherwise. */
+  const roleLabel = (role: string): string => {
+    const key = `settings.role.${role}`;
+    const label = t(key);
+    return label === key ? role : label;
+  };
   const client = useClient();
 
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
@@ -199,15 +214,19 @@ const DevelopersPage: React.FC = () => {
   if (!projects) {
     return (
       <div className="developers-page" data-testid="developers-page">
-        <h1>{t('developers.title')}</h1>
-        <p>{t('developers.loading')}</p>
+        <h1 className="developers-title">{t('developers.title')}</h1>
+        <div className="developers-loading" role="status" aria-label={t('developers.loading')}>
+          <Skeleton variant="text" width="40%" />
+          <Skeleton width="100%" height="var(--w-space-9)" />
+          <Skeleton width="100%" height="var(--w-space-10)" />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="developers-page" data-testid="developers-page">
-      <h1>{t('developers.title')}</h1>
+      <h1 className="developers-title">{t('developers.title')}</h1>
 
       <div className="developers-filters" data-testid="developers-filters">
         <Select
@@ -246,7 +265,7 @@ const DevelopersPage: React.FC = () => {
           options={[
             { value: 'all', label: t('developers.filter.all') },
             ...['intake', 'researcher', 'pm', 'designer', 'architect', 'coder', 'reviewer', 'release', 'marketer', 'secretary'].map(
-              (role) => ({ value: role, label: role })
+              (role) => ({ value: role, label: roleLabel(role) })
             ),
           ]}
         />
@@ -267,7 +286,17 @@ const DevelopersPage: React.FC = () => {
 
       {error !== null && (
         <Banner variant="danger" data-testid="developers-error">
-          {error}
+          <div className="developers-banner-row">
+            <span>{error}</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              data-action="developers.list.refresh"
+              onClick={() => void refreshAction.run()}
+            >
+              {t('common.retry')}
+            </Button>
+          </div>
         </Banner>
       )}
 
@@ -298,13 +327,26 @@ const DevelopersPage: React.FC = () => {
             value: packets === null ? '—' : `${packets.toFixed(1)} ¢`,
           })}
         </span>
-        <Button data-testid="developers-receipt-export" data-action="developers.receipt.export" onClick={() => void failedExport.run()}>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<IconDownload />}
+          className="developers-budget-export"
+          data-testid="developers-receipt-export"
+          data-action="developers.receipt.export"
+          onClick={() => void failedExport.run()}
+        >
           {t('developers.export.receipt')}
         </Button>
       </div>
 
       {groups.length === 0 ? (
-        <p>{t('developers.no_sessions')}</p>
+        <EmptyState
+          data-testid="developers-empty"
+          icon={<IconTerminal />}
+          title={t('developers.no_sessions')}
+          description={t('developers.no_sessions.desc')}
+        />
       ) : (
         <div className="developers-groups">
           {groups.map(({ parent, children }) => (

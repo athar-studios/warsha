@@ -500,8 +500,8 @@ export default function ProjectPage(): React.ReactElement {
     return (
       <div className="v3-project-page" data-testid="project-loading">
         <Skeleton width="40%" height="var(--w-space-8)" />
-        <Skeleton width="100%" height="var(--w-space-12)" />
-        <Skeleton width="100%" height="var(--w-space-12)" />
+        <Skeleton width="100%" height="var(--w-space-9)" />
+        <Skeleton width="100%" height="var(--w-space-9)" />
       </div>
     );
   }

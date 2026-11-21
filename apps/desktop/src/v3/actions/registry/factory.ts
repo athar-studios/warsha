@@ -13,6 +13,11 @@ export const ACTIONS: readonly ActionDef[] = [
     effect: 'state',
   },
   {
+    id: 'factory.retry',
+    labelKey: 'common.retry',
+    effect: 'state',
+  },
+  {
     id: 'factory.agent.view',
     labelKey: 'factory.panel.title',
     effect: 'nav',

@@ -86,6 +86,6 @@ describe('hash router', () => {
       </RouterProvider>
     );
 
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/Onboarding|التهيئة الأولى/);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/Get started|لنبدأ/);
   });
 });

@@ -511,7 +511,7 @@ export function ModelsSection(): React.ReactElement {
                     </div>
                     <div className="v3-settings-row-subtitle">
                       <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 'var(--w-space-2)', alignItems: 'center' }}>
-                        <span>{t(`settings.providers.kind.${p.kind}`) !== `settings.providers.kind.${p.kind}` ? t(`settings.providers.kind.${p.kind}`) : p.kind}</span>
+                        <bdi dir="auto">{t(`settings.providers.kind.${p.kind}`) !== `settings.providers.kind.${p.kind}` ? t(`settings.providers.kind.${p.kind}`) : p.kind}</bdi>
                         {p.api_base && (
                           <bdi dir="ltr" className="v3-settings-uri">
                             {p.api_base}
@@ -739,7 +739,12 @@ export function ModelsSection(): React.ReactElement {
                     </div>
                     <div className="v3-settings-row-subtitle">
                       <bdi dir="ltr">{m.provider}</bdi>
-                      {m.displayName ? ` · ${m.displayName}` : ''}
+                      {m.displayName ? (
+                        <>
+                          {' · '}
+                          <bdi dir="auto">{m.displayName}</bdi>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                   <div className="v3-settings-row-actions">

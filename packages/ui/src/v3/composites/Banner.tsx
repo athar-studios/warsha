@@ -140,7 +140,8 @@ export const Banner: React.FC<BannerProps> = ({
             style={{
               overflowWrap: 'anywhere',
               wordBreak: 'break-word',
-              maxBlockSize: '16rem',
+              // Same 256px cap as before, from the spacing scale (4 × space-10) instead of a literal.
+              maxBlockSize: 'calc(var(--w-space-10) * 4)',
               overflowY: 'auto',
             }}
           >

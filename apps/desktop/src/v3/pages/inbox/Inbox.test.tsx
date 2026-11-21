@@ -544,10 +544,10 @@ describe('InboxPage component journeys and states', () => {
     expect(document.querySelector('[data-action="inbox.gate.changes.send"]')).not.toBeNull();
     expect(document.querySelector('[data-action="inbox.gate.reject.confirm"]')).not.toBeNull();
 
-    const changesInput = screen.getByPlaceholderText('Describe requested adjustments precisely...');
+    const changesInput = screen.getByPlaceholderText('Describe requested adjustments precisely…');
     fireEvent.change(changesInput, { target: { value: 'Revise idea' } });
 
-    const sendChangesBtn = screen.getByRole('button', { name: /Send change requests/i });
+    const sendChangesBtn = screen.getByRole('button', { name: /Send requested changes/i });
     fireEvent.click(sendChangesBtn);
 
     await waitFor(() => {
@@ -586,7 +586,7 @@ describe('InboxPage component journeys and states', () => {
       expect(screen.getByTestId('inbox-reject-reason')).toBeDefined();
     });
 
-    const reasonInput = screen.getByPlaceholderText('Reason for rejection (optional)...');
+    const reasonInput = screen.getByPlaceholderText('Reason for rejection (optional)…');
     fireEvent.change(reasonInput, { target: { value: 'Out of scope' } });
 
     const confirmRejectBtn = screen.getByRole('button', { name: /Confirm rejection/i });

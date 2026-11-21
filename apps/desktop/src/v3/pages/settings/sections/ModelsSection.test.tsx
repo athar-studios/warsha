@@ -321,7 +321,7 @@ describe('ModelsSection - Model Discovery & Live List Diff', () => {
     const diffContainer = screen.getByTestId('provider-models-list-mock-provider');
     expect(within(diffContainer).getByText('النماذج المكتشفة')).toBeDefined();
     expect(within(diffContainer).getByText('1 جديد')).toBeDefined();
-    expect(within(diffContainer).getByText('0 محتفظ به')).toBeDefined();
+    expect(within(diffContainer).getByText('0 باقٍ')).toBeDefined();
   });
 
   it('N2a proving test: renders unknown fallback label when authStatus.kind is undefined', async () => {
