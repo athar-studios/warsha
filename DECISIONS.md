@@ -1,4 +1,12 @@
 
+## 2026-11-21 — D-R2-B2-1: Onboarding project creation notifies shared projects bus and Frame reloads on new project
+- **Decision**:
+  1. (Onboarding Shared Bus Notification): In `apps/desktop/src/v3/pages/onboarding/index.tsx`, imported `reloadAllProjects` from `../../data/useProjects` and invoked `reloadAllProjects()` immediately after successful `client.createProject(projectName, trimmed, locale)` in `startAction`, mirroring the behavior of `home/index.tsx`.
+  2. (Frame New Project Reload): In `apps/desktop/src/v3/pages/frame/Frame.tsx`, called `projectsResult.reload()` inside `handleNewProject` before navigating to `/` so that returning or navigating to new project screen immediately refreshes projects.
+  3. (Proving Test): In `apps/desktop/src/v3/pages/frame/Frame.test.tsx`, added a proving test verifying that when Frame starts with an empty project list (`projects.list` returning `[]`), completing onboarding wizard's `startAction` triggers the project reload and updates the header project switcher to list the newly created projects `[p1, p2]` instead of remaining stale with `frame.no_projects` (`No projects found`).
+- **Reason**: Windows retest-2 blocker B2: after completing the onboarding wizard on a fresh profile, the header project chooser showed empty (`No projects found`), while daemon RPC `projects.list` returned 2 projects. The root cause was that `home/index.tsx` notified the shared bus via `projectsResult.reload()`, but onboarding's `startAction` created the project without notifying the shared bus (`reloadAllProjects()`), leaving Frame's mounted `useProjects()` hook with stale empty data.
+- **Record**: `apps/desktop/src/v3/pages/onboarding/index.tsx`, `apps/desktop/src/v3/pages/frame/Frame.tsx`, `apps/desktop/src/v3/pages/frame/Frame.test.tsx`.
+
 ## 2026-11-21 — D-RN-RETEST-KEYRING-1: Bounded async timeout for OS keychain access (N-1/N-2/N-3)
 - **Decision**: Wrapped OS keychain access across daemon startup (N-1), capability probing (N-2), and provider credential storage (N-3) in a bounded 2-second timeout (`KEYCHAIN_TIMEOUT = Duration::from_secs(2)`):
   1. (N-1 Startup): In `crates/warshad/src/startup.rs`, updated `get_github_token` to run asynchronously on a dedicated worker thread with `tokio::time::timeout(KEYCHAIN_TIMEOUT, rx)`. If keychain access times out or fails (e.g. locked keyring, missing secret service), startup continues with `github = None` and a degraded warning instead of hanging indefinitely before listeners bind.

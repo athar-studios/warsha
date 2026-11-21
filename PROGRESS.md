@@ -1,5 +1,19 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Fix B2 Header Project Chooser Empty After Onboarding Wizard
+- **Scope**: Fix B2 retest-2 blocker (header project chooser shows empty while RPC lists 2 projects) in worktree `.agents/worktrees/fix-retest2-b2` (branch `fix-retest2-b2-lane`). Local-only: no push, no tag, no publish, main untouched.
+- **Problem**: On a fresh profile where the wizard created the project, the header project switcher remained stale showing `No projects found` (`frame.no_projects`) despite daemon RPC `projects.list` returning the projects. `home/index.tsx` reloaded projects after creation, but onboarding `startAction` did not notify the shared projects bus.
+- **Fix**:
+  - `apps/desktop/src/v3/pages/onboarding/index.tsx`: imported `reloadAllProjects` from `../../data/useProjects` and called `reloadAllProjects()` immediately following `client.createProject` in `startAction`.
+  - `apps/desktop/src/v3/pages/frame/Frame.tsx`: called `projectsResult.reload()` inside `handleNewProject`.
+  - `apps/desktop/src/v3/pages/frame/Frame.test.tsx`: added end-to-end proving test `B2 proving test: chooser updates and lists newly created projects after onboarding startAction completes` confirming empty chooser initially, failure before fix, and correct chooser population after onboarding `startAction` finishes.
+- **Gates**:
+  - `tsc --noEmit -p apps/desktop/tsconfig.json`: exit code 0 (clean).
+  - `eslint` on changed files: exit code 0 (clean).
+  - Vitest `Frame.test.tsx` (20/20 passed), `Onboarding.test.tsx` (19/19 passed), `useProjects.test.ts` (4/4 passed).
+  - `node scripts/ci/actions-gate.mjs`: exit code 0 (194 registered, 194 used, 0 violations).
+- **Status**: COMPLETE.
+
 ## Run 2026-11-21 — GUI Retest Fix Verification (N2 + G2b + Keyring + Minors in r-next/integration)
 - **Scope**: Verify merged tip with all four retest lanes + record key-clear coverage. Local-only: no push, no tag, no publish, main untouched.
 - **Merges**: `5f4d495` wizard (N2), `251fff8` inbox (G2b), `85ba245` keyring (N-1/N-2/N-3), `196470c` minors.
