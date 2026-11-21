@@ -95,9 +95,9 @@ export const Dialog: React.FC<DialogProps> = ({
       }
     }
 
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown, true);
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [open, onClose]);
 
@@ -130,6 +130,13 @@ export const Dialog: React.FC<DialogProps> = ({
         tabIndex={-1}
         data-action={dataAction}
         data-testid={dataTestId}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+          }
+        }}
         className={`w-dialog ${className}`.trim()}
         style={{
           backgroundColor: 'var(--w-surface)',
@@ -140,6 +147,8 @@ export const Dialog: React.FC<DialogProps> = ({
           fontFamily: 'var(--w-font-sans)',
           width: '100%',
           maxWidth: 'var(--w-content-narrow)',
+          maxHeight: 'min(90dvh, calc(100dvh - var(--w-space-8)))',
+          maxBlockSize: 'min(90dvh, calc(100dvh - var(--w-space-8)))',
           outline: 'none',
           boxSizing: 'border-box',
           display: 'flex',
@@ -202,6 +211,9 @@ export const Dialog: React.FC<DialogProps> = ({
             paddingBlock: 'var(--w-space-5)',
             paddingInline: 'var(--w-space-5)',
             overflowY: 'auto',
+            minHeight: 0,
+            minBlockSize: 0,
+            flex: '1 1 auto',
           }}
         >
           {children}

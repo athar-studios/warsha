@@ -65,4 +65,29 @@ describe('Dialog composite', () => {
     fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(confirm);
   });
+
+  it('N5 proving test: dialog viewport constraint with max-height/max-block-size and internal overflow-y auto', () => {
+    const handleClose = vi.fn();
+    render(
+      <Dialog open onClose={handleClose} title="Add Provider">
+        <div data-testid="dialog-body-content">Long content</div>
+      </Dialog>
+    );
+
+    const dialog = screen.getByRole('dialog');
+    // Dialog root is constrained to viewport
+    expect(dialog.style.maxHeight).toContain('min(90dvh');
+    expect(dialog.style.maxBlockSize).toContain('min(90dvh');
+    expect(dialog.style.overflow).toBe('hidden');
+
+    // Body content wrapper has overflowY auto
+    const bodyContent = screen.getByTestId('dialog-body-content');
+    const scrollContainer = bodyContent.parentElement;
+    expect(scrollContainer).not.toBeNull();
+    expect(scrollContainer?.style.overflowY).toBe('auto');
+
+    // Escape closes the dialog directly via element onKeyDown as well as capture listener
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(handleClose).toHaveBeenCalled();
+  });
 });

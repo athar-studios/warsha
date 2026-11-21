@@ -82,6 +82,13 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
 
 const STEPS: readonly OnboardingStep[] = ['language', 'provider', 'idea'];
 
+export const MASKED_KEY_PLACEHOLDER = '••••••••';
+
+export function isMaskedKey(key: string): boolean {
+  const trimmed = key.trim();
+  return trimmed.length > 0 && (/^[•\u2022*]+$/.test(trimmed) || trimmed === MASKED_KEY_PLACEHOLDER);
+}
+
 export function isValidHttpUrl(value: string): boolean {
   return /^https?:\/\/[^\s]+$/i.test(value.trim());
 }
@@ -183,6 +190,31 @@ export default function OnboardingPage(): React.ReactElement {
     return set;
   }, [providersResult.data]);
 
+  // G4: Restore existing provider state when provider list loads
+  useEffect(() => {
+    if (!providersResult.data || providersResult.data.length === 0) return;
+
+    const existing =
+      providersResult.data.find((p) => p.kind === selectedKind) ??
+      providersResult.data[0];
+
+    if (existing) {
+      if (!configuredKinds.has(selectedKind)) {
+        setSelectedKind(existing.kind);
+      }
+      setApiKey((prev) => (!prev || isMaskedKey(prev) ? MASKED_KEY_PLACEHOLDER : prev));
+      setConnectedName(existing.name);
+      if (existing.kind === 'custom') {
+        setCustomName((prev) => prev || existing.name);
+        if (existing.api_base) {
+          setCustomBaseUrl((prev) => prev || existing.api_base || '');
+        }
+      }
+      setTestPassed(true);
+      setTestError(null);
+    }
+  }, [providersResult.data, configuredKinds, selectedKind]);
+
   const stepIndex = STEPS.indexOf(step);
 
   const handlePickLanguage = useCallback(
@@ -192,17 +224,35 @@ export default function OnboardingPage(): React.ReactElement {
     [setLocale]
   );
 
-  const handlePickProvider = useCallback((kind: string): void => {
-    setSelectedKind(kind);
-    setTestPassed(false);
-    setTestError(null);
-    setFieldErrors({});
-    setDiscoveredModels([]);
-    setModelsFetched(false);
-    setModelsError(null);
-    setSelectedModelId('');
-    setModelConfigured(false);
-  }, []);
+  const handlePickProvider = useCallback(
+    (kind: string): void => {
+      setSelectedKind(kind);
+      setFieldErrors({});
+      setDiscoveredModels([]);
+      setModelsFetched(false);
+      setModelsError(null);
+      setSelectedModelId('');
+      setModelConfigured(false);
+
+      const existing = providersResult.data?.find((p) => p.kind === kind);
+      if (existing) {
+        setApiKey(MASKED_KEY_PLACEHOLDER);
+        setConnectedName(existing.name);
+        if (existing.kind === 'custom') {
+          setCustomName(existing.name);
+          setCustomBaseUrl(existing.api_base || '');
+        }
+        setTestPassed(true);
+        setTestError(null);
+      } else {
+        setApiKey('');
+        setConnectedName('');
+        setTestPassed(false);
+        setTestError(null);
+      }
+    },
+    [providersResult.data]
+  );
 
   const retryAction = useAction('onboarding.retry', async () => {
     providersResult.reload();
@@ -234,13 +284,26 @@ export default function OnboardingPage(): React.ReactElement {
 
     setFieldErrors({});
     setTestError(null);
-    setTestPassed(false);
 
     if (!client) {
       setTestError(t('onboarding.test_failed'));
       return;
     }
 
+    // G4: If the key field holds the mask placeholder, the provider is already stored in daemon secrets.
+    // Use the stored key: skip re-test with the masked placeholder and reflect the healthy state; never display the real key.
+    if (isMaskedKey(key)) {
+      setConnectedName(name);
+      setTestPassed(true);
+      setTestError(null);
+      providersResult.reload();
+      await reloadCapabilities();
+      return;
+    }
+
+    setTestPassed(false);
+
+    let providerAdded = false;
     try {
       await client.addProvider({
         name,
@@ -248,6 +311,7 @@ export default function OnboardingPage(): React.ReactElement {
         key,
         ...(baseUrl ? { api_base: baseUrl } : {}),
       });
+      providerAdded = true;
 
       if (isCustom && modelId) {
         await client.addCustomModel(name, modelId);
@@ -269,12 +333,23 @@ export default function OnboardingPage(): React.ReactElement {
       setTestPassed(true);
       providersResult.reload();
       await reloadCapabilities();
+      // F1: Empty key only after successful test
+      setApiKey('');
     } catch (err) {
+      // F1: Save must happen only after a successful test. If testProvider fails, roll back
+      // so provider is not saved in daemon settings/secrets.
+      if (providerAdded) {
+        try {
+          await client.removeProvider(name);
+        } catch {
+          // ignore rollback cleanup error
+        }
+        providersResult.reload();
+      }
       const cleaned = sanitizeSecretError(err, key);
       setTestError(cleaned || t('onboarding.test_failed'));
+      // F1: The key field must be preserved on failure (do NOT clear apiKey).
       throw new Error(cleaned || t('onboarding.test_failed'));
-    } finally {
-      setApiKey('');
     }
   });
 

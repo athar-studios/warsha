@@ -1098,4 +1098,31 @@ describe('SettingsPage (Slice 1)', () => {
     await waitFor(() => expect(screen.getByTestId('settings-section-backend')).toBeDefined());
     expect(document.querySelector('.w-empty-state')).not.toBeNull();
   });
+
+  it('N2b proving test: Settings sidebar renders export section with resolved catalog label in en and ar', async () => {
+    const client = createMockClient();
+    const { unmount } = renderSettings('/settings/export', client, 'developers', 'en');
+
+    await waitFor(() => {
+      const exportLink = document.querySelector('a[href="#/settings/export"]');
+      expect(exportLink).not.toBeNull();
+      expect(exportLink?.textContent).toContain('Export settings');
+    });
+
+    // Does not leak literal key
+    expect(screen.queryByText('settings.section.export')).toBeNull();
+
+    unmount();
+
+    // Arabic locale
+    renderSettings('/settings/export', client, 'developers', 'ar');
+
+    await waitFor(() => {
+      const exportLink = document.querySelector('a[href="#/settings/export"]');
+      expect(exportLink).not.toBeNull();
+      expect(exportLink?.textContent).toContain('تصدير الإعدادات');
+    });
+
+    expect(screen.queryByText('settings.section.export')).toBeNull();
+  });
 });

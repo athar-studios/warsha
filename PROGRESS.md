@@ -37,6 +37,42 @@
   - `vitest run src/v3/pages/frame src/v3/router src/v3/app`: exit code 0 (7 test files, 61 passed, 0 failed).
 - **Status**: COMPLETE
 
+## Run 2026-11-21 — Fix GUI Provider Lane (F1, G4, N2a, N2b, N5)
+- **Scope**: GUI fix lane PROVIDER (F1 save/test semantics, G4 restored-wizard false failure, N2a/N2b i18n leaks, N5 dialog height) in worktree `.agents/worktrees/fix-gui-provider` on branch `fix-gui-provider`. Local-only: no push, no tag, no publish, main untouched.
+- **Implemented Fixes**:
+  - **F1 (Save/test semantics & key preservation)**: In `OnboardingPage.tsx`, wrapped `saveTestAction` with rollback via `client.removeProvider(name)` on test failure so that invalid providers are not persisted in daemon settings/secrets. On test failure, preserved the user-entered API key in the input field (omitted `setApiKey('')` in error path); on test success, wiped the key field.
+  - **G4 (Restored onboarding wizard masked key)**: Defined `MASKED_KEY_PLACEHOLDER = '••••••••'` and `isMaskedKey(key)`. On restored wizard launch (e.g. provider pre-configured via RPC), prefilled with masked placeholder and reflected healthy state. In `saveTestAction`, if the key matches the masked placeholder, skipped destructive re-test or re-save with the placeholder and reflected healthy state; real secret keys are never exposed.
+  - **N2a (Auth undefined fallback)**: Added `settings.providers.auth.unknown` to Arabic ('غير معروف') and English ('Unknown') catalogs. In `ModelsSection.tsx`, added a fallback check so that undefined or unrecognized `authStatus.kind` renders the localized unknown label instead of leaking `settings.providers.auth.undefined`.
+  - **N2b (Export section catalog keys)**: Added `settings.section.export` and `settings.section.export.desc` to both Arabic and English catalogs in `packages/i18n/src/v3`. Settings sidebar now properly resolves the section label.
+  - **N5 (Dialog viewport height & Escape key)**: In `Dialog.tsx` and `settings.css`, constrained dialog to `min(90dvh, calc(100dvh - var(--w-space-8)))` with internal overflow-y auto and zero min-block-size. Added Escape key handler directly to dialog container alongside capture document listener.
+- **Proving Tests Added**:
+  - `apps/desktop/src/v3/pages/onboarding/Onboarding.test.tsx`:
+    - `F1 proving test: save-only-after-success (rolls back provider if testProvider fails)`
+    - `F1 proving test: key-preserved-on-failure (retains user input on test failure)`
+    - `G4 proving test: masked-key restored wizard healthy (reflects healthy state, skips re-test on save, never exposes real key)`
+  - `apps/desktop/src/v3/pages/settings/sections/ModelsSection.test.tsx`:
+    - `N2a proving test: renders unknown fallback label when authStatus.kind is undefined`
+    - `N2a proving test (Arabic): renders غير معروف when authStatus.kind is undefined`
+    - `N5 proving test: add-provider dialog is constrained to viewport and closes on Escape`
+  - `apps/desktop/src/v3/pages/settings/Settings.test.tsx`:
+    - `N2b proving test: Settings sidebar renders export section with resolved catalog label in en and ar`
+  - `packages/ui/src/v3/composites/Dialog.test.tsx`:
+    - `N5 proving test: dialog viewport constraint with max-height/max-block-size and internal overflow-y auto`
+  - `packages/i18n/src/v3/index.test.ts`:
+    - `translates settings.providers.auth.unknown and settings.section.export in both locales`
+- **Gate Results**:
+  - `pnpm --dir apps/desktop exec tsc --noEmit`: exit code 0 (0 errors).
+  - `pnpm --dir apps/desktop exec eslint` on changed files: exit code 0 (0 errors).
+  - Vitest test suites:
+    - `apps/desktop`: 3 test files, 64 tests passed (0 failed).
+    - `packages/ui`: 1 test file, 4 tests passed (0 failed).
+    - `packages/i18n`: 2 test files, 60 tests passed (0 failed).
+    - Total: 128 passed, 0 failed.
+  - `node scripts/check-arch.mjs`: exit code 0 (5 rules, 0 violations).
+  - `node scripts/ci/i18n-gate.mjs`: exit code 0 (1039 keys, 0 violations).
+- **Status**:
+FIXES COMPLETE — ALL GATES PASSING
+
 ## Run 2026-11-21 — Reconcile fix-r3-ci Uncommitted Lane State into r-next/integration
 - **Scope**: Reconcile uncommitted F3/CI fixes from lane `.agents/worktrees/fix-r3-ci` (detached at `6002ee7`) into `.agents/worktrees/r-next-integration` (branch `r-next/integration`, tip `7899deb`). Re-run all verification gates and record status anew. Local-only: no push, no tag, no publish, main untouched.
 - **Per-File Reconciliation & Semantic Hunks Analysis**:

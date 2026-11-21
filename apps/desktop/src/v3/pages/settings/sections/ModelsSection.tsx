@@ -482,7 +482,11 @@ export function ModelsSection(): React.ReactElement {
                         )}
                         {authStatus && (
                           <span>
-                            {t(`settings.providers.auth.${authStatus.kind}`)}
+                            {authStatus.kind &&
+                            t(`settings.providers.auth.${authStatus.kind}`) !==
+                              `settings.providers.auth.${authStatus.kind}`
+                              ? t(`settings.providers.auth.${authStatus.kind}`)
+                              : t('settings.providers.auth.unknown')}
                           </span>
                         )}
                       </span>
@@ -850,6 +854,7 @@ export function ModelsSection(): React.ReactElement {
         open={addOpen}
         onClose={closeAddDialog}
         title={t('settings.providers.form.title')}
+        className="v3-provider-dialog"
         data-testid="add-provider-dialog"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>

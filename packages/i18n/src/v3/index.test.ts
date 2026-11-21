@@ -55,6 +55,15 @@ describe('i18n v3', () => {
     expect(catalogs.en['settings.search.label']).toBe('Search settings');
   });
 
+  it('translates settings.providers.auth.unknown and settings.section.export in both locales', () => {
+    expect(translate('ar', 'settings.providers.auth.unknown')).toBe('غير معروف');
+    expect(translate('en', 'settings.providers.auth.unknown')).toBe('Unknown');
+    expect(translate('ar', 'settings.section.export')).toBe('تصدير الإعدادات');
+    expect(translate('en', 'settings.section.export')).toBe('Export settings');
+    expect(translate('ar', 'settings.section.export.desc')).toBe('تصدير التفضيلات إلى ملف أو استيرادها من جهاز آخر.');
+    expect(translate('en', 'settings.section.export.desc')).toBe('Export preferences to a file or import them from another device.');
+  });
+
   it('has identical keys across Arabic and English catalogs', () => {
     const arKeys = Object.keys(catalogs.ar).sort();
     const enKeys = Object.keys(catalogs.en).sort();

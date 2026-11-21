@@ -323,4 +323,65 @@ describe('ModelsSection - Model Discovery & Live List Diff', () => {
     expect(within(diffContainer).getByText('1 جديد')).toBeDefined();
     expect(within(diffContainer).getByText('0 محتفظ به')).toBeDefined();
   });
+
+  it('N2a proving test: renders unknown fallback label when authStatus.kind is undefined', async () => {
+    const client = createClient({
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: undefined } as unknown as { kind: 'none' }),
+    });
+
+    renderSection(client, 'en');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-row-mock-provider')).toBeDefined();
+    });
+
+    // Must NOT render literal "settings.providers.auth.undefined"
+    expect(screen.queryByText('settings.providers.auth.undefined')).toBeNull();
+    // Must render fallback "Unknown" under the provider card
+    const mockRow = screen.getByTestId('provider-row-mock-provider');
+    expect(within(mockRow).getByText('Unknown')).toBeDefined();
+  });
+
+  it('N2a proving test (Arabic): renders غير معروف when authStatus.kind is undefined', async () => {
+    const client = createClient({
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: undefined } as unknown as { kind: 'none' }),
+    });
+
+    renderSection(client, 'ar');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-row-mock-provider')).toBeDefined();
+    });
+
+    expect(screen.queryByText('settings.providers.auth.undefined')).toBeNull();
+    const mockRow = screen.getByTestId('provider-row-mock-provider');
+    expect(within(mockRow).getByText('غير معروف')).toBeDefined();
+  });
+
+  it('N5 proving test: add-provider dialog is constrained to viewport and closes on Escape', async () => {
+    const client = createClient();
+    renderSection(client, 'en');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-add-button')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByTestId('provider-add-button'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-provider-dialog')).toBeDefined();
+    });
+
+    const dialog = screen.getByTestId('add-provider-dialog');
+    expect(dialog.className).toContain('v3-provider-dialog');
+    expect(dialog.style.maxHeight).toContain('min(90dvh');
+    expect(dialog.style.maxBlockSize).toContain('min(90dvh');
+
+    // Press Escape key on dialog
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('add-provider-dialog')).toBeNull();
+    });
+  });
 });
