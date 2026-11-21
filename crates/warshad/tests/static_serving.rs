@@ -29,10 +29,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use reqwest::StatusCode;
+use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig, REMOTE_ASSETS_DIR_ENV};
+use warsha_providers::InMemorySecretStore;
+use warshad::{
+    start_daemon_with_secrets, DaemonConfig, DaemonHandle, RateLimitConfig, REMOTE_ASSETS_DIR_ENV,
+};
 
 /// The daemon's owner token. These tests send it nowhere on purpose: a browser
 /// loading a page has none, and serving the UI must not depend on one.
@@ -124,7 +128,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }

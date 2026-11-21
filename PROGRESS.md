@@ -27,10 +27,34 @@
   - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: passed (0 warnings).
   - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 546 passed, 0 failed, 7 ignored.
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
-- **Status**: COMPLETE
+- **Status**: COMPLETE — merged as round-4 approval merge.
+
+## Run 2026-11-21 — Round-4 HIGH (H3) keychain-hang fix in server tests
+- **Scope**: Fix server tests hanging on locked-keychain machines; ensure production keychain reads stay bounded with fallback; migrate server integration tests from real `KeychainSecretStore` / `start_daemon` to injectable seams (`start_daemon_with_secrets` with `InMemorySecretStore`). Worktree `.agents/worktrees/fix-r4-keychain` on branch `fix-r4-keychain-lane`. Local-only: no push, no tag, no publish, main untouched. Parallel approval lane owns only `crates/warsha-pipeline/src` (untouched).
+- **Root Cause**: On headless Linux or locked-keychain hosts, `keyring::Entry::get_password()` within `spawn_blocking` blocks the OS worker thread. Even when Tokio timeout expires, the blocking threadpool keeps the task alive. When Tokio runtime drops at test exit, `Runtime::drop` waits for blocking threads indefinitely. Integration tests in `crates/warshad/tests/` calling `start_daemon(config)` triggered capability probing against the real keychain, hanging test suites like `m1_daemon.rs`.
+- **Fix**:
+  - `crates/warsha-relay/src/lib.rs`:
+    - Added `pub const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(2);`.
+    - Added `Send + Sync` to `TrustSource` trait.
+    - Added `run_relay_with_trust_source` bounding `save_trust_records` and `build_trust` via `spawn_blocking` wrapped in `tokio::time::timeout(KEYCHAIN_TIMEOUT, ...)`.
+    - Wired `run_relay` to delegate to `run_relay_with_trust_source` with `KeychainTrustSource`.
+    - Verified all existing relay tests use `InMemoryTrustSource`.
+  - `crates/warshad/tests/`:
+    - Converted all 12 integration test files calling `start_daemon(config)` (`m1_daemon.rs`, `devices_pair.rs`, `settings_persistence.rs`, `sessions_rpc.rs`, `static_serving.rs`, `security_rate_limits.rs`, `gates_list.rs`, `events_ws_auth.rs`, `events_ws_live.rs`, `child_reaping.rs`, `events_stream_sync.rs`, `security_identity.rs`) to `start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))`.
+    - Verified zero calls to `start_daemon(` remain in `crates/warshad/tests/`.
+  - Proving Tests:
+    - Added `relay_trust_test_uses_in_memory_source_only` and `relay_trust_hang_times_out_within_bound` in `crates/warsha-relay/src/lib.rs`.
+    - Added `daemon_add_and_test_with_failing_primary_store_completes_within_timeout` in `crates/warshad/tests/provider_persistence.rs` using `FallbackSecretStore` with `FailingPrimaryStore` and `EncryptedFileSecretStore` to prove daemon `providers.add` and `providers.test` succeed within timeout (< 2s) when primary keychain fails.
+- **Gate Matrix**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: exit 0
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-providers -p warshad -p warsha-relay --all-targets -- -D warnings`: exit 0
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-providers --lib`: 68 passed, 0 failed
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-relay --lib`: 19 passed, 0 failed
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --lib`: 309 passed, 0 failed, 4 ignored
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --tests`: all 18 test binaries passed (68 tests), 0 failed, 0 hangs
+- **Status**: COMPLETE — merged as round-4 keychain merge (commit pending).
 
 ## Run 2026-11-21 — Fallback store merged into r-next/integration (3515f2c)
-- **Merge**: `fix-retest2-fallback` (`4b6b0ad`) → `r-next/integration` as `3515f2c`, on top of retest-2 merge tip `56c18e3` (B1+B2+toasts). Local-only: no push, no tag, no publish, main untouched.
 - **Gates on merged tip `3515f2c`**: `cargo fmt --check` 0; `cargo clippy --workspace --all-targets` 0; `warsha-providers --lib` 68/0; `warshad --lib` 309/0/4 ignored; `tsc` desktop+UI 0; `eslint` touched 0; `policy` 8/0; `arch` 5/0; `versions` aligned 0.3.0; `wire` 11/0; `actions` 194/194/0; `i18n` 1040/0; `cargo deny` only owner-accepted chrono RUSTSEC-2026-0543 (new aead/chacha20poly1305 crates add no new advisories).
 - **Status**: FIXES COMPLETE — AWAITING CLAUDE VERIFICATION.
 

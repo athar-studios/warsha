@@ -35,6 +35,7 @@
 //! `WARSHA_LLM_API_KEY` stays offline.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -44,9 +45,10 @@ use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use warsha_core::{Event, EventKind, RunId, Stage};
+use warsha_providers::InMemorySecretStore;
 use warshad::{
-    scrub_event_payload, start_daemon, windows_firewall_command, DaemonConfig, DaemonHandle,
-    EventSequencer, RateLimitConfig,
+    scrub_event_payload, start_daemon_with_secrets, windows_firewall_command, DaemonConfig,
+    DaemonHandle, EventSequencer, RateLimitConfig,
 };
 
 /// The daemon's own bearer token for this test's daemon.
@@ -116,7 +118,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }

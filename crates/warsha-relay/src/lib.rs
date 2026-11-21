@@ -50,7 +50,7 @@ use std::io::{BufReader, Read};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tokio::sync::RwLock;
@@ -251,7 +251,7 @@ impl StoredTrust {
 /// secret service to talk to, and a test of the relay's authentication would otherwise be
 /// a test of the runner. Two implementations exist here —
 /// [`KeychainTrustSource`] and [`InMemoryTrustSource`] — and neither one is a file.
-pub trait TrustSource: fmt::Debug {
+pub trait TrustSource: fmt::Debug + Send + Sync {
     /// The record stored for `device_id`, or `None` when this source holds nothing for
     /// that device.
     fn load(&self, device_id: DeviceId) -> Result<Option<StoredTrust>>;
@@ -262,6 +262,10 @@ pub trait TrustSource: fmt::Debug {
 
 /// The OS keychain — Windows Credential Manager, macOS Keychain, the freedesktop Secret
 /// Service — under [`RELAY_TRUST_SERVICE`].
+///
+/// NOTE: Methods on this struct perform synchronous calls into the OS keychain / D-Bus secret service.
+/// In asynchronous contexts, invoke these via `tokio::task::spawn_blocking` bounded by [`KEYCHAIN_TIMEOUT`]
+/// to prevent hanging indefinitely on a locked keyring or headless environment.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct KeychainTrustSource;
 
@@ -377,7 +381,7 @@ impl TrustSource for InMemoryTrustSource {
 }
 
 /// CLI arguments for the relay.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "warsha-relay", version, about = "Warsha relay server")]
 pub struct RelayArgs {
     /// Bind address
@@ -983,8 +987,23 @@ pub async fn serve(
     Ok((addr, task))
 }
 
-/// Run the relay server.
+/// Bound on OS keychain read/write operations to prevent indefinite hangs on locked keychains.
+pub const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Run the relay server using the production OS keychain trust source.
 pub async fn run_relay(args: RelayArgs) -> Result<()> {
+    run_relay_with_trust_source(args, Arc::new(KeychainTrustSource::new())).await
+}
+
+/// Run the relay server with an explicit [`TrustSource`].
+///
+/// Production passes [`KeychainTrustSource`]; integration tests and headless environments
+/// pass [`InMemoryTrustSource`]. Keychain operations are bounded by [`KEYCHAIN_TIMEOUT`] (2s)
+/// via `spawn_blocking` + `tokio::time::timeout` so a locked or unresponsive keyring never hangs the server.
+pub async fn run_relay_with_trust_source(
+    args: RelayArgs,
+    trust_source: Arc<dyn TrustSource>,
+) -> Result<()> {
     let bind = args.bind.clone();
     let (max_frame_size, max_devices) = (args.max_frame_size, args.max_devices);
 
@@ -994,27 +1013,45 @@ pub async fn run_relay(args: RelayArgs) -> Result<()> {
     // relay touches its secret source, and it is before anything is served: a record that
     // cannot be read stops the start rather than surfacing later as a phone that cannot
     // connect (audit N-1, and the fail-closed rule the rest of this stack follows).
+    // The blocking call is bounded by KEYCHAIN_TIMEOUT so a locked keychain does not hang.
     if args.save_trust {
-        let stored = tokio::task::spawn_blocking(move || {
-            args.save_trust_records(&KeychainTrustSource::new(), std::io::stdin())
-        })
-        .await
-        .map_err(|error| {
-            RelayError::Other(format!("the trust records could not be stored: {error}"))
-        })??;
+        let ts = trust_source.clone();
+        let args_clone = args.clone();
+        let save_task = tokio::task::spawn_blocking(move || {
+            args_clone.save_trust_records(ts.as_ref(), std::io::stdin())
+        });
+        let stored = match tokio::time::timeout(KEYCHAIN_TIMEOUT, save_task).await {
+            Ok(join_res) => join_res.map_err(|error| {
+                RelayError::Other(format!("the trust records could not be stored: {error}"))
+            })??,
+            Err(_) => {
+                return Err(RelayError::Trust(format!(
+                    "keychain timed out after {}s while storing trust records",
+                    KEYCHAIN_TIMEOUT.as_secs()
+                )));
+            }
+        };
         info!(
             "stored {stored} relay trust record(s) under `{RELAY_TRUST_SERVICE}`; nothing was served, and the plaintext source can now be deleted"
         );
         return Ok(());
     }
 
-    let trust = tokio::task::spawn_blocking(move || {
-        args.build_trust(&KeychainTrustSource::new(), std::io::stdin())
-    })
-    .await
-    .map_err(|error| {
-        RelayError::Other(format!("the trust records could not be read: {error}"))
-    })??;
+    let ts = trust_source.clone();
+    let args_clone = args.clone();
+    let load_task =
+        tokio::task::spawn_blocking(move || args_clone.build_trust(ts.as_ref(), std::io::stdin()));
+    let trust = match tokio::time::timeout(KEYCHAIN_TIMEOUT, load_task).await {
+        Ok(join_res) => join_res.map_err(|error| {
+            RelayError::Other(format!("the trust records could not be read: {error}"))
+        })??,
+        Err(_) => {
+            return Err(RelayError::Trust(format!(
+                "keychain timed out after {}s while reading trust records",
+                KEYCHAIN_TIMEOUT.as_secs()
+            )));
+        }
+    };
 
     if trust.is_empty() {
         // Said out loud rather than left as a relay that answers 401 to everyone:
@@ -1769,5 +1806,89 @@ mod tests {
             "one caller's flood earned one tally"
         );
         assert!(relay.refusals().untracked() <= DEFAULT_MAX_REFUSAL_KEYS as u64);
+    }
+
+    /// Proving test for H3 / FIX-SCOPE-2:
+    /// In-memory trust source can be injected into `run_relay_with_trust_source` without touching OS keychain.
+    #[tokio::test]
+    async fn relay_trust_test_uses_in_memory_source_only() {
+        let (_alice_id, alice) = pairing("Alice");
+        let store = Arc::new(source(std::slice::from_ref(&alice)));
+        let test_args = RelayArgs {
+            bind: "127.0.0.1:0".to_string(),
+            trust_devices: vec![alice.device_id.to_string()],
+            ..args()
+        };
+
+        let runner =
+            tokio::spawn(async move { run_relay_with_trust_source(test_args, store).await });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !runner.is_finished(),
+            "relay server started with in-memory trust source"
+        );
+        runner.abort();
+    }
+
+    /// Proving test for H3 / FIX-SCOPE-2:
+    /// A hanging trust source passed to `run_relay_with_trust_source` times out within `KEYCHAIN_TIMEOUT`.
+    #[derive(Debug)]
+    struct HangingTrustSource {
+        active: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl Drop for HangingTrustSource {
+        fn drop(&mut self) {
+            self.active
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    impl TrustSource for HangingTrustSource {
+        fn load(&self, _device_id: DeviceId) -> Result<Option<StoredTrust>> {
+            while self.active.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(None)
+        }
+
+        fn save(&self, _record: &StoredTrust) -> Result<()> {
+            while self.active.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn relay_trust_hang_times_out_within_bound() {
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let trust_source = Arc::new(HangingTrustSource {
+            active: active.clone(),
+        });
+        let test_args = RelayArgs {
+            bind: "127.0.0.1:0".to_string(),
+            trust_devices: vec!["01934e6e-699a-7a8e-a1fb-27e7f60710fa".to_string()],
+            ..args()
+        };
+
+        let start = Instant::now();
+        let res = run_relay_with_trust_source(test_args, trust_source).await;
+        let elapsed = start.elapsed();
+
+        // Signal blocking thread to exit before test drops
+        active.store(false, std::sync::atomic::Ordering::Relaxed);
+
+        assert!(res.is_err(), "hanging trust source must return error");
+        let err_msg = res.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("keychain timed out"),
+            "expected timeout error message, got: {err_msg}"
+        );
+        assert!(
+            elapsed >= Duration::from_secs(2) && elapsed < Duration::from_secs(4),
+            "expected completion within KEYCHAIN_TIMEOUT (2s), took: {elapsed:?}"
+        );
     }
 }
