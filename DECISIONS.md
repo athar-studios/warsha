@@ -2499,4 +2499,31 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
     - Both strings read native-natural in English and Arabic without awkward cents symbols or literal translations.
 - **Verification**: Extended colocated vitest suites in `developers/index.test.tsx` (cents to dollars formatting + pantry $10.00 test), `Toast.test.tsx` (bounded 10s auto-dismiss + sticky error persistence), `Banner.test.tsx` (long message wrapping/scrolling without clipping class), and `ModelsSection.test.tsx` (save-button reset on failure + doubled prefix / JSON error sanitization). All 5 gates passed cleanly.
 
+## D-R2-B1-1 — Onboarding Wizard Next Dead-end on Provider Save-Test (2026-11-21)
+- **Context**: Retest-2 blocker B1 on Windows: testers reported 5 failed Next attempts at the provider onboarding step after a successful save-test.
+- **Root Cause**:
+  - In `apps/desktop/src/v3/pages/onboarding/index.tsx:353`, `saveTestAction` called `setApiKey('')` upon test success to clear the real secret from memory (F1 decision).
+  - The API key `TextField` (`apps/desktop/src/v3/pages/onboarding/index.tsx:698-708`) has the `required` prop.
+  - Setting `apiKey` to `''` left the required field blank, triggering validation on re-click (`errors.key = t('onboarding.validation_key_required')`) and leaving the wizard in an empty/confusing input state.
+  - Button default `type` is `'button'` (`packages/ui/src/v3/primitives/Button.tsx:85`), no `<form>` ancestor exists in OnboardingPage, and the Next button has a direct `onClick={handleNext}` without `useAction` disabling.
+- **Decision & Architecture**:
+  - On test success in `saveTestAction`, replace the secret with `MASKED_KEY_PLACEHOLDER` (`••••••••`) via `setApiKey(MASKED_KEY_PLACEHOLDER)` instead of `''`.
+  - Invariants preserved:
+    1. Real secret key is immediately cleared from React state/memory on success (F1 invariant kept intact).
+    2. On test failure, user's typed key is preserved in state so they can fix typos (F1 invariant kept intact).
+    3. Save only occurs after test passes (F1 invariant kept intact).
+    4. `required` prop on `TextField` is satisfied by the masked placeholder.
+    5. Masked placeholder displays the healthy configured state, matching G4 behavior on relaunch/preset pick.
+    6. If the user clicks Save & Test again with the mask, the existing `isMaskedKey` check (lines 309-318) recognizes the placeholder, reflects the healthy state, and returns early without hitting the daemon.
+    7. Next button becomes primary (`showPrimaryNextOnProvider = true`) and cleanly advances to step 3 (`idea`).
+  - No new action IDs (actions gate remains stable at 194/194/0).
+  - Reused existing registered i18n keys; no new UI strings.
+- **Proving Tests & Evidence**:
+  - `apps/desktop/src/v3/pages/onboarding/Onboarding.test.tsx`:
+    - Added `B1 proving test: Next advances after successful provider save-test with masked key`.
+    - Negative control: failed before fix with `AssertionError: expected '' to be '••••••••'`. Passes after fix.
+    - Updated line 298 assertion in `runs add + test, wipes secret, fetches models, and routes all 12 roles` to assert `MASKED_KEY_PLACEHOLDER`.
+    - Suite passes: 20/20 tests pass. Full desktop suite: 82 files, 722 passed.
+  - Gates: `tsc --noEmit -p apps/desktop` (0 errors), `eslint` on changed files (0 errors), `actions-gate.mjs` (194/194/0), `i18n-gate.mjs` (1040/0).
+
 

@@ -295,7 +295,9 @@ describe('OnboardingPage', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('onboarding-test-success')).toBeTruthy();
-      expect((screen.getByLabelText(/API key/i) as HTMLInputElement).value).toBe('');
+      expect((screen.getByLabelText(/API key/i) as HTMLInputElement).value).toBe(
+        MASKED_KEY_PLACEHOLDER
+      );
     });
 
     expect(client.addProvider).toHaveBeenCalledWith({
@@ -585,6 +587,83 @@ describe('OnboardingPage', () => {
     // Still healthy
     expect(screen.queryByTestId('onboarding-test-error')).toBeNull();
     expect(screen.getByTestId('onboarding-test-success')).toBeTruthy();
+  });
+
+  it('B1 proving test: Next advances after successful provider save-test with masked key', async () => {
+    const client = makeMockClient();
+    await renderOnboarding({ client, locale: 'en' });
+
+    // Step 1 (language) -> Step 2 (provider)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-next-btn'));
+    });
+    expect(screen.getByTestId('onboarding-step-provider')).toBeTruthy();
+
+    // Enter real API key and verify required attribute
+    const keyInput = screen.getByLabelText(/API key/i) as HTMLInputElement;
+    expect(keyInput.required).toBe(true);
+    await act(async () => {
+      fireEvent.change(keyInput, { target: { value: 'sk-warsha-accepted' } });
+    });
+
+    // Run save & test
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-save-test-btn'));
+      await Promise.resolve();
+    });
+
+    // Save and test succeeds, real secret key cleared from state and replaced by MASKED_KEY_PLACEHOLDER
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-test-success')).toBeTruthy();
+      expect((screen.getByLabelText(/API key/i) as HTMLInputElement).value).toBe(
+        MASKED_KEY_PLACEHOLDER
+      );
+    });
+    const keyInputAfterSave = screen.getByLabelText(/API key/i) as HTMLInputElement;
+    expect(isMaskedKey(keyInputAfterSave.value)).toBe(true);
+    expect(keyInputAfterSave.value).not.toContain('sk-');
+
+    // Next button becomes primary and advances to step 3 (idea)
+    const nextBtn = screen.getByTestId('onboarding-next-btn');
+    expect(nextBtn.getAttribute('data-variant')).toBe('primary');
+
+    await act(async () => {
+      fireEvent.click(nextBtn);
+      await Promise.resolve();
+    });
+
+    // Successfully advanced to Step 3
+    expect(screen.getByTestId('onboarding-step-idea')).toBeTruthy();
+
+    // Navigate back to provider step
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-back-btn'));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('onboarding-step-provider')).toBeTruthy();
+
+    // Provider key remains masked
+    const keyInputBack = screen.getByLabelText(/API key/i) as HTMLInputElement;
+    expect(keyInputBack.value).toBe(MASKED_KEY_PLACEHOLDER);
+
+    // Subsequent save-test with mask skips re-test and does NOT dial daemon with placeholder
+    vi.mocked(client.addProvider).mockClear();
+    vi.mocked(client.testProvider).mockClear();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-save-test-btn'));
+      await Promise.resolve();
+    });
+
+    expect(client.addProvider).not.toHaveBeenCalled();
+    expect(client.testProvider).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('onboarding-test-error')).toBeNull();
+
+    // Next advances again to Step 3
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-next-btn'));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('onboarding-step-idea')).toBeTruthy();
   });
 
   it('N2 proving test: wizard start calls createProject -> startRun -> setProjectBudget in order with 1000 cents default and navigates to /p/:id', async () => {
