@@ -17,11 +17,11 @@ mod tests {
             RiskClass::Risky,
             "cmake -E env should be Risky"
         );
-        // cmake --build - Safe
+        // cmake --build - Risky
         assert_eq!(
             classify_command("cmake", &["--build".to_string(), ".".to_string()]),
-            RiskClass::Safe,
-            "cmake --build should be Safe"
+            RiskClass::Risky,
+            "cmake --build should be Risky"
         );
         // cmake -P script.cmake - Risky
         assert_eq!(
@@ -197,26 +197,26 @@ mod tests {
             RiskClass::Risky,
             "plain yarn test should be Risky"
         );
-        // known-safe pnpm / yarn subcommands
+        // R6-H6: pnpm / yarn ALL invocations Risky
         assert_eq!(
             classify_command("pnpm", &["--version".to_string()]),
-            RiskClass::Safe,
-            "pnpm --version should be Safe"
+            RiskClass::Risky,
+            "pnpm --version should be Risky"
         );
         assert_eq!(
             classify_command("pnpm", &["list".to_string()]),
-            RiskClass::Safe,
-            "pnpm list should be Safe"
+            RiskClass::Risky,
+            "pnpm list should be Risky"
         );
         assert_eq!(
             classify_command("yarn", &["--version".to_string()]),
-            RiskClass::Safe,
-            "yarn --version should be Safe"
+            RiskClass::Risky,
+            "yarn --version should be Risky"
         );
         assert_eq!(
             classify_command("yarn", &["why".to_string(), "foo".to_string()]),
-            RiskClass::Safe,
-            "yarn why should be Safe"
+            RiskClass::Risky,
+            "yarn why should be Risky"
         );
 
         // sqlite3 dot-commands
@@ -2387,7 +2387,7 @@ mod tests {
         );
         assert_eq!(
             classify_command("cmake", &["--build".to_string(), ".".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
 
         // 14. javac & rustc ANY invocation Risky
@@ -2408,11 +2408,11 @@ mod tests {
             RiskClass::Risky
         );
 
-        // 15. yarn bare Risky
+        // 15. yarn bare Risky, all yarn Risky (R6-H6)
         assert_eq!(classify_command("yarn", &[]), RiskClass::Risky);
         assert_eq!(
             classify_command("yarn", &["--version".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
 
         // 16. prettier / pocketbase / bun
@@ -2488,5 +2488,588 @@ mod tests {
             2,
             "node --run=build must queue approval"
         );
+    }
+
+    #[test]
+    fn test_r6_h1_git_class_shapes() {
+        let policy = CommandPolicy::from_config(&["git".to_string()]);
+
+        // 1. --bare anywhere before subcommand is refused and classified Risky
+        assert_eq!(
+            classify_command("git", &["--bare".to_string(), "status".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-C".to_string(),
+                    ".".to_string(),
+                    "--bare".to_string(),
+                    "log".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert!(policy.check_command("git --bare status").is_err());
+        assert!(policy.check_command("git -C . --bare log").is_err());
+
+        // 2. fetch-pack --exec / --exec= is refused and classified Risky
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "fetch-pack".to_string(),
+                    "--exec=/bin/sh".to_string(),
+                    "/path".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "fetch-pack".to_string(),
+                    "--exec".to_string(),
+                    "/bin/sh".to_string(),
+                    "/path".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert!(policy
+            .check_command("git fetch-pack --exec=/bin/sh /path")
+            .is_err());
+        assert!(policy
+            .check_command("git fetch-pack --exec /bin/sh /path")
+            .is_err());
+
+        // 3. -c include.path / includeIf.* overrides
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "include.path=/evil".to_string(),
+                    "status".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "includeif.gitdir:/foo.path=/evil".to_string(),
+                    "status".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert!(policy
+            .check_command("git -c include.path=/evil status")
+            .is_err());
+        assert!(policy
+            .check_command("git -c includeif.gitdir:/foo.path=/evil status")
+            .is_err());
+
+        // 4. -c protocol.ext.allow=always + ext:: transport target
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "protocol.ext.allow=always".to_string(),
+                    "clone".to_string(),
+                    "ext::sh%s-c%sevil".to_string(),
+                    "dst".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "clone".to_string(),
+                    "ext::sh%s-c%sevil".to_string(),
+                    "dst".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert!(policy
+            .check_command("git -c protocol.ext.allow=always clone ext::sh%s-c%sevil dst")
+            .is_err());
+        assert!(policy
+            .check_command("git clone ext::sh%s-c%sevil dst")
+            .is_err());
+
+        // 5. filter-branch subcommand outright refused
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "filter-branch".to_string(),
+                    "--tree-filter".to_string(),
+                    "rm -f file".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert!(policy
+            .check_command("git filter-branch --tree-filter 'rm -f file'")
+            .is_err());
+
+        // 6. init --template / clone --template refused
+        assert_eq!(
+            classify_command(
+                "git",
+                &["init".to_string(), "--template=/evil/tpl".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "init".to_string(),
+                    "--template".to_string(),
+                    "/evil/tpl".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "clone".to_string(),
+                    "--template=/evil/tpl".to_string(),
+                    "repo".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert!(policy
+            .check_command("git init --template=/evil/tpl")
+            .is_err());
+        assert!(policy
+            .check_command("git init --template /evil/tpl")
+            .is_err());
+        assert!(policy
+            .check_command("git clone --template=/evil/tpl repo")
+            .is_err());
+
+        // 7. git safe global options vs unknown flags
+        assert_eq!(
+            classify_command(
+                "git",
+                &["-C".to_string(), ".".to_string(), "status".to_string()]
+            ),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["--git-dir=.git".to_string(), "status".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &["--unknown-global-opt".to_string(), "status".to_string()]
+            ),
+            RiskClass::Risky
+        );
+    }
+
+    #[test]
+    fn test_r6_h2_exec_bit_chain() {
+        let policy =
+            CommandPolicy::from_config(&["git".to_string(), "npm".to_string(), "node".to_string()]);
+
+        // git apply must be Risky in classify_command AND refused in command_policy
+        assert_eq!(
+            classify_command("git", &["apply".to_string(), "patch.diff".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "apply".to_string(),
+                    "--index".to_string(),
+                    "patch.diff".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert!(policy.check_command("git apply patch.diff").is_err());
+        assert!(policy
+            .check_command("git apply --index patch.diff")
+            .is_err());
+
+        // Workspace-relative executable bypass: ./npm, ./git, ./bin/tool, sub/tool must NEVER match bare allow-list
+        assert!(policy.check_command("./npm --version").is_err());
+        assert!(policy.check_command("./git status").is_err());
+        assert!(policy.check_command("./bin/tool").is_err());
+        assert!(policy.check_command("sub/tool").is_err());
+        assert!(policy.check_command("../evil/tool").is_err());
+
+        assert_eq!(
+            classify_command("./npm", &["--version".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(classify_command("./bin/tool", &[]), RiskClass::Risky);
+        assert_eq!(classify_command("sub/tool", &[]), RiskClass::Risky);
+        assert_eq!(classify_command("../evil/tool", &[]), RiskClass::Risky);
+    }
+
+    #[test]
+    fn test_r6_h3_node_safe_allow_list() {
+        // Safe allow-list: ONLY --version, -v, -V, --help, -h
+        assert_eq!(
+            classify_command("node", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("node", &["-v".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("node", &["-V".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("node", &["--help".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("node", &["-h".to_string()]),
+            RiskClass::Safe
+        );
+
+        // Risky: env-file, experimental-config-file, interactive, bare, stdin, script, = flag
+        assert_eq!(
+            classify_command("node", &["--env-file=.env".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["--env-file-if-exists=.env".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "node",
+                &["--experimental-config-file=evil.json".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "node",
+                &["--experimental-default-config-file=evil.json".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["-i".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["--interactive".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(classify_command("node", &[]), RiskClass::Risky);
+        assert_eq!(
+            classify_command("node", &["-".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["script.js".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["--version=evil".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("node", &["--test".to_string()]),
+            RiskClass::Risky
+        );
+    }
+
+    #[test]
+    fn test_r6_h4_cmake_allow_list() {
+        // Safe read-only introspection
+        assert_eq!(
+            classify_command("cmake", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-v".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-V".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["--help".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-h".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["--system-information".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["--help-commands".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-L".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-LA".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-LH".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-LN".to_string()]),
+            RiskClass::Safe
+        );
+
+        // Risky configure/build/install/preset/workflow forms
+        assert_eq!(
+            classify_command("cmake", &[".".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["src".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["--preset".to_string(), "debug".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["--build".to_string(), ".".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "cmake",
+                &[
+                    "--workflow".to_string(),
+                    "--preset".to_string(),
+                    "build".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["--install".to_string(), "build".to_string()]),
+            RiskClass::Risky
+        );
+    }
+
+    #[test]
+    fn test_r6_h5_all_args_scan() {
+        // Cargo: -v removed from safe list (fixes cargo -v doc bypass)
+        assert_eq!(
+            classify_command("cargo", &["-v".to_string(), "doc".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["-v".to_string(), "fix".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["-v".to_string(), "package".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["tree".to_string(), "--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cargo", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // All-args scan on npm
+        assert_eq!(
+            classify_command(
+                "npm",
+                &[
+                    "--version".to_string(),
+                    "run".to_string(),
+                    "build".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("npm", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // All-args scan on deno
+        assert_eq!(
+            classify_command(
+                "deno",
+                &[
+                    "--version".to_string(),
+                    "run".to_string(),
+                    "evil.ts".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("deno", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // All-args scan on dotnet
+        assert_eq!(
+            classify_command("dotnet", &["--version".to_string(), "run".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("dotnet", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // All-args scan on composer
+        assert_eq!(
+            classify_command("composer", &["--version".to_string(), "exec".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("composer", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // All-args scan on rails
+        assert_eq!(
+            classify_command("rails", &["--version".to_string(), "server".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rails", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // All-args scan on bundle
+        assert_eq!(
+            classify_command("bundle", &["--version".to_string(), "exec".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("bundle", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // All-args scan on go
+        assert_eq!(
+            classify_command("go", &["version".to_string(), "build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("go", &["version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("go", &["-toolexec=evil".to_string(), "version".to_string()]),
+            RiskClass::Risky
+        );
+
+        // All-args scan on vite / next
+        assert_eq!(
+            classify_command("vite", &["--version".to_string(), "build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("vite", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("next", &["--version".to_string(), "build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("next", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // All-args scan on bun
+        assert_eq!(
+            classify_command("bun", &["--version".to_string(), "run".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("bun", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // All-args scan on pocketbase
+        assert_eq!(
+            classify_command(
+                "pocketbase",
+                &["--version".to_string(), "serve".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pocketbase", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+    }
+
+    #[test]
+    fn test_r6_h6_pnpm_yarn_all_risky() {
+        // pnpm: executes .pnpmfile.cjs on every invocation, all Risky
+        assert_eq!(
+            classify_command("pnpm", &["--version".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pnpm", &["list".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pnpm", &["why".to_string(), "foo".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(classify_command("pnpm", &[]), RiskClass::Risky);
+        assert_eq!(
+            classify_command("pnpm", &["run".to_string(), "build".to_string()]),
+            RiskClass::Risky
+        );
+
+        // yarn: honors yarnPath config, all Risky
+        assert_eq!(
+            classify_command("yarn", &["--version".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("yarn", &["list".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("yarn", &["why".to_string(), "foo".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(classify_command("yarn", &[]), RiskClass::Risky);
     }
 }

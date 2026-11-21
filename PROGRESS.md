@@ -1,5 +1,22 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — Round-6 Fix 6 HIGH Approval-Bypass Blockers (D-R6-APPROVAL-1)
+- **Scope**: Fix all 6 HIGH approval-bypass blockers from `/tmp/warsha-round6-2026-11-22.md` on branch `fix-r6-approval` (base `8fb068e` of `r-next/integration`). Scope strictly limited to R6-H1 through R6-H6. Local-only: no push, no tag, no publish, main untouched.
+- **Changes**:
+  - R6-H1 (Git class 7 shapes): Refused `--bare` anywhere before subcommand; refused `fetch-pack --exec=`/`--exec`; extended `is_risky_git_config` and `is_program_running_key` to include `include.*`, `includeIf.*`, and `protocol.*`; refused `-c protocol.ext.allow=always` + `ext::` transport targets; refused `filter-branch` subcommand outright; refused `init`/`clone` `--template=`/`--template`; restricted git global options to a safe allow-list (`-C`, `--git-dir`, `--work-tree`, `--namespace`, `--super-prefix`, safe config flags), classifying all other global flags Risky.
+  - R6-H2 (Exec-bit chain & basename bypass): Classified `git apply` as Risky in `classify_command` and refused in `CommandPolicy::check_command`; fixed basename bypass at `command_policy.rs:533` via `is_workspace_relative_path` helper and updated `classify_command` so workspace-relative executables (`./npm`, `./bin/tool`, `sub/tool`) never match bare allow-list entries and always classify as Risky.
+  - R6-H3 (Node safe allow-list): Converted `node` from flag denylist to safe allow-list: ONLY `--version/-v/-V/--help/-h` are Safe; all other flags/args (`--env-file*`, `--experimental-config-file*`, `-i/--interactive`, bare `node`, `node -`, attached flags, scripts) classify as Risky.
+  - R6-H4 (CMake safe allow-list): Converted `cmake` from denylist to safe allow-list of read-only introspection (`--version/-v/-V/--help/-h`, `--system-information`, `--help-*`, cache-list `-L/A/H/N` flags); all configure/build/install/preset/workflow forms classify as Risky; updated existing test asserting `cmake --build .` Safe to Risky.
+  - R6-H5 (Safe-subcommand allow-lists all-args scan): Updated all safe-subcommand allow-lists (`npm`, `deno`, `dotnet`, `cargo`, `composer`, `rails`, `bundle`, `go`, `vite`/`next`, `bun`, `pocketbase`) to scan all arguments rather than only the first; introduced `is_safe_pure_flag` rejecting script/config/eval/tool/path/env flags; removed `-v` from the cargo safe list to prevent `-v doc` / `-v fix` / `-v package` code execution.
+  - R6-H6 (pnpm & yarn blanket Risky): Classified all `pnpm` and `yarn` invocations as Risky due to unconditional script/config loading (`.pnpmfile.cjs` and `yarnPath`); updated existing tests asserting `--version`/`list`/`why` Safe to Risky.
+  - Proving tests: Added 6 comprehensive proving tests in `crates/warsha-pipeline/src/verification_tests_impl.rs` covering all required shapes for R6-H1 through R6-H6.
+- **Gate Matrix (worktree `fix-r6-approval`)**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: passed (exit 0).
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: passed (exit 0).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 571 passed, 0 failed, 7 ignored (exit 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit 0).
+- **Status**: COMPLETE — Ready for verification.
+
 ## Run 2026-11-21 — Round-5 (H1/H2 approval classes + SIGTERM hang) merged into r-next/integration
 - **Scope**: Round-5 Codex NOT CLEAR follow-up fixing all 3 HIGHs (R5-H1 file-tool `.git/config` + git-dir/-C/config-set/grep -O/upload-pack variants, R5-H2 node `=`-flag bugs, R5-H3 safe-class toolchain executions incl folded R4-M1/R4-M2) + R5-M1 SIGTERM shutdown hang. Branches `fix-r5-approval-lane` + `fix-r5-shutdown-lane` merged into `r-next/integration` at `bac6375`. Local-only: no push, no tag, no publish, main untouched.
 - **Changes**:

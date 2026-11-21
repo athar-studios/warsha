@@ -2706,8 +2706,35 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
      - Added `relay_trust_hang_does_not_block_runtime_drop` in `crates/warsha-relay/src/lib.rs`.
      - Added `daemon_shutdown_with_hanging_secret_store_completes_within_bound` in `crates/warshad/tests/m1_daemon.rs` injecting a hanging `SecretStore` seam into `start_daemon_with_secrets` to prove clean prompt shutdown without touching the host OS keychain.
      - Production path verification: `warshad --foreground` verified to start up, time out locked keychain cleanly, serve, and exit with code 0 on SIGTERM in 0.007s without leaking threads.
-- **Constraints Maintained**: No changes to Linux fallback encrypted file store or approval tables; no unwrap in non-test code; no network model calls.
-
-
-
+## 2026-11-22 — D-R6-APPROVAL-1: Fix Round-6 Approval Bypasses (R6-H1 through R6-H6)
+- **Context & Scope**: Closes the 6 HIGH approval-bypass blockers identified in `/tmp/warsha-round6-2026-11-22.md`:
+  - R6-H1: Git class (7 shapes) — refuse `--bare` anywhere before subcommand; refuse `fetch-pack --exec=`/`--exec`; refuse `-c include.path`/`includeIf.*` overrides; refuse `-c protocol.ext.allow=always` + any `ext::` transport target; refuse `filter-branch` subcommand outright; refuse `init`/`clone` `--template=`/`--template`; restrict git global options to a safe allow-list (`-C`, `--git-dir`, `--work-tree`, `--namespace`, `--super-prefix`, config checks) where any unallowed flag classifies as Risky.
+  - R6-H2: Exec-bit chain & basename bypass — `git apply` classified Risky in `classify_command` and refused in `CommandPolicy::check_command`; fixed basename bypass at `command_policy.rs:533` and `work_protection.rs` so workspace-relative executables (`./npm`, `./bin/tool`, `sub/tool`) never match bare allow-list entries and classify as Risky.
+  - R6-H3: Node safe allow-list — converted `node` from flag denylist to safe allow-list: ONLY `--version/-v/-V/--help/-h` are Safe; all other flags and invocations (including `--env-file*`, `--experimental-config-file*`, `-i/--interactive`, bare `node`, `node -`, attached flags, scripts) classify as Risky.
+  - R6-H4: CMake safe allow-list — converted `cmake` from denylist to safe allow-list of read-only introspection (`--version/-v/--help/-h`, `--system-information`, `--help-*`, and `-L/A/H/N` cache-listing flags); all configure, build, install, preset, and workflow forms (`cmake .`, `cmake src`, `cmake --preset`, `cmake --build .`, `cmake --workflow`, `cmake --install`) classify as Risky.
+  - R6-H5: Safe-subcommand allow-lists all-args scan — updated all safe-subcommand allow-lists (`npm`, `deno`, `dotnet`, `cargo`, `composer`, `rails`, `bundle`, `go`, `vite`/`next`, `bun`, `pocketbase`) to scan all arguments rather than just `args.first()`. If any argument is neither a known-safe subcommand nor a pure safe flag without code loading (`--key=value`), classify as Risky. Removed `-v` from the cargo safe list (`cargo -v doc` runs build scripts).
+  - R6-H6: Classify all `pnpm` and `yarn` invocations Risky — `pnpm` executes `.pnpmfile.cjs` on every invocation including `--version`; `yarn` honors `yarnPath` configuration; all `pnpm` and `yarn` invocations classify as Risky.
+- **Architecture & Two-Seam Alignment**:
+  1. *Git Command Policy & Classifier (R6-H1)*:
+     - Extended `is_risky_git_config` and `is_program_running_key` in `crates/warsha-pipeline/src/command_policy.rs` to detect `include.*`, `includeif.*`, and `protocol.*`.
+     - In `crates/warsha-pipeline/src/command_policy.rs` and `crates/warsha-pipeline/src/work_protection.rs`, added refusals for `ext::` transport URLs, `--bare` before subcommand, `fetch-pack --exec`, `filter-branch`, and `init`/`clone --template`.
+     - In `crates/warsha-pipeline/src/work_protection.rs`, restricted git global options to known safe list (`-C` with safe target, `--git-dir` with safe target, `--work-tree`, `--namespace`, `--super-prefix`, safe config flags). Unknown flags classify as Risky.
+  2. *Exec-Bit Chain & Path-Containing Executables (R6-H2)*:
+     - `git apply` is refused in `check_arguments_with_workdir` and classified `Risky` in `classify_command`.
+     - Added `is_workspace_relative_path` helper in `command_policy.rs`. Fixed allow-list matching in `check_program`: workspace-relative paths never match bare entries in the allow-list.
+     - In `work_protection.rs`, workspace-relative invocations (`./*`, `*/*`, `*\\*`) classify as `Risky`.
+  3. *Node Safe Allow-List (R6-H3)*:
+     - Replaced denylist in `work_protection.rs` with strict allow-list: only pure informational flags (`--version`, `-v`, `-V`, `--help`, `-h`) are Safe. Everything else classifies as Risky.
+  4. *CMake Safe Allow-List (R6-H4)*:
+     - Replaced denylist in `work_protection.rs` with safe allow-list of read-only introspection. Configure, build, install, preset, and workflow invocations classify as Risky. Updated existing test asserting `cmake --build .` Safe to Risky.
+  5. *All-Args Allow-List Scanning (R6-H5)*:
+     - Updated all tool subcommand allow-lists to validate every argument. Introduced `is_safe_pure_flag` helper rejecting script, config, eval, run, hook, path, env, tool, plugin, and command keys.
+     - Removed `-v` from cargo safe list to prevent `-v doc` / `-v fix` / `-v package` bypasses.
+  6. *pnpm & yarn Blanket Classification (R6-H6)*:
+     - Classified all `pnpm` and `yarn` invocations as Risky across `work_protection.rs` and updated existing tests asserting `--version`/`list`/`why` Safe.
+- **Verification Matrix**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: passed (exit 0).
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: passed (exit 0).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 571 passed, 0 failed, 7 ignored (exit 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit 0).
 
