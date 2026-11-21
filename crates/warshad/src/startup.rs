@@ -325,11 +325,16 @@ pub(crate) async fn start_daemon_with_interfaces(
     // Initialize backends
     let backends = BackendFactory::all_available();
 
-    // Initialize GitHub client if token available
-    let github = if let Ok(token) = get_github_token() {
-        Some(GitHubClient::new(&token)?)
-    } else {
-        None
+    // Initialize GitHub client if token available (bounded timeout so locked keyring does not hang startup)
+    let github = match get_github_token().await {
+        Some(token) => match GitHubClient::new(&token) {
+            Ok(client) => Some(client),
+            Err(e) => {
+                warn!("failed to initialize GitHub client with stored token: {e}");
+                None
+            }
+        },
+        None => None,
     };
 
     // Initialize device registry
@@ -1108,10 +1113,105 @@ fn env_port(name: &str) -> Option<u16> {
     env_string(name).and_then(|value| value.parse::<u16>().ok())
 }
 
-fn get_github_token() -> Result<String> {
-    // keyring 1.2's `Entry::new` is infallible (it returns `Entry`, not a `Result`).
-    let entry = Entry::new("warsha", "github_token");
-    entry
-        .get_password()
-        .map_err(|_| DaemonError::Config("GitHub token not in keychain".to_string()))
+/// Retrieve the GitHub personal access token from OS keychain if available.
+///
+/// Bounded by [`crate::KEYCHAIN_TIMEOUT`] and run on a blocking thread pool so that
+/// a locked Linux keyring or missing desktop secret-service daemon never hangs daemon startup.
+async fn get_github_token() -> Option<String> {
+    get_github_token_with_timeout(crate::KEYCHAIN_TIMEOUT).await
+}
+
+#[allow(dead_code)]
+async fn get_github_token_with_timeout(timeout: std::time::Duration) -> Option<String> {
+    get_github_token_with_getter(timeout, || {
+        let entry = Entry::new("warsha", "github_token");
+        entry.get_password()
+    })
+    .await
+}
+
+async fn get_github_token_with_getter<F>(timeout: std::time::Duration, getter: F) -> Option<String>
+where
+    F: FnOnce() -> std::result::Result<String, keyring::Error> + Send + 'static,
+{
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let spawned = std::thread::Builder::new()
+        .name("warsha-keyring".to_string())
+        .spawn(move || {
+            let res = getter();
+            let _ = tx.send(res);
+        });
+
+    if spawned.is_err() {
+        warn!("failed to spawn thread for keychain lookup");
+        return None;
+    }
+
+    match tokio::time::timeout(timeout, rx).await {
+        Ok(Ok(Ok(token))) if !token.trim().is_empty() => Some(token.trim().to_string()),
+        Ok(Ok(Ok(_))) => None,
+        Ok(Ok(Err(keyring::Error::NoEntry))) => None,
+        Ok(Ok(Err(e))) => {
+            warn!("keychain lookup for GitHub token returned error: {e}");
+            None
+        }
+        Ok(Err(_recv_err)) => {
+            warn!("keychain lookup thread exited without sending result");
+            None
+        }
+        Err(_) => {
+            warn!(
+                timeout_secs = timeout.as_secs(),
+                "keychain lookup for GitHub token timed out; continuing startup without token"
+            );
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn startup_github_token_helper_degrades_to_none_on_timeout() {
+        let start = std::time::Instant::now();
+        let token = get_github_token_with_getter(std::time::Duration::from_millis(50), || {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            Ok("gh_secret_canary".to_string())
+        })
+        .await;
+        let elapsed = start.elapsed();
+        assert_eq!(token, None, "must degrade to None on timeout");
+        assert!(
+            elapsed < std::time::Duration::from_millis(400),
+            "must return promptly on timeout, elapsed {elapsed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_github_token_helper_returns_token_when_available() {
+        let token = get_github_token_with_getter(std::time::Duration::from_millis(500), || {
+            Ok("gh_secret_canary".to_string())
+        })
+        .await;
+        assert_eq!(token.as_deref(), Some("gh_secret_canary"));
+    }
+
+    #[tokio::test]
+    async fn startup_github_token_helper_returns_none_on_missing_or_empty_token() {
+        let token = get_github_token_with_getter(std::time::Duration::from_millis(500), || {
+            Err(keyring::Error::NoEntry)
+        })
+        .await;
+        assert_eq!(token, None);
+
+        let empty_token =
+            get_github_token_with_getter(std::time::Duration::from_millis(500), || {
+                Ok("   ".to_string())
+            })
+            .await;
+        assert_eq!(empty_token, None);
+    }
 }

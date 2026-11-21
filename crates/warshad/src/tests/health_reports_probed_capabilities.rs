@@ -280,3 +280,146 @@ async fn rpc_health_reports_truthful_uptime_from_state_start_time() {
         h2.uptime_seconds
     );
 }
+
+#[derive(Debug)]
+struct HungSecretStore;
+
+#[async_trait]
+impl SecretStore for HungSecretStore {
+    async fn store(&self, _account: &str, _key: &str) -> warsha_providers::Result<()> {
+        futures::future::pending().await
+    }
+
+    async fn load(&self, _account: &str) -> warsha_providers::Result<String> {
+        futures::future::pending().await
+    }
+
+    async fn delete(&self, _account: &str) -> warsha_providers::Result<()> {
+        futures::future::pending().await
+    }
+}
+
+fn state_with_secret_store(state: &Arc<DaemonState>, secrets: Arc<dyn SecretStore>) -> DaemonState {
+    DaemonState {
+        config: state.config.clone(),
+        store: state.store.clone(),
+        providers: state.providers.clone(),
+        pipeline: state.pipeline.clone(),
+        backends: Vec::new(),
+        github: None,
+        devices: state.devices.clone(),
+        backend_kits: state.backend_kits.clone(),
+        crash_reports: state.crash_reports.clone(),
+        store_reviews: state.store_reviews.clone(),
+        agent_loop: state.agent_loop.clone(),
+        mcp_permissions: state.mcp_permissions.clone(),
+        mcp_approvals: state.mcp_approvals.clone(),
+        run_worktrees: state.run_worktrees.clone(),
+        agent_sessions: state.agent_sessions.clone(),
+        processes: state.processes.clone(),
+        mcp: state.mcp.clone(),
+        previews: state.previews.clone(),
+        settings: state.settings.clone(),
+        run_modes: state.run_modes.clone(),
+        preferences: state.preferences.clone(),
+        stored_preferences: state.stored_preferences.clone(),
+        pairings: state.pairings.clone(),
+        secrets,
+        routines: state.routines.clone(),
+        routine_scheduler: state.routine_scheduler.clone(),
+        sessions: state.sessions.clone(),
+        rates: state.rates.clone(),
+        role_routings: state.role_routings.clone(),
+        provider_factory: state.provider_factory.clone(),
+        pairing_origin: std::sync::OnceLock::new(),
+        events: state.events.clone(),
+        start_time: state.start_time,
+    }
+}
+
+#[tokio::test]
+async fn probe_capabilities_reports_keychain_false_promptly_against_hung_store() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = tests::test_state(temp.path()).await;
+    let hung_state = state_with_secret_store(&state, Arc::new(HungSecretStore));
+    let owner = tests::owner_ext();
+    let rpc = WarshaRpc::new(Arc::new(hung_state));
+
+    let start = std::time::Instant::now();
+    let health = rpc
+        .health(&owner)
+        .await
+        .expect("health probe succeeds even when keychain hangs");
+    let elapsed = start.elapsed();
+
+    assert!(health.capabilities.daemon);
+    assert!(
+        !health.capabilities.keychain,
+        "hung keychain must report keychain: false"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "health probe must return promptly within timeout, elapsed {elapsed:?}"
+    );
+}
+
+#[tokio::test]
+async fn provider_add_keychain_failure_returns_fast_without_wedging() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = tests::test_state(temp.path()).await;
+    let hung_state = state_with_secret_store(&state, Arc::new(HungSecretStore));
+    let owner = tests::owner_ext();
+    let rpc = WarshaRpc::new(Arc::new(hung_state));
+
+    let start = std::time::Instant::now();
+    let result = rpc
+        .add_provider(
+            &owner,
+            "hung-test-provider".to_string(),
+            "custom".to_string(),
+            "sk-test-canary-key".to_string(),
+            Some("https://router.sayl.site/v1".to_string()),
+        )
+        .await;
+    let elapsed = start.elapsed();
+
+    // 1. Must fail fast around KEYCHAIN_TIMEOUT (2s)
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "add_provider must return promptly on hung keychain, elapsed {elapsed:?}"
+    );
+
+    // 2. Must return a provider_refusal naming the keychain timeout
+    let err = result.expect_err("add_provider must fail when keychain hangs");
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("OS keychain")
+            && (err_msg.contains("timed out") || err_msg.contains("timeout")),
+        "error must name keychain timeout: {err_msg}"
+    );
+
+    // 3. No row written to settings store
+    let providers = rpc
+        .state
+        .settings
+        .load_providers()
+        .await
+        .unwrap_or_default();
+    assert!(
+        !providers.iter().any(|p| p.name == "hung-test-provider"),
+        "no row written when keychain times out"
+    );
+
+    // 4. Daemon remains responsive: health and list_providers still answer promptly
+    let health = rpc.health(&owner).await;
+    assert!(
+        health.is_ok(),
+        "daemon health must remain responsive after keychain failure"
+    );
+
+    let list = rpc.list_providers(&owner).await;
+    assert!(
+        list.is_ok(),
+        "providers.list must remain responsive after keychain failure"
+    );
+}

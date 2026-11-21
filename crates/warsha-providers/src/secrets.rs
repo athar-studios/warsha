@@ -42,6 +42,13 @@ use crate::{delete_key, load_key, store_key, ProviderError, Result};
 /// a group, and the per-provider account is what keeps them apart.
 pub const PROVIDER_KEYCHAIN_SERVICE: &str = "warsha-provider";
 
+/// The maximum duration to wait for an OS keychain operation before timing out.
+///
+/// On Linux with a locked keyring, or headless environments without secret service,
+/// blocking calls to `keyring` can hang indefinitely waiting for user prompts or D-Bus responses.
+/// Bounding keychain operations prevents wedging startup, health probes, or provider management.
+pub const KEYCHAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// One provider key, addressed by the provider's name.
 ///
 /// Async because the keychain seam it wraps is (`store_key`/`load_key` are

@@ -84,6 +84,12 @@ pub use state::{
 
 pub type Result<T> = std::result::Result<T, DaemonError>;
 
+/// The maximum duration to wait for an OS keychain operation before timing out.
+///
+/// Bounding keychain access at startup, health probes, and provider management
+/// prevents wedging the daemon on a locked Linux keyring or missing secret service.
+pub const KEYCHAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 // --- P-H1 A8: `rpc-core` region (`WarshaRpc` + impl, `rpc_*` error helpers, permission
 // store) moved to rpc/mod.rs; kept crate-visible here. ---
 mod rpc;
@@ -1269,11 +1275,19 @@ impl WarshaApiServer for WarshaRpc {
             return Err(provider_refusal(reason));
         }
 
-        self.state.secrets.store(&name, &key).await.map_err(|e| {
-            provider_refusal(format!(
-                "the API key could not be stored in the OS keychain: {e}"
-            ))
-        })?;
+        tokio::time::timeout(KEYCHAIN_TIMEOUT, self.state.secrets.store(&name, &key))
+            .await
+            .map_err(|_| {
+                provider_refusal(format!(
+                    "the API key could not be stored in the OS keychain: timed out after {}s",
+                    KEYCHAIN_TIMEOUT.as_secs()
+                ))
+            })?
+            .map_err(|e| {
+                provider_refusal(format!(
+                    "the API key could not be stored in the OS keychain: {e}"
+                ))
+            })?;
 
         let provider = StoredProvider {
             name: name.clone(),

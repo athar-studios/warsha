@@ -673,16 +673,30 @@ impl DaemonState {
         let roles_routed = !self.role_routings.read().await.is_empty();
         let providers = providers_configured || roles_routed;
 
-        // Probe keychain capability: verify secret store is operational.
-        let keychain = match self.secrets.load("__warsha_health_probe__").await {
-            Ok(_) => true,
-            Err(warsha_providers::ProviderError::Auth(msg)) => {
+        // Probe keychain capability: verify secret store is operational within bounded timeout.
+        let keychain_probe = tokio::time::timeout(
+            crate::KEYCHAIN_TIMEOUT,
+            self.secrets.load("__warsha_health_probe__"),
+        )
+        .await;
+        let keychain = match keychain_probe {
+            Ok(Ok(_)) => true,
+            Ok(Err(warsha_providers::ProviderError::Auth(msg))) => {
                 let lower = msg.to_ascii_lowercase();
                 !lower.contains("platform")
                     && !lower.contains("unavailable")
                     && !lower.contains("couldn't access")
+                    && !lower.contains("timed out")
+                    && !lower.contains("timeout")
             }
-            Err(_) => false,
+            Ok(Err(_)) => false,
+            Err(_) => {
+                warn!(
+                    timeout_secs = crate::KEYCHAIN_TIMEOUT.as_secs(),
+                    "keychain probe timed out; reporting keychain capability as false"
+                );
+                false
+            }
         };
 
         // Probe run-ending capability: the controls `gates.changes` / `gates.reject` /
