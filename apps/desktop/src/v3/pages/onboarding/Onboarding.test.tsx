@@ -21,7 +21,9 @@ import { RouterProvider, useRoute } from '../../router';
 
 import OnboardingPage, {
   deriveProjectName,
+  isMaskedKey,
   isValidHttpUrl,
+  MASKED_KEY_PLACEHOLDER,
   PROVIDER_PRESETS,
   sanitizeSecretError,
 } from './index';
@@ -74,6 +76,7 @@ function makeMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
     listProviders: vi.fn().mockResolvedValue([]),
     addProvider: vi.fn().mockResolvedValue({ name: 'deep_seek', kind: 'deep_seek', enabled: true }),
+    removeProvider: vi.fn().mockResolvedValue(undefined),
     testProvider: vi.fn().mockResolvedValue(undefined),
     checkProviderModels: vi.fn().mockResolvedValue(modelDiff),
     addCustomModel: vi.fn().mockResolvedValue({
@@ -462,5 +465,111 @@ describe('OnboardingPage', () => {
 
     expect(setConfigSpy).toHaveBeenCalledWith({ key: 'onboarding_complete', value: 'true' });
     expect(screen.getByTestId('route-inspector').textContent).toBe('/');
+  });
+
+  it('F1 proving test: save-only-after-success (rolls back provider if testProvider fails)', async () => {
+    const client = makeMockClient({
+      testProvider: vi.fn().mockRejectedValue(new Error('Connection timed out after 8s')),
+    });
+    await renderOnboarding({ client, locale: 'en' });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-next-btn'));
+    });
+
+    const keyInput = screen.getByLabelText(/API key/i) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(keyInput, { target: { value: 'sk-fail-key' } });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-save-test-btn'));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-test-error')).toBeTruthy();
+    });
+
+    expect(client.addProvider).toHaveBeenCalledWith({
+      name: 'deep_seek',
+      kind: 'deep_seek',
+      key: 'sk-fail-key',
+      api_base: 'https://api.deepseek.com/v1',
+    });
+    // Rolled back so provider is not saved
+    expect(client.removeProvider).toHaveBeenCalledWith('deep_seek');
+    expect(screen.queryByTestId('onboarding-test-success')).toBeNull();
+  });
+
+  it('F1 proving test: key-preserved-on-failure (retains user input on test failure)', async () => {
+    const client = makeMockClient({
+      testProvider: vi.fn().mockRejectedValue(new Error('Unauthorized 401')),
+    });
+    await renderOnboarding({ client, locale: 'en' });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-next-btn'));
+    });
+
+    const keyInput = screen.getByLabelText(/API key/i) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(keyInput, { target: { value: 'sk-preserve-me-secret-key' } });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-save-test-btn'));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-test-error')).toBeTruthy();
+    });
+
+    // Key must be preserved on failure, NOT cleared
+    expect(keyInput.value).toBe('sk-preserve-me-secret-key');
+  });
+
+  it('G4 proving test: masked-key restored wizard healthy (reflects healthy state, skips re-test on save, never exposes real key)', async () => {
+    const existingProvider: ProviderConfig = {
+      name: 'deep_seek',
+      kind: 'deep_seek',
+      enabled: true,
+    };
+    const client = makeMockClient({
+      listProviders: vi.fn().mockResolvedValue([existingProvider]),
+    });
+
+    // Relaunch / restored onboarding wizard
+    window.location.hash = '#/onboarding?step=provider';
+    await renderOnboarding({ client, locale: 'en', initialPath: '/onboarding?step=provider' });
+
+    await waitFor(() => {
+      const keyInput = screen.getByLabelText(/API key/i) as HTMLInputElement;
+      expect(keyInput.value).toBe(MASKED_KEY_PLACEHOLDER);
+    });
+
+    // Healthy state reflected: no red failure banner, success indicator shown
+    expect(screen.queryByTestId('onboarding-test-error')).toBeNull();
+    expect(screen.getByTestId('onboarding-test-success')).toBeTruthy();
+
+    const keyInput = screen.getByLabelText(/API key/i) as HTMLInputElement;
+    expect(isMaskedKey(keyInput.value)).toBe(true);
+    // Never displays real secret key
+    expect(keyInput.value).not.toContain('sk-');
+
+    // Submitting with masked key skips destructive re-test or re-save
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-save-test-btn'));
+      await Promise.resolve();
+    });
+
+    // Did not invoke addProvider with placeholder
+    expect(client.addProvider).not.toHaveBeenCalled();
+    // Did not invoke testProvider
+    expect(client.testProvider).not.toHaveBeenCalled();
+    // Still healthy
+    expect(screen.queryByTestId('onboarding-test-error')).toBeNull();
+    expect(screen.getByTestId('onboarding-test-success')).toBeTruthy();
   });
 });

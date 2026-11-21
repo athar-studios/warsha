@@ -393,3 +393,17 @@
 .v3-settings-root[data-narrow='true'] .v3-settings-budget-field {
   flex: 1 1 100%;
 }
+
+/* Dialog viewport constraint (N5) — ensure footer remains visible at 1280x800 and below */
+.w-dialog,
+.v3-provider-dialog {
+  max-block-size: min(90dvh, calc(100dvh - var(--w-space-8)));
+  max-height: min(90dvh, calc(100dvh - var(--w-space-8)));
+  overflow: hidden;
+}
+
+.w-dialog > div:nth-child(2),
+.v3-provider-dialog > div:nth-child(2) {
+  overflow-y: auto;
+  min-block-size: 0;
+}

@@ -57,6 +57,8 @@ export default {
   'settings.section.catalog.desc': 'View installed models and check for price updates.',
   'settings.section.about': 'About Warsha',
   'settings.section.about.desc': 'Version details and local daemon status.',
+  'settings.section.export': 'Export settings',
+  'settings.section.export.desc': 'Export preferences to a file or import them from another device.',
 
   'settings.general.language': 'Language',
   'settings.general.language.ar': 'Arabic',
@@ -124,6 +126,7 @@ export default {
   'settings.providers.auth.authenticated': 'Authenticated',
   'settings.providers.auth.unauthenticated': 'Unauthenticated',
   'settings.providers.auth.pending': 'Pending',
+  'settings.providers.auth.unknown': 'Unknown',
 
   'settings.models.title': 'Custom models',
   'settings.models.empty': 'No custom models registered.',

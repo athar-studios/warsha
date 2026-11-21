@@ -57,6 +57,8 @@ export default {
   'settings.section.catalog.desc': 'عرض النماذج المثبتة والتحقق من تحديثات الأسعار.',
   'settings.section.about': 'حول ورشة',
   'settings.section.about.desc': 'معلومات الإصدار وحالة الخادم المحلّي.',
+  'settings.section.export': 'تصدير الإعدادات',
+  'settings.section.export.desc': 'تصدير التفضيلات إلى ملف أو استيرادها من جهاز آخر.',
 
   'settings.general.language': 'اللغة',
   'settings.general.language.ar': 'العربية',
@@ -124,6 +126,7 @@ export default {
   'settings.providers.auth.authenticated': 'تم التحقق',
   'settings.providers.auth.unauthenticated': 'غير محقق',
   'settings.providers.auth.pending': 'قيد الانتظار',
+  'settings.providers.auth.unknown': 'غير معروف',
 
   'settings.models.title': 'النماذج المخصّصة',
   'settings.models.empty': 'لا توجد نماذج مخصّصة مسجّلة.',
