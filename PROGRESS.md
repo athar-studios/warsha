@@ -1,5 +1,28 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Retest-2 Merge Verification (B1 + B2 + Toasts in r-next/integration)
+- **Scope**: Verify merged tip with all three retest-2 lanes. Local-only: no push, no tag, no publish, main untouched.
+- **Merges**: `d17b782` B1 (mask api key on save-test success), `310d303` B2 (reload header chooser on onboarding start), `347b5f9` toasts (15s danger auto-dismiss, 30s clamp, universal dismiss).
+- **Gate Matrix (merged tip `347b5f9`)**:
+  - `cargo fmt --all -- --check`: exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0.
+  - `cargo test -p warshad --lib`: 307 passed, 0 failed, 4 ignored.
+  - `cargo test -p warsha-providers --lib`: 61 passed, 0 failed.
+  - `tsc --noEmit -p apps/desktop/tsconfig.json`: exit 0.
+  - `tsc --noEmit -p packages/ui/tsconfig.json`: exit 0.
+  - `eslint` on all touched files: exit 0.
+  - Vitest `Onboarding.test.tsx` + `Frame.test.tsx`: 40/40 passed.
+  - Vitest `Toast.test.tsx`: 9/9 passed.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+  - `node scripts/check-versions.mjs`: aligned (0.3.0).
+  - `node scripts/check-arch.mjs`: 5 rules, 0 violations.
+  - `node scripts/check-wire-contract.mjs`: 11 checks, 0 violations.
+  - `node scripts/ci/actions-gate.mjs`: 194 registered, 194 used, 0 violations.
+  - `node scripts/ci/i18n-gate.mjs`: 1040 keys, 0 violations.
+  - `node scripts/check-ds-v3.mjs apps/desktop/src/v3 packages/ui/src/v3`: 1 pre-existing violation (`Banner.tsx:143` `maxBlockSize: '16rem'` from prior minors lane `1344ef5`, untouched by this round — see prior-round note).
+  - `cargo deny`: owner-accepted chrono RUSTSEC-2026-0543 only (unchanged).
+- **Status**: FIXES COMPLETE — AWAITING CLAUDE VERIFICATION
+
 ## Run 2026-11-21 — Fix B1 onboarding wizard Next dead-end after provider save-test
 - **Scope**: Fix B1 onboarding wizard Next dead-end in `apps/desktop/src/v3/pages/onboarding/index.tsx` and colocated tests `Onboarding.test.tsx` in worktree `.agents/worktrees/fix-retest2-b1` on branch `fix-retest2-b1-lane`. Local-only: no push, no tag, no publish, main untouched.
 - **Root Cause**: `saveTestAction` called `setApiKey('')` on success to wipe the secret from memory (F1 decision), but the API key `TextField` has `required`. Clearing to empty left the required field blank, triggering validation on re-submit (`validation_key_required`) and stalling Next advance.
