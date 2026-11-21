@@ -1,5 +1,23 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Round-4b (H1/H2 sibling bypass + H3 suite hangs) merges into r-next/integration
+- **Scope**: Round-4 follow-up fixing the 3 Codex NOT CLEAR HIGHs: H1 sibling forms still executing (node extensionless/evil.txt/dot/--test, java Evil.java, npm restart/stop, .git/config fsmonitor/alias), H2 missing rows (dotnet test, composer exec/run-script, gradle build, cargo bench), H3 8 daemon/network suites hanging on locked keychain. Branches `fix-r4b-approval-lane` + `fix-r4b-hang-lane` merged into `r-next/integration`. Local-only: no push, no tag, no publish, main untouched.
+- **Changes**:
+  - Approval lane `fe4a748` (4 files, +624/-35): H1 node/nodejs non-flag file-like arg → Risky (`--version/-v/--help` stay Safe), java `.java`/single-file launch → Risky, npm restart/stop → RISKY rows, git `-c/--config alias.*=!...` + fsmonitor variants + `.git/config` writes → Risky in both `command_policy.rs` and `work_protection.rs`; H2 `dotnet test`, `composer exec|run-script`, `cargo bench` RISKY rows, `gradle build` pinned Risky; 14 proving tests in `verification_tests_impl.rs`.
+  - Hang lane `2e3750d` (8 test files, +163/-4): all 8 suites through injectable seams with prompt-start proving tests (<15s each).
+- **Gate Matrix (verified at merged tip)**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 560 passed, 0 failed, 7 ignored.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-cli --test cli_rpc --test cli_rpc_auth`: 5 + 8 passed.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --test m1_daemon --test events_ws_auth --test security_identity --test security_rate_limits --test static_serving`: 13+4+6+10+7 passed.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-relay --test relay_endpoints`: 10 passed in 0.15s.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+  - `node scripts/check-versions.mjs`: versions aligned (0.3.0).
+  - `node scripts/check-arch.mjs`: 5 rules, 0 violations.
+  - `node scripts/check-wire-contract.mjs`: 11 checks, 0 violations.
+- **Status**: FIXES COMPLETE — AWAITING CLAUDE VERIFICATION.
+
 ## Run 2026-11-21 — Round-4 (H1/H2 approval + H3 keychain) merges finalized into r-next/integration
 - **Scope**: Finalize round-4 merges (H1/H2 approval hardening + H3 keychain test seams) into branch `r-next/integration` on top of base `99a19f5`. Local-only verification across the full Rust workspace, Node verification scripts, and CI policy gates.
 - **Commit History & Merged Branches**:

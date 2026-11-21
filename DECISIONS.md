@@ -1,4 +1,14 @@
 
+## 2026-11-21 — D-R4B-APPROVAL-1: Round-4b H1 Sibling Bypasses + H2 Missing Risky Rows (follow-up to D-R4-APPROVAL-1)
+- **Decision**: Closed the round-4 Codex findings on sibling-form bypasses: `node`/`nodejs` classify any non-flag file-like arg (extensionless scripts, `.txt`, dotfiles, `--test`) as Risky while keeping `node --version/-v/--help` Safe; `java` flags `.java` source args and single-file launches as Risky; `npm restart/stop` added to the RISKY table; `git -c/--config alias.*=!...`, fsmonitor variants with non-empty values, and direct `.git/config` writes flagged Risky in both `command_policy.rs` and `work_protection.rs`. Added missing RISKY rows: `dotnet test`, `composer exec|run-script`, `cargo bench`, pinned `gradle build`. Proving: 14 new tests in `verification_tests_impl.rs` incl negative controls.
+- **Reason**: Codex round-4 re-verify found these exact sibling forms still executing without approval prompts.
+- **Scope**: `crates/warsha-pipeline/src` only; local-only; no main/push.
+
+## 2026-11-21 — D-R4B-HANG-1: Round-4b H3 Daemon/Network Suite Keychain Hangs
+- **Decision**: Routed all 8 hanging suites (`cli_rpc`, `cli_rpc_auth`, `m1_daemon`, `events_ws_auth`, `security_identity`, `security_rate_limits`, `static_serving`, `warsha-relay`) through injectable in-memory secret/trust seams (`start_daemon_with_secrets` + `InMemorySecretStore`, `run_relay_with_trust_source` + `InMemoryTrustSource`), each with a prompt-start proving test (<15s) so CI never touches the OS keychain.
+- **Reason**: Suites called real `start_daemon` and blocked on locked-keychain prompts in CI.
+- **Scope**: Test files only (8 files, +163/-4); production paths unchanged; local-only; no main/push.
+
 ## 2026-11-21 — D-RN-ENCRYPTED-FALLBACK-STORE: Owner-approved encrypted fallback secret store for provider keys on locked keychain
 - **Decision**:
   1. (Keychain Primary, Encrypted Fallback on Lock/Unavailable): Retained the OS keychain as the primary secret store for Warsha provider keys. An encrypted file-backed store (`EncryptedFileSecretStore`) is consulted only when the OS keychain is locked, times out (bounded to 2s by `KEYCHAIN_TIMEOUT`), or is otherwise unavailable (`FallbackSecretStore`). The previous blanket rejection of file-backed secret storage in `crates/warsha-providers/src/secrets.rs` is overridden solely for an encrypted file.
