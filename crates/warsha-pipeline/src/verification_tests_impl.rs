@@ -1128,4 +1128,432 @@ mod tests {
         assert_eq!(approvals_safe.pending().len(), 0);
         assert!(!res.output.contains("Approval requested"));
     }
+
+    #[test]
+    fn h1_node_extensionless_risky() {
+        assert_eq!(
+            classify_command("node", &["script".to_string()]),
+            RiskClass::Risky,
+            "node extensionless script should be Risky"
+        );
+        assert_eq!(
+            classify_command("nodejs", &["runner".to_string()]),
+            RiskClass::Risky,
+            "nodejs extensionless script should be Risky"
+        );
+        assert_eq!(
+            classify_command("node", &["path/to/my_script".to_string()]),
+            RiskClass::Risky,
+            "node path/to/my_script should be Risky"
+        );
+    }
+
+    #[test]
+    fn h1_node_txt_and_dotfile_risky() {
+        assert_eq!(
+            classify_command("node", &["evil.txt".to_string()]),
+            RiskClass::Risky,
+            "node evil.txt should be Risky"
+        );
+        assert_eq!(
+            classify_command("node", &[".evil".to_string()]),
+            RiskClass::Risky,
+            "node .evil dotfile should be Risky"
+        );
+        assert_eq!(
+            classify_command("nodejs", &["payload.data".to_string()]),
+            RiskClass::Risky,
+            "nodejs payload.data should be Risky"
+        );
+    }
+
+    #[test]
+    fn h1_node_test_flag_risky() {
+        assert_eq!(
+            classify_command("node", &["--test".to_string()]),
+            RiskClass::Risky,
+            "node --test should be Risky"
+        );
+        assert_eq!(
+            classify_command("nodejs", &["--test".to_string()]),
+            RiskClass::Risky,
+            "nodejs --test should be Risky"
+        );
+        assert_eq!(
+            classify_command("node", &["--test=tests/unit".to_string()]),
+            RiskClass::Risky,
+            "node --test=path should be Risky"
+        );
+    }
+
+    #[test]
+    fn h1_node_version_safe() {
+        assert_eq!(
+            classify_command("node", &["--version".to_string()]),
+            RiskClass::Safe,
+            "node --version should be Safe"
+        );
+        assert_eq!(
+            classify_command("node", &["-v".to_string()]),
+            RiskClass::Safe,
+            "node -v should be Safe"
+        );
+        assert_eq!(
+            classify_command("node", &["--help".to_string()]),
+            RiskClass::Safe,
+            "node --help should be Safe"
+        );
+        assert_eq!(
+            classify_command("nodejs", &["--version".to_string()]),
+            RiskClass::Safe,
+            "nodejs --version should be Safe"
+        );
+    }
+
+    #[test]
+    fn h1_java_source_launch_risky() {
+        assert_eq!(
+            classify_command("java", &["Evil.java".to_string()]),
+            RiskClass::Risky,
+            "java Evil.java should be Risky"
+        );
+        assert_eq!(
+            classify_command("java", &["path/to/Main.java".to_string()]),
+            RiskClass::Risky,
+            "java source-file arg should be Risky"
+        );
+        assert_eq!(
+            classify_command("java", &["Main".to_string()]),
+            RiskClass::Risky,
+            "java Main application launch should be Risky"
+        );
+    }
+
+    #[test]
+    fn h1_npm_restart_and_stop_risky() {
+        assert_eq!(
+            classify_command("npm", &["restart".to_string()]),
+            RiskClass::Risky,
+            "npm restart should be Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &["stop".to_string()]),
+            RiskClass::Risky,
+            "npm stop should be Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &["run".to_string(), "build".to_string()]),
+            RiskClass::Risky,
+            "npm run should remain Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &["install".to_string()]),
+            RiskClass::Risky,
+            "npm install should remain Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &["test".to_string()]),
+            RiskClass::Risky,
+            "npm test should remain Risky"
+        );
+    }
+
+    #[test]
+    fn h1_git_config_alias_shell_risky() {
+        let policy = CommandPolicy::from_config(&["git".to_string()]);
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "alias.foo=!sh".to_string(),
+                    "status".to_string()
+                ]
+            ),
+            RiskClass::Risky,
+            "git -c alias.*=! form should be Risky"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "--config".to_string(),
+                    "alias.x=!cmd".to_string(),
+                    "status".to_string()
+                ]
+            ),
+            RiskClass::Risky,
+            "git --config alias.x=!cmd should be Risky"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "config".to_string(),
+                    "alias.x".to_string(),
+                    "!calc".to_string()
+                ]
+            ),
+            RiskClass::Risky,
+            "git config alias.x !calc should be Risky"
+        );
+        assert_eq!(
+            classify_command("git", &["config".to_string(), "alias.x=!calc".to_string()]),
+            RiskClass::Risky,
+            "git config alias.x=!calc should be Risky"
+        );
+
+        assert!(
+            policy
+                .check_command("git -c alias.test=!sh status")
+                .is_err(),
+            "policy should reject -c alias.test=!sh"
+        );
+        assert!(
+            policy
+                .check_command("git --config alias.test=!sh status")
+                .is_err(),
+            "policy should reject --config alias.test=!sh"
+        );
+        assert!(
+            policy.check_command("git config alias.test !sh").is_err(),
+            "policy should reject git config alias.test !sh"
+        );
+    }
+
+    #[test]
+    fn h1_git_config_fsmonitor_risky() {
+        let policy = CommandPolicy::from_config(&["git".to_string()]);
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "core.fsmonitor=watchman".to_string(),
+                    "status".to_string()
+                ]
+            ),
+            RiskClass::Risky,
+            "git -c core.fsmonitor non-empty should be Risky"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "fsmonitor.allowremote=true".to_string(),
+                    "status".to_string()
+                ]
+            ),
+            RiskClass::Risky,
+            "git -c fsmonitor.allowremote=true should be Risky"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "config".to_string(),
+                    "core.fsmonitor".to_string(),
+                    "/usr/bin/watchman".to_string()
+                ]
+            ),
+            RiskClass::Risky,
+            "git config core.fsmonitor <path> should be Risky"
+        );
+
+        assert!(
+            policy
+                .check_command("git -c core.fsmonitor=/usr/bin/daemon status")
+                .is_err(),
+            "policy should reject -c core.fsmonitor=/usr/bin/daemon"
+        );
+        assert!(
+            policy
+                .check_command("git -c fsmonitor.allowremote=true status")
+                .is_err(),
+            "policy should reject -c fsmonitor.allowremote=true"
+        );
+        assert!(
+            policy
+                .check_command("git config core.fsmonitor /usr/bin/daemon")
+                .is_err(),
+            "policy should reject git config core.fsmonitor /usr/bin/daemon"
+        );
+    }
+
+    #[test]
+    fn h1_git_config_fsmonitor_empty_safe() {
+        let policy = CommandPolicy::from_config(&["git".to_string()]);
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "core.fsmonitor=".to_string(),
+                    "status".to_string()
+                ]
+            ),
+            RiskClass::Safe,
+            "git -c core.fsmonitor= empty should be Safe"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "core.fsmonitor=\"\"".to_string(),
+                    "status".to_string()
+                ]
+            ),
+            RiskClass::Safe,
+            "git -c core.fsmonitor=\"\" empty should be Safe"
+        );
+
+        assert!(
+            policy
+                .check_command("git -c core.fsmonitor= diff --no-ext-diff")
+                .is_ok(),
+            "policy should allow neutralized core.fsmonitor="
+        );
+    }
+
+    #[test]
+    fn h1_git_direct_config_path_write_risky() {
+        let policy = CommandPolicy::from_config(&[
+            "git".to_string(),
+            "echo".to_string(),
+            "cat".to_string(),
+            "sed".to_string(),
+        ]);
+        assert_eq!(
+            classify_command("cat", &[".git/config".to_string()]),
+            RiskClass::Risky,
+            "cat .git/config should be Risky"
+        );
+        assert_eq!(
+            classify_command("echo", &["payload".to_string(), ".git/config".to_string()]),
+            RiskClass::Risky,
+            "echo to .git/config should be Risky"
+        );
+        assert_eq!(
+            classify_command(
+                "sed",
+                &[
+                    "-i".to_string(),
+                    "s/a/b/".to_string(),
+                    "./.git/config".to_string()
+                ]
+            ),
+            RiskClass::Risky,
+            "sed ./.git/config should be Risky"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "config".to_string(),
+                    "--file".to_string(),
+                    ".git/config".to_string(),
+                    "user.name".to_string(),
+                    "evil".to_string()
+                ]
+            ),
+            RiskClass::Risky,
+            "git config --file .git/config should be Risky"
+        );
+
+        assert!(
+            policy.check_command("cat .git/config").is_err(),
+            "policy should reject arguments referencing .git/config"
+        );
+        assert!(
+            policy.check_command("echo test .git/config").is_err(),
+            "policy should reject arguments referencing .git/config"
+        );
+        assert!(
+            policy.check_command("sed -i s/a/b/ ./.git/config").is_err(),
+            "policy should reject arguments referencing ./.git/config"
+        );
+    }
+
+    #[test]
+    fn h2_dotnet_test_risky() {
+        assert_eq!(
+            classify_command("dotnet", &["test".to_string()]),
+            RiskClass::Risky,
+            "dotnet test should be Risky"
+        );
+        assert_eq!(
+            classify_command("dotnet", &["run".to_string()]),
+            RiskClass::Risky,
+            "dotnet run should remain Risky"
+        );
+    }
+
+    #[test]
+    fn h2_composer_exec_and_run_script_risky() {
+        assert_eq!(
+            classify_command("composer", &["exec".to_string(), "whoami".to_string()]),
+            RiskClass::Risky,
+            "composer exec should be Risky"
+        );
+        assert_eq!(
+            classify_command("composer", &["run-script".to_string(), "test".to_string()]),
+            RiskClass::Risky,
+            "composer run-script should be Risky"
+        );
+        assert_eq!(
+            classify_command("composer", &["install".to_string()]),
+            RiskClass::Risky,
+            "composer install should remain Risky"
+        );
+        assert_eq!(
+            classify_command("composer", &["update".to_string()]),
+            RiskClass::Risky,
+            "composer update should remain Risky"
+        );
+    }
+
+    #[test]
+    fn h2_gradle_build_risky() {
+        assert_eq!(
+            classify_command("gradle", &["build".to_string()]),
+            RiskClass::Risky,
+            "gradle build should be Risky"
+        );
+        assert_eq!(
+            classify_command("gradle", &["assemble".to_string()]),
+            RiskClass::Risky,
+            "gradle assemble should be Risky (blanket-risky)"
+        );
+    }
+
+    #[test]
+    fn h2_cargo_bench_risky() {
+        assert_eq!(
+            classify_command("cargo", &["bench".to_string()]),
+            RiskClass::Risky,
+            "cargo bench should be Risky"
+        );
+        assert_eq!(
+            classify_command("cargo", &["test".to_string()]),
+            RiskClass::Risky,
+            "cargo test should remain Risky"
+        );
+        assert_eq!(
+            classify_command("cargo", &["build".to_string()]),
+            RiskClass::Risky,
+            "cargo build should remain Risky"
+        );
+        assert_eq!(
+            classify_command("cargo", &["clippy".to_string()]),
+            RiskClass::Risky,
+            "cargo clippy should remain Risky"
+        );
+        assert_eq!(
+            classify_command("cargo", &["run".to_string()]),
+            RiskClass::Risky,
+            "cargo run should remain Risky"
+        );
+    }
 }

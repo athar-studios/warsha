@@ -119,6 +119,9 @@ pub(crate) const GIT_PROGRAM_CONFIG_KEYS: &[&str] = &[
     "interactive.difffilter",
     "core.fsmonitor",
     "core.fsmonitorhook",
+    "core.fsmonitordaemon",
+    "fsmonitor.allowremote",
+    "fsmonitor.socketdir",
     "diff.external",
     "credential.helper",
     "core.hookspath",
@@ -130,9 +133,15 @@ pub(crate) const GIT_PROGRAM_CONFIG_KEYS: &[&str] = &[
     "browser.path",
 ];
 
-/// `git` config sections where every key names a program (`alias.*`, `filter.*`, `hooks.*`, `hook.*`, `pager.*`).
-pub(crate) const GIT_PROGRAM_CONFIG_PREFIXES: &[&str] =
-    &["alias.", "filter.", "hooks.", "hook.", "pager."];
+/// `git` config sections where every key names a program (`alias.*`, `filter.*`, `hooks.*`, `hook.*`, `pager.*`, `fsmonitor.*`).
+pub(crate) const GIT_PROGRAM_CONFIG_PREFIXES: &[&str] = &[
+    "alias.",
+    "filter.",
+    "hooks.",
+    "hook.",
+    "pager.",
+    "fsmonitor.",
+];
 
 /// Why a `git` config override that names a program is refused.
 ///
@@ -900,6 +909,15 @@ pub(crate) fn find_wrapped_command<'a>(
 /// override whose key names a program or hook is refused unless its value is
 /// empty, and `--exec-path` is refused outright (KEEL checkpoint finding M3).
 fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyError> {
+    for arg in args {
+        if is_git_config_path(arg) {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: arg.clone(),
+                reason: "direct writes or references to .git/config are not allowed".to_string(),
+            });
+        }
+    }
+
     let prog = program_name(program);
     if prog == "sqlite3" {
         for (i, arg) in args.iter().enumerate() {
@@ -1084,6 +1102,10 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
                     reason: "git archive --exec is not allowed".to_string(),
                 });
             }
+
+            if lowered == "config" {
+                check_git_config_subcommand(remaining)?;
+            }
         }
 
         index += 1;
@@ -1091,18 +1113,69 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
     Ok(())
 }
 
+fn check_git_config_subcommand(args: &[String]) -> Result<(), CommandPolicyError> {
+    for arg in args {
+        let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+        if clean.contains('=') && is_risky_git_config(clean) {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: clean.to_string(),
+                reason: format!("git config `{clean}` {GIT_CONFIG_PROGRAM_REASON}"),
+            });
+        }
+    }
+
+    let mut positional = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].trim().trim_matches('"').trim_matches('\'').trim();
+        if arg == "--file" || arg == "--blob" {
+            i += 2;
+            continue;
+        }
+        if arg.starts_with('-') {
+            i += 1;
+            continue;
+        }
+        positional.push(arg);
+        i += 1;
+    }
+
+    if positional.len() >= 2 {
+        let key = positional[0];
+        let val = positional[1];
+        let paired = format!("{key}={val}");
+        if is_risky_git_config(&paired) {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: paired,
+                reason: format!("git config `{key}` {GIT_CONFIG_PROGRAM_REASON}"),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Whether a path points to `.git/config` directly.
+pub(crate) fn is_git_config_path(path: &str) -> bool {
+    let clean = path.trim().trim_matches('"').trim_matches('\'').trim();
+    let normalized = clean.replace('\\', "/");
+    let trimmed = normalized.strip_prefix("./").unwrap_or(&normalized);
+    trimmed == ".git/config" || trimmed.ends_with("/.git/config") || trimmed.contains(".git/config")
+}
+
 /// The `key=value` an attached `-c…`, `--config=…` or `--config-env=…` token carries.
 ///
 /// The separate-token forms (`-c key=value`) are read by the caller, so a token
 /// that starts with `-c` here is the attached form.
 pub(crate) fn git_config_override_value(argument: &str) -> Option<&str> {
-    if let Some(rest) = argument.strip_prefix("-c") {
-        return Some(rest);
+    let clean = argument.trim().trim_matches('"').trim_matches('\'').trim();
+    if let Some(rest) = clean.strip_prefix("-c") {
+        return Some(rest.trim_start());
     }
-    let lowered = argument.to_ascii_lowercase();
-    for prefix in ["--config=", "--config-env="] {
+    let lowered = clean.to_ascii_lowercase();
+    for prefix in ["--config=", "--config-env=", "--config ", "--config-env "] {
         if lowered.starts_with(prefix) {
-            return Some(&argument[prefix.len()..]);
+            return Some(clean[prefix.len()..].trim_start());
         }
     }
     None
@@ -1110,14 +1183,31 @@ pub(crate) fn git_config_override_value(argument: &str) -> Option<&str> {
 
 /// Check whether a git config string `key=value` overrides a program-executing key with a non-empty value.
 pub(crate) fn is_risky_git_config(value: &str) -> bool {
-    let Some((key, config_value)) = value.split_once('=') else {
+    let clean = value.trim().trim_matches('"').trim_matches('\'').trim();
+    let Some((key, config_value)) = clean.split_once('=') else {
         return false;
     };
-    if config_value.trim().is_empty() {
+    let config_val_trimmed = config_value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim();
+    if config_val_trimmed.is_empty() {
         return false;
     }
-    let key = key.trim();
+    let key = key.trim().trim_matches('"').trim_matches('\'').trim();
     let normalized = key.to_ascii_lowercase();
+
+    // Any config value starting with '!' is a shell command execution in git (e.g. alias.* shell '!' form)
+    if config_val_trimmed.starts_with('!') {
+        return true;
+    }
+
+    // Any fsmonitor variant (e.g. core.fsmonitor, fsmonitor.allowremote, core.fsmonitorhook, etc.)
+    if normalized.contains("fsmonitor") {
+        return true;
+    }
+
     GIT_PROGRAM_CONFIG_KEYS
         .iter()
         .any(|denied| *denied == normalized)
@@ -1132,14 +1222,20 @@ pub(crate) fn is_risky_git_config(value: &str) -> bool {
 /// neutralisation the gate-evidence path relies on (`git -c core.fsmonitor=
 /// diff --no-ext-diff`), so that form stays allowed.
 fn check_git_config_override(value: &str) -> Result<(), CommandPolicyError> {
-    let Some((key, config_value)) = value.split_once('=') else {
+    let clean = value.trim().trim_matches('"').trim_matches('\'').trim();
+    let Some((key, config_value)) = clean.split_once('=') else {
         // Without a `=` there is no value, so git itself refuses the override.
         return Ok(());
     };
-    if config_value.trim().is_empty() {
+    let config_val_trimmed = config_value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim();
+    if config_val_trimmed.is_empty() {
         return Ok(());
     }
-    let key = key.trim();
+    let key = key.trim().trim_matches('"').trim_matches('\'').trim();
     if is_risky_git_config(value) {
         return Err(CommandPolicyError::InvalidCommand {
             command: value.to_string(),
