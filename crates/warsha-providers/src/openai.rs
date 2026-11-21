@@ -462,10 +462,24 @@ pub async fn load_key(
             service: svc,
             account: acc,
         } => {
-            let entry = keyring::Entry::new(svc, acc);
-            entry
-                .get_password()
-                .map_err(|e| ProviderError::Auth(e.to_string()))
+            let svc = svc.clone();
+            let acc = acc.clone();
+            let load_task = tokio::task::spawn_blocking(move || {
+                let entry = keyring::Entry::new(&svc, &acc);
+                entry.get_password()
+            });
+
+            match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, load_task).await {
+                Ok(join_res) => match join_res {
+                    Ok(Ok(password)) => Ok(password),
+                    Ok(Err(e)) => Err(ProviderError::Auth(e.to_string())),
+                    Err(e) => Err(ProviderError::Auth(format!("keychain task failed: {e}"))),
+                },
+                Err(_) => Err(ProviderError::Auth(format!(
+                    "keychain timed out after {}s",
+                    crate::secrets::KEYCHAIN_TIMEOUT.as_secs()
+                ))),
+            }
         }
         CredentialsRef::EnvVar { var } => {
             std::env::var(var).map_err(|_| ProviderError::Auth(format!("Env var {} not set", var)))
@@ -486,10 +500,25 @@ pub async fn store_key(
             service: svc,
             account: acc,
         } => {
-            let entry = keyring::Entry::new(svc, acc);
-            entry
-                .set_password(key)
-                .map_err(|e| ProviderError::Auth(e.to_string()))
+            let svc = svc.clone();
+            let acc = acc.clone();
+            let secret = key.to_string();
+            let store_task = tokio::task::spawn_blocking(move || {
+                let entry = keyring::Entry::new(&svc, &acc);
+                entry.set_password(&secret)
+            });
+
+            match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, store_task).await {
+                Ok(join_res) => match join_res {
+                    Ok(Ok(())) => Ok(()),
+                    Ok(Err(e)) => Err(ProviderError::Auth(e.to_string())),
+                    Err(e) => Err(ProviderError::Auth(format!("keychain task failed: {e}"))),
+                },
+                Err(_) => Err(ProviderError::Auth(format!(
+                    "keychain timed out after {}s",
+                    crate::secrets::KEYCHAIN_TIMEOUT.as_secs()
+                ))),
+            }
         }
         CredentialsRef::EnvVar { .. } => {
             Err(ProviderError::Auth("Cannot store to env var".to_string()))
@@ -505,9 +534,20 @@ pub async fn delete_key(credentials: &CredentialsRef) -> Result<()> {
             service: svc,
             account: acc,
         } => {
-            let entry = keyring::Entry::new(svc, acc);
-            let _ = entry.delete_password();
-            Ok(())
+            let svc = svc.clone();
+            let acc = acc.clone();
+            let delete_task = tokio::task::spawn_blocking(move || {
+                let entry = keyring::Entry::new(&svc, &acc);
+                let _ = entry.delete_password();
+            });
+
+            match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, delete_task).await {
+                Ok(join_res) => match join_res {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(ProviderError::Auth(format!("keychain task failed: {e}"))),
+                },
+                Err(_) => Ok(()), // deletion is best-effort and idempotent
+            }
         }
         _ => Ok(()),
     }

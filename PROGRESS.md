@@ -39,6 +39,25 @@
   - `node scripts/ci/i18n-gate.mjs`: Clean (1040 keys, 0 violations).
 - **Status**: COMPLETE.
 
+## Run 2026-11-21 — Linux Keyring Hangs N-1/N-2/N-3 Fix (fix-retest-keyring lane)
+- **Scope**: Fix Linux keyring hangs N-1/N-2/N-3 by making OS-keychain access async with a bounded timeout (`KEYCHAIN_TIMEOUT = 2s`) across startup token lookup, capability probe, and provider add. Local-only on worktree `.agents/worktrees/fix-retest-keyring`.
+- **Fixes**:
+  - N-1: `crates/warshad/src/startup.rs`: `get_github_token` offloaded to worker thread bounded by 2s timeout; continues with `github = None` and warning on timeout/error.
+  - N-2: `crates/warshad/src/state.rs`: `probe_capabilities` bounds `secrets.load("__warsha_health_probe__")` with 2s timeout; reports `keychain: false` promptly on timeout.
+  - N-3: `crates/warshad/src/lib.rs`: `add_provider` bounds `secrets.store(&name, &key)` with 2s timeout; returns fast `provider_refusal` naming timeout, writes no row, daemon stays responsive.
+  - Helpers: `crates/warsha-providers/src/secrets.rs` and `openai.rs`: `KEYCHAIN_TIMEOUT = 2s`, `spawn_blocking` + `timeout` for `load_key`, `store_key`, and `delete_key`.
+- **Proving tests**:
+  - `probe_capabilities_reports_keychain_false_promptly_against_hung_store`: proves health returns promptly with `keychain: false` against a hung secret store.
+  - `provider_add_keychain_failure_returns_fast_without_wedging`: proves hung secret store fails fast with provider refusal naming timeout, writes no row, and leaves health/list responsive.
+  - `startup_github_token_helper_degrades_to_none_on_timeout`: proves startup helper degrades to None on timeout.
+- **Gates**:
+  - `cargo fmt --all -- --check`: FMT_OK.
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --lib`: 307 passed; 0 failed; 4 ignored.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-providers`: 61 unit + 5 failover passed.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+- **Decision**: `D-RN-RETEST-KEYRING-1` in `DECISIONS.md`.
+
 ## Run 2026-11-21 — GUI Merge Verification (START+NAV+PROVIDER+POLISH in r-next/integration)
 - **Scope**: Merge the four verified GUI fix lanes into `r-next/integration` tip and run the gate matrix on the merged tree. Local-only: no push, no tag, no publish, main untouched.
 - **Merges**:
