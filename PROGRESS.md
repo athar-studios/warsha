@@ -1,5 +1,42 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Owner-approved encrypted fallback secret store for Warsha provider keys (fix-retest2-fallback)
+- **Scope**: Implement owner-approved encrypted fallback secret store for Warsha provider keys when OS keychain is locked or unavailable. Worktree `.agents/worktrees/fix-retest2-fallback` on branch `fix-retest2-fallback`. Local-only: no push, no tag, no publish, main untouched.
+- **Root Cause**: In headless Linux environments or locked keychain sessions, OS keyring operations hang or fail. `crates/warsha-providers/src/secrets.rs` previously rejected file-backed stores due to plaintext risk, leaving no fallback mechanism when the OS keychain was unavailable and causing provider additions or adapter builds to wedge or fail.
+- **Fix**:
+  - Overrode the blanket rejection of file-backed stores in `crates/warsha-providers/src/secrets.rs` specifically for an encrypted file per owner decision dated 2026-11-21.
+  - Implemented `EncryptedFileSecretStore` in `crates/warsha-providers/src/secrets.rs`:
+    - AEAD Construction: XChaCha20-Poly1305 with random 24-byte nonce per entry using workspace dependencies `chacha20poly1305` and `rand`.
+    - Encryption-at-Rest: Base64-encoded ciphertext and auth tag stored in `data_dir/provider-secrets.enc.json`. Raw plaintext keys are never written to disk.
+    - Master Key: 32 cryptographically secure random bytes generated once and stored in `data_dir/provider-secrets.key`.
+    - Permissions: Unix `0600` permissions on both key and data map files; atomic temporary file write (`.enc.tmp`) and rename.
+    - No-Logging Rule: Redacted `Debug` implementations and generic error strings ("fallback store failed" / "fallback load failed") that never leak key material.
+  - Implemented `FallbackSecretStore` wrapping primary keychain and fallback encrypted store:
+    - Keychain primary: fallback store is only consulted when keychain fails or times out.
+    - Delete removes from both stores and is idempotent.
+  - Registered global fallback store (`set_fallback_store`, `clear_fallback_store`, `fallback_store`).
+  - Extended adapter and factory key paths:
+    - `crates/warsha-providers/src/openai.rs`: added `OpenAIProvider::with_api_key`, `load_key_with_fallback`, `store_key_with_fallback`, `delete_key_with_fallback`; updated `load_key`, `store_key`, and `delete_key` to fall back to `fallback_store()` on error or timeout.
+    - `crates/warsha-providers/src/anthropic.rs`: added `AnthropicProvider::with_api_key`.
+    - `crates/warshad/src/providers.rs`: extended `KeychainProviderFactory::with_secrets` to load keys from fallback-aware secret store and build adapters with `with_api_key`.
+    - `crates/warshad/src/startup.rs`: initialized `EncryptedFileSecretStore` at `config.data_dir`, registered it as global fallback, and wired `FallbackSecretStore` into `KeychainProviderFactory::with_secrets`.
+    - `crates/warshad/src/lib.rs`: updated `add_provider` to write to fallback on keychain timeout or failure without wedging the daemon; updated `test_provider` and `remove_provider` to query/delete from fallback when keychain fails.
+- **Proving Tests**:
+  - `keychain-primary`: `warsha-providers` unit test `keychain_primary_does_not_create_file_or_consult_fallback` asserts file not created and fallback not consulted when primary succeeds.
+  - `fallback-on-lock`: `warshad` integration test `provider_add_and_read_fallback_on_locked_keychain` asserts `add_provider` completes promptly (no wedge), settings row written, `provider-secrets.enc.json` exists without plaintext key.
+  - `encrypted-at-rest`: `warsha-providers` unit test `encrypted_at_rest_permissions_and_ciphertext` asserts 0600 file permissions and ciphertext at rest.
+  - `read-from-fallback`: `warshad` test `keychain_factory_with_secrets_falls_back_when_keychain_fails` and `provider_add_and_read_fallback_on_locked_keychain` prove adapter construction and `providers.test` path read key from fallback on keychain failure.
+  - `no-logging`: `warsha-providers` unit test `no_logging_of_secrets` verifies Debug formatting and error strings redact and never leak keys.
+  - `delete-semantics`: `warsha-providers` unit test `delete_semantics_removes_from_both_and_is_idempotent` and `warshad` test prove deletion from both stores and idempotent Ok.
+- **Gate Matrix**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt --all -- --check`: exit 0
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy --workspace --all-targets -- -D warnings`: exit 0
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-providers --lib`: 68 passed, 0 failed
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --lib`: 309 passed, 0 failed, 4 ignored
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures
+  - `node scripts/ci/actions-gate.mjs ; node scripts/ci/i18n-gate.mjs`: 0 violations
+- **Status**: COMPLETE
+
 ## Run 2026-11-21 — Retest-2 Merge Verification (B1 + B2 + Toasts in r-next/integration)
 - **Scope**: Verify merged tip with all three retest-2 lanes. Local-only: no push, no tag, no publish, main untouched.
 - **Merges**: `d17b782` B1 (mask api key on save-test success), `310d303` B2 (reload header chooser on onboarding start), `347b5f9` toasts (15s danger auto-dismiss, 30s clamp, universal dismiss).

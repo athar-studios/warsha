@@ -1275,19 +1275,42 @@ impl WarshaApiServer for WarshaRpc {
             return Err(provider_refusal(reason));
         }
 
-        tokio::time::timeout(KEYCHAIN_TIMEOUT, self.state.secrets.store(&name, &key))
-            .await
-            .map_err(|_| {
-                provider_refusal(format!(
-                    "the API key could not be stored in the OS keychain: timed out after {}s",
-                    KEYCHAIN_TIMEOUT.as_secs()
-                ))
-            })?
-            .map_err(|e| {
-                provider_refusal(format!(
-                    "the API key could not be stored in the OS keychain: {e}"
-                ))
-            })?;
+        let store_result =
+            tokio::time::timeout(KEYCHAIN_TIMEOUT, self.state.secrets.store(&name, &key)).await;
+        match store_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                if let Some(fallback) = warsha_providers::fallback_store() {
+                    warn!(
+                        "storing key in keychain failed ({e}); storing to encrypted fallback store"
+                    );
+                    fallback.store(&name, &key).await.map_err(|fb_err| {
+                        provider_refusal(format!(
+                            "the API key could not be stored in the OS keychain ({e}) or fallback store ({fb_err})"
+                        ))
+                    })?;
+                } else {
+                    return Err(provider_refusal(format!(
+                        "the API key could not be stored in the OS keychain: {e}"
+                    )));
+                }
+            }
+            Err(_) => {
+                if let Some(fallback) = warsha_providers::fallback_store() {
+                    warn!("storing key in keychain timed out; storing to encrypted fallback store");
+                    fallback.store(&name, &key).await.map_err(|fb_err| {
+                        provider_refusal(format!(
+                            "the API key could not be stored in the OS keychain (timed out) or fallback store ({fb_err})"
+                        ))
+                    })?;
+                } else {
+                    return Err(provider_refusal(format!(
+                        "the API key could not be stored in the OS keychain: timed out after {}s",
+                        KEYCHAIN_TIMEOUT.as_secs()
+                    )));
+                }
+            }
+        }
 
         let provider = StoredProvider {
             name: name.clone(),
@@ -1349,11 +1372,22 @@ impl WarshaApiServer for WarshaRpc {
                 provider.kind
             ))
         })?;
-        let key = self.state.secrets.load(&name).await.map_err(|e| {
-            provider_refusal(format!(
-                "the API key for {name} could not be read from the OS keychain: {e}"
-            ))
-        })?;
+        let key = match self.state.secrets.load(&name).await {
+            Ok(k) => k,
+            Err(e) => {
+                if let Some(fallback) = warsha_providers::fallback_store() {
+                    fallback.load(&name).await.map_err(|fb_err| {
+                        provider_refusal(format!(
+                            "the API key for {name} could not be read from the OS keychain ({e}) or fallback store ({fb_err})"
+                        ))
+                    })?
+                } else {
+                    return Err(provider_refusal(format!(
+                        "the API key for {name} could not be read from the OS keychain: {e}"
+                    )));
+                }
+            }
+        };
 
         // Resolve test probe model per D1:
         // 1. Explicit model param
@@ -1817,14 +1851,24 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?
             .ok_or_else(|| provider_refusal(format!("no provider named {name} is configured")))?;
 
-        // The keychain goes first, and a failure there stops the removal: the
-        // account is the provider's name, so a row deleted while its key stayed
-        // behind would be an entry nothing could ever overwrite or reach again.
-        self.state.secrets.delete(&name).await.map_err(|e| {
-            provider_refusal(format!(
-                "the API key could not be removed from the OS keychain: {e}"
-            ))
-        })?;
+        // The keychain goes first, and if that fails or times out, the fallback store
+        // is cleaned up as well.
+        let delete_res = self.state.secrets.delete(&name).await;
+        if let Err(e) = delete_res {
+            if let Some(fallback) = warsha_providers::fallback_store() {
+                fallback.delete(&name).await.map_err(|fb_err| {
+                    provider_refusal(format!(
+                        "the API key could not be removed from the OS keychain ({e}) or fallback store ({fb_err})"
+                    ))
+                })?;
+            } else {
+                return Err(provider_refusal(format!(
+                    "the API key could not be removed from the OS keychain: {e}"
+                )));
+            }
+        } else if let Some(fallback) = warsha_providers::fallback_store() {
+            let _ = fallback.delete(&name).await;
+        }
         self.state
             .settings
             .delete_provider(&name)

@@ -67,6 +67,50 @@ impl OpenAIProvider {
         Ok(Self { models, ..provider })
     }
 
+    /// Create a new OpenAI-compatible provider using an already-loaded API key
+    pub async fn with_api_key(
+        id: String,
+        kind: ProviderKind,
+        api_base: Option<String>,
+        api_key: String,
+    ) -> Result<Self> {
+        let api_base = api_base.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", api_key))
+                .map_err(|e| ProviderError::Auth(format!("Invalid API key: {}", e)))?,
+        );
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+        let client = Client::builder()
+            .default_headers(headers)
+            .timeout(Duration::from_secs(120))
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        let provider = Self {
+            id: id.clone(),
+            kind,
+            client,
+            api_base,
+            _api_key: api_key,
+            models: Vec::new(),
+        };
+
+        // Fetch models on creation
+        let models = provider.fetch_models().await.unwrap_or_else(|_| {
+            vec![
+                default_model_info(&id, "gpt-4o"),
+                default_model_info(&id, "gpt-4o-mini"),
+                default_model_info(&id, "gpt-4-turbo"),
+            ]
+        });
+
+        Ok(Self { models, ..provider })
+    }
+
     /// Build an OpenAI-compatible provider directly from an [`EnvLlmConfig`] —
     /// its `base_url`, its key and its model — without touching the OS keychain
     /// and without making any network call at construction time.
@@ -454,8 +498,23 @@ fn parse_role(s: &str) -> MessageRole {
 }
 pub async fn load_key(
     credentials: &CredentialsRef,
+    service: &str,
+    account: &str,
+) -> Result<String> {
+    load_key_with_fallback(
+        credentials,
+        service,
+        account,
+        crate::secrets::fallback_store().as_deref(),
+    )
+    .await
+}
+
+pub async fn load_key_with_fallback(
+    credentials: &CredentialsRef,
     _service: &str,
-    _account: &str,
+    account: &str,
+    fallback: Option<&dyn SecretStore>,
 ) -> Result<String> {
     match credentials {
         CredentialsRef::Keychain {
@@ -463,13 +522,14 @@ pub async fn load_key(
             account: acc,
         } => {
             let svc = svc.clone();
-            let acc = acc.clone();
+            let acc_for_keyring = acc.clone();
             let load_task = tokio::task::spawn_blocking(move || {
-                let entry = keyring::Entry::new(&svc, &acc);
+                let entry = keyring::Entry::new(&svc, &acc_for_keyring);
                 entry.get_password()
             });
 
-            match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, load_task).await {
+            let res = match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, load_task).await
+            {
                 Ok(join_res) => match join_res {
                     Ok(Ok(password)) => Ok(password),
                     Ok(Err(e)) => Err(ProviderError::Auth(e.to_string())),
@@ -479,6 +539,18 @@ pub async fn load_key(
                     "keychain timed out after {}s",
                     crate::secrets::KEYCHAIN_TIMEOUT.as_secs()
                 ))),
+            };
+
+            match res {
+                Ok(k) => Ok(k),
+                Err(primary_err) => {
+                    let fallback_account = if !acc.is_empty() { acc } else { account };
+                    if let Some(fb) = fallback {
+                        fb.load(fallback_account).await
+                    } else {
+                        Err(primary_err)
+                    }
+                }
             }
         }
         CredentialsRef::EnvVar { var } => {
@@ -488,12 +560,29 @@ pub async fn load_key(
     }
 }
 
-/// Store API key to keychain
+/// Store API key to keychain, falling back to registered fallback store if keychain fails or times out
 pub async fn store_key(
     credentials: &CredentialsRef,
-    _service: &str,
-    _account: &str,
+    service: &str,
+    account: &str,
     key: &str,
+) -> Result<()> {
+    store_key_with_fallback(
+        credentials,
+        service,
+        account,
+        key,
+        crate::secrets::fallback_store().as_deref(),
+    )
+    .await
+}
+
+pub async fn store_key_with_fallback(
+    credentials: &CredentialsRef,
+    _service: &str,
+    account: &str,
+    key: &str,
+    fallback: Option<&dyn SecretStore>,
 ) -> Result<()> {
     match credentials {
         CredentialsRef::Keychain {
@@ -501,14 +590,15 @@ pub async fn store_key(
             account: acc,
         } => {
             let svc = svc.clone();
-            let acc = acc.clone();
+            let acc_for_keyring = acc.clone();
             let secret = key.to_string();
             let store_task = tokio::task::spawn_blocking(move || {
-                let entry = keyring::Entry::new(&svc, &acc);
+                let entry = keyring::Entry::new(&svc, &acc_for_keyring);
                 entry.set_password(&secret)
             });
 
-            match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, store_task).await {
+            let res = match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, store_task).await
+            {
                 Ok(join_res) => match join_res {
                     Ok(Ok(())) => Ok(()),
                     Ok(Err(e)) => Err(ProviderError::Auth(e.to_string())),
@@ -518,6 +608,18 @@ pub async fn store_key(
                     "keychain timed out after {}s",
                     crate::secrets::KEYCHAIN_TIMEOUT.as_secs()
                 ))),
+            };
+
+            match res {
+                Ok(()) => Ok(()),
+                Err(primary_err) => {
+                    let fallback_account = if !acc.is_empty() { acc } else { account };
+                    if let Some(fb) = fallback {
+                        fb.store(fallback_account, key).await
+                    } else {
+                        Err(primary_err)
+                    }
+                }
             }
         }
         CredentialsRef::EnvVar { .. } => {
@@ -527,27 +629,32 @@ pub async fn store_key(
     }
 }
 
-/// Delete API key from keychain
+/// Delete API key from keychain and registered fallback store
 pub async fn delete_key(credentials: &CredentialsRef) -> Result<()> {
+    delete_key_with_fallback(credentials, crate::secrets::fallback_store().as_deref()).await
+}
+
+pub async fn delete_key_with_fallback(
+    credentials: &CredentialsRef,
+    fallback: Option<&dyn SecretStore>,
+) -> Result<()> {
     match credentials {
         CredentialsRef::Keychain {
             service: svc,
             account: acc,
         } => {
             let svc = svc.clone();
-            let acc = acc.clone();
+            let acc_str = acc.clone();
             let delete_task = tokio::task::spawn_blocking(move || {
-                let entry = keyring::Entry::new(&svc, &acc);
+                let entry = keyring::Entry::new(&svc, &acc_str);
                 let _ = entry.delete_password();
             });
 
-            match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, delete_task).await {
-                Ok(join_res) => match join_res {
-                    Ok(_) => Ok(()),
-                    Err(e) => Err(ProviderError::Auth(format!("keychain task failed: {e}"))),
-                },
-                Err(_) => Ok(()), // deletion is best-effort and idempotent
+            let _ = tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, delete_task).await;
+            if let Some(fb) = fallback {
+                let _ = fb.delete(acc).await;
             }
+            Ok(())
         }
         _ => Ok(()),
     }

@@ -64,6 +64,48 @@ impl AnthropicProvider {
         Ok(provider)
     }
 
+    /// Create a new Anthropic provider using an already-loaded API key
+    pub async fn with_api_key(
+        id: String,
+        api_base: Option<String>,
+        api_key: String,
+    ) -> Result<Self> {
+        let api_base = api_base.unwrap_or_else(|| "https://api.anthropic.com".to_string());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-api-key",
+            HeaderValue::from_str(&api_key)
+                .map_err(|e| ProviderError::Auth(format!("Invalid API key: {}", e)))?,
+        );
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        headers.insert(USER_AGENT, HeaderValue::from_static("warsha/0.1"));
+
+        let client = Client::builder()
+            .default_headers(headers)
+            .timeout(Duration::from_secs(120))
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        let provider = Self {
+            id: id.clone(),
+            client,
+            api_base,
+            _api_key: api_key,
+            models: vec![
+                default_model_info(&id, "claude-3-5-sonnet-20241022"),
+                default_model_info(&id, "claude-3-5-haiku-20241022"),
+                default_model_info(&id, "claude-3-opus-20240229"),
+            ],
+        };
+
+        // Try to fetch models
+        let _ = provider.fetch_models().await;
+
+        Ok(provider)
+    }
+
     async fn fetch_models(&self) -> Result<()> {
         // Anthropic doesn't have a public models endpoint yet
         // Models are hardcoded above

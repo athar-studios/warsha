@@ -135,13 +135,22 @@ pub trait ProviderFactory: Send + Sync + fmt::Debug {
 
 /// The factory the daemon starts with: the OS keychain holds the key, and
 /// `warsha-providers`' own adapters speak the protocol.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct KeychainProviderFactory;
+#[derive(Debug, Clone, Default)]
+pub struct KeychainProviderFactory {
+    secrets: Option<Arc<dyn warsha_providers::SecretStore>>,
+}
 
 impl KeychainProviderFactory {
     /// The daemon's production factory.
     pub fn new() -> Self {
-        Self
+        Self { secrets: None }
+    }
+
+    /// Production factory with an explicit secret store (e.g. FallbackSecretStore).
+    pub fn with_secrets(secrets: Arc<dyn warsha_providers::SecretStore>) -> Self {
+        Self {
+            secrets: Some(secrets),
+        }
     }
 }
 
@@ -163,22 +172,55 @@ impl ProviderFactory for KeychainProviderFactory {
         let credentials = keychain_credentials(&provider.name);
         let id = provider.name.clone();
         let adapter: Box<dyn ChatProvider> = match adapter_kind(&provider.kind) {
-            AdapterKind::OpenAiCompatible => Box::new(
-                OpenAIProvider::new(
-                    id,
-                    adapter_kind(&provider.kind).provider_kind(),
-                    Some(endpoint),
-                    &credentials,
-                    service,
-                )
-                .await
-                .map_err(DaemonError::Provider)?,
-            ),
-            AdapterKind::Anthropic => Box::new(
-                AnthropicProvider::new(id, Some(endpoint), &credentials, service)
-                    .await
-                    .map_err(DaemonError::Provider)?,
-            ),
+            AdapterKind::OpenAiCompatible => {
+                if let Some(secrets) = &self.secrets {
+                    let key = secrets
+                        .load(&provider.name)
+                        .await
+                        .map_err(DaemonError::Provider)?;
+                    Box::new(
+                        OpenAIProvider::with_api_key(
+                            id,
+                            adapter_kind(&provider.kind).provider_kind(),
+                            Some(endpoint),
+                            key,
+                        )
+                        .await
+                        .map_err(DaemonError::Provider)?,
+                    )
+                } else {
+                    Box::new(
+                        OpenAIProvider::new(
+                            id,
+                            adapter_kind(&provider.kind).provider_kind(),
+                            Some(endpoint),
+                            &credentials,
+                            service,
+                        )
+                        .await
+                        .map_err(DaemonError::Provider)?,
+                    )
+                }
+            }
+            AdapterKind::Anthropic => {
+                if let Some(secrets) = &self.secrets {
+                    let key = secrets
+                        .load(&provider.name)
+                        .await
+                        .map_err(DaemonError::Provider)?;
+                    Box::new(
+                        AnthropicProvider::with_api_key(id, Some(endpoint), key)
+                            .await
+                            .map_err(DaemonError::Provider)?,
+                    )
+                } else {
+                    Box::new(
+                        AnthropicProvider::new(id, Some(endpoint), &credentials, service)
+                            .await
+                            .map_err(DaemonError::Provider)?,
+                    )
+                }
+            }
             // A local server needs no key; its own probe answers whether one is
             // there, and `providers.test` is where the owner is told.
             AdapterKind::Ollama => Box::new(
@@ -415,6 +457,7 @@ impl ChatProvider for RemovedProvider {
 #[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use warsha_providers::SecretStore;
 
     fn row(name: &str, kind: &str, api_base: Option<&str>) -> StoredProvider {
         StoredProvider {
@@ -603,5 +646,47 @@ mod tests {
             .expect_err("nothing was built")
             .to_string()
             .contains("has not been reached"));
+    }
+
+    #[derive(Debug)]
+    struct FailingStore;
+
+    #[async_trait]
+    impl warsha_providers::SecretStore for FailingStore {
+        async fn store(&self, _a: &str, _k: &str) -> warsha_providers::Result<()> {
+            Err(warsha_providers::ProviderError::Auth(
+                "keychain locked".into(),
+            ))
+        }
+        async fn load(&self, _a: &str) -> warsha_providers::Result<String> {
+            Err(warsha_providers::ProviderError::Auth(
+                "keychain locked".into(),
+            ))
+        }
+        async fn delete(&self, _a: &str) -> warsha_providers::Result<()> {
+            Err(warsha_providers::ProviderError::Auth(
+                "keychain locked".into(),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn keychain_factory_with_secrets_falls_back_when_keychain_fails() {
+        use warsha_providers::{EncryptedFileSecretStore, FallbackSecretStore};
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fallback = Arc::new(EncryptedFileSecretStore::new(temp.path()).expect("store"));
+        fallback
+            .store("my-qwen", "sk-fallback-qwen-key")
+            .await
+            .expect("store key");
+
+        // Primary fails
+        let primary = Arc::new(FailingStore);
+        let secrets = Arc::new(FallbackSecretStore::new(primary, fallback));
+        let factory = KeychainProviderFactory::with_secrets(secrets);
+
+        let provider = row("my-qwen", "qwen", Some("https://api.openai.com/v1"));
+        let built = factory.build(&provider).await.expect("built via fallback");
+        assert_eq!(built.id(), "my-qwen");
     }
 }

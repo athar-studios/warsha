@@ -26,7 +26,10 @@ pub use anthropic::AnthropicProvider;
 pub use env_llm::EnvLlmConfig;
 pub use fake::{FakeProvider, FAKE_MODEL_ID, FAKE_PROVIDER_ID};
 pub use ollama::OllamaProvider;
-pub use openai::{delete_key, load_key, store_key, OpenAIProvider};
+pub use openai::{
+    delete_key, delete_key_with_fallback, load_key, load_key_with_fallback, store_key,
+    store_key_with_fallback, OpenAIProvider,
+};
 pub use provider_setup::{
     probe_endpoint, probe_models, ConnectionTestResult, OneClickProvider, ProviderSetupWizard,
     PROBE_TIMEOUT,
@@ -38,7 +41,9 @@ pub use provider_update::{
     ProviderUpdatePolicy, SkipReason,
 };
 pub use secrets::{
-    InMemorySecretStore, KeychainSecretStore, SecretStore, PROVIDER_KEYCHAIN_SERVICE,
+    clear_fallback_store, fallback_store, set_fallback_store, EncryptedFileSecretStore,
+    FallbackSecretStore, InMemorySecretStore, KeychainSecretStore, SecretStore, KEYCHAIN_TIMEOUT,
+    PROVIDER_KEYCHAIN_SERVICE, SECRETS_KEY_FILE, SECRETS_MAP_FILE,
 };
 
 #[derive(Error, Debug, Clone)]

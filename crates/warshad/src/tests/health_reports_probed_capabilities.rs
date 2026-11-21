@@ -423,3 +423,102 @@ async fn provider_add_keychain_failure_returns_fast_without_wedging() {
         "providers.list must remain responsive after keychain failure"
     );
 }
+
+#[tokio::test]
+async fn provider_add_and_read_fallback_on_locked_keychain() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = tests::test_state(temp.path()).await;
+
+    let fallback_store = Arc::new(
+        warsha_providers::EncryptedFileSecretStore::new(temp.path())
+            .expect("create fallback store"),
+    );
+    let fallback_secrets = Arc::new(
+        warsha_providers::FallbackSecretStore::new(
+            Arc::new(HungSecretStore),
+            fallback_store.clone(),
+        )
+        .with_primary_timeout(std::time::Duration::from_millis(50)),
+    );
+    warsha_providers::set_fallback_store(fallback_store.clone());
+
+    let state_with_fallback = state_with_secret_store(&state, fallback_secrets);
+    let owner = tests::owner_ext();
+    let rpc = WarshaRpc::new(Arc::new(state_with_fallback));
+
+    let secret_key = "sk-fallback-test-canary-key-999";
+    let start = std::time::Instant::now();
+    let result = rpc
+        .add_provider(
+            &owner,
+            "fallback-canary-provider".to_string(),
+            "custom".to_string(),
+            secret_key.to_string(),
+            Some("https://router.sayl.site/v1".to_string()),
+        )
+        .await;
+    let elapsed = start.elapsed();
+
+    // 1. Must complete promptly without wedging
+    assert!(
+        elapsed < std::time::Duration::from_secs(3),
+        "add_provider must complete promptly when falling back, elapsed {elapsed:?}"
+    );
+    assert!(result.is_ok(), "add_provider must succeed via fallback");
+
+    // 2. Settings row and DeferredProvider registration completed
+    let providers = rpc
+        .state
+        .settings
+        .load_providers()
+        .await
+        .unwrap_or_default();
+    assert!(
+        providers
+            .iter()
+            .any(|p| p.name == "fallback-canary-provider"),
+        "provider row must be written to settings store"
+    );
+
+    // 3. Encrypted file exists and plaintext key is NOT in file
+    let enc_file = temp.path().join("provider-secrets.enc.json");
+    assert!(enc_file.exists(), "encrypted secrets file must exist");
+    let file_content = std::fs::read_to_string(&enc_file).expect("read secrets file");
+    assert!(
+        !file_content.contains(secret_key),
+        "plaintext key must NOT appear in encrypted file"
+    );
+
+    // 4. read-from-fallback: load succeeds from fallback despite hung primary keychain
+    let loaded = rpc
+        .state
+        .secrets
+        .load("fallback-canary-provider")
+        .await
+        .expect("load must succeed from fallback");
+    assert_eq!(loaded, secret_key);
+
+    // 5. providers.test path reads key without "could not be read from OS keychain" error
+    let test_res = rpc
+        .test_provider(&owner, "fallback-canary-provider".to_string(), None)
+        .await;
+    // test_provider may fail at probe_endpoint (no mock server running), but must NOT fail at key read
+    if let Err(err) = test_res {
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("could not be read from the OS keychain"),
+            "test_provider must not fail at key read: {msg}"
+        );
+    }
+
+    // 6. delete semantics: delete removes from fallback, second delete is idempotent
+    let del_res = rpc
+        .remove_provider(&owner, "fallback-canary-provider".to_string())
+        .await;
+    assert!(del_res.is_ok(), "remove_provider succeeds");
+
+    let del_loaded = rpc.state.secrets.load("fallback-canary-provider").await;
+    assert!(del_loaded.is_err(), "key must be gone after delete");
+
+    warsha_providers::clear_fallback_store();
+}
