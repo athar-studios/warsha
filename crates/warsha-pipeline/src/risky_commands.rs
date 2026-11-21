@@ -38,13 +38,15 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "node",
-        argument_pattern: "-e|--eval|-pe|-p|--print|--eval=|--evaluate",
+        argument_pattern:
+            "-e|--eval|-pe|-p|--print|--eval=|--evaluate|--evaluate=|-e=|-p=|-pe=|--print=",
         reason: "Node inline code",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
         program: "nodejs",
-        argument_pattern: "-e|--eval|-pe|-p|--print|--eval=|--evaluate",
+        argument_pattern:
+            "-e|--eval|-pe|-p|--print|--eval=|--evaluate|--evaluate=|-e=|-p=|-pe=|--print=",
         reason: "Node inline code",
         check_arguments_only: true,
     },
@@ -233,6 +235,261 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
         program: "pwsh",
         argument_pattern: "*",
         reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "ash",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "csh",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "tcsh",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "fish",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "ksh",
+        argument_pattern: "*",
+        reason: "Shell",
+        check_arguments_only: false,
+    },
+    // Python toolchain
+    RiskyCommandDefinition {
+        program: "python",
+        argument_pattern: "-c|-m|--command|run|exec",
+        reason: "Python code execution",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "python3",
+        argument_pattern: "-c|-m|--command|run|exec",
+        reason: "Python code execution",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "pip3",
+        argument_pattern: "install|i|ci|add|update|uninstall|download|wheel",
+        reason: "Pip3 package management",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "poetry",
+        argument_pattern: "run|add|install|update|publish|build|shell",
+        reason: "Poetry execution/package management",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "uv",
+        argument_pattern: "run|pip|tool|add|sync|publish|build",
+        reason: "uv execution/package management",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "pipx",
+        argument_pattern: "run|runpip|install|upgrade|inject",
+        reason: "pipx package execution/installation",
+        check_arguments_only: true,
+    },
+    // Ruby toolchain
+    RiskyCommandDefinition {
+        program: "ruby",
+        argument_pattern: "-e|-r|run|exec",
+        reason: "Ruby code execution",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "gem",
+        argument_pattern: "install|i|update|uninstall",
+        reason: "Gem package management",
+        check_arguments_only: true,
+    },
+    // Privilege escalation runners
+    RiskyCommandDefinition {
+        program: "sudo",
+        argument_pattern: "*",
+        reason: "Privilege escalation",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "su",
+        argument_pattern: "*",
+        reason: "Privilege escalation",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "doas",
+        argument_pattern: "*",
+        reason: "Privilege escalation",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "runas",
+        argument_pattern: "*",
+        reason: "Privilege escalation",
+        check_arguments_only: false,
+    },
+    // Container and cloud orchestration
+    RiskyCommandDefinition {
+        program: "docker",
+        argument_pattern: "*",
+        reason: "Container execution",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "podman",
+        argument_pattern: "*",
+        reason: "Container execution",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "kubectl",
+        argument_pattern: "*",
+        reason: "Kubernetes cluster management",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "terraform",
+        argument_pattern: "*",
+        reason: "Infrastructure provisioning",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "ansible",
+        argument_pattern: "*",
+        reason: "Configuration management and execution",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "ansible-playbook",
+        argument_pattern: "*",
+        reason: "Ansible playbook execution",
+        check_arguments_only: false,
+    },
+    // Toolchain management
+    RiskyCommandDefinition {
+        program: "rustup",
+        argument_pattern: "run|toolchain|update|install|default|component",
+        reason: "Rust toolchain management and execution",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "gh",
+        argument_pattern: "*",
+        reason: "GitHub CLI network egress and API calls",
+        check_arguments_only: false,
+    },
+    // Network transfer and socket tools
+    RiskyCommandDefinition {
+        program: "ftp",
+        argument_pattern: "*",
+        reason: "Network egress",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "sftp",
+        argument_pattern: "*",
+        reason: "Network egress",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "rsync",
+        argument_pattern: "*",
+        reason: "Network egress and file sync",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "socat",
+        argument_pattern: "*",
+        reason: "Network socket communication",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "nc",
+        argument_pattern: "*",
+        reason: "Network socket communication",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "ncat",
+        argument_pattern: "*",
+        reason: "Network socket communication",
+        check_arguments_only: false,
+    },
+    // Multi-call shims and wrappers
+    RiskyCommandDefinition {
+        program: "busybox",
+        argument_pattern: "*",
+        reason: "Multi-call binary shim",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "toybox",
+        argument_pattern: "*",
+        reason: "Multi-call binary shim",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "env",
+        argument_pattern: "*",
+        reason: "Environment wrapper / command execution",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "xargs",
+        argument_pattern: "*",
+        reason: "Command execution wrapper",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "find",
+        argument_pattern: "-exec|-execdir|-ok|-okdir",
+        reason: "Find command execution",
+        check_arguments_only: true,
+    },
+    RiskyCommandDefinition {
+        program: "watch",
+        argument_pattern: "*",
+        reason: "Periodic command execution",
+        check_arguments_only: false,
+    },
+    // File permission / ownership modification
+    RiskyCommandDefinition {
+        program: "chmod",
+        argument_pattern: "*",
+        reason: "File permission modification",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "chown",
+        argument_pattern: "*",
+        reason: "File ownership modification",
+        check_arguments_only: false,
+    },
+    // Toolchain execution from DEFAULT_ALLOWED_COMMANDS
+    RiskyCommandDefinition {
+        program: "java",
+        argument_pattern: "*",
+        reason: "Java application execution",
+        check_arguments_only: false,
+    },
+    RiskyCommandDefinition {
+        program: "gradle",
+        argument_pattern: "*",
+        reason: "Gradle build execution",
         check_arguments_only: false,
     },
 ];
