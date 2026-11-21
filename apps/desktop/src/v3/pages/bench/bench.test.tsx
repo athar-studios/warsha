@@ -297,6 +297,29 @@ describe('Advanced Workbench (U4)', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it('BenchRail does NOT show empty-state when runs are displayed (N8 regression)', () => {
+    const proj2: ProjectSummary = {
+      id: 'proj-2' as ProjectId,
+      name: 'مشروع ثان',
+      createdAt: '2026-10-01T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    renderWithProviders(
+      <BenchRail
+        projects={[SAMPLE_PROJECT, proj2]}
+        projectsStatus="ready"
+        runsByProject={{ [SAMPLE_PROJECT.id]: [SAMPLE_RUN] }}
+        activeProjectId="proj-1"
+        activeRunId="run-1"
+        onNewProject={vi.fn()}
+        onSelectRun={vi.fn()}
+        onRetryProjects={vi.fn()}
+      />
+    );
+    expect(screen.getByRole('button', { name: /التشغيل #1/ })).toBeInTheDocument();
+    expect(screen.queryByText('لا توجد تشغيلات لهذا المشروع')).toBeNull();
+  });
+
   it('BenchHeader hides gate pill when pending gate is NOT at current stage (Amendment b)', () => {
     const gates: GateSummary[] = [{ stage: 'gate_a', state: { state: 'pending' } }];
     renderWithProviders(

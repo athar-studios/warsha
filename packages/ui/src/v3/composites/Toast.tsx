@@ -6,11 +6,13 @@ import React from 'react';
 import { IconAlert, IconCheck, IconInfo, IconRefresh, IconX } from '../icons';
 import { Button } from '../primitives/Button';
 import { IconButton } from '../primitives/IconButton';
+import './Toast.css';
 
 export type ToastVariant = 'info' | 'success' | 'attention' | 'danger';
 
 export interface ToastItem {
   id: string;
+  actionId?: string;
   title?: React.ReactNode;
   description?: React.ReactNode;
   variant?: ToastVariant;
@@ -24,10 +26,13 @@ export interface ToastItem {
 
 export interface ToastContextValue {
   toasts: ToastItem[];
-  toast: (options: Omit<ToastItem, 'id'> & { id?: string }) => string;
+  toast: (options: Omit<ToastItem, 'id'> & { id?: string; actionId?: string }) => string;
   dismiss: (id: string) => void;
   clear: () => void;
 }
+
+export const MAX_VISIBLE_TOASTS = 3;
+export const AUTO_DISMISS_DURATION = 5000;
 
 const ToastContext = React.createContext<ToastContextValue | null>(null);
 
@@ -168,13 +173,15 @@ export const Toast: React.FC<ToastProps> = ({
         )}
       </div>
 
-      {dismissLabel && (
+      {(dismissLabel || variant === 'danger') && (
         <IconButton
           icon={<IconX size={16} />}
-          label={dismissLabel}
+          label={dismissLabel || 'Close'}
           variant="ghost"
           size="sm"
           onClick={() => onDismiss(id)}
+          data-action="toast.dismiss"
+          data-testid="toast-dismiss-button"
         />
       )}
     </div>
@@ -190,34 +197,86 @@ export interface ToastProviderProps {
 export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
   const [toasts, setToasts] = React.useState<ToastItem[]>([]);
   const idCounter = React.useRef(0);
+  const timers = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const dismiss = React.useCallback((id: string) => {
+    const existingTimer = timers.current.get(id);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      timers.current.delete(id);
+    }
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const clear = React.useCallback(() => {
+    timers.current.forEach((timer) => clearTimeout(timer));
+    timers.current.clear();
     setToasts([]);
   }, []);
 
+  React.useEffect(() => {
+    const activeTimers = timers.current;
+    return () => {
+      activeTimers.forEach((timer) => clearTimeout(timer));
+      activeTimers.clear();
+    };
+  }, []);
+
   const toast = React.useCallback(
-    (options: Omit<ToastItem, 'id'> & { id?: string }) => {
+    (options: Omit<ToastItem, 'id'> & { id?: string; actionId?: string }) => {
       idCounter.current += 1;
-      const id = options.id ?? `w-toast-${idCounter.current}`;
-      const isError = options.variant === 'danger';
-      const duration = options.duration ?? (isError ? 0 : 5000);
+      const id =
+        options.id ??
+        (options.actionId ? `w-toast-action-${options.actionId}` : `w-toast-${idCounter.current}`);
+      const isError = options.variant === 'danger' || (options.variant as string) === 'error';
+      const variant: ToastVariant = (options.variant as string) === 'error' ? 'danger' : (options.variant ?? 'info');
+      const duration = options.duration ?? (isError ? 0 : AUTO_DISMISS_DURATION);
 
       const newItem: ToastItem = {
         ...options,
         id,
+        variant,
         duration,
       };
 
-      setToasts((prev) => [...prev, newItem]);
+      const existingTimer = timers.current.get(id);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        timers.current.delete(id);
+      }
+
+      setToasts((prev) => {
+        const existingIndex = prev.findIndex(
+          (t) => t.id === id || (Boolean(options.actionId) && t.actionId === options.actionId)
+        );
+
+        let next: ToastItem[];
+        if (existingIndex >= 0) {
+          next = [...prev];
+          next[existingIndex] = newItem;
+        } else {
+          next = [...prev, newItem];
+        }
+
+        if (next.length > MAX_VISIBLE_TOASTS) {
+          const evicted = next.slice(0, next.length - MAX_VISIBLE_TOASTS);
+          for (const item of evicted) {
+            const timer = timers.current.get(item.id);
+            if (timer) {
+              clearTimeout(timer);
+              timers.current.delete(item.id);
+            }
+          }
+          next = next.slice(-MAX_VISIBLE_TOASTS);
+        }
+        return next;
+      });
 
       if (duration > 0) {
-        setTimeout(() => {
+        const timer = setTimeout(() => {
           dismiss(id);
         }, duration);
+        timers.current.set(id, timer);
       }
 
       return id;
@@ -242,19 +301,9 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
         role="region"
         aria-live="polite"
         className="w-toast-container"
-        style={{
-          position: 'fixed',
-          insetBlockEnd: 'var(--w-space-5)',
-          insetInlineEnd: 'var(--w-space-5)',
-          zIndex: 'var(--w-layer-toast)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--w-space-2)',
-          pointerEvents: 'none',
-        }}
       >
         {toasts.map((item) => (
-          <div key={item.id} style={{ pointerEvents: 'auto' }}>
+          <div key={item.id} className="w-toast-wrapper">
             <Toast item={item} onDismiss={dismiss} />
           </div>
         ))}

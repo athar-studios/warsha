@@ -10,10 +10,27 @@ export type ToastListener = (toast: ToastMessage) => void;
 
 const listeners = new Set<ToastListener>();
 
+/**
+ * Strips duplicated HTTP status prefixes composed by daemon wrapper + frontend wrapper (N11).
+ * E.g. "HTTP 400: HTTP 400: {..." -> "HTTP 400: {..."
+ */
+export function stripDuplicateHttpPrefix(message: string): string {
+  if (!message) return message;
+  return message.replace(/^(HTTP\s+\d+:\s*)(?:HTTP\s+\d+:\s*)+/i, '$1');
+}
+
 export function notify(toast: ToastMessage): void {
+  const sanitizedMessage = stripDuplicateHttpPrefix(toast.message);
+  const id =
+    toast.id ??
+    (toast.actionId
+      ? `toast-action-${toast.actionId}`
+      : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+
   const payload: ToastMessage = {
     ...toast,
-    id: toast.id ?? `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id,
+    message: sanitizedMessage,
     timestamp: toast.timestamp ?? Date.now(),
   };
 

@@ -72,6 +72,32 @@
   - `node scripts/ci/i18n-gate.mjs`: exit code 0 (1039 keys, 0 violations).
 - **Status**:
 FIXES COMPLETE — ALL GATES PASSING
+## Run 2026-11-21 — GUI Fix Lane POLISH (N1/N7 Toasts, useHealth Lint, N8 Gate-View, N9 Budgets, N11 Error Duplication)
+- **Scope**: GUI fix lane POLISH in `.agents/worktrees/fix-gui-polish` (base `23c8312`, branch `fix-gui-polish`).
+- **Defects Addressed**:
+  - `useHealth.ts`: Fixed Desktop ESLint `import/order` error by adding a blank line between parent and sibling imports.
+  - N8 Gate/Run View Contradiction: Fixed `BenchRail.tsx` to gate empty state (`bench.rail.empty_runs`) on `totalRuns === 0` across projects, preventing simultaneous active run and empty state display. Added regression test in `bench.test.tsx`.
+  - N9 Budgets Default Row: Fixed `BudgetsSection.tsx` so unoverridden projects with default budget calculate `remaining` truthfully (`effectiveBudget - spent`) rather than showing `$0`. Added test in `BudgetsSection.test.tsx`.
+  - N11 Error Duplication: Fixed `apps/desktop/src/v3/app/toast.ts` with `stripDuplicateHttpPrefix` to eliminate double-wrapped `HTTP <status>:` messages from daemon and frontend. Added tests in `toast.test.ts`.
+  - N1/N7 Toasts: In `packages/ui/src/v3/composites/Toast.tsx` and `Toast.css`, added auto-dismiss timeout (5000ms) for non-error toasts, persistent error toasts with working × dismiss button, toast deduplication and replacement by `id`/`actionId`, stack cap of 3 visible toasts, and container top-end positioning with proper z-index and pointer-events to prevent covering bottom primary buttons. Added comprehensive unit tests in `Toast.test.tsx`.
+- **Verification Gates**:
+  - `pnpm --dir apps/desktop exec tsc --noEmit`: exit code 0 (0 errors).
+  - `pnpm --dir packages/ui exec tsc --noEmit`: exit code 0 (0 errors).
+  - `pnpm --dir apps/desktop exec eslint` on changed files: exit code 0 (0 errors, 0 warnings).
+  - `pnpm --dir packages/ui exec eslint` on changed files: exit code 0 (0 errors, 0 warnings).
+  - `apps/desktop` vitest suites:
+    - `src/v3/app/toast.test.ts`: 4 passed (100%).
+    - `src/v3/data/useHealth.test.ts`: 7 passed (100%).
+    - `src/v3/pages/bench/bench.test.tsx`: 43 passed (100%).
+    - `src/v3/pages/settings/sections/BudgetsSection.test.tsx`: 2 passed (100%).
+    - `src/v3/pages/frame/Frame.test.tsx`: 14 passed (100%).
+    - `src/v3/data/useRuns.test.ts`: 4 passed (100%).
+    - `src/v3/data/useRun.test.ts`: 4 passed (100%).
+    - `src/v3/data/useBudget.test.ts`: 4 passed (100%).
+  - `packages/ui` vitest suites:
+    - `src/v3/composites/Toast.test.tsx`: 6 passed (100%).
+- **Status**:
+FIXES COMPLETE — READY FOR VERIFICATION
 
 ## Run 2026-11-21 — Reconcile fix-r3-ci Uncommitted Lane State into r-next/integration
 - **Scope**: Reconcile uncommitted F3/CI fixes from lane `.agents/worktrees/fix-r3-ci` (detached at `6002ee7`) into `.agents/worktrees/r-next-integration` (branch `r-next/integration`, tip `7899deb`). Re-run all verification gates and record status anew. Local-only: no push, no tag, no publish, main untouched.
