@@ -122,7 +122,21 @@ async fn seed_pairings(settings: &SettingsStore) -> Result<InMemoryPairingStore>
 /// Start the daemon and return a handle for management.
 /// Accepts `http_port` and `ws_port` of 0 to let the OS choose ports.
 pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
-    start_daemon_with_secrets(config, Arc::new(KeychainSecretStore::new())).await
+    let fallback = Arc::new(
+        warsha_providers::EncryptedFileSecretStore::new(&config.data_dir)
+            .map_err(DaemonError::Provider)?,
+    );
+    let secrets = Arc::new(warsha_providers::FallbackSecretStore::new(
+        Arc::new(KeychainSecretStore::new()),
+        fallback.clone(),
+    ));
+    warsha_providers::set_fallback_store(fallback);
+    start_daemon_with_provider_factory(
+        config,
+        secrets.clone(),
+        Arc::new(KeychainProviderFactory::with_secrets(secrets)),
+    )
+    .await
 }
 
 /// Start the daemon with the secret store it should keep provider keys in.
@@ -141,8 +155,12 @@ pub async fn start_daemon_with_secrets(
     config: DaemonConfig,
     secrets: Arc<dyn SecretStore>,
 ) -> Result<DaemonHandle> {
-    start_daemon_with_provider_factory(config, secrets, Arc::new(KeychainProviderFactory::new()))
-        .await
+    start_daemon_with_provider_factory(
+        config,
+        secrets.clone(),
+        Arc::new(KeychainProviderFactory::with_secrets(secrets)),
+    )
+    .await
 }
 
 /// Start the daemon with both of its injectable seams named: where keys live, and
