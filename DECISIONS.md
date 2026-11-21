@@ -2638,7 +2638,7 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
   - `cargo test -p warsha-pipeline --lib`: 546 passed, 0 failed, 7 ignored.
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
 
-## D-R5-APPROVAL-1 — Fix Round-5 Approval Bypasses (R5-H1, R5-H2, R5-H3, R4-M1, R4-M2, R5-L1, R5-L2) (2026-11-21)
+## 2026-11-21 — D-R5-APPROVAL-1: Fix Round-5 Approval Bypasses (R5-H1, R5-H2, R5-H3, R4-M1, R4-M2, R5-L1, R5-L2)
 - **Context & Scope**: Closes whole classes of approval bypasses identified in `/tmp/warsha-round5-2026-11-21.md`:
   - R5-H1: Agent-written git config execution via filesystem tools and command-line bypasses.
   - R5-H2: Node classifier bugs (bare `help` treated as safe; `=` flag skip bypassing attached arguments).
@@ -2691,6 +2691,22 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
   - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: passed (exit 0).
   - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 565 passed, 0 failed, 7 ignored (exit 0).
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit 0).
+
+## 2026-11-21 — D-R5-SHUTDOWN-1: Detached OS Threads for Keyring Operations on Locked Keyring
+
+- **Context & Problem**: Per `/tmp/warsha-round5-2026-11-21.md` §3 R5-M1, the production daemon never exits on SIGTERM when the OS keyring is locked. Root cause: `crates/warsha-providers/src/openai.rs` (`load_key_with_fallback`, `store_key_with_fallback`, `delete_key_with_fallback`) and `crates/warsha-relay/src/lib.rs` (trust load and save) wrapped synchronous `keyring` operations via `tokio::task::spawn_blocking` inside `tokio::time::timeout(KEYCHAIN_TIMEOUT, ...)`. On timeout, the blocking task remained parked on D-Bus inside Tokio's blocking threadpool. At daemon shutdown (SIGTERM) or test runtime drop, Tokio's `Runtime::drop` blocked indefinitely waiting for the parked blocking thread, causing a permanent shutdown hang (140s+ until SIGKILL).
+- **Decision & Architecture**:
+  1. *Detached OS Thread Rendezvous Pattern*: Replaced `spawn_blocking` across all keyring call sites with detached OS threads spawned via `std::thread::Builder::new().name(...).spawn(...)` communicating across a `tokio::sync::oneshot` channel bounded by `KEYCHAIN_TIMEOUT` (2s), adopting the proven precedent from `crates/warshad/src/startup.rs:1151-1188` (`get_github_token_with_getter`).
+  2. *Runtime Drop Isolation*: Because detached OS threads run outside Tokio's blocking threadpool, dropping Tokio's runtime (or process termination on SIGTERM) completes immediately (<0.01s) without waiting for parked D-Bus calls.
+  3. *Call Sites Fixed*:
+     - `crates/warsha-providers/src/openai.rs`: `run_detached_keyring` for `load_key_with_fallback`, `store_key_with_fallback`, and `delete_key_with_fallback`.
+     - `crates/warsha-relay/src/lib.rs`: `run_detached_trust` for `save_trust` and `build_trust`.
+  4. *Regression Tests & Seams*:
+     - Added `detached_keyring_timeout_does_not_hang_runtime_drop` in `crates/warsha-providers/src/openai.rs`.
+     - Added `relay_trust_hang_does_not_block_runtime_drop` in `crates/warsha-relay/src/lib.rs`.
+     - Added `daemon_shutdown_with_hanging_secret_store_completes_within_bound` in `crates/warshad/tests/m1_daemon.rs` injecting a hanging `SecretStore` seam into `start_daemon_with_secrets` to prove clean prompt shutdown without touching the host OS keychain.
+     - Production path verification: `warshad --foreground` verified to start up, time out locked keychain cleanly, serve, and exit with code 0 on SIGTERM in 0.007s without leaking threads.
+- **Constraints Maintained**: No changes to Linux fallback encrypted file store or approval tables; no unwrap in non-test code; no network model calls.
 
 
 
