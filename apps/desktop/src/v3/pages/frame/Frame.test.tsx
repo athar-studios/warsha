@@ -1,17 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { GateSummary, ProjectId, ProjectSummary, RunId, RunSummary, WarshaClient } from '@warsha/client';
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CapabilitiesProvider } from '../../app/CapabilitiesContext';
 import { ClientProvider } from '../../app/ClientContext';
 import { DataReadyProvider } from '../../app/DataReadyContext';
 import { DensityProvider } from '../../app/DensityContext';
 import { clearToastListeners, notify } from '../../app/toast';
 import { RouterProvider } from '../../router';
+import OnboardingPage from '../onboarding';
 
 import { countPendingGatesAtCurrentStage, Frame } from './Frame';
 import { resolveProjectStatus } from './FrameProjectSwitcher';
@@ -490,5 +492,81 @@ describe('Frame component', () => {
     expect(rule).toContain('inset-block-start: 0');
     expect(rule).toContain('z-index: var(--w-layer-sticky)');
     expect(rule).toContain('background-color: var(--w-surface)');
+  });
+
+  it('B2 proving test: chooser updates and lists newly created projects after onboarding startAction completes', async () => {
+    let listProjectsCalls = 0;
+    const client = makeMockClient({
+      listProjects: vi.fn().mockImplementation(async () => {
+        listProjectsCalls++;
+        if (listProjectsCalls === 1) {
+          return [];
+        }
+        return [
+          makeProject('p1', 'Alpha Project'),
+          makeProject('p2', 'Beta Project'),
+        ];
+      }),
+      listProviders: vi.fn().mockResolvedValue([]),
+      listPreferences: vi.fn().mockResolvedValue([]),
+      createProject: vi.fn().mockResolvedValue(makeProject('p1', 'Alpha Project')),
+      startRun: vi.fn().mockResolvedValue(makeRun('r1', 'p1', 'idea', 'running')),
+      setProjectBudget: vi.fn().mockResolvedValue(undefined),
+    });
+
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (cmd: string) => {
+        if (cmd === 'get_config') return 'simple';
+        if (cmd === 'set_config') return undefined;
+        return undefined;
+      },
+      transformCallback: () => 1,
+      unregisterCallback: () => undefined,
+      convertFileSrc: (p: string) => p,
+    };
+
+    window.location.hash = '#/onboarding?step=idea';
+    const { container } = await renderFrame({
+      client,
+      initialPath: '/onboarding?step=idea',
+      locale: 'en',
+      children: (
+        <CapabilitiesProvider client={client}>
+          <OnboardingPage />
+        </CapabilitiesProvider>
+      ),
+    });
+
+    // Initial state: projects.list returned empty array, chooser shows no projects
+    expect(listProjectsCalls).toBe(1);
+    const trigger = container.querySelector('[data-action="frame.project.open"]') as HTMLButtonElement;
+    expect(trigger).not.toBeNull();
+    fireEvent.click(trigger);
+    expect(screen.getByText('No projects found')).toBeDefined();
+    fireEvent.click(trigger);
+
+    // Complete onboarding wizard startAction
+    const ideaInput = screen.getByLabelText(/Your first idea/i);
+    fireEvent.change(ideaInput, { target: { value: 'Alpha Project Idea' } });
+
+    const startBtn = screen.getByTestId('onboarding-start-btn');
+    await act(async () => {
+      fireEvent.click(startBtn);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(client.createProject).toHaveBeenCalled();
+    });
+
+    // After startAction completes, open the chooser: it must now list the projects!
+    fireEvent.click(trigger);
+    const menu = container.querySelector('[role="listbox"]') as HTMLElement;
+    expect(menu).not.toBeNull();
+    await waitFor(() => {
+      expect(within(menu).getByText('Alpha Project')).toBeDefined();
+      expect(within(menu).getByText('Beta Project')).toBeDefined();
+    });
+    expect(within(menu).queryByText('No projects found')).toBeNull();
   });
 });

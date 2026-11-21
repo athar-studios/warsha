@@ -274,6 +274,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
   };
 
   const handleNewProject = (): void => {
+    projectsResult.reload();
     navigate('/');
     if (typeof window !== 'undefined') {
       window.requestAnimationFrame(() => {

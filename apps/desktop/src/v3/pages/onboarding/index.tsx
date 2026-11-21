@@ -23,6 +23,7 @@ import { useClient } from '../../app/ClientContext';
 import { useDataReady } from '../../app/DataReadyContext';
 import { notify } from '../../app/toast';
 import { usePreferences, useProviders } from '../../data';
+import { reloadAllProjects } from '../../data/useProjects';
 import { useNavigate } from '../../router';
 
 import './onboarding.css';
@@ -445,6 +446,7 @@ export default function OnboardingPage(): React.ReactElement {
     try {
       const projectName = deriveProjectName(trimmed);
       const project = await client.createProject(projectName, trimmed, locale);
+      reloadAllProjects();
       await client.startRun(project.id, trimmed);
 
       let budgetUsd = defaultBudget;
