@@ -21,7 +21,8 @@ import { useAction } from '../../actions';
 import { useCapabilities, useReloadCapabilities } from '../../app/CapabilitiesContext';
 import { useClient } from '../../app/ClientContext';
 import { useDataReady } from '../../app/DataReadyContext';
-import { useProviders } from '../../data';
+import { notify } from '../../app/toast';
+import { usePreferences, useProviders } from '../../data';
 import { useNavigate } from '../../router';
 
 import './onboarding.css';
@@ -107,6 +108,16 @@ export function deriveProjectName(idea: string): string {
   return (firstLine.slice(0, 60).trim() || trimmed.slice(0, 60)).trim();
 }
 
+export function findDefaultBudget(
+  preferences: readonly { key: string; score: number }[] | null | undefined
+): number {
+  if (!preferences || preferences.length === 0) return 10;
+  const pref = preferences.find((p) => p.key === 'default_budget_usd');
+  if (!pref) return 10;
+  const val = Number(pref.score);
+  return Number.isFinite(val) && val > 0 ? val : 10;
+}
+
 function readInitialStep(): OnboardingStep {
   if (typeof window === 'undefined') return 'language';
   const hash = window.location.hash;
@@ -138,6 +149,11 @@ export default function OnboardingPage(): React.ReactElement {
   const capabilities = useCapabilities();
   const reloadCapabilities = useReloadCapabilities();
   const providersResult = useProviders();
+  const preferencesResult = usePreferences('*');
+
+  const defaultBudget = useMemo(() => {
+    return findDefaultBudget(preferencesResult.data);
+  }, [preferencesResult.data]);
 
   const [step, setStep] = useState<OnboardingStep>(readInitialStep);
   const [selectedKind, setSelectedKind] = useState<string>('deep_seek');
@@ -429,6 +445,28 @@ export default function OnboardingPage(): React.ReactElement {
       const projectName = deriveProjectName(trimmed);
       const project = await client.createProject(projectName, trimmed, locale);
       await client.startRun(project.id, trimmed);
+
+      let budgetUsd = defaultBudget;
+      if ((!preferencesResult.data || preferencesResult.data.length === 0) && client) {
+        try {
+          const directPrefs = await client.listPreferences('*');
+          budgetUsd = findDefaultBudget(directPrefs);
+        } catch {
+          // Fall back to defaultBudget (defaults to 10)
+        }
+      }
+      const budgetCents = Math.round(Number(budgetUsd) * 100);
+
+      try {
+        await client.setProjectBudget(project.id, budgetCents);
+      } catch (budgetErr) {
+        console.warn('Failed to set initial project budget:', budgetErr);
+        notify({
+          type: 'warning',
+          message: t('onboarding.error_title'),
+        });
+      }
+
       await markOnboardingComplete();
       navigate(`/p/${project.id}`);
     } catch (err) {
