@@ -510,6 +510,45 @@ pub async fn load_key(
     .await
 }
 
+/// Run a synchronous keyring operation on a detached OS thread with timeout rendezvous.
+///
+/// Spawning on a detached `std::thread` instead of `tokio::task::spawn_blocking`
+/// prevents hanging Tokio's runtime drop on shutdown (R5-M1) when the OS keyring
+/// is locked and blocks indefinitely on D-Bus.
+async fn run_detached_keyring<T, F>(f: F, timeout: Duration, op_name: &str) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> std::result::Result<T, keyring::Error> + Send + 'static,
+{
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let thread_spawn = std::thread::Builder::new()
+        .name(format!("warsha-keyring-{op_name}"))
+        .spawn(move || {
+            let res = f();
+            let _ = tx.send(res);
+        });
+
+    if let Err(e) = thread_spawn {
+        return Err(ProviderError::Auth(format!(
+            "failed to spawn thread for keychain {op_name}: {e}"
+        )));
+    }
+
+    match tokio::time::timeout(timeout, rx).await {
+        Ok(recv_res) => match recv_res {
+            Ok(Ok(val)) => Ok(val),
+            Ok(Err(keyring_err)) => Err(ProviderError::Auth(keyring_err.to_string())),
+            Err(_) => Err(ProviderError::Auth(format!(
+                "keychain {op_name} thread exited without sending result"
+            ))),
+        },
+        Err(_) => Err(ProviderError::Auth(format!(
+            "keychain timed out after {}s",
+            timeout.as_secs()
+        ))),
+    }
+}
+
 pub async fn load_key_with_fallback(
     credentials: &CredentialsRef,
     _service: &str,
@@ -523,23 +562,15 @@ pub async fn load_key_with_fallback(
         } => {
             let svc = svc.clone();
             let acc_for_keyring = acc.clone();
-            let load_task = tokio::task::spawn_blocking(move || {
-                let entry = keyring::Entry::new(&svc, &acc_for_keyring);
-                entry.get_password()
-            });
-
-            let res = match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, load_task).await
-            {
-                Ok(join_res) => match join_res {
-                    Ok(Ok(password)) => Ok(password),
-                    Ok(Err(e)) => Err(ProviderError::Auth(e.to_string())),
-                    Err(e) => Err(ProviderError::Auth(format!("keychain task failed: {e}"))),
+            let res = run_detached_keyring(
+                move || {
+                    let entry = keyring::Entry::new(&svc, &acc_for_keyring);
+                    entry.get_password()
                 },
-                Err(_) => Err(ProviderError::Auth(format!(
-                    "keychain timed out after {}s",
-                    crate::secrets::KEYCHAIN_TIMEOUT.as_secs()
-                ))),
-            };
+                crate::secrets::KEYCHAIN_TIMEOUT,
+                "get",
+            )
+            .await;
 
             match res {
                 Ok(k) => Ok(k),
@@ -592,23 +623,15 @@ pub async fn store_key_with_fallback(
             let svc = svc.clone();
             let acc_for_keyring = acc.clone();
             let secret = key.to_string();
-            let store_task = tokio::task::spawn_blocking(move || {
-                let entry = keyring::Entry::new(&svc, &acc_for_keyring);
-                entry.set_password(&secret)
-            });
-
-            let res = match tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, store_task).await
-            {
-                Ok(join_res) => match join_res {
-                    Ok(Ok(())) => Ok(()),
-                    Ok(Err(e)) => Err(ProviderError::Auth(e.to_string())),
-                    Err(e) => Err(ProviderError::Auth(format!("keychain task failed: {e}"))),
+            let res = run_detached_keyring(
+                move || {
+                    let entry = keyring::Entry::new(&svc, &acc_for_keyring);
+                    entry.set_password(&secret)
                 },
-                Err(_) => Err(ProviderError::Auth(format!(
-                    "keychain timed out after {}s",
-                    crate::secrets::KEYCHAIN_TIMEOUT.as_secs()
-                ))),
-            };
+                crate::secrets::KEYCHAIN_TIMEOUT,
+                "set",
+            )
+            .await;
 
             match res {
                 Ok(()) => Ok(()),
@@ -645,12 +668,15 @@ pub async fn delete_key_with_fallback(
         } => {
             let svc = svc.clone();
             let acc_str = acc.clone();
-            let delete_task = tokio::task::spawn_blocking(move || {
-                let entry = keyring::Entry::new(&svc, &acc_str);
-                let _ = entry.delete_password();
-            });
-
-            let _ = tokio::time::timeout(crate::secrets::KEYCHAIN_TIMEOUT, delete_task).await;
+            let _ = run_detached_keyring(
+                move || {
+                    let entry = keyring::Entry::new(&svc, &acc_str);
+                    entry.delete_password()
+                },
+                crate::secrets::KEYCHAIN_TIMEOUT,
+                "delete",
+            )
+            .await;
             if let Some(fb) = fallback {
                 let _ = fb.delete(acc).await;
             }
@@ -748,5 +774,23 @@ mod tests {
         .expect("a key completes the config");
         assert_eq!(provider.api_base, "https://router.test/v1");
         assert_eq!(provider.models[0].id, "some/model");
+    }
+
+    /// Regression test for R5-M1: detached keyring calls must time out cleanly
+    /// without hanging Tokio runtime drop (as `spawn_blocking` did when parked on D-Bus).
+    #[tokio::test]
+    async fn detached_keyring_timeout_does_not_hang_runtime_drop() {
+        let start = std::time::Instant::now();
+        let res = run_detached_keyring(
+            || {
+                std::thread::sleep(Duration::from_secs(60));
+                Ok("password".to_string())
+            },
+            Duration::from_millis(50),
+            "test_hang",
+        )
+        .await;
+        assert!(res.is_err(), "hanging keyring call must time out");
+        assert!(start.elapsed() < Duration::from_secs(2));
     }
 }

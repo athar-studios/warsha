@@ -1,5 +1,21 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Round-5 M1 fix production SIGTERM shutdown hang on locked keyring (D-R5-SHUTDOWN-1)
+- **Scope**: Fix R5-M1 production daemon SIGTERM shutdown hang on locked keyring. Replaced `tokio::task::spawn_blocking` keyring calls in `crates/warsha-providers/src/openai.rs` and `crates/warsha-relay/src/lib.rs` with detached OS threads (`std::thread::Builder::new().name(...).spawn(...)`) + `tokio::sync::oneshot` channel rendezvous + `tokio::time::timeout`. Detached threads run outside Tokio's threadpool so runtime drop on shutdown never waits for parked D-Bus calls. Added regression tests proving clean runtime drop on timeout/shutdown without touching host keychain.
+- **Changes**:
+  - `crates/warsha-providers/src/openai.rs`: replaced `spawn_blocking` in `load_key_with_fallback`, `store_key_with_fallback`, and `delete_key_with_fallback` with `run_detached_keyring`. Added unit test `detached_keyring_timeout_does_not_hang_runtime_drop`.
+  - `crates/warsha-relay/src/lib.rs`: replaced `spawn_blocking` in `run_relay_with_trust_source` (`save_trust` and `build_trust`) with `run_detached_trust`. Added regression test `relay_trust_hang_does_not_block_runtime_drop`.
+  - `crates/warshad/tests/m1_daemon.rs`: added regression test `daemon_shutdown_with_hanging_secret_store_completes_within_bound` using an injected hanging `SecretStore` to prove shutdown finishes in <5s without blocking runtime teardown.
+  - `DECISIONS.md`: appended entry `D-R5-SHUTDOWN-1`.
+- **Verification Matrix**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-providers -p warsha-relay -p warshad --all-targets -- -D warnings`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-relay --lib`: 20 passed; 0 failed.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --test m1_daemon --test events_ws_auth --test security_identity --test security_rate_limits --test static_serving`: 41 passed; 0 failed (events_ws_auth: 13, m1_daemon: 5, security_identity: 6, security_rate_limits: 10, static_serving: 7).
+  - `node scripts/check-engineering-policy.mjs`: policy: 8 checks, 0 failures.
+  - Production binary verification (`target/debug/warshad --foreground` with locked keychain): started, served, received SIGTERM, and exited in 0.007s with code 0 (no hang).
+- **Status**: COMPLETE — Local-only worktree fix-r5-shutdown.
+
 ## Run 2026-11-21 — Round-4b (H1/H2 sibling bypass + H3 suite hangs) merges into r-next/integration
 - **Scope**: Round-4 follow-up fixing the 3 Codex NOT CLEAR HIGHs: H1 sibling forms still executing (node extensionless/evil.txt/dot/--test, java Evil.java, npm restart/stop, .git/config fsmonitor/alias), H2 missing rows (dotnet test, composer exec/run-script, gradle build, cargo bench), H3 8 daemon/network suites hanging on locked keychain. Branches `fix-r4b-approval-lane` + `fix-r4b-hang-lane` merged into `r-next/integration`. Local-only: no push, no tag, no publish, main untouched.
 - **Changes**:
