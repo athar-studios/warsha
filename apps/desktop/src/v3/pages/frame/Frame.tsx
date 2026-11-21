@@ -78,7 +78,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
   const client = useClient();
   const reloadClient = useReloadClient();
   const navigate = useNavigate();
-  const { params } = useRoute();
+  const { params, area } = useRoute();
 
   const projectsResult = useProjects();
   const healthResult = useHealth();
@@ -107,6 +107,17 @@ export function Frame({ children }: FrameProps): React.ReactElement {
       // Ignore invoke failure
     }
   }, [setMode]);
+
+  // Keep mode in sync when route changes to a mode-specific area
+  useEffect(() => {
+    if (area === 'factory' && mode !== 'factory') {
+      setMode('factory');
+    } else if (area === 'developers' && mode !== 'developers') {
+      setMode('developers');
+    } else if (area === 'home' && mode !== 'simple') {
+      setMode('simple');
+    }
+  }, [area, mode, setMode]);
 
   // Load runs and count inbox decisions across all projects
   useEffect(() => {
@@ -198,8 +209,15 @@ export function Frame({ children }: FrameProps): React.ReactElement {
       } catch {
         // Ignore in non-Tauri / test environments
       }
+      if (nextMode === 'factory') {
+        navigate('/factory');
+      } else if (nextMode === 'developers') {
+        navigate('/developers');
+      } else {
+        navigate('/');
+      }
     },
-    [setMode]
+    [setMode, navigate]
   );
 
   const handleModeKeyDown = useCallback(
@@ -224,7 +242,9 @@ export function Frame({ children }: FrameProps): React.ReactElement {
         handleSwitchMode(next);
         const group = e.currentTarget.parentElement;
         const nextAction = next === 'developers' ? 'frame.mode.advanced' : `frame.mode.${next}`;
-        const target = group?.querySelector<HTMLButtonElement>(`[data-action="${nextAction}"]`);
+        const target = group?.querySelector<HTMLButtonElement>(
+          `[data-action="${nextAction}"], [data-action="frame.mode.${next}"]`
+        );
         target?.focus();
       }
     },

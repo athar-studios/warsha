@@ -18,6 +18,24 @@
   - `pnpm --dir apps/desktop exec tsc --noEmit`: exit code 0 (0 errors).
   - `pnpm --dir apps/desktop exec eslint src/v3/data/useProjects.ts src/v3/pages/home/Home.test.tsx src/v3/pages/home/index.tsx`: exit code 0 (0 errors).
   - `pnpm --dir apps/desktop exec vitest run src/v3/pages/home src/v3/data/useProjects.test.ts`: exit code 0 (3 test files passed, 23 tests passed).
+## Run 2026-11-21 — GUI fix lane NAV (G2/N4, N10, N6)
+- **Scope**: Fix lane NAV on branch `fix-gui-nav` in `.agents/worktrees/fix-gui-nav`. Addressed G2/N4 dead routes (`/factory` and `/developers`), N10 run-view mode switching departure, and N6 sticky app toolbar.
+- **Changes**:
+  - `apps/desktop/src/v3/pages/frame/Frame.tsx`:
+    - `handleSwitchMode` navigates to `/` (`simple`), `/factory` (`factory`), and `/developers` (`developers`).
+    - Syncs `mode` with `area` on `/factory`, `/developers`, and `/`.
+    - Handles keyboard action mapping selector consistency for `advanced` / `developers`.
+  - `apps/desktop/src/v3/pages/frame/frame.css`:
+    - Styled `.w-app-frame__header` with `position: sticky; top: 0; inset-block-start: 0; z-index: var(--w-layer-sticky); background-color: var(--w-surface);`.
+  - `apps/desktop/src/v3/pages/frame/Frame.test.tsx`:
+    - Added proving tests for G2/N4 mode-tab navigation, N10 run-view departure, keyboard navigation consistency, route-mode synchronization, and N6 sticky toolbar header styling.
+- **Verification Gates**:
+  - `pnpm --dir apps/desktop exec tsc --noEmit`: exit code 0 (0 errors).
+  - `pnpm --dir apps/desktop exec eslint` on changed files: exit code 0 (0 errors).
+  - `node scripts/check-ds-v3.mjs apps/desktop/src/v3/pages/frame`: exit code 0 (0 violations).
+  - `node scripts/check-arch.mjs`: exit code 0 (5 rules, 0 violations).
+  - `vitest run src/v3/pages/frame src/v3/router src/v3/app`: exit code 0 (7 test files, 61 passed, 0 failed).
+- **Status**: COMPLETE
 
 ## Run 2026-11-21 — Reconcile fix-r3-ci Uncommitted Lane State into r-next/integration
 - **Scope**: Reconcile uncommitted F3/CI fixes from lane `.agents/worktrees/fix-r3-ci` (detached at `6002ee7`) into `.agents/worktrees/r-next-integration` (branch `r-next/integration`, tip `7899deb`). Re-run all verification gates and record status anew. Local-only: no push, no tag, no publish, main untouched.
