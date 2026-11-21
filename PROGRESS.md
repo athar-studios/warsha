@@ -1,5 +1,25 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — GUI Retest Fix Verification (N2 + G2b + Keyring + Minors in r-next/integration)
+- **Scope**: Verify merged tip with all four retest lanes + record key-clear coverage. Local-only: no push, no tag, no publish, main untouched.
+- **Merges**: `5f4d495` wizard (N2), `251fff8` inbox (G2b), `85ba245` keyring (N-1/N-2/N-3), `196470c` minors.
+- **Key-clear-after-success**: `apps/desktop/src/v3/pages/onboarding/index.tsx:352-353` already empties the key field only after successful `testProvider`; line 367 preserves the key on failure. No new lane needed.
+- **Gate Matrix (merged tip `196470c`)**:
+  - `cargo fmt --all -- --check`: exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0.
+  - `cargo test -p warshad --lib`: 307 passed, 0 failed, 4 ignored (incl. keyring hang proving tests).
+  - `cargo test -p warsha-providers --lib`: 61 passed; `--test failover`: 5 passed.
+  - `tsc --noEmit -p apps/desktop/tsconfig.json`: exit 0.
+  - `eslint` on touched GUI files: exit 0.
+  - Desktop vitest (onboarding/inbox/frame/developers/ModelsSection): 87/87 passed.
+  - UI vitest (Toast/Banner): 10/10 passed.
+  - `check-engineering-policy.mjs`: 8 checks, 0 failures.
+  - `actions-gate.mjs`: 194 registered, 194 used, 0 violations.
+  - `i18n-gate.mjs`: 1040 keys, 0 violations.
+  - `check-arch.mjs`: 5 rules, 0 violations. `check-versions.mjs`: aligned. `check-wire-contract.mjs`: 11 checks, 0 violations.
+  - `cargo deny check`: only standing owner-accepted RUSTSEC-2026-0543 (chrono 0.4.45, unmaintained, upgrade impossible, per D-RN-OD-CHRONO).
+- **Status**: FIXES COMPLETE — AWAITING CLAUDE VERIFICATION.
+
 ## Run 2026-11-21 — Fix N2 wizard-run-vanishes (Windows BLOCKER) in Warsha 0.3.0
 - **Scope**: Fix onboarding wizard startAction in `apps/desktop/src/v3/pages/onboarding/index.tsx`, colocated tests `Onboarding.test.tsx`, and `apps/desktop/e2e/v3/onboarding.spec.ts` in worktree `.agents/worktrees/fix-retest-wizard` (branch `fix-retest-wizard`). Local-only: no push, no tag, no publish, main untouched.
 - **Problem**: Wizard startAction invoked `createProject -> startRun` with no `budget.set`, causing projects created from wizard to show "$0.00 of $0.00" on the project page and daemon `budget.show` to report "No runs found" (N2 wizard-run-vanishes).
