@@ -258,7 +258,7 @@ describe('HomePage', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls projects.create -> budget.set -> runs.start IN THAT EXACT ORDER on home.start', async () => {
+  it('calls projects.create -> runs.start -> budget.set IN THAT EXACT ORDER on home.start', async () => {
     const callOrder: string[] = [];
     const client = makeMockClient({
       createProject: vi.fn().mockImplementation(async (name: string, desc: string, lang: string) => {
@@ -308,9 +308,99 @@ describe('HomePage', () => {
 
     expect(callOrder).toEqual([
       'projects.create:متجر كتب إلكتروني:ar',
-      'budget.set:proj-seq:2500',
       'runs.start:proj-seq:true',
+      'budget.set:proj-seq:2500',
     ]);
+  });
+
+  it('succeeds on first run for brand-new project: runs.start executes and projects list reloads', async () => {
+    let listCount = 0;
+    const startRunMock = vi.fn().mockResolvedValue({
+      id: 'run-new' as RunId,
+      projectId: 'proj-first' as ProjectId,
+      stage: 'idea',
+      status: 'running',
+      runMode: 'agent',
+      startedAt: '2026-10-05T08:00:00.000Z',
+      updatedAt: '2026-10-05T08:00:00.000Z',
+    });
+
+    const client = makeMockClient({
+      listProjects: vi.fn().mockImplementation(async () => {
+        listCount++;
+        if (listCount === 1) return [];
+        return [
+          {
+            id: 'proj-first' as ProjectId,
+            name: 'مشروع جديد',
+            createdAt: '2026-10-05T08:00:00.000Z',
+            updatedAt: '2026-10-05T08:00:00.000Z',
+          },
+        ];
+      }),
+      createProject: vi.fn().mockResolvedValue({
+        id: 'proj-first' as ProjectId,
+        name: 'مشروع جديد',
+        createdAt: '2026-10-05T08:00:00.000Z',
+        updatedAt: '2026-10-05T08:00:00.000Z',
+      }),
+      startRun: startRunMock,
+      setProjectBudget: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await renderHome({ client, locale: 'ar' });
+    expect(listCount).toBe(1);
+
+    const input = document.getElementById('home-idea-input') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'فكرة مشروع جديد بدون جولات سابقة' } });
+
+    const startBtn = screen.getByTestId('home-start-button');
+    await act(async () => {
+      fireEvent.click(startBtn);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('route-inspector').textContent).toBe('/p/proj-first');
+    });
+
+    // Proves N2 fix: runs.start was reached and executed on the brand new project without error
+    expect(startRunMock).toHaveBeenCalledWith('proj-first', expect.stringContaining('فكرة مشروع جديد'));
+    // Proves N3 fix: project list was reloaded after createProject
+    expect(listCount).toBeGreaterThan(1);
+  });
+
+  it('reloads project list on home.interview.start after project creation', async () => {
+    let listCount = 0;
+    const client = makeMockClient({
+      listProjects: vi.fn().mockImplementation(async () => {
+        listCount++;
+        return [];
+      }),
+      createProject: vi.fn().mockResolvedValue({
+        id: 'proj-interview' as ProjectId,
+        name: 'مشروع المقابلة',
+        createdAt: '2026-10-05T08:00:00.000Z',
+        updatedAt: '2026-10-05T08:00:00.000Z',
+      }),
+      interviewStart: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await renderHome({ client, locale: 'ar' });
+    expect(listCount).toBe(1);
+
+    const input = document.getElementById('home-idea-input') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'فكرة تحتاج مقابلة متعمقة' } });
+
+    const interviewBtn = screen.getByTestId('home-interview-button');
+    await act(async () => {
+      fireEvent.click(interviewBtn);
+      await Promise.resolve();
+    });
+
+    expect(client.createProject).toHaveBeenCalled();
+    expect(client.interviewStart).toHaveBeenCalledWith('proj-interview', expect.stringContaining('فكرة تحتاج'));
+    expect(listCount).toBeGreaterThan(1);
   });
 
   it('fills composer when clicking starter example chips (home.example.use)', async () => {

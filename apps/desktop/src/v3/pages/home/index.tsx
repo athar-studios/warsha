@@ -509,10 +509,11 @@ export default function HomePage(): React.ReactElement {
     if (!client) throw new Error(t('common.error'));
     const projectName = deriveProjectName(idea.trim());
     const project = await client.createProject(projectName, idea.trim(), locale);
+    projectsResult.reload();
     await client.interviewStart(project.id, idea.trim());
   });
   // Action: home.start
-  // MUST call projects.create -> budget.set -> runs.start IN THAT ORDER
+  // MUST call projects.create -> runs.start -> budget.set IN THAT ORDER
   const startAction = useAction('home.start', async () => {
     if (!client) {
       throw new Error(t('common.error'));
@@ -526,12 +527,13 @@ export default function HomePage(): React.ReactElement {
 
     // 1. projects.create
     const project = await client.createProject(projectName, trimmedIdea, locale);
+    projectsResult.reload();
 
-    // 2. budget.set
-    await client.setProjectBudget(project.id, budgetCents);
-
-    // 3. runs.start
+    // 2. runs.start
     await client.startRun(project.id, trimmedIdea);
+
+    // 3. budget.set
+    await client.setProjectBudget(project.id, budgetCents);
 
     // Navigate to /p/:id
     navigate(`/p/${project.id}`);
@@ -829,6 +831,7 @@ export default function HomePage(): React.ReactElement {
                   loading={startInterviewAction.pending}
                   onClick={() => startInterviewAction.run()}
                   data-action="home.interview.start"
+                  data-testid="home-interview-button"
                 >
                   {t('home.interview_start')}
                 </Button>

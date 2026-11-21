@@ -136,6 +136,10 @@ pub(crate) use runtime::{
 };
 // --- end P-H1 A7 ---
 
+/// In-memory pending budget store for projects before any run has been created (N2 fix).
+static PENDING_PROJECT_BUDGETS: std::sync::LazyLock<std::sync::RwLock<HashMap<ProjectId, u64>>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(HashMap::new()));
+
 #[async_trait]
 impl WarshaApiServer for WarshaRpc {
     async fn health(&self, ext: &RpcExtensions) -> RpcResult<HealthResponse> {
@@ -570,6 +574,25 @@ impl WarshaApiServer for WarshaRpc {
         if run.run_mode == warsha_core::RunMode::Plan
             || run.run_mode == warsha_core::RunMode::SpecFile
         {
+            let pending_budget = match PENDING_PROJECT_BUDGETS.write() {
+                Ok(mut pending) => pending.remove(&project_id),
+                Err(poisoned) => poisoned.into_inner().remove(&project_id),
+            };
+            if let Some(cents) = pending_budget {
+                match self.state.pipeline.set_run_budget(run.id, cents).await {
+                    Ok(updated) => {
+                        run = updated;
+                    }
+                    Err(e) => {
+                        warn!(
+                            run_id = %run.id.0,
+                            project_id = %project_id.0,
+                            error = %e,
+                            "failed to apply pending project budget to newly created run"
+                        );
+                    }
+                }
+            }
             return Ok(run);
         }
 
@@ -709,6 +732,26 @@ impl WarshaApiServer for WarshaRpc {
             .is_err()
         {
             warn!(run_id = %run.id.0, "the run already had an agent session");
+        }
+
+        let pending_budget = match PENDING_PROJECT_BUDGETS.write() {
+            Ok(mut pending) => pending.remove(&project_id),
+            Err(poisoned) => poisoned.into_inner().remove(&project_id),
+        };
+        if let Some(cents) = pending_budget {
+            match self.state.pipeline.set_run_budget(run.id, cents).await {
+                Ok(updated) => {
+                    run = updated;
+                }
+                Err(e) => {
+                    warn!(
+                        run_id = %run.id.0,
+                        project_id = %project_id.0,
+                        error = %e,
+                        "failed to apply pending project budget to newly created run"
+                    );
+                }
+            }
         }
 
         Ok(run)
@@ -1927,21 +1970,36 @@ impl WarshaApiServer for WarshaRpc {
         project_id: ProjectId,
     ) -> RpcResult<BudgetStatus> {
         self.authorize(ext, "budget.show").await?;
+        self.state
+            .store
+            .get_project(project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
         let runs = self
             .state
             .store
             .list_runs(project_id)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
-        let run = runs
-            .first()
-            .ok_or_else(|| ErrorObject::owned(-32000, "No runs found for project", None::<()>))?;
-        Ok(BudgetStatus {
-            project_id,
-            budget_cents: run.budget_cents,
-            spent_cents: run.spent_cents,
-            remaining_cents: run.budget_cents.map(|b| b.saturating_sub(run.spent_cents)),
-        })
+        if let Some(run) = runs.first() {
+            Ok(BudgetStatus {
+                project_id,
+                budget_cents: run.budget_cents,
+                spent_cents: run.spent_cents,
+                remaining_cents: run.budget_cents.map(|b| b.saturating_sub(run.spent_cents)),
+            })
+        } else {
+            let pending_cents = PENDING_PROJECT_BUDGETS
+                .read()
+                .ok()
+                .and_then(|p| p.get(&project_id).copied());
+            Ok(BudgetStatus {
+                project_id,
+                budget_cents: pending_cents,
+                spent_cents: 0,
+                remaining_cents: pending_cents,
+            })
+        }
     }
 
     async fn set_budget(
@@ -1951,20 +2009,29 @@ impl WarshaApiServer for WarshaRpc {
         cents: u64,
     ) -> RpcResult<()> {
         self.authorize(ext, "budget.set").await?;
+        self.state
+            .store
+            .get_project(project_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
         let runs = self
             .state
             .store
             .list_runs(project_id)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
-        let run = runs
-            .first()
-            .ok_or_else(|| ErrorObject::owned(-32000, "No runs found for project", None::<()>))?;
-        self.state
-            .pipeline
-            .set_run_budget(run.id, cents)
-            .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        if let Some(run) = runs.first() {
+            self.state
+                .pipeline
+                .set_run_budget(run.id, cents)
+                .await
+                .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+            if let Ok(mut pending) = PENDING_PROJECT_BUDGETS.write() {
+                pending.remove(&project_id);
+            }
+        } else if let Ok(mut pending) = PENDING_PROJECT_BUDGETS.write() {
+            pending.insert(project_id, cents);
+        }
         Ok(())
     }
 
