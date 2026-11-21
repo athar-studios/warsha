@@ -1,4 +1,15 @@
 
+## 2026-11-21 — D-GUI-INBOX-BACK-1: Explicit home exit on /inbox (G2/N4 follow-up)
+- **Decision**: Added `inbox.back` nav action (`effect: nav`, `route: /`) in `apps/desktop/src/v3/actions/registry/inbox.ts`, `inbox.back` ar/en keys (`Back to home` / `رجوع للرئيسية`), and a header `Button` (`data-action="inbox.back"`, `data-testid="inbox-back-button"`) on both the ready and empty states of `apps/desktop/src/v3/pages/inbox/index.tsx` that calls `navigate('/')`. The frame header icon only navigated *to* `/inbox`; with mode tabs now navigating away (D-GUI-NAV-1) plus this explicit back control, the inbox is no longer a one-way trap.
+- **Reason**: Follow-up review of report G2/N4 found the inbox route still had no explicit back/close control; N10 (run-view departure) is covered by D-GUI-NAV-1 mode navigation, but the inbox specifically needed its own exit.
+- **Proving tests**: `Inbox.test.tsx` new case (back button present with `inbox.back` action in both states, click navigates to `#/`); `inbox.spec.ts` new e2e (`inbox.back` navigates `#/inbox` -> `#/`). Unit run 25/25.
+- **Record**: `apps/desktop/src/v3/actions/registry/inbox.ts`, `apps/desktop/src/v3/pages/inbox/index.tsx`, `apps/desktop/src/v3/pages/inbox/Inbox.test.tsx`, `apps/desktop/e2e/v3/inbox.spec.ts`, `packages/i18n/src/v3/{en,ar}/inbox.ts`.
+
+## 2026-11-21 — D-RN-OD-CHRONO-ACCEPT-TEMP: Owner accepts failing cargo deny on chrono RUSTSEC-2026-0543 until replacement
+- **Decision**: Per owner decision dated 2026-11-21, the failing `cargo deny` advisory gate on `RUSTSEC-2026-0543` (chrono 0.4.45 unmaintained, all versions affected, no safe upgrade) is accepted as temporary owner-approved debt until a chrono replacement migration (171 call sites, 70 files, 8 crates) is scheduled later. No `ignore` entry for `RUSTSEC-2026-0543` is added to `deny.toml`; the gate stays red as-is. The expected `cargo deny` failure is not a blocker for declaring the current GUI round complete, but must be documented verbatim in the completion report and in PROGRESS.md.
+- **Reason**: The owner explicitly ordered this acceptance to unblock round closure while the replacement stays deferred; hiding the advisory behind an ignore would misrepresent the gate state.
+- **Record**: `deny.toml` (unchanged, no ignore), `DECISIONS.md`, `PROGRESS.md`.
+
 ## 2026-11-21 — D-GUI-START-BUDGET-ORDER: Fix Home Start (N2) and Project Picker Refresh (N3)
 - **Decision**:
   1. (N2 Daemon Budget Handling): Updated `crates/warshad/src/lib.rs` (`show_budget`, `set_budget`, and `start_run`) to support run-less projects without failing with RPC error `-32000: No runs found for project`. Project existence is checked via `store.get_project(project_id)`. If the project has no runs, `show_budget` returns `BudgetStatus` with `spent_cents: 0` and pending/None budget. `set_budget` records pending budget in an in-memory `PENDING_PROJECT_BUDGETS` registry. In `start_run`, after the run is created and persisted, the pending budget for `project_id` is consumed and applied to the newly created run via `pipeline.set_run_budget(run.id, cents)`, logging a warning on error rather than aborting.

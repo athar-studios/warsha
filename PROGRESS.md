@@ -1,5 +1,55 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — GUI Merge Verification (START+NAV+PROVIDER+POLISH in r-next/integration)
+- **Scope**: Merge the four verified GUI fix lanes into `r-next/integration` tip and run the gate matrix on the merged tree. Local-only: no push, no tag, no publish, main untouched.
+- **Merges**:
+  - `382474d` fix-gui-start-lane: run-less budget pending consumed at start_run + home order + reload bus (N2/N3).
+  - `962a519` fix-gui-nav-lane: frame mode navigation + sticky header (G2/N4, N6, N10).
+  - `3356322` fix-gui-provider-lane: provider save-only-after-success + masked key + i18n + dialog (F1/G4/N2a/N2b/N5).
+  - `4b8fbbb` fix-gui-polish-lane: toasts dismiss/dedup/cap + health import order + bench empty-state + budgets remaining (N1/N7/N8/N9/N11).
+  - `3005c0c` inbox-back fix: `inbox.back` nav action + ar/en keys + header button on ready/empty states (G2/N4 follow-up; unit 25/25, actions-gate 194/194/0).
+- **Gate Matrix (merged tip)**:
+  - `cargo fmt --all -- --check`: FMT_OK.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings.
+  - `cargo test -p warshad --lib runs_start_budget`: 2/2 pass.
+  - `cargo test -p warsha-pipeline --lib command_policy`: 17/17; `work_protection`: 12/12.
+  - `cargo test -p warsha-providers`: 61 + 5 pass.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+  - `node scripts/check-arch.mjs`: 5 rules, 0 violations.
+  - `node scripts/check-versions.mjs`: aligned.
+  - `node scripts/check-wire-contract.mjs`: 11 checks, 0 violations.
+  - `node scripts/ci/i18n-gate.mjs`: 1039 keys, 0 violations.
+  - `node scripts/ci/actions-gate.mjs`: 193 registered, 193 used, 0 violations (after one-line fix).
+  - desktop tsc: TSC_OK; desktop eslint changed files: 0; desktop vitest: 82 files, 707/707.
+  - ui tsc + eslint: clean; ui vitest: 58 files, 387/387; i18n vitest: 60/60.
+  - `node scripts/check-ds-v3.mjs` (5 areas): 0 violations.
+  - `cargo deny check advisories`: FAILS only on known `RUSTSEC-2026-0543` chrono unmaintained — accepted as temporary owner-approved debt per owner decision 2026-11-21 (`D-RN-OD-CHRONO-ACCEPT-TEMP` in DECISIONS.md); no ignore entry added, gate stays red as-is, replacement deferred (171 call sites, 70 files, 8 crates); plus two stale ignore warnings (`RUSTSEC-2024-0370`, `RUSTSEC-2026-0371` not encountered); no new advisories from GUI lanes. This expected deny failure is not a blocker for round closure per the same owner decision.
+- **State**: local-only at merged tip; 4 merges + 1 fix; Cargo.lock drift + dist-verify dir still untracked/dirty (pre-existing); r-next/integration not pushed, tag v0.3.0 untouched at 3dc9083, main untouched.
+- **Status**: MERGE COMPLETE — verification green except expected deny/chrono (owner-accepted per 2026-11-21 decision) + full-suite timeout (scoped suites green).
+- **FIXES COMPLETE — AWAITING CLAUDE VERIFICATION**
+
+## Follow-up sweep 2026-11-21 — report leftovers analysis + inbox.back
+- **Scope**: Review the GUI reports for findings not covered by the four merged lanes; fix what is mechanical and in-scope, document what is deferred. Local-only: no push, no tag, no publish, main untouched.
+- **Covered by lanes (no further action)**:
+  - N1 blocking toast over Next → POLISH (dismiss + cap + dedup + Toast UI).
+  - N2 run-less start → START (pending-budget consume at `start_run` + home order `projects.create -> runs.start -> budget.set` + pending map).
+  - N3 picker refresh → START (`reloadAllProjects` bus + reload after create).
+  - G2/N4 mode-tab dead routes → NAV (navigate `/`, `/factory`, `/developers` + route sync) + this sweep's `inbox.back`.
+  - N10 run-view departure → NAV (mode switch navigates away from `/p/:id`).
+  - N6 toolbar scroll-away → NAV (sticky header, logical props/tokens).
+  - N7/N8/N11 (bench empty state, usage refresh, 25-toast pile) → POLISH (`BenchRail` empty state, gate views refresh label, Toast cap/dedup).
+  - N9 budgets remaining → POLISH (`BudgetsSection` remaining display).
+  - F1 saved-anyway + key emptied → PROVIDER (save-only-after-success + rollback `removeProvider` + key preserve).
+  - G4 restored-wizard false failure (empty key wizard vs healthy RPC) → PROVIDER (`MASKED_KEY_PLACEHOLDER`, `isMaskedKey`, skip re-test on masked).
+  - N2a `auth.undefined` + N2b `section.export` leaks → PROVIDER (`auth.unknown` fallback ar غير معروف/en Unknown + `settings.section.export` ar/en keys).
+  - N5 dialog 800px → PROVIDER (`Dialog` viewport `min(560px, 92vw)` + `settings.css` dialog constraints + Escape capture).
+- **Remaining as analyzed (no code change)**:
+  - 8s `PROBE_TIMEOUT` (`provider_setup.rs:35`) is intentional by design ("Short on purpose: the owner is looking at a wizard with a spinner"); the report's N1 defect was the *non-dismissible toast*, already fixed. Free-model latency beyond 8s is tuning, not a defect; constant left as-is.
+  - F4 code-stage: needs a live backend + model key to drive a real run end-to-end (manual verification territory); every code-side blocker for it was fixed (N2 start order, pending budget, run-less handling, provider save-only-success).
+  - Devices «آخر ظهور: —», About static uptime, wizard-delay, window-vanish (report lines 122-126): observational notes without a reproducer or a code path to fix; left for the manual re-test to confirm or refute.
+- **Fixed in this sweep**: `3005c0c` inbox-back (G2/N4 follow-up, see `D-GUI-INBOX-BACK-1`): `inbox.back` nav action + keys + header button on ready/empty states; unit 25/25; e2e case (`inbox.back` → `#/`); actions-gate 194/194/0.
+- **State**: local-only; `3005c0c` on top of merge run; Cargo.lock drift + dist-verify dir still dirty (pre-existing); not pushed, tag untouched, main untouched.
+
 ## Run 2026-11-21 — GUI Fix Lane (N2 Blocking Start + N3 Picker Refresh)
 - **Scope**: Fix N2 (blocking home composer start on run-less project) and N3 (project picker refresh after creation) in `.agents/worktrees/fix-gui-start`. Local-only: no push, no tag, main untouched.
 - **Root Cause & Fixes**:
