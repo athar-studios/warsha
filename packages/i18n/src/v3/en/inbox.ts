@@ -6,6 +6,7 @@ export default {
   'inbox.loading': 'Loading pending decisions...',
   'inbox.error_title': 'Failed to load pending decisions',
   'inbox.retry': 'Retry',
+  'inbox.back': 'Back to home',
   'inbox.decision_open': 'Review decision',
   'inbox.gate_approve': 'Approve and continue',
   'inbox.gate_changes_send': 'Send change requests',

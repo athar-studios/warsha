@@ -2,6 +2,12 @@ import type { ActionDef } from '../types';
 
 export const ACTIONS: readonly ActionDef[] = [
   {
+    id: 'inbox.back',
+    labelKey: 'inbox.back',
+    effect: 'nav',
+    route: '/',
+  },
+  {
     id: 'inbox.decision.open',
     labelKey: 'inbox.decision_open',
     effect: 'state',

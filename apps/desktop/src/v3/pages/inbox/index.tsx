@@ -711,6 +711,17 @@ export default function InboxPage(): React.ReactElement {
         <div className="v3-inbox-container" data-testid="inbox-empty">
           <div className="v3-inbox-header">
             <h1 className="v3-inbox-title">{t('inbox.title')}</h1>
+            <Button
+              variant="secondary"
+              size="sm"
+              data-action="inbox.back"
+              data-testid="inbox-back-button"
+              onClick={() => {
+                navigate('/');
+              }}
+            >
+              {t('inbox.back')}
+            </Button>
           </div>
           {mcpListFailed ? (
             <Banner variant="attention" data-testid="inbox-mcp-list-failed">
@@ -731,7 +742,6 @@ export default function InboxPage(): React.ReactElement {
   return (
     <div className="v3-inbox-root">
       <div className="v3-inbox-container" data-testid="inbox-ready">
-        {/* Header */}
         <header className="v3-inbox-header">
           <div className="v3-inbox-header-top">
             <div className="v3-inbox-title-group">
@@ -740,6 +750,17 @@ export default function InboxPage(): React.ReactElement {
                 {t('inbox.waiting_count', { count: decisions.length })}
               </Badge>
             </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              data-action="inbox.back"
+              data-testid="inbox-back-button"
+              onClick={() => {
+                navigate('/');
+              }}
+            >
+              {t('inbox.back')}
+            </Button>
           </div>
           <p className="v3-inbox-subtitle">{t('inbox.subtitle')}</p>
         </header>

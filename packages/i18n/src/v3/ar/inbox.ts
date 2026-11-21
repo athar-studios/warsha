@@ -6,6 +6,7 @@ export default {
   'inbox.loading': 'جارٍ تحميل القرارات المعلقة...',
   'inbox.error_title': 'تعذّر تحميل القرارات المعلقة',
   'inbox.retry': 'إعادة المحاولة',
+  'inbox.back': 'رجوع للرئيسية',
   'inbox.decision_open': 'مراجعة القرار',
   'inbox.gate_approve': 'اعتماد ومتابعة',
   'inbox.gate_changes_send': 'إرسال ملاحظات التعديل',

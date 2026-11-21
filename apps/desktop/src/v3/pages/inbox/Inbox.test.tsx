@@ -238,6 +238,35 @@ describe('InboxPage component journeys and states', () => {
     expect(screen.getByText('Nothing is waiting for you right now')).toBeDefined();
   });
 
+  it('shows a back button that navigates home from empty and ready states (inbox.back)', async () => {
+    const emptyClient = createMockClient({
+      listProjects: vi.fn().mockResolvedValue([PROJ_1]),
+      listRuns: vi.fn().mockResolvedValue([RUNNING_RUN]),
+    });
+
+    const { unmount } = renderInbox(emptyClient);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-empty')).toBeDefined();
+    });
+    const emptyBack = screen.getByTestId('inbox-back-button');
+    expect(emptyBack.getAttribute('data-action')).toBe('inbox.back');
+    fireEvent.click(emptyBack);
+    expect(window.location.hash).toBe('#/');
+
+    unmount();
+
+    renderInbox(createMockClient());
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-ready')).toBeDefined();
+    });
+    const readyBack = screen.getByTestId('inbox-back-button');
+    expect(readyBack.getAttribute('data-action')).toBe('inbox.back');
+    fireEvent.click(readyBack);
+    expect(window.location.hash).toBe('#/');
+  });
+
   it('renders error banner and retries via inbox.retry', async () => {
     let shouldFail = true;
     const retryClient = createMockClient({

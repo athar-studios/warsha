@@ -131,6 +131,14 @@ test.describe('Inbox journeys', () => {
     await expect(page).toHaveURL(/#\/p\/proj-store$/);
   });
 
+  test('back button navigates home via inbox.back', async ({ page }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+    await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+
+    await act(page, 'inbox.back');
+    await expect(page).toHaveURL(/#\/$/);
+  });
+
   test('opens decision Sheet via inbox.decision.open and approves from within Sheet', async ({
     page,
   }) => {
