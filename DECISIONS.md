@@ -2638,5 +2638,60 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
   - `cargo test -p warsha-pipeline --lib`: 546 passed, 0 failed, 7 ignored.
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
 
+## D-R5-APPROVAL-1 — Fix Round-5 Approval Bypasses (R5-H1, R5-H2, R5-H3, R4-M1, R4-M2, R5-L1, R5-L2) (2026-11-21)
+- **Context & Scope**: Closes whole classes of approval bypasses identified in `/tmp/warsha-round5-2026-11-21.md`:
+  - R5-H1: Agent-written git config execution via filesystem tools and command-line bypasses.
+  - R5-H2: Node classifier bugs (bare `help` treated as safe; `=` flag skip bypassing attached arguments).
+  - R5-H3 / R4-M1 / R4-M2: High-risk interpreters and build systems converted from subcommand denylists to safe-subcommand allow-lists.
+  - R5-L1: Over-matching git config path check on commit messages (`git commit -m fix-.git/config-handling`).
+  - R5-L2: Over-classifying non-program git config values starting with `!` (`user.name=!x`).
+- **Architecture & Two-Seam Alignment**:
+  1. *FilesystemToolExecutor `.git` Guard (R5-H1)*:
+     - `FilesystemToolExecutor` (`crates/warsha-pipeline/src/agent_tools.rs`) now enforces `.git` containment in `write_allowed`, `write_file`, and `execute(&AgentTool::WriteFile)`.
+     - Refuses file-tool writes anywhere under `.git/` or to any file named `.git`.
+     - Normalizes redundant slashes (`.git//config`), dot segments (`.git/./config`), Windows backslashes, and case-insensitivity (`.GIT/config`, `.Git/config`).
+     - Preserves writes to innocent paths matching substrings (e.g. `fix-.git/config-handling.txt`).
+  2. *Command Policy & Work Protection Git Guard (R5-H1, R5-L1, R5-L2)*:
+     - `--git-dir`: Refuses arguments pointing outside `.git` or the active working directory's `.git`.
+     - `-C`: Refuses arguments pointing outside `.` / `./` or the active working directory.
+     - Git config writes: Refuses `git config` writes in ANY form (`set`, `--add`, `--replace-all`, `--unset`, `--unset-all`, `key=val`, positional args >= 2) across both `CommandPolicy::check_command` and `classify_command`.
+     - Dangerous git flags: Refuses `grep -O` / `--open-files-in-pager`, `difftool -x` / `--extcmd`, and `--upload-pack` / `--receive-pack` / `-u` across all git subcommands.
+     - L1 Fix: `is_git_config_path` inspects path segments; only returns true when `.git` is immediately followed by `config`, `hooks`, or `worktrees`. Skips `-m`/`--message` and `-F`/`--file` message parameters in `git commit`.
+     - L2 Fix: `is_risky_git_config` only treats `!` values as risky when the target key is a program-running key (`alias.*`, `fsmonitor.*`, `http.proxy`, `hooks.*`, `textconv`, `driver`, etc.). `user.name=!x` remains safe. Neutralized `core.fsmonitor=""` or `core.fsmonitor=` remains safe.
+  3. *Node Classifier Hardening (R5-H2)*:
+     - Bare `help` removed from node safe list (node executes it as a script file).
+     - Fixed `=`-skip: attached flags (`--run=`, `--import=`, `--require=`, `--loader=`, `--experimental-loader=`, `--eval=`, `--print=`) are parsed and classified as `Risky`.
+     - Pure informational flags (`--version`, `-v`, `--help`, `-h`) remain `Safe`. Any script path argument classifies as `Risky`.
+  4. *Safe-Subcommand Allow-Lists (R5-H3, R4-M1, R4-M2)*:
+     - Converted high-risk interpreters and build tools from subcommand denylists to safe-subcommand allow-lists in `work_protection.rs`:
+       * `npm`: Only safe reads (`--version`, `-v`, `--help`, `list`, `ls`, `view`, `info`, `outdated`, `audit`, `licenses`) pass; `pack`, `version`, `link`, `prune`, `dedupe`, `install-test`, and arbitrary scripts classify as `Risky`.
+       * `sqlite3`: Dot-commands (`.shel`, `.syst`, `.sh`, `.read`, `.import`, `-init`, `.load`) and prefix variants classify as `Risky` in both `CommandPolicy` and `classify_command`.
+       * `php`: Only safe informational flags (`--version`, `-v`, `--help`, `-h`, `-i`, `-m`) pass; script runs classify as `Risky`.
+       * `deno`: Safe reads (`--version`, `-v`, `--help`, `-h`, `info`, `fmt --check`, `lint`) pass; `serve`, `bench`, `install`, `x`, scripts classify as `Risky`.
+       * `dotnet`: Safe reads (`--version`, `--info`, `--list-sdks`, `--list-runtimes`) pass; `build`, `msbuild`, `pack`, `publish`, `restore`, `test`, `run` classify as `Risky`.
+       * `cargo`: Safe reads (`--version`, `-V`, `--help`, `-h`, `check`, `tree`, `metadata`, `verify-project`, `locate-project`, `search`) pass; `doc`, `fix`, `rustc`, `package`, `bench`, `build`, `test`, `run` classify as `Risky`.
+       * `composer`: Safe reads (`--version`, `-V`, `--help`, `-h`, `diagnose`, `validate`, `licenses`, `about`) pass; scripts, `dump-autoload`, `run`, `run-script`, `exec` classify as `Risky`.
+       * `mvn`: Safe reads (`--version`, `-v`, `--help`, `-h`) pass; `compile`, `test`, `package`, `validate` classify as `Risky`.
+       * `rails`: Safe reads (`--version`, `-v`, `--help`, `-h`) pass; `server`, `console`, `test`, `db:migrate`, `generate` classify as `Risky`.
+       * `bundle`: Safe reads (`--version`, `-v`, `--help`, `-h`) pass; `list`, `check`, `exec`, `install` classify as `Risky`.
+       * `go`: `-toolexec`, `--toolexec`, `-vettool`, `--vettool` classify as `Risky` (refused in `CommandPolicy`); safe reads (`version`, `help`, `env`, `doc`) pass; build/run/test/install classify as `Risky`.
+       * `vite` & `next`: Safe reads (`--version`, `-v`, `--help`, `-h`, `info`) pass; `build`, `dev`, `start` classify as `Risky`.
+       * `eslint`: ANY invocation classifies as `Risky` due to config loading.
+       * `cmake`: Safe reads pass; `-S`, `-B`, `configure`, `-E`, `-P`, build/install classify as `Risky`.
+       * `javac`: ANY invocation classifies as `Risky` due to annotation processors.
+       * `rustc`: ANY invocation classifies as `Risky` due to procedural macros.
+       * `yarn`: Bare invocation (`yarn`) and package operations classify as `Risky`; safe subcommands allow-list maintained.
+       * `prettier`: Safe reads pass; config/plugin flags (`--config`, `--plugin`) and write flags classify as `Risky`.
+       * `pocketbase`: Safe reads pass; `serve`, `migrate`, `admin` classify as `Risky`.
+       * `bun`: Safe reads pass; scripts and run classify as `Risky`.
+  5. *Approval Routing*:
+     - `CommandPolicy::default()` maintains `AskForRisky` behavior: allows safe commands and queues risky commands for user approval.
+- **Verification Matrix**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: passed (exit 0).
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: passed (exit 0).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 565 passed, 0 failed, 7 ignored (exit 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit 0).
+
+
 
 

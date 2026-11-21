@@ -8001,4 +8001,34 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
   - Added test asserting that missing required `x86_64` asset fails closed.
   - All 9 tests passing (9/9 pass, 0 fail).
 
+## Run 2026-11-21 — FIX-R5-APPROVAL (Round-5 H1+H2 approval bypasses)
+- **Problem**: Approval bypasses identified in `/tmp/warsha-round5-2026-11-21.md`:
+  - R5-H1: Filesystem tools lacked `.git` write protection, allowing write-file to `.git/config`, hooks, or `.git` files; command-line bypasses via `--git-dir`, `-C`, git config writes in `set` or positional syntax, `grep -O`, `difftool -x`, `--upload-pack`/`--receive-pack`.
+  - R5-H2: Node classifier treated bare `help` as safe and skipped flags starting with `-` containing `=`, missing dangerous options like `--run=build`, `--import=`, `--require=`, `--loader=`.
+  - R5-H3 / R4-M1 / R4-M2: Subcommand denylists in interpreters and build systems allowed execution bypasses.
+  - R5-L1: Over-matching `is_git_config_path` blocked innocent commit messages containing `.git/config`.
+  - R5-L2: Non-program git config values starting with `!` (`user.name=!x`) were over-classified as risky.
+- **Delivered**:
+  - `crates/warsha-pipeline/src/agent_tools.rs`: Added `is_git_write_target` check refusing writes to `.git` or under `.git/` across `write_allowed`, `write_file`, and `AgentTool::WriteFile`. Normalizes redundant slashes, dot-segments, Windows backslashes, and case-insensitivity.
+  - `crates/warsha-pipeline/src/command_policy.rs`:
+    * Added workdir-aware `-C` and `--git-dir` validation (`check_invocation_with_workdir`).
+    * Refuses any `git config` write form in `check_git_config_subcommand`.
+    * Refuses dangerous git flags: `--upload-pack`, `--receive-pack`, `-u`, `grep -O`/`--open-files-in-pager`, `difftool -x`/`--extcmd`.
+    * Refuses dangerous `sqlite3` dot-commands (`is_risky_sqlite3_arg`).
+    * Refuses `go` `-toolexec` and `-vettool`.
+    * Fixed R5-L1 false positive by segment-based checking in `is_git_config_path` and skipping commit message flags.
+    * Fixed R5-L2 false positive by gating `!` check on `is_program_running_key`.
+  - `crates/warsha-pipeline/src/work_protection.rs`:
+    * Aligned git command classification with command policy (refuses git config writes, `--upload-pack`, `--receive-pack`, `-C`, `--git-dir`, `grep -O`, `difftool -x`).
+    * Hardened node classification: bare `help` is Risky, attached flags (`--run=`, `--import=`, `--require=`, `--loader=`, `--experimental-loader=`, `--eval=`, `--print=`) are Risky; non-flag arguments are Risky; safe flags (`--version`, `-v`, `--help`, `-h`) remain Safe.
+    * Converted high-risk interpreters and build tools to safe-subcommand allow-lists (`npm`, `deno`, `php`, `dotnet`, `cargo`, `composer`, `mvn`, `rails`, `bundle`, `go`, `vite`, `next`, `bun`, `pocketbase`, `prettier`, `cmake`, bare `yarn`; blanket Risky for `eslint`, `javac`, `rustc`).
+  - `crates/warsha-pipeline/src/verification_tests_impl.rs`: Added comprehensive unit tests covering all fixed shapes and negative controls (`test_r5_h1_filesystem_tool_refuses_git_dir_and_file`, `test_r5_h1_git_command_policy_and_classification`, `test_r5_h2_node_classifier_bugs`, `test_r5_h3_safe_subcommand_allow_lists`, `test_r5_ask_for_risky_routes_to_approval`).
+- **Verification**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 565 passed, 0 failed, 7 ignored (exit 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit 0).
+- **Decisions**: Logged `D-R5-APPROVAL-1` in `DECISIONS.md`.
+
+
 
