@@ -627,3 +627,16 @@ fn pairing_data(device_id: &str) -> Value {
         "expires_at": "2100-01-01T00:00:00Z",
     })
 }
+
+/// Proving test for H3: `Daemon::start` uses injectable `InMemorySecretStore` and starts promptly (<15s).
+#[tokio::test]
+async fn daemon_start_completes_promptly_with_in_memory_secrets() {
+    let start = std::time::Instant::now();
+    let daemon = Daemon::start(Vec::new()).await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "daemon startup should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
+    daemon.shutdown().await;
+}

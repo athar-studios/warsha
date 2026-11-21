@@ -353,3 +353,30 @@ async fn second_instance_is_locked_out() {
 
     handle1.shutdown().await;
 }
+
+/// Proving test for H3: daemon start with `InMemorySecretStore` completes promptly (<15s)
+/// without hanging on OS keychain.
+#[tokio::test]
+async fn daemon_with_in_memory_secrets_starts_promptly() {
+    let start = std::time::Instant::now();
+    let dir = fresh_tempdir();
+    let data_dir = dir.path().to_path_buf();
+    let config = DaemonConfig {
+        data_dir,
+        socket_path: dir.path().join("warshad.sock"),
+        http_port: 0,
+        ws_port: 0,
+        auth_token: TEST_TOKEN.to_string(),
+        allowed_origins: vec!["http://localhost:5173".to_string()],
+        ..DaemonConfig::default()
+    };
+    let handle = start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+        .await
+        .expect("start_daemon_with_secrets");
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "daemon startup should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
+    handle.shutdown().await;
+}
