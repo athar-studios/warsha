@@ -89,6 +89,15 @@
   pointer-events: none;
 }
 
+/* N6: sticky app toolbar (mode tabs, settings, project switcher, brand) */
+.w-app-frame__header {
+  position: sticky;
+  top: 0;
+  inset-block-start: 0;
+  z-index: var(--w-layer-sticky);
+  background-color: var(--w-surface);
+}
+
 .v3-frame-root .w-topbar {
   flex-wrap: wrap;
   padding-inline: var(--w-space-5);

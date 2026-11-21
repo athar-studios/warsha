@@ -1,4 +1,13 @@
 
+## 2026-11-21 — D-GUI-NAV-1: Mode switching navigation, run-view departure, and sticky toolbar (G2/N4, N10, N6)
+- **Decision**:
+  1. (G2/N4 Mode Route Navigation & N10 Run-View Departure): In `Frame.tsx`, `handleSwitchMode` triggers top-level navigation: `simple` -> `/`, `factory` -> `/factory`, `developers` -> `/developers`. Switching mode from any page, including `/p/:id` (N10 run/gate view), leaves the current view to the selected route.
+  2. (Route Mode Synchronization): In `Frame.tsx`, route `area` is observed to synchronize `mode` when navigation lands on `/factory` (`factory`), `/developers` (`developers`), or `/` (`simple`).
+  3. (Keyboard Action Mapping Consistency): In `Frame.tsx`, `handleModeKeyDown` checks for both `data-action="${nextAction}"` and `data-action="frame.mode.${next}"` to support `frame.mode.advanced` and `frame.mode.developers` consistently.
+  4. (N6 Sticky Toolbar): In `frame.css`, `.w-app-frame__header` is made sticky using `position: sticky; top: 0; inset-block-start: 0; z-index: var(--w-layer-sticky); background-color: var(--w-surface);` with RTL-safe CSS logical properties and design system tokens.
+- **Reason**: Defect report 2026-11-21 G2/N4 identified `/factory` and `/developers` as dead routes unreachable via UI because mode tabs only updated local state; N10 identified that clicking mode tabs in run view didn't navigate away; N6 identified that the header toolbar scrolled away without a reliable way back.
+- **Record**: `apps/desktop/src/v3/pages/frame/Frame.tsx`, `apps/desktop/src/v3/pages/frame/frame.css`, `apps/desktop/src/v3/pages/frame/Frame.test.tsx`.
+
 ## 2026-11-20 — D-R3-POLICY-HARDENING: Round-3 Blockers H1/N-H1 and H2/N-M1 Command Policy Hardening
 - **Decision**:
   1. (H1/N-H1 Approval Bypass): Gated `git bisect run <cmd>` and `sqlite3` shell-out commands (`.shell`, `.system`, `.once |`, `.output |`) in both `command_policy.rs` (`check_arguments`) and `work_protection.rs` (`classify_command`). `git bisect run` is classified as `Risky` and triggers approval under `AskForRisky` (or refusal in allowlist check), whereas benign git operations like `git bisect start` remain `Safe`. `sqlite3` remains in default allowed binaries, but shell-out arguments are refused and classified as `Risky`.

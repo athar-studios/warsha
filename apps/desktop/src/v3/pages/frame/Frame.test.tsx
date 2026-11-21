@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { GateSummary, ProjectId, ProjectSummary, RunId, RunSummary, WarshaClient } from '@warsha/client';
 import { I18nProvider } from '@warsha/i18n/v3';
@@ -61,6 +64,10 @@ async function renderFrame(
     initialMode = 'simple',
     children = <div>page body</div>,
   } = options;
+
+  if (typeof window !== 'undefined') {
+    window.location.hash = `#${initialPath}`;
+  }
 
   let utils!: ReturnType<typeof render>;
   await act(async () => {
@@ -139,6 +146,9 @@ describe('Frame component', () => {
       window.localStorage?.clear();
     } catch {
       // ignore
+    }
+    if (typeof window !== 'undefined') {
+      window.location.hash = '#/';
     }
   });
 
@@ -372,5 +382,113 @@ describe('Frame component', () => {
     const settingsBtn = container.querySelector('[data-action="frame.settings.open"]') as HTMLButtonElement;
     fireEvent.click(settingsBtn);
     expect(window.location.hash).toBe('#/settings/general');
+  });
+
+  it('navigates to mode routes when mode tabs are clicked (G2/N4)', async () => {
+    const { container } = await renderFrame({ locale: 'ar', initialPath: '/' });
+
+    const factoryBtn = container.querySelector('[data-action="frame.mode.factory"]') as HTMLButtonElement;
+    expect(factoryBtn).not.toBeNull();
+    fireEvent.click(factoryBtn);
+    expect(window.location.hash).toBe('#/factory');
+    expect(factoryBtn.getAttribute('aria-checked')).toBe('true');
+
+    const advBtn = container.querySelector('[data-action="frame.mode.advanced"]') as HTMLButtonElement;
+    expect(advBtn).not.toBeNull();
+    fireEvent.click(advBtn);
+    expect(window.location.hash).toBe('#/developers');
+    expect(advBtn.getAttribute('aria-checked')).toBe('true');
+
+    const simpleBtn = container.querySelector('[data-action="frame.mode.simple"]') as HTMLButtonElement;
+    expect(simpleBtn).not.toBeNull();
+    fireEvent.click(simpleBtn);
+    expect(window.location.hash).toBe('#/');
+    expect(simpleBtn.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('leaves the run view (/p/:id) when clicking simple or other mode tabs (N10)', async () => {
+    // 1. On /p/proj-run-view with simple mode active: clicking simple leaves run view to /
+    const { container } = await renderFrame({ locale: 'ar', initialPath: '/p/proj-run-view' });
+    expect(window.location.hash).toBe('#/p/proj-run-view');
+
+    const simpleBtn = container.querySelector('[data-action="frame.mode.simple"]') as HTMLButtonElement;
+    expect(simpleBtn).not.toBeNull();
+    fireEvent.click(simpleBtn);
+    expect(window.location.hash).toBe('#/');
+    expect(simpleBtn.getAttribute('aria-checked')).toBe('true');
+
+    // 2. On /p/proj-2: clicking factory leaves run view to /factory
+    const { container: c2 } = await renderFrame({ locale: 'ar', initialPath: '/p/proj-2' });
+    expect(window.location.hash).toBe('#/p/proj-2');
+    const factoryBtn = c2.querySelector('[data-action="frame.mode.factory"]') as HTMLButtonElement;
+    fireEvent.click(factoryBtn);
+    expect(window.location.hash).toBe('#/factory');
+
+    // 3. On /p/proj-3: clicking advanced leaves run view to /developers
+    const { container: c3 } = await renderFrame({ locale: 'ar', initialPath: '/p/proj-3' });
+    expect(window.location.hash).toBe('#/p/proj-3');
+    const advBtn = c3.querySelector('[data-action="frame.mode.advanced"]') as HTMLButtonElement;
+    fireEvent.click(advBtn);
+    expect(window.location.hash).toBe('#/developers');
+  });
+
+  it('supports keyboard navigation cycling through modes with consistent data-actions', async () => {
+    const { container } = await renderFrame({ locale: 'en', initialPath: '/' });
+
+    const simpleBtn = container.querySelector('[data-action="frame.mode.simple"]') as HTMLButtonElement;
+    const factoryBtn = container.querySelector('[data-action="frame.mode.factory"]') as HTMLButtonElement;
+    const advBtn = container.querySelector('[data-action="frame.mode.advanced"]') as HTMLButtonElement;
+
+    expect(simpleBtn).not.toBeNull();
+    expect(factoryBtn).not.toBeNull();
+    expect(advBtn).not.toBeNull();
+
+    // In LTR, ArrowRight moves simple -> factory -> developers -> simple
+    simpleBtn.focus();
+    fireEvent.keyDown(simpleBtn, { key: 'ArrowRight' });
+    expect(window.location.hash).toBe('#/factory');
+    expect(document.activeElement).toBe(factoryBtn);
+
+    fireEvent.keyDown(factoryBtn, { key: 'ArrowRight' });
+    expect(window.location.hash).toBe('#/developers');
+    expect(document.activeElement).toBe(advBtn);
+
+    fireEvent.keyDown(advBtn, { key: 'ArrowRight' });
+    expect(window.location.hash).toBe('#/');
+    expect(document.activeElement).toBe(simpleBtn);
+  });
+
+  it('syncs mode when route changes to a mode-specific area', async () => {
+    const { container } = await renderFrame({ locale: 'ar', initialPath: '/factory' });
+    const factoryBtn = container.querySelector('[data-action="frame.mode.factory"]') as HTMLButtonElement;
+    await waitFor(() => {
+      expect(factoryBtn.getAttribute('aria-checked')).toBe('true');
+    });
+
+    const { container: c2 } = await renderFrame({ locale: 'ar', initialPath: '/developers' });
+    const advBtn = c2.querySelector('[data-action="frame.mode.advanced"]') as HTMLButtonElement;
+    await waitFor(() => {
+      expect(advBtn.getAttribute('aria-checked')).toBe('true');
+    });
+  });
+
+  it('renders sticky toolbar header using design system tokens (N6)', async () => {
+    const { container } = await renderFrame({ locale: 'en' });
+
+    const header = container.querySelector('header.w-app-frame__header');
+    expect(header).not.toBeNull();
+
+    const cssPath = resolve(__dirname, 'frame.css');
+    const css = readFileSync(cssPath, 'utf8');
+    const start = css.indexOf('.w-app-frame__header');
+    expect(start).toBeGreaterThan(-1);
+    const end = css.indexOf('}', start);
+    const rule = css.slice(start, end);
+
+    expect(rule).toContain('position: sticky');
+    expect(rule).toContain('top: 0');
+    expect(rule).toContain('inset-block-start: 0');
+    expect(rule).toContain('z-index: var(--w-layer-sticky)');
+    expect(rule).toContain('background-color: var(--w-surface)');
   });
 });
