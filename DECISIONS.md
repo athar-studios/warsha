@@ -2531,7 +2531,37 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
     - Both strings read native-natural in English and Arabic without awkward cents symbols or literal translations.
 - **Verification**: Extended colocated vitest suites in `developers/index.test.tsx` (cents to dollars formatting + pantry $10.00 test), `Toast.test.tsx` (bounded 10s auto-dismiss + sticky error persistence), `Banner.test.tsx` (long message wrapping/scrolling without clipping class), and `ModelsSection.test.tsx` (save-button reset on failure + doubled prefix / JSON error sanitization). All 5 gates passed cleanly.
 
-## D-R2-B1-1 — Onboarding Wizard Next Dead-end on Provider Save-Test (2026-11-21)
+## D-R4-KEYCHAIN-1 — Keychain Hang Fix in Server Tests & Bounded Fallback (2026-11-21)
+- **Context & Problem**:
+  - In headless Linux environments or when the OS keychain is locked or unavailable, calling `keyring::Entry::get_password()` within `tokio::task::spawn_blocking` blocks the OS worker thread indefinitely.
+  - Even though `tokio::time::timeout` aborts the outer async future, the blocking thread spawned on Tokio's blocking threadpool remains wedged. When tests complete and drop their Tokio runtime, `Runtime::drop` blocks waiting for all spawned blocking tasks to finish, hanging the test process indefinitely.
+  - Integration tests in `crates/warshad/tests/` previously called `start_daemon(config)`, which initialized `KeychainSecretStore`. When `state.probe_capabilities()` probed the secret store during startup, it triggered a blocking keyring call that hung the test runner on locked keychain environments.
+  - In `crates/warsha-relay`, `run_relay` spawned `KeychainTrustSource` synchronously without timeout bounds or injectable trust sources.
+- **Decision & Architecture**:
+  1. **Bounded Fallback & Production Key Reads**:
+     - Confirmed all async provider key reads route through `load_key_with_fallback`, bounded by `KEYCHAIN_TIMEOUT` (2 seconds) and falling back to `GLOBAL_FALLBACK_STORE` / `FallbackSecretStore`.
+     - Verified `KeychainProviderFactory::with_secrets` properly loads keys from injected fallback stores.
+  2. **Relay Trust Bounding & Seam Injection (`crates/warsha-relay/src/lib.rs`)**:
+     - Introduced `pub const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(2);`.
+     - Added `Send + Sync` supertrait bounds to `TrustSource`.
+     - Added `run_relay_with_trust_source` bounding `save_trust_records` and `build_trust` via `spawn_blocking` wrapped in `tokio::time::timeout(KEYCHAIN_TIMEOUT, ...)`.
+     - Derived `Clone` on `RelayArgs` and wired `run_relay` to delegate to `run_relay_with_trust_source` with `KeychainTrustSource`.
+     - Verified all relay tests use `InMemoryTrustSource`, guaranteeing tests never hit the host keychain.
+  3. **Server Integration Tests Seam Migration (`crates/warshad/tests/`)**:
+     - Converted all 12 integration test suites (`m1_daemon.rs`, `devices_pair.rs`, `settings_persistence.rs`, `sessions_rpc.rs`, `static_serving.rs`, `security_rate_limits.rs`, `gates_list.rs`, `events_ws_auth.rs`, `events_ws_live.rs`, `child_reaping.rs`, `events_stream_sync.rs`, `security_identity.rs`) from `start_daemon(config)` to `start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))`.
+     - Proved zero calls to `start_daemon` remain across `crates/warshad/tests/`, completely eliminating blocking OS keychain calls from integration tests.
+  4. **Proving Tests**:
+     - `crates/warshad/tests/provider_persistence.rs`: `daemon_add_and_test_with_failing_primary_store_completes_within_timeout` proves that with a failing/locked primary store (`FailingPrimaryStore`), `providers.add` and `providers.test` cleanly fall back to `EncryptedFileSecretStore` within timeout (< 2s).
+     - `crates/warsha-relay/src/lib.rs`: added `relay_trust_test_uses_in_memory_source_only` and `relay_trust_hang_times_out_within_bound` proving relay trust uses in-memory source and that a hanging trust source is bounded within `KEYCHAIN_TIMEOUT`.
+     - `crates/warsha-providers/src/secrets.rs`: existing proving tests `fallback_on_lock_stores_to_encrypted_file` and `fallback_on_keychain_timeout` prove fallback within timeout.
+- **Verification**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: 0 errors.
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-providers -p warshad -p warsha-relay --all-targets -- -D warnings`: 0 warnings.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-providers --lib`: 68 passed, 0 failed.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-relay --lib`: 19 passed, 0 failed.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --lib`: 309 passed, 0 failed, 4 ignored.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --tests`: all 18 test binaries (68 integration tests) passed with 0 hangs.
+
 - **Context**: Retest-2 blocker B1 on Windows: testers reported 5 failed Next attempts at the provider onboarding step after a successful save-test.
 - **Root Cause**:
   - In `apps/desktop/src/v3/pages/onboarding/index.tsx:353`, `saveTestAction` called `setApiKey('')` upon test success to clear the real secret from memory (F1 decision).
