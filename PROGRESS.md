@@ -33,6 +33,30 @@
   - `eslint` on changed files: exit code 0 (clean).
   - Vitest `Frame.test.tsx` (20/20 passed), `Onboarding.test.tsx` (19/19 passed), `useProjects.test.ts` (4/4 passed).
   - `node scripts/ci/actions-gate.mjs`: exit code 0 (194 registered, 194 used, 0 violations).
+
+## Run 2026-11-21 — Fix Retest-2 Toasts (Self-Expiry and Universal Dismiss Control)
+- **Scope**: Fix retest-2 toasts persisting ~35 minutes with no expiry (blocker). Worktree `.agents/worktrees/fix-retest2-toast` on branch `fix-retest2-toast-lane`. Local-only.
+- **Changes**:
+  - `packages/ui/src/v3/composites/Toast.tsx`:
+    - Defined `DANGER_AUTO_DISMISS_DURATION = 15000` (15s) and `MAX_TOAST_DURATION = 30000` (30s).
+    - In `ToastProvider.toast()`, replaced infinite `duration = 0` for error/danger toasts with `DANGER_AUTO_DISMISS_DURATION` (15s), kept 10s for other variants, and clamped any explicit positive `options.duration` to `MAX_TOAST_DURATION` (30s).
+    - Unconditionally rendered `IconButton` with `data-action="toast.dismiss"` for all variants (`info`, `success`, `attention`, `danger`), defaulting label to `common.close` ('Close').
+    - Kept `MAX_VISIBLE_TOASTS = 3` FIFO eviction intact.
+  - `packages/ui/src/v3/composites/Toast.test.tsx`:
+    - Updated danger error toast test to assert auto-dismissal at 15s with retry support before expiry.
+    - Added test for automatic danger toast auto-dismissal at 15s without user interaction.
+    - Added test asserting dismiss button exists and functions for non-danger variants (`info`, `success`, `attention`).
+    - Added test asserting custom durations exceeding 30s clamp to 30s.
+- **Proving Evidence**:
+  - Failing before: 3 failing tests on unmodified `Toast.tsx` (danger toast not dismissing at 15s, missing Close button on non-danger variants, 60s duration not clamped at 30s).
+  - Passing after: 9/9 tests passed in `Toast.test.tsx`.
+- **Gate Matrix**:
+  - `./node_modules/.bin/tsc --noEmit -p packages/ui/tsconfig.json`: exit code 0.
+  - `./node_modules/.bin/eslint packages/ui/src/v3/composites/Toast.tsx packages/ui/src/v3/composites/Toast.test.tsx`: exit code 0.
+  - Vitest `packages/ui/src/v3/composites/Toast.test.tsx`: 9/9 passed.
+  - Vitest full `packages/ui` suite: 58/58 test files, 391/391 tests passed.
+  - `node scripts/ci/actions-gate.mjs`: 194 registered, 194 used, 0 violations.
+- **Decision**: `D-R2-TOAST-1`.
 - **Status**: COMPLETE.
 
 ## Run 2026-11-21 — GUI Retest Fix Verification (N2 + G2b + Keyring + Minors in r-next/integration)

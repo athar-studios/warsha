@@ -89,7 +89,7 @@ describe('Toast composite', () => {
     expect(screen.queryByText('تم الإنجاز')).not.toBeInTheDocument();
   });
 
-  it('persists danger error toast and allows retry', () => {
+  it('auto-dismisses danger error toast after finite timeout (15s) and allows retry before expiry', () => {
     const handleRetry = vi.fn();
     const CustomTest: React.FC = () => {
       const { toast } = useToast();
@@ -118,21 +118,144 @@ describe('Toast composite', () => {
     fireEvent.click(screen.getByText('طلب فاشل'));
     expect(screen.getByText('فشل مزامنة')).toBeInTheDocument();
 
-    // After 10s it should still be there because errors persist!
+    // Still visible at 10s (danger timeout is 15s)
     act(() => {
       vi.advanceTimersByTime(10000);
     });
     expect(screen.getByText('فشل مزامنة')).toBeInTheDocument();
 
-    // Even after 30s it persists!
-    act(() => {
-      vi.advanceTimersByTime(20000);
-    });
-    expect(screen.getByText('فشل مزامنة')).toBeInTheDocument();
-
+    // Retry works while visible and dismisses toast
     const retryBtn = screen.getByRole('button', { name: 'إعادة المحاولة' });
     fireEvent.click(retryBtn);
     expect(handleRetry).toHaveBeenCalledOnce();
+    expect(screen.queryByText('فشل مزامنة')).not.toBeInTheDocument();
+  });
+
+  it('auto-dismisses danger error toast automatically at 15s timeout without user interaction', () => {
+    const CustomTest: React.FC = () => {
+      const { toast } = useToast();
+      return (
+        <button
+          onClick={() =>
+            toast({
+              title: 'فشل مزامنة آلي',
+              variant: 'danger',
+            })
+          }
+        >
+          طلب فاشل
+        </button>
+      );
+    };
+
+    render(
+      <ToastProvider>
+        <CustomTest />
+      </ToastProvider>
+    );
+
+    fireEvent.click(screen.getByText('طلب فاشل'));
+    expect(screen.getByText('فشل مزامنة آلي')).toBeInTheDocument();
+
+    // Still visible at 10s
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+    expect(screen.getByText('فشل مزامنة آلي')).toBeInTheDocument();
+
+    // Auto-dismisses at 15s (10000 + 5100 = 15100ms)
+    act(() => {
+      vi.advanceTimersByTime(5100);
+    });
+    expect(screen.queryByText('فشل مزامنة آلي')).not.toBeInTheDocument();
+  });
+
+  it('always renders dismiss control for non-danger variants (info, success, attention)', () => {
+    const NonDangerTest: React.FC = () => {
+      const { toast } = useToast();
+      return (
+        <div>
+          <button onClick={() => toast({ title: 'معلومات', variant: 'info' })}>
+            إظهار معلومات
+          </button>
+          <button onClick={() => toast({ title: 'نجاح', variant: 'success' })}>
+            إظهار نجاح
+          </button>
+          <button onClick={() => toast({ title: 'تنبيه', variant: 'attention' })}>
+            إظهار تنبيه
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <ToastProvider>
+        <NonDangerTest />
+      </ToastProvider>
+    );
+
+    // Show info toast
+    fireEvent.click(screen.getByText('إظهار معلومات'));
+    expect(screen.getByText('معلومات')).toBeInTheDocument();
+    const infoDismiss = screen.getByRole('button', { name: 'Close' });
+    expect(infoDismiss).toBeInTheDocument();
+    fireEvent.click(infoDismiss);
+    expect(screen.queryByText('معلومات')).not.toBeInTheDocument();
+
+    // Show success toast
+    fireEvent.click(screen.getByText('إظهار نجاح'));
+    expect(screen.getByText('نجاح')).toBeInTheDocument();
+    const successDismiss = screen.getByRole('button', { name: 'Close' });
+    expect(successDismiss).toBeInTheDocument();
+    fireEvent.click(successDismiss);
+    expect(screen.queryByText('نجاح')).not.toBeInTheDocument();
+
+    // Show attention toast
+    fireEvent.click(screen.getByText('إظهار تنبيه'));
+    expect(screen.getByText('تنبيه')).toBeInTheDocument();
+    const attentionDismiss = screen.getByRole('button', { name: 'Close' });
+    expect(attentionDismiss).toBeInTheDocument();
+    fireEvent.click(attentionDismiss);
+    expect(screen.queryByText('تنبيه')).not.toBeInTheDocument();
+  });
+
+  it('clamps over-long custom duration to MAX_TOAST_DURATION (30s)', () => {
+    const LongDurationTest: React.FC = () => {
+      const { toast } = useToast();
+      return (
+        <button
+          onClick={() =>
+            toast({
+              title: 'مدة طويلة جداً',
+              duration: 60000,
+            })
+          }
+        >
+          إظهار طويل
+        </button>
+      );
+    };
+
+    render(
+      <ToastProvider>
+        <LongDurationTest />
+      </ToastProvider>
+    );
+
+    fireEvent.click(screen.getByText('إظهار طويل'));
+    expect(screen.getByText('مدة طويلة جداً')).toBeInTheDocument();
+
+    // Still visible at 25s
+    act(() => {
+      vi.advanceTimersByTime(25000);
+    });
+    expect(screen.getByText('مدة طويلة جداً')).toBeInTheDocument();
+
+    // Auto-dismisses at 30s (25000 + 5100 = 30100ms) because it is clamped to 30000ms
+    act(() => {
+      vi.advanceTimersByTime(5100);
+    });
+    expect(screen.queryByText('مدة طويلة جداً')).not.toBeInTheDocument();
   });
 
   it('danger error toast always renders working × dismiss control and removes toast on click (N1/N7)', () => {

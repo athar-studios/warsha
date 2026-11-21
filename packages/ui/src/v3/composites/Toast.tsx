@@ -33,6 +33,8 @@ export interface ToastContextValue {
 
 export const MAX_VISIBLE_TOASTS = 3;
 export const AUTO_DISMISS_DURATION = 10000;
+export const DANGER_AUTO_DISMISS_DURATION = 15000;
+export const MAX_TOAST_DURATION = 30000;
 
 const ToastContext = React.createContext<ToastContextValue | null>(null);
 
@@ -79,6 +81,7 @@ export interface ToastProps {
   onDismiss: (id: string) => void;
   className?: string;
   style?: React.CSSProperties;
+  dismissLabel?: string;
 }
 
 export const Toast: React.FC<ToastProps> = ({
@@ -86,6 +89,7 @@ export const Toast: React.FC<ToastProps> = ({
   onDismiss,
   className = '',
   style,
+  dismissLabel: defaultDismissLabel = 'Close',
 }) => {
   const {
     id,
@@ -94,7 +98,7 @@ export const Toast: React.FC<ToastProps> = ({
     variant = 'info',
     onRetry,
     retryLabel,
-    dismissLabel,
+    dismissLabel = defaultDismissLabel,
     'data-action': dataAction,
     'data-testid': dataTestId,
   } = item;
@@ -173,17 +177,15 @@ export const Toast: React.FC<ToastProps> = ({
         )}
       </div>
 
-      {(dismissLabel || variant === 'danger') && (
-        <IconButton
-          icon={<IconX size={16} />}
-          label={dismissLabel || 'Close'}
-          variant="ghost"
-          size="sm"
-          onClick={() => onDismiss(id)}
-          data-action="toast.dismiss"
-          data-testid="toast-dismiss-button"
-        />
-      )}
+      <IconButton
+        icon={<IconX size={16} />}
+        label={dismissLabel || defaultDismissLabel || 'Close'}
+        variant="ghost"
+        size="sm"
+        onClick={() => onDismiss(id)}
+        data-action="toast.dismiss"
+        data-testid="toast-dismiss-button"
+      />
     </div>
   );
 };
@@ -230,7 +232,12 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({ children }) => {
         (options.actionId ? `w-toast-action-${options.actionId}` : `w-toast-${idCounter.current}`);
       const isError = options.variant === 'danger' || (options.variant as string) === 'error';
       const variant: ToastVariant = (options.variant as string) === 'error' ? 'danger' : (options.variant ?? 'info');
-      const duration = options.duration ?? (isError ? 0 : AUTO_DISMISS_DURATION);
+      const defaultDuration = isError ? DANGER_AUTO_DISMISS_DURATION : AUTO_DISMISS_DURATION;
+      const baseDuration =
+        options.duration !== undefined && options.duration > 0
+          ? options.duration
+          : defaultDuration;
+      const duration = Math.min(baseDuration, MAX_TOAST_DURATION);
 
       const newItem: ToastItem = {
         ...options,
