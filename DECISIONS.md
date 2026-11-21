@@ -2558,4 +2558,44 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
     - Suite passes: 20/20 tests pass. Full desktop suite: 82 files, 722 passed.
   - Gates: `tsc --noEmit -p apps/desktop` (0 errors), `eslint` on changed files (0 errors), `actions-gate.mjs` (194/194/0), `i18n-gate.mjs` (1040/0).
 
+## D-R4-APPROVAL-1 — Approval Table Hardening: Sibling-Form Bypass & Missing Risky Rows (2026-11-21)
+- **Context & Scope**: Round-4 approval-table hardening addressing two HIGH security gaps: H1 (sibling-form bypasses reaching dangerous code execution through alternative spellings, wrappers, shims, or git/node option permutations) and H2 (missing risky rows in the approval table for arbitrary-code runners, package managers, network tools, and container runtimes).
+- **Architecture & Two-Seam Alignment**: Hardening is implemented symmetrically across both seams so that `command_policy.rs` (allow-list, `check_arguments`, `check_invocation`) and `work_protection.rs` (`classify_command` + `risky_commands.rs`) agree:
+  1. *Program-name normalization (H1)*:
+     - Case-insensitivity (`GIT`, `Node`, `Python3`), executable extension stripping (`.exe`, `.cmd`, `.bat`), relative and absolute path resolution (`/usr/bin/git`, `./git`, `C:\Program Files\Git\bin\git.exe`), and outer quote trimming.
+     - Symmetrical normalization ensured in both `command_policy::program_name` and `work_protection::classify_command`.
+  2. *Wrappers and multi-call shims (H1)*:
+     - Multi-call shims (`busybox`, `toybox`), privilege escalators (`sudo`, `su`, `doas`, `runas`), command runners (`env`, `xargs`, `find` with `-exec`/`-execdir`/`-ok`/`-okdir`, `watch`).
+     - Added `command_policy::find_wrapped_command` and recursive unwrapping in `check_invocation` (with recursion depth bound to 16) ensuring wrapped invocations cannot escape the configured allow-list or smuggle shell execution (e.g. `env cargo test` fails when cargo is not in allow-list; `env sh` fails with `ShellRefused`).
+     - Added wrapper inspection in `classify_command` so wrappers delegating to risky commands or shells correctly classify as `RiskClass::Risky`.
+  3. *Git prefix flags and config overrides (H1)*:
+     - Flexible option parsing in `check_arguments` and `classify_command` for git directory/config prefixes (`-C <dir>`, `--git-dir`, `--work-tree`, `--namespace`, `--super-prefix`, `-c`, `--config`, `--config-env`, `--exec-path`).
+     - Global flags can precede or follow subcommands without blinding dangerous subcommand inspection (`rebase -x`, `submodule foreach`, `bisect run`, `archive --exec`).
+     - Expanded `GIT_PROGRAM_CONFIG_KEYS` and `GIT_PROGRAM_CONFIG_PREFIXES` to cover `core.sshcommand`, `core.askpass`, `gpg.program`, `gpg.ssh.program`, `browser.path`, `hooks.`, `hook.`, `pager.`, plus `--exec-path` and `--config-env`. Shared `is_risky_git_config` helper across both seams.
+  4. *Node inline code & script execution (H1)*:
+     - Added coverage for `-e`, `--eval`, `--evaluate`, `-p`, `--print`, `-pe` as well as prefixed equals forms (`-e=`, `--eval=`, `--evaluate=`, `-p=`, `--print=`, `-pe=`).
+     - Empty arguments to `node` / `nodejs` trigger REPL and classify as Risky.
+     - Script file execution (`.js`, `.mjs`, `.cjs`, `.ts`) classifies as Risky.
+     - Pure informational flags (`--version`, `-v`, `--help`, `-h`) without code remain Safe.
+  5. *Missing risky rows (H2)*:
+     - Audited against `DEFAULT_ALLOWED_COMMANDS` and standard developer toolchains.
+     - Added definitions to `risky_commands.rs`: `python`, `python3`, `pip3`, `poetry`, `uv`, `pipx`, `ruby`, `gem`, `sudo`, `su`, `doas`, `runas`, `docker`, `podman`, `kubectl`, `terraform`, `ansible`, `ansible-playbook`, `rustup`, `gh`, `ftp`, `sftp`, `rsync`, `socat`, `nc`, `ncat`, `busybox`, `toybox`, `env`, `xargs`, `find`, `watch`, `chmod`, `chown`, `java`, `gradle`, and shells (`ash`, `csh`, `tcsh`, `fish`, `ksh`).
+     - Shells (`sh`, `bash`, `zsh`, `dash`, `ash`, `csh`, `tcsh`, `fish`, `ksh`, `cmd`, `powershell`, `pwsh`) remain blanket-Risky.
+     - Non-code invocations of python and ruby with only safe flags (`--version`, `-v`, `-V`, `--help`, `-h`) remain Safe.
+- **Test Integrity**:
+  - Zero existing tests weakened or deleted. All 540 baseline library tests continue to pass.
+  - Added 6 comprehensive proving tests in `crates/warsha-pipeline/src/verification_tests_impl.rs`:
+    - `test_h1_sibling_program_name_normalization`
+    - `test_h1_sibling_wrapper_and_shim_commands`
+    - `test_h1_git_prefixes_and_config_overrides`
+    - `test_h1_node_eval_and_script_variants`
+    - `test_h2_missing_risky_rows_classification`
+    - `test_h1_h2_e2e_ask_for_risky_approval_queueing` (e2e proving under `AskForRisky` with `FilesystemToolExecutor` and `McpApprovals`)
+- **Verification Matrix**:
+  - `cargo fmt -- --check`: passed (0 diff).
+  - `cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: passed (0 warnings).
+  - `cargo test -p warsha-pipeline --lib`: 546 passed, 0 failed, 7 ignored.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+
+
 
