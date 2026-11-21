@@ -352,17 +352,27 @@ use crate::risky_commands::RISKY_COMMANDS;
 pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
     let program_name = crate::command_policy::program_name(program);
 
+    // Shell commands are blanket-Risky.
+    if crate::command_policy::is_shell_command(&program_name) {
+        return RiskClass::Risky;
+    }
+
     for risky in RISKY_COMMANDS {
-        if risky.program == program_name {
+        if risky.program.eq_ignore_ascii_case(&program_name) {
             if risky.argument_pattern == "*" && !risky.check_arguments_only {
                 return RiskClass::Risky;
             }
             if args.iter().any(|arg| {
+                let clean_arg = arg.trim().trim_matches('"').trim_matches('\'').trim();
+                let lowered_arg = clean_arg.to_ascii_lowercase();
                 risky.argument_pattern.split('|').any(|p| {
-                    if p.ends_with('=') {
-                        arg.starts_with(p)
+                    let p_low = p.to_ascii_lowercase();
+                    if p_low.ends_with('=') {
+                        lowered_arg.starts_with(&p_low)
                     } else {
-                        p == arg
+                        p_low == lowered_arg
+                            || lowered_arg.starts_with(&format!("{p_low}="))
+                            || lowered_arg.starts_with(&format!("{p_low} "))
                     }
                 })
             }) {
@@ -371,22 +381,125 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
-    // Git bisect run is arbitrary command execution.
+    // Git subcommands, config overrides and flags
     if program_name == "git" {
-        let mut has_bisect = false;
-        for arg in args {
-            if arg.eq_ignore_ascii_case("bisect") {
-                has_bisect = true;
-            } else if has_bisect && arg.eq_ignore_ascii_case("run") {
+        let mut index = 0;
+        let mut subcommand_found = false;
+        while index < args.len() {
+            let arg = args[index]
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .trim();
+            let lowered = arg.to_ascii_lowercase();
+
+            if lowered == "--exec-path" || lowered.starts_with("--exec-path=") {
                 return RiskClass::Risky;
             }
+
+            if arg == "-c" || lowered == "--config" || lowered == "--config-env" {
+                if let Some(val) = args.get(index + 1) {
+                    if crate::command_policy::is_risky_git_config(val) {
+                        return RiskClass::Risky;
+                    }
+                    index += 2;
+                    continue;
+                }
+            } else if let Some(val) = crate::command_policy::git_config_override_value(arg) {
+                if crate::command_policy::is_risky_git_config(val) {
+                    return RiskClass::Risky;
+                }
+                index += 1;
+                continue;
+            }
+
+            if !subcommand_found {
+                if arg == "-C"
+                    || lowered == "--git-dir"
+                    || lowered == "--work-tree"
+                    || lowered == "--namespace"
+                    || lowered == "--super-prefix"
+                {
+                    index += 2;
+                    continue;
+                }
+                if (arg.starts_with("-C") && arg.len() > 2)
+                    || lowered.starts_with("--git-dir=")
+                    || lowered.starts_with("--work-tree=")
+                    || lowered.starts_with("--namespace=")
+                    || lowered.starts_with("--super-prefix=")
+                {
+                    index += 1;
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    index += 1;
+                    continue;
+                }
+
+                subcommand_found = true;
+                let remaining = &args[index + 1..];
+
+                if matches!(
+                    lowered.as_str(),
+                    "push" | "pull" | "fetch" | "clone" | "submodule" | "rebase"
+                ) {
+                    return RiskClass::Risky;
+                }
+                if lowered == "bisect"
+                    && remaining.iter().any(|a| {
+                        a.trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .eq_ignore_ascii_case("run")
+                    })
+                {
+                    return RiskClass::Risky;
+                }
+                if lowered == "rebase"
+                    && remaining.iter().any(|a| {
+                        let a_low = a
+                            .trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .to_ascii_lowercase();
+                        a_low == "-x" || a_low == "--exec" || a_low.starts_with("--exec=")
+                    })
+                {
+                    return RiskClass::Risky;
+                }
+                if lowered == "submodule"
+                    && remaining.iter().any(|a| {
+                        a.trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .eq_ignore_ascii_case("foreach")
+                    })
+                {
+                    return RiskClass::Risky;
+                }
+                if lowered == "archive"
+                    && remaining.iter().any(|a| {
+                        let a_low = a
+                            .trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .to_ascii_lowercase();
+                        a_low == "--exec" || a_low.starts_with("--exec=")
+                    })
+                {
+                    return RiskClass::Risky;
+                }
+            }
+
+            index += 1;
         }
     }
 
     // SQLite3 dot-commands that shell out (.shell, .system, .once/.output with pipe).
     if program_name == "sqlite3" {
         for (i, arg) in args.iter().enumerate() {
-            let trimmed = arg.trim();
+            let trimmed = arg.trim().trim_matches('"').trim_matches('\'').trim();
             let lowered = trimmed.to_ascii_lowercase();
             if lowered.starts_with(".shell") || lowered.starts_with(".system") {
                 return RiskClass::Risky;
@@ -394,7 +507,13 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             if lowered.starts_with(".once") || lowered.starts_with(".output") {
                 let next_is_pipe = args
                     .get(i + 1)
-                    .map(|a| a.trim().starts_with('|'))
+                    .map(|a| {
+                        a.trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .trim()
+                            .starts_with('|')
+                    })
                     .unwrap_or(false);
                 if lowered.contains('|') || next_is_pipe {
                     return RiskClass::Risky;
@@ -403,11 +522,23 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
-    // Node executing agent-written script files (.js, .mjs, .cjs).
+    // Node executing REPL or agent-written script files (.js, .mjs, .cjs, etc.).
     if program_name == "node" || program_name == "nodejs" {
+        if args.is_empty() {
+            return RiskClass::Risky;
+        }
         for arg in args {
-            let lowered = arg.to_ascii_lowercase();
-            if lowered.ends_with(".js") || lowered.ends_with(".mjs") || lowered.ends_with(".cjs") {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if lowered.ends_with(".js")
+                || lowered.ends_with(".mjs")
+                || lowered.ends_with(".cjs")
+                || lowered.ends_with(".ts")
+                || lowered.ends_with(".mts")
+                || lowered.ends_with(".cts")
+                || lowered.ends_with(".jsx")
+                || lowered.ends_with(".tsx")
+            {
                 return RiskClass::Risky;
             }
         }
@@ -416,7 +547,8 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
     // Bun executing script files (e.g. bun x.ts).
     if program_name == "bun" {
         for arg in args {
-            let lowered = arg.to_ascii_lowercase();
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
             if lowered.ends_with(".ts")
                 || lowered.ends_with(".js")
                 || lowered.ends_with(".mjs")
@@ -428,6 +560,34 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             {
                 return RiskClass::Risky;
             }
+        }
+    }
+
+    // Python executing REPL, scripts, or non-version/help arguments.
+    if program_name == "python" || program_name == "python3" {
+        if args.is_empty() {
+            return RiskClass::Risky;
+        }
+        let only_safe_flags = args.iter().all(|arg| {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            matches!(clean, "--version" | "-v" | "-V" | "--help" | "-h")
+        });
+        if !only_safe_flags {
+            return RiskClass::Risky;
+        }
+    }
+
+    // Ruby executing REPL, scripts, or non-version/help arguments.
+    if program_name == "ruby" {
+        if args.is_empty() {
+            return RiskClass::Risky;
+        }
+        let only_safe_flags = args.iter().all(|arg| {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            matches!(clean, "--version" | "-v" | "--help" | "-h")
+        });
+        if !only_safe_flags {
+            return RiskClass::Risky;
         }
     }
 
@@ -450,24 +610,17 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             "licenses",
         ];
         if let Some(first_arg) = args.first() {
-            if !KNOWN_SAFE_PNPM_YARN_SUBCOMMANDS.contains(&first_arg.to_ascii_lowercase().as_str())
-            {
+            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
+            if !KNOWN_SAFE_PNPM_YARN_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
                 return RiskClass::Risky;
             }
         }
     }
 
-    // Shell commands are risky.
-    if matches!(
-        program_name.as_str(),
-        "sh" | "bash" | "zsh" | "dash" | "cmd" | "cmd.exe" | "powershell" | "pwsh"
-    ) {
-        return RiskClass::Risky;
-    }
-
     // Writes outside the workspace or deleting >20 files (conservative).
     for arg in args {
-        if arg.starts_with('/') || arg.contains("..") {
+        let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+        if clean.starts_with('/') || clean.contains("..") {
             return RiskClass::Risky;
         }
     }

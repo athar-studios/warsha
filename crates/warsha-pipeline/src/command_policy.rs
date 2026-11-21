@@ -82,7 +82,25 @@ pub const DEFAULT_ALLOWED_COMMANDS: &[&str] = &[
 ];
 
 /// Shell binaries refused by default unless explicitly present in the configured allow-list.
-pub const SHELL_COMMANDS: &[&str] = &["sh", "bash", "cmd", "powershell", "pwsh"];
+pub const SHELL_COMMANDS: &[&str] = &[
+    "sh",
+    "bash",
+    "zsh",
+    "dash",
+    "ash",
+    "csh",
+    "tcsh",
+    "fish",
+    "ksh",
+    "cmd",
+    "powershell",
+    "pwsh",
+];
+
+pub(crate) fn is_shell_command(cmd: &str) -> bool {
+    let name = program_name(cmd);
+    SHELL_COMMANDS.contains(&name.as_str())
+}
 
 /// `git` config keys whose value git turns into a program it runs.
 ///
@@ -93,7 +111,7 @@ pub const SHELL_COMMANDS: &[&str] = &["sh", "bash", "cmd", "powershell", "pwsh"]
 /// arguments (KEEL checkpoint finding M3). The set is the known program-naming
 /// keys, not an exhaustive one, and it only matters when the value is non-empty:
 /// an empty value disables the hook instead of naming a program.
-const GIT_PROGRAM_CONFIG_KEYS: &[&str] = &[
+pub(crate) const GIT_PROGRAM_CONFIG_KEYS: &[&str] = &[
     "core.pager",
     "core.editor",
     "editor",
@@ -105,10 +123,16 @@ const GIT_PROGRAM_CONFIG_KEYS: &[&str] = &[
     "credential.helper",
     "core.hookspath",
     "core.attributesfile",
+    "core.sshcommand",
+    "core.askpass",
+    "gpg.program",
+    "gpg.ssh.program",
+    "browser.path",
 ];
 
-/// `git` config sections where every key names a program (`alias.*`, `filter.*`).
-const GIT_PROGRAM_CONFIG_PREFIXES: &[&str] = &["alias.", "filter."];
+/// `git` config sections where every key names a program (`alias.*`, `filter.*`, `hooks.*`, `hook.*`, `pager.*`).
+pub(crate) const GIT_PROGRAM_CONFIG_PREFIXES: &[&str] =
+    &["alias.", "filter.", "hooks.", "hook.", "pager."];
 
 /// Why a `git` config override that names a program is refused.
 ///
@@ -414,7 +438,40 @@ impl CommandPolicy {
         args: &[String],
     ) -> Result<(), CommandPolicyError> {
         self.check_program(program_token)?;
-        check_arguments(program_token, args)
+        check_arguments(program_token, args)?;
+
+        let mut current_prog = program_token;
+        let mut current_args = args;
+        let mut depth = 0;
+        while let Some((inner_prog, inner_args)) = find_wrapped_command(current_prog, current_args)
+        {
+            depth += 1;
+            if depth > 16 {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: inner_prog.to_string(),
+                    reason: "nested wrapper depth exceeded".to_string(),
+                });
+            }
+            self.check_program(inner_prog)?;
+            check_arguments(inner_prog, inner_args)?;
+            current_prog = inner_prog;
+            current_args = inner_args;
+        }
+
+        if program_name(program_token) == "su" {
+            for (i, arg) in args.iter().enumerate() {
+                let trimmed = arg.trim().trim_matches('"').trim_matches('\'').trim();
+                if trimmed == "-c" || trimmed == "--command" {
+                    if let Some(cmd_str) = args.get(i + 1) {
+                        if let Ok((first, _)) = parse_command_line(cmd_str) {
+                            self.check_program(&first)?;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Judge a single program token against this policy.
@@ -676,6 +733,163 @@ pub(crate) fn resolve_program_and_args(
     Ok((first, combined))
 }
 
+/// Helper to extract the wrapped command and its arguments from wrapper binaries
+/// like env, sudo, doas, runas, busybox, toybox, xargs, find (-exec), watch.
+pub(crate) fn find_wrapped_command<'a>(
+    program_token: &str,
+    args: &'a [String],
+) -> Option<(&'a str, &'a [String])> {
+    let prog = program_name(program_token);
+    match prog.as_str() {
+        "busybox" | "toybox" => {
+            let mut index = 0;
+            while index < args.len() {
+                let arg = args[index]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim();
+                if arg.starts_with('-') {
+                    index += 1;
+                    continue;
+                }
+                return Some((arg, &args[index + 1..]));
+            }
+            None
+        }
+        "env" => {
+            let mut index = 0;
+            while index < args.len() {
+                let arg = args[index]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim();
+                let lowered = arg.to_ascii_lowercase();
+                if (arg == "-u" || arg == "-C" || arg == "-S") && index + 1 < args.len() {
+                    index += 2;
+                    continue;
+                }
+                if (arg.starts_with("-u") && arg.len() > 2)
+                    || (arg.starts_with("-C") && arg.len() > 2)
+                    || (arg.starts_with("-S") && arg.len() > 2)
+                    || lowered.starts_with("--unset=")
+                    || lowered.starts_with("--chdir=")
+                    || lowered.starts_with("--split-string=")
+                {
+                    index += 1;
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    index += 1;
+                    continue;
+                }
+                if arg.contains('=') {
+                    index += 1;
+                    continue;
+                }
+                return Some((arg, &args[index + 1..]));
+            }
+            None
+        }
+        "sudo" | "doas" | "runas" => {
+            let mut index = 0;
+            while index < args.len() {
+                let arg = args[index]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim();
+                if (arg == "-u" || arg == "-g" || arg == "-p" || arg == "-C")
+                    && index + 1 < args.len()
+                {
+                    index += 2;
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    index += 1;
+                    continue;
+                }
+                return Some((arg, &args[index + 1..]));
+            }
+            None
+        }
+        "xargs" => {
+            let mut index = 0;
+            while index < args.len() {
+                let arg = args[index]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim();
+                if (arg == "-I"
+                    || arg == "-i"
+                    || arg == "-n"
+                    || arg == "-P"
+                    || arg == "-d"
+                    || arg == "-s"
+                    || arg == "-E"
+                    || arg == "-L")
+                    && index + 1 < args.len()
+                {
+                    index += 2;
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    index += 1;
+                    continue;
+                }
+                return Some((arg, &args[index + 1..]));
+            }
+            None
+        }
+        "find" => {
+            let mut index = 0;
+            while index < args.len() {
+                let arg = args[index]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim();
+                let lowered = arg.to_ascii_lowercase();
+                if lowered == "-exec"
+                    || lowered == "-execdir"
+                    || lowered == "-ok"
+                    || lowered == "-okdir"
+                {
+                    if let Some(cmd) = args.get(index + 1) {
+                        let cmd_clean = cmd.trim().trim_matches('"').trim_matches('\'').trim();
+                        return Some((cmd_clean, &args[index + 2..]));
+                    }
+                }
+                index += 1;
+            }
+            None
+        }
+        "watch" => {
+            let mut index = 0;
+            while index < args.len() {
+                let arg = args[index]
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim();
+                if (arg == "-n" || arg == "--interval") && index + 1 < args.len() {
+                    index += 2;
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    index += 1;
+                    continue;
+                }
+                return Some((arg, &args[index + 1..]));
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 /// Judge the arguments of a program for a second program named through them.
 ///
 /// The allow-list bounds which **programs** run; it cannot bound what an
@@ -713,70 +927,79 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
         return Ok(());
     }
 
+    if prog == "find" {
+        for (i, arg) in args.iter().enumerate() {
+            let trimmed = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = trimmed.to_ascii_lowercase();
+            if lowered == "-exec"
+                || lowered == "-execdir"
+                || lowered == "-ok"
+                || lowered == "-okdir"
+            {
+                if let Some(next_arg) = args.get(i + 1) {
+                    if is_shell_command(next_arg) {
+                        return Err(CommandPolicyError::ShellRefused {
+                            command: next_arg.to_string(),
+                        });
+                    }
+                }
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: trimmed.to_string(),
+                    reason: "find -exec is not allowed".to_string(),
+                });
+            }
+        }
+        return Ok(());
+    }
+
+    if prog == "su" {
+        for (i, arg) in args.iter().enumerate() {
+            let trimmed = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            if trimmed == "-c" || trimmed == "--command" {
+                if let Some(cmd_str) = args.get(i + 1) {
+                    if let Ok((first, r)) = parse_command_line(cmd_str) {
+                        if is_shell_command(&first) {
+                            return Err(CommandPolicyError::ShellRefused { command: first });
+                        }
+                        check_arguments(&first, &r)?;
+                    }
+                }
+            }
+        }
+        return Err(CommandPolicyError::ShellRefused {
+            command: "su".to_string(),
+        });
+    }
+
+    if let Some((inner_prog, inner_args)) = find_wrapped_command(program, args) {
+        if is_shell_command(inner_prog) {
+            return Err(CommandPolicyError::ShellRefused {
+                command: inner_prog.to_string(),
+            });
+        }
+        return check_arguments(inner_prog, inner_args);
+    }
+
     if prog != "git" {
         return Ok(());
     }
 
     let mut index = 0;
+    let mut subcommand_found = false;
     while index < args.len() {
         let argument = args[index].trim();
         let lowered = argument.to_ascii_lowercase();
 
-        // Scan for the first non-flag subcommand
-        if !argument.starts_with('-')
-            && argument != "."
-            && !args
-                .get(index.saturating_sub(1))
-                .map(|a| {
-                    let a_low = a.to_ascii_lowercase();
-                    a_low == "-c"
-                        || a_low == "--config"
-                        || a_low == "--config-env"
-                        || a_low == "-c"
-                        || a_low == "-c"
-                        || a_low == "-c"
-                        || a_low == "-C"
-                })
-                .unwrap_or(false)
-        {
-            if lowered == "rebase"
-                && args
-                    .get(index + 1)
-                    .map(|a| a == "-x" || a == "--exec")
-                    .unwrap_or(false)
-            {
-                return Err(CommandPolicyError::InvalidCommand {
-                    command: argument.to_string(),
-                    reason: "git rebase -x is not allowed".to_string(),
-                });
-            }
-            if lowered == "submodule"
-                && args.get(index + 1).map(|a| a == "foreach").unwrap_or(false)
-            {
-                return Err(CommandPolicyError::InvalidCommand {
-                    command: argument.to_string(),
-                    reason: "git submodule foreach is not allowed".to_string(),
-                });
-            }
-            if lowered == "bisect"
-                && args[index + 1..]
-                    .iter()
-                    .any(|a| a.eq_ignore_ascii_case("run"))
-            {
-                return Err(CommandPolicyError::InvalidCommand {
-                    command: argument.to_string(),
-                    reason: "git bisect run is not allowed".to_string(),
-                });
-            }
-        }
-
+        // Check for --exec-path anywhere
         if lowered == "--exec-path" || lowered.starts_with("--exec-path=") {
             return Err(CommandPolicyError::InvalidCommand {
                 command: argument.to_string(),
                 reason: GIT_EXEC_PATH_REASON.to_string(),
             });
         }
-        if argument == "-c" || lowered == "--config" {
+
+        // Check for -c, --config, --config-env overrides anywhere
+        if argument == "-c" || lowered == "--config" || lowered == "--config-env" {
             if let Some(value) = args.get(index + 1) {
                 check_git_config_override(value)?;
                 index += 2;
@@ -784,7 +1007,85 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
             }
         } else if let Some(value) = git_config_override_value(argument) {
             check_git_config_override(value)?;
+            index += 1;
+            continue;
         }
+
+        // Check global options before the subcommand
+        if !subcommand_found {
+            if argument == "-C"
+                || lowered == "--git-dir"
+                || lowered == "--work-tree"
+                || lowered == "--namespace"
+                || lowered == "--super-prefix"
+            {
+                index += 2;
+                continue;
+            }
+            if (argument.starts_with("-C") && argument.len() > 2)
+                || lowered.starts_with("--git-dir=")
+                || lowered.starts_with("--work-tree=")
+                || lowered.starts_with("--namespace=")
+                || lowered.starts_with("--super-prefix=")
+            {
+                index += 1;
+                continue;
+            }
+            if argument.starts_with('-') {
+                index += 1;
+                continue;
+            }
+
+            subcommand_found = true;
+            let remaining = &args[index + 1..];
+
+            if lowered == "rebase"
+                && remaining.iter().any(|a| {
+                    let a_low = a.trim().to_ascii_lowercase();
+                    a_low == "-x" || a_low == "--exec" || a_low.starts_with("--exec=")
+                })
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git rebase -x is not allowed".to_string(),
+                });
+            }
+
+            if lowered == "submodule"
+                && remaining
+                    .iter()
+                    .any(|a| a.trim().eq_ignore_ascii_case("foreach"))
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git submodule foreach is not allowed".to_string(),
+                });
+            }
+
+            if lowered == "bisect"
+                && remaining
+                    .iter()
+                    .any(|a| a.trim().eq_ignore_ascii_case("run"))
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git bisect run is not allowed".to_string(),
+                });
+            }
+
+            if lowered == "archive"
+                && remaining.iter().any(|a| {
+                    let a_low = a.trim().to_ascii_lowercase();
+                    a_low == "--exec" || a_low.starts_with("--exec=")
+                })
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git archive --exec is not allowed".to_string(),
+                });
+            }
+        }
+
         index += 1;
     }
     Ok(())
@@ -794,7 +1095,7 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
 ///
 /// The separate-token forms (`-c key=value`) are read by the caller, so a token
 /// that starts with `-c` here is the attached form.
-fn git_config_override_value(argument: &str) -> Option<&str> {
+pub(crate) fn git_config_override_value(argument: &str) -> Option<&str> {
     if let Some(rest) = argument.strip_prefix("-c") {
         return Some(rest);
     }
@@ -807,6 +1108,24 @@ fn git_config_override_value(argument: &str) -> Option<&str> {
     None
 }
 
+/// Check whether a git config string `key=value` overrides a program-executing key with a non-empty value.
+pub(crate) fn is_risky_git_config(value: &str) -> bool {
+    let Some((key, config_value)) = value.split_once('=') else {
+        return false;
+    };
+    if config_value.trim().is_empty() {
+        return false;
+    }
+    let key = key.trim();
+    let normalized = key.to_ascii_lowercase();
+    GIT_PROGRAM_CONFIG_KEYS
+        .iter()
+        .any(|denied| *denied == normalized)
+        || GIT_PROGRAM_CONFIG_PREFIXES
+            .iter()
+            .any(|prefix| normalized.starts_with(prefix))
+}
+
 /// Refuse a `git` config override whose key names a program and whose value is set.
 ///
 /// An **empty** value names no program — it disables the hook — which is the
@@ -817,18 +1136,11 @@ fn check_git_config_override(value: &str) -> Result<(), CommandPolicyError> {
         // Without a `=` there is no value, so git itself refuses the override.
         return Ok(());
     };
-    if config_value.is_empty() {
+    if config_value.trim().is_empty() {
         return Ok(());
     }
     let key = key.trim();
-    let normalized = key.to_ascii_lowercase();
-    let names_program = GIT_PROGRAM_CONFIG_KEYS
-        .iter()
-        .any(|denied| *denied == normalized)
-        || GIT_PROGRAM_CONFIG_PREFIXES
-            .iter()
-            .any(|prefix| normalized.starts_with(prefix));
-    if names_program {
+    if is_risky_git_config(value) {
         return Err(CommandPolicyError::InvalidCommand {
             command: value.to_string(),
             reason: format!("git config key `{key}` {GIT_CONFIG_PROGRAM_REASON}"),

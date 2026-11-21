@@ -1,5 +1,34 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Round-4 HIGH (H1+H2) approval-table hardening (fix-r4-approval)
+- **Scope**: Round-4 HIGH approval-table hardening covering H1 (sibling-form bypasses) and H2 (missing risky rows). Worktree `.agents/worktrees/fix-r4-approval` on branch `fix-r4-approval-lane`. Local-only: no push, no tag, no publish, main untouched.
+- **Root Cause**:
+  - H1: Commands could reach dangerous behavior through sibling spellings (case variants `GIT`, `.exe` extensions, absolute/relative paths `/usr/bin/git`, shims `busybox`/`toybox`, wrappers `env`/`sudo`/`su`/`doas`/`runas`/`xargs`/`find -exec`/`watch`, git `-C`/`--git-dir`/`--work-tree` flag order blinding subcommand checks, git `-c`/`--config` overrides for hooks/pager/sshcommand/exec-path, node `--eval=`/`-e=`/`--print=` equals forms and REPL invocations).
+  - H2: Approval table lacked rows for standard developer toolchain runners (python, python3, pip3, poetry, uv, pipx, ruby, gem, sudo, su, doas, runas, docker, podman, kubectl, terraform, ansible, rustup, gh, ftp, sftp, rsync, socat, nc, ncat, chmod, chown, java, gradle, ash, csh, tcsh, fish, ksh).
+- **Fix**:
+  - `crates/warsha-pipeline/src/command_policy.rs`:
+    - Expanded `SHELL_COMMANDS` to include ash, csh, tcsh, fish, ksh, powershell, pwsh, cmd, and added `is_shell_command`.
+    - Added `find_wrapped_command` and recursive checking in `check_invocation` (recursion depth bound to 16) so inner commands cannot escape allow-list or smuggle shell execution.
+    - Updated `check_arguments` for git global options (`-C`, `--git-dir`, `--work-tree`, etc.) to parse irrespective of flag order and inspect subcommands (`rebase -x`, `submodule foreach`, `bisect run`, `archive --exec`).
+    - Expanded `GIT_PROGRAM_CONFIG_KEYS` and `GIT_PROGRAM_CONFIG_PREFIXES` to reject program/hook configuration keys (`core.sshcommand`, `core.askpass`, `gpg.program`, `browser.path`, `hooks.`, `hook.`, `pager.`, plus `--exec-path` and `--config-env`).
+    - Exported `is_risky_git_config` and `git_config_override_value` for cross-seam consistency.
+  - `crates/warsha-pipeline/src/risky_commands.rs`:
+    - Updated `node` and `nodejs` to match `--eval=`, `-e=`, `-p=`, `-pe=`, `--print=`, `--evaluate=`.
+    - Added rows with argument checks for python, python3, pip3, poetry, uv, pipx, ruby, gem, sudo, su, doas, runas, docker, podman, kubectl, terraform, ansible, ansible-playbook, rustup, gh, ftp, sftp, rsync, socat, nc, ncat, busybox, toybox, env, xargs, find, watch, chmod, chown, java, gradle, ash, csh, tcsh, fish, ksh.
+  - `crates/warsha-pipeline/src/work_protection.rs`:
+    - In `classify_command`, normalized program names (case-insensitive, extension and path stripping).
+    - Added wrapper inspection for busybox, toybox, env, sudo, su, doas, runas, xargs, find, watch.
+    - Added git config override and exec-path checks via `is_risky_git_config`.
+    - Added node, bun, python, ruby inline eval, REPL, and script file classification, preserving safe flags (`--version`, `-v`, `--help`).
+  - Proving tests in `crates/warsha-pipeline/src/verification_tests_impl.rs`: 6 comprehensive test suites proving both seams (`test_h1_sibling_program_name_normalization`, `test_h1_sibling_wrapper_and_shim_commands`, `test_h1_git_prefixes_and_config_overrides`, `test_h1_node_eval_and_script_variants`, `test_h2_missing_risky_rows_classification`, `test_h1_h2_e2e_ask_for_risky_approval_queueing`).
+  - Recorded decision `D-R4-APPROVAL-1` in `DECISIONS.md`.
+- **Gate Matrix**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: passed (0 diff).
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: passed (0 warnings).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 546 passed, 0 failed, 7 ignored.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+- **Status**: COMPLETE
+
 ## Run 2026-11-21 — Fallback store merged into r-next/integration (3515f2c)
 - **Merge**: `fix-retest2-fallback` (`4b6b0ad`) → `r-next/integration` as `3515f2c`, on top of retest-2 merge tip `56c18e3` (B1+B2+toasts). Local-only: no push, no tag, no publish, main untouched.
 - **Gates on merged tip `3515f2c`**: `cargo fmt --check` 0; `cargo clippy --workspace --all-targets` 0; `warsha-providers --lib` 68/0; `warshad --lib` 309/0/4 ignored; `tsc` desktop+UI 0; `eslint` touched 0; `policy` 8/0; `arch` 5/0; `versions` aligned 0.3.0; `wire` 11/0; `actions` 194/194/0; `i18n` 1040/0; `cargo deny` only owner-accepted chrono RUSTSEC-2026-0543 (new aead/chacha20poly1305 crates add no new advisories).
