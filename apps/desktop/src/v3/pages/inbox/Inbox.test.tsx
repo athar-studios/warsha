@@ -17,6 +17,7 @@ import { ClientProvider } from '../../app/ClientContext';
 import { DataReadyProvider, useDataReady } from '../../app/DataReadyContext';
 import { DensityProvider } from '../../app/DensityContext';
 import { RouterProvider } from '../../router';
+import { Frame } from '../frame/Frame';
 
 import InboxPage, {
   collectMcpItems,
@@ -129,6 +130,7 @@ function createMockClient(overrides: Partial<Record<string, unknown>> = {}): War
 }
 
 function renderInbox(client: WarshaClient | null, path = '/inbox') {
+  window.location.hash = path;
   return render(
     <ClientProvider client={client ?? undefined}>
       <CapabilitiesProvider client={client ?? undefined}>
@@ -138,6 +140,28 @@ function renderInbox(client: WarshaClient | null, path = '/inbox') {
               <RouterProvider initialPath={path}>
                 <ReadyInspector />
                 <InboxPage />
+              </RouterProvider>
+            </DataReadyProvider>
+          </DensityProvider>
+        </I18nProvider>
+      </CapabilitiesProvider>
+    </ClientProvider>
+  );
+}
+
+function renderInboxWithFrame(client: WarshaClient | null, path = '/inbox') {
+  window.location.hash = path;
+  return render(
+    <ClientProvider client={client ?? undefined}>
+      <CapabilitiesProvider client={client ?? undefined}>
+        <I18nProvider initialLocale="en">
+          <DensityProvider initialMode="simple">
+            <DataReadyProvider>
+              <RouterProvider initialPath={path}>
+                <ReadyInspector />
+                <Frame>
+                  <InboxPage />
+                </Frame>
               </RouterProvider>
             </DataReadyProvider>
           </DensityProvider>
@@ -265,6 +289,84 @@ describe('InboxPage component journeys and states', () => {
     expect(readyBack.getAttribute('data-action')).toBe('inbox.back');
     fireEvent.click(readyBack);
     expect(window.location.hash).toBe('#/');
+  });
+
+  it('navigates home on Escape key when no decision sheet is open (G2b)', async () => {
+    renderInbox(createMockClient());
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-ready')).toBeDefined();
+    });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(window.location.hash).toBe('#/');
+  });
+
+  it('navigates home on Escape key from empty state (G2b)', async () => {
+    const emptyClient = createMockClient({
+      listProjects: vi.fn().mockResolvedValue([PROJ_1]),
+      listRuns: vi.fn().mockResolvedValue([RUNNING_RUN]),
+    });
+
+    renderInbox(emptyClient);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-empty')).toBeDefined();
+    });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(window.location.hash).toBe('#/');
+  });
+
+  it('closes decision sheet on Escape first without navigating home, then navigates home on second Escape (G2b)', async () => {
+    renderInbox(createMockClient());
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-ready')).toBeDefined();
+    });
+
+    const reviewBtn = screen.getByRole('button', { name: /Review decision/i });
+    fireEvent.click(reviewBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-decision-sheet')).toBeDefined();
+    });
+
+    // First Escape: closes the Sheet, does not navigate away from /inbox
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('inbox-decision-sheet')).toBeNull();
+    });
+    expect(window.location.hash).toBe('#/inbox');
+
+    // Second Escape: navigates home
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(window.location.hash).toBe('#/');
+  });
+
+  it('toggles frame inbox icon: navigates home from /inbox and to /inbox from home (G2b)', async () => {
+    const { container, unmount } = renderInboxWithFrame(createMockClient(), '/inbox');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inbox-ready')).toBeDefined();
+    });
+
+    const inboxIcon = container.querySelector<HTMLButtonElement>('[data-action="frame.inbox.open"]');
+    expect(inboxIcon).not.toBeNull();
+
+    // Currently on /inbox -> clicking frame icon navigates home
+    fireEvent.click(inboxIcon!);
+    expect(window.location.hash).toBe('#/');
+
+    unmount();
+
+    // From home (/) -> clicking frame icon navigates to /inbox
+    const { container: homeContainer } = renderInboxWithFrame(createMockClient(), '/');
+    const homeInboxIcon = homeContainer.querySelector<HTMLButtonElement>('[data-action="frame.inbox.open"]');
+    expect(homeInboxIcon).not.toBeNull();
+    fireEvent.click(homeInboxIcon!);
+    expect(window.location.hash).toBe('#/inbox');
   });
 
   it('renders error banner and retries via inbox.retry', async () => {

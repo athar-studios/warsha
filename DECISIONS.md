@@ -2454,4 +2454,22 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
   - `./node_modules/.bin/eslint` on changed files: exit code 0.
   - `node scripts/ci/actions-gate.mjs`: exit code 0 (194 registered, 194 used, 0 violations).
   - `node scripts/ci/i18n-gate.mjs`: exit code 0 (1040 keys, 0 violations).
+## D-RN-RETEST-G2B-1 — Decisions Inbox Close (Icon Toggle + Escape) (2026-11-21)
+- **Context**: Retest reports (G2b, both platforms) showed that while `inbox.back` button works, the frame top-bar inbox icon only navigated to `/inbox` unconditionally without toggling back when clicked while already on the inbox page. Additionally, there was no page-level `Escape` keydown handler in the inbox page to navigate home when no modal decision Sheet is open.
+- **Decision & Architecture**:
+  1. **Frame Inbox Toggle (`Frame.tsx`)**: In `handleOpenInbox`, inspect the current route pathname / area via `useRoute()`. If already on `/inbox` (or `area === 'inbox'`), navigate home (`/`); otherwise, navigate to `/inbox`. This provides intuitive modal toggle behavior for the top-bar entry point.
+  2. **Inbox Page Escape Handler (`apps/desktop/src/v3/pages/inbox/index.tsx`)**: Added a window `keydown` event listener for `Escape` on `InboxPage`. If a decision Sheet is currently open (`selectedDecision !== null`) or if `event.defaultPrevented` is true (e.g., consumed by an open child composite/Sheet), the page-level handler does nothing, preserving the Sheet's existing Escape-to-close behavior. When no decision sheet is open, `event.preventDefault()` is invoked and the router navigates home (`/`). The listener is cleanly unregistered on unmount.
+  3. **Strings**: Reused existing registered i18n keys and actions (`inbox.back`, `frame.inbox.open`, `frame.inbox`); no raw strings or redundant action registrations introduced.
+  4. **Proving Tests**:
+     - Unit tests in `apps/desktop/src/v3/pages/inbox/Inbox.test.tsx`:
+       - `navigates home on Escape key when no decision sheet is open (G2b)`
+       - `navigates home on Escape key from empty state (G2b)`
+       - `closes decision sheet on Escape first without navigating home, then navigates home on second Escape (G2b)`
+       - `toggles frame inbox icon: navigates home from /inbox and to /inbox from home (G2b)`
+     - E2E tests in `apps/desktop/e2e/v3/inbox.spec.ts`:
+       - `Escape key navigates home from /inbox when no decision sheet is open (G2b)`
+       - `Escape key closes decision Sheet first then navigates home on second Escape (G2b)`
+     - Verification: `tsc --noEmit`, `eslint`, vitest suites (Inbox 29/29, Frame 19/19), `actions-gate.mjs` (194/194/0) and `i18n-gate.mjs` (1040/0) all pass.
+
+
 

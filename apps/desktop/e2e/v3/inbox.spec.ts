@@ -139,6 +139,36 @@ test.describe('Inbox journeys', () => {
     await expect(page).toHaveURL(/#\/$/);
   });
 
+  test('Escape key navigates home from /inbox when no decision sheet is open (G2b)', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+    await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/#\/$/);
+  });
+
+  test('Escape key closes decision Sheet first then navigates home on second Escape (G2b)', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+    await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+
+    await act(page, 'inbox.decision.open');
+    const sheet = page.locator('[data-testid="inbox-decision-sheet"]');
+    await expect(sheet).toBeVisible();
+
+    // First Escape closes Sheet but stays on /inbox
+    await page.keyboard.press('Escape');
+    await expect(sheet).toBeHidden();
+    await expect(page).toHaveURL(/#\/inbox$/);
+
+    // Second Escape navigates home
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/#\/$/);
+  });
+
   test('opens decision Sheet via inbox.decision.open and approves from within Sheet', async ({
     page,
   }) => {

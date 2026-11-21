@@ -23,6 +23,21 @@
   - `node scripts/ci/actions-gate.mjs`: exit code 0 (194 registered, 194 used, 0 violations).
   - `node scripts/ci/i18n-gate.mjs`: exit code 0 (1040 keys, 0 violations).
 - **Status**: COMPLETE
+## Run 2026-11-21 — G2b Decisions Inbox Close (Icon Toggle + Escape)
+- **Scope**: Fix G2b Decisions Inbox close (top-bar icon toggle + page Escape key) in Warsha 0.3.0 (`fix-retest-inbox` branch). Local-only.
+- **Changes**:
+  - `apps/desktop/src/v3/pages/frame/Frame.tsx`: `handleOpenInbox` toggles to `/` when currently on `/inbox` or in the `inbox` area, else navigates to `/inbox`.
+  - `apps/desktop/src/v3/pages/inbox/index.tsx`: Window `keydown` handler for `Escape` navigates home (`/`) when no decision sheet is open (`selectedDecision === null`) and `!event.defaultPrevented`, preserving Sheet close. Unmount cleanup included.
+  - `apps/desktop/src/v3/pages/inbox/Inbox.test.tsx`: Added 4 unit tests covering Escape key navigation (ready and empty states), Sheet priority close before home navigation, and Frame inbox icon toggle.
+  - `apps/desktop/e2e/v3/inbox.spec.ts`: Added e2e cases for Escape key navigation to `#/` and Sheet Escape priority.
+  - `DECISIONS.md`: Recorded `D-RN-RETEST-G2B-1`.
+- **Gate Matrix**:
+  - `tsc --noEmit -p apps/desktop/tsconfig.json`: Clean (0 errors).
+  - `eslint` on changed files: Clean (0 errors).
+  - `vitest` suites: 48/48 passed (Inbox 29/29, Frame 19/19).
+  - `node scripts/ci/actions-gate.mjs`: Clean (194 registered, 194 used, 0 violations).
+  - `node scripts/ci/i18n-gate.mjs`: Clean (1040 keys, 0 violations).
+- **Status**: COMPLETE.
 
 ## Run 2026-11-21 — GUI Merge Verification (START+NAV+PROVIDER+POLISH in r-next/integration)
 - **Scope**: Merge the four verified GUI fix lanes into `r-next/integration` tip and run the gate matrix on the merged tree. Local-only: no push, no tag, no publish, main untouched.
