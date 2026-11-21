@@ -34,9 +34,11 @@ use jsonrpsee::http_client::transport::Error as HttpTransportError;
 use serde_json::{json, Value};
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
 use warsha_cli::{Cli, CliApp, CliError, Commands, ProviderAction};
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
+use warsha_providers::InMemorySecretStore;
+use warshad::{start_daemon_with_secrets, DaemonConfig, DaemonHandle, RateLimitConfig};
 
 /// The daemon's own bearer token: the credential the CLI is expected to carry.
 /// A test-local string, never a real secret and never printed.
@@ -100,7 +102,9 @@ impl Daemon {
             remote_bind: warshad::RemoteBind::Default,
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }
@@ -407,4 +411,18 @@ async fn text_of(response: reqwest::Response) -> String {
         .map(|bytes| bytes.iter().take(limit).copied().collect::<Vec<u8>>())
         .unwrap_or_default();
     String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// Proving test for H3: `Daemon::start` uses injectable secret store (`start_daemon_with_secrets`)
+/// and starts promptly (<15s) without hanging on OS keychain.
+#[tokio::test]
+async fn daemon_start_completes_promptly_with_in_memory_secrets() {
+    let start = std::time::Instant::now();
+    let daemon = Daemon::start().await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "Daemon::start should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
+    daemon.shutdown().await;
 }

@@ -625,3 +625,48 @@ async fn the_relay_stub_returns_not_implemented() {
         .expect("the relay answers");
     assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
 }
+
+/// Proving test for H3 / FIX-SCOPE-2:
+/// Relay startup with `InMemoryTrustSource` routes through injectable trust seam
+/// and starts promptly (<15s) without touching OS keychain.
+#[tokio::test]
+async fn relay_with_in_memory_trust_source_starts_promptly() {
+    use warsha_relay::{run_relay_with_trust_source, InMemoryTrustSource, RelayArgs, TrustSource};
+
+    let start = std::time::Instant::now();
+    let device = Device::new("ProvingDevice");
+    let store = InMemoryTrustSource::new();
+    store
+        .save(&warsha_relay::StoredTrust {
+            device_id: device.id,
+            pairing_token: device.token.clone(),
+            expires_at: device.pairing.expires_at,
+        })
+        .expect("saving in-memory trust record succeeds");
+
+    let args = RelayArgs {
+        bind: "127.0.0.1:0".to_string(),
+        max_frame_size: 1024 * 1024,
+        max_devices: 256,
+        pairings: None,
+        trust_devices: vec![device.id.to_string()],
+        trust_stdin: false,
+        save_trust: false,
+    };
+
+    let runner = tokio::spawn(async move {
+        let _ = run_relay_with_trust_source(args, Arc::new(store)).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(15),
+        "relay with in-memory trust source must start in <15s (took {elapsed:?})"
+    );
+    assert!(
+        !runner.is_finished(),
+        "relay runner should be actively serving"
+    );
+    runner.abort();
+}

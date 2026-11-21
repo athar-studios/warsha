@@ -1300,3 +1300,16 @@ async fn an_established_rpc_websocket_rejects_a_revoked_device_on_next_message()
     drop(client_b);
     daemon.shutdown().await;
 }
+
+/// Proving test for H3: `Daemon::start` uses injectable `InMemorySecretStore` and starts promptly (<15s).
+#[tokio::test]
+async fn daemon_start_completes_promptly_with_in_memory_secrets() {
+    let start = std::time::Instant::now();
+    let daemon = Daemon::start().await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "daemon startup should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
+    daemon.shutdown().await;
+}
