@@ -187,6 +187,25 @@ export default function InboxPage(): React.ReactElement {
   const [changesText, setChangesText] = useState('');
   const [rejectReason, setRejectReason] = useState('');
 
+  // Page-level Escape handler: navigate home when no decision sheet is open (G2b).
+  // When a decision sheet is open, Sheet's own Escape listener handles closing it first.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        if (selectedDecision !== null || event.defaultPrevented) {
+          return;
+        }
+        event.preventDefault();
+        navigate('/');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedDecision, navigate]);
+
   const currentSignature = useMemo(() => {
     if (!projectsResult.data) return `none:${reloadNonce}`;
     return `${projectsResult.data.map((p) => p.id).join(',')}:${reloadNonce}`;

@@ -78,7 +78,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
   const client = useClient();
   const reloadClient = useReloadClient();
   const navigate = useNavigate();
-  const { params, area } = useRoute();
+  const { params, area, pathname } = useRoute();
 
   const projectsResult = useProjects();
   const healthResult = useHealth();
@@ -258,7 +258,11 @@ export function Frame({ children }: FrameProps): React.ReactElement {
   };
 
   const handleOpenInbox = (): void => {
-    navigate('/inbox');
+    if (pathname === '/inbox' || area === 'inbox') {
+      navigate('/');
+    } else {
+      navigate('/inbox');
+    }
   };
 
   const handleOpenSettings = (): void => {
