@@ -23,9 +23,11 @@
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
+use warsha_providers::InMemorySecretStore;
 use warsha_remote::{DeviceIdentity, PairingData};
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
+use warshad::{start_daemon_with_secrets, DaemonConfig, DaemonHandle, RateLimitConfig};
 
 /// The daemon's own bearer token: the owner credential the desktop holds. `devices.pair`
 /// is an Owner-policy method (`crates/warshad/src/auth.rs:359-363`), so this is the only
@@ -82,7 +84,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }

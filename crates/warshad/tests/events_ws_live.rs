@@ -23,6 +23,7 @@
 //! corrupted to satisfy a slow viewer.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -30,7 +31,8 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
+use warsha_providers::InMemorySecretStore;
+use warshad::{start_daemon_with_secrets, DaemonConfig, DaemonHandle, RateLimitConfig};
 
 /// The daemon's own bearer token: the owner credential the desktop holds.
 const OWNER: &str = "events-live-owner-token-9f2e";
@@ -94,7 +96,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }

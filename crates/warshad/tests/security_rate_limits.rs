@@ -22,8 +22,12 @@
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, QuotaConfig, RateLimitConfig};
+use warsha_providers::InMemorySecretStore;
+use warshad::{
+    start_daemon_with_secrets, DaemonConfig, DaemonHandle, QuotaConfig, RateLimitConfig,
+};
 
 /// The daemon's bearer token: the owner credential.
 const OWNER: &str = "s1a-rate-token";
@@ -81,7 +85,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }

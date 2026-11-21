@@ -20,11 +20,13 @@
 //! the ones that were left out.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use reqwest::Client;
 use serde_json::{json, Value};
 use tempfile::TempDir;
-use warshad::{start_daemon, DaemonConfig};
+use warsha_providers::InMemorySecretStore;
+use warshad::{start_daemon_with_secrets, DaemonConfig};
 
 /// The token both daemons in a test are started with.
 const TEST_TOKEN: &str = "settings-persistence-token";
@@ -142,7 +144,7 @@ async fn every_stored_setting_comes_back_after_a_restart() {
     let data_dir = dir.path().to_path_buf();
 
     // ---- The first life: change one setting of each kind through the RPCs. ----
-    let first = start_daemon(config(&data_dir))
+    let first = start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("the first daemon starts");
     let rpc = Rpc::new(first.rpc_port());
@@ -235,7 +237,7 @@ async fn every_stored_setting_comes_back_after_a_restart() {
     first.shutdown().await;
 
     // ---- The second life: the same data directory, a fresh daemon. ----
-    let second = start_daemon(config(&data_dir))
+    let second = start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("the second daemon starts on the same data directory");
     let rpc = Rpc::new(second.rpc_port());
@@ -291,7 +293,7 @@ async fn a_revoked_pairing_stays_revoked_and_a_refused_setting_is_not_stored() {
     let dir = fresh_tempdir();
     let data_dir = dir.path().to_path_buf();
 
-    let first = start_daemon(config(&data_dir))
+    let first = start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("the first daemon starts");
     let rpc = Rpc::new(first.rpc_port());
@@ -343,7 +345,7 @@ async fn a_revoked_pairing_stays_revoked_and_a_refused_setting_is_not_stored() {
 
     first.shutdown().await;
 
-    let second = start_daemon(config(&data_dir))
+    let second = start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("the second daemon starts");
     let rpc = Rpc::new(second.rpc_port());

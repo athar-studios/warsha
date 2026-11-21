@@ -16,8 +16,10 @@ use reqwest::Client;
 use reqwest::StatusCode;
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
-use warshad::{start_daemon, DaemonConfig, DaemonError};
+use warsha_providers::InMemorySecretStore;
+use warshad::{start_daemon_with_secrets, DaemonConfig, DaemonError};
 
 const TEST_TOKEN: &str = "test-auth-token-12345";
 
@@ -136,7 +138,7 @@ async fn restart_survives_with_state_intact() {
     };
 
     // First daemon instance
-    let handle = start_daemon(config.clone())
+    let handle = start_daemon_with_secrets(config.clone(), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("start_daemon first instance");
     let http_port = handle.http_port();
@@ -175,7 +177,7 @@ async fn restart_survives_with_state_intact() {
     handle.shutdown().await;
 
     // Restart daemon on same data_dir
-    let handle2 = start_daemon(config)
+    let handle2 = start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
         .await
         .expect("start_daemon second instance (restart)");
     let _http_port2 = handle2.http_port();
@@ -228,7 +230,9 @@ async fn unauthenticated_calls_are_rejected() {
         ..DaemonConfig::default()
     };
 
-    let handle = start_daemon(config).await.expect("start_daemon");
+    let handle = start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+        .await
+        .expect("start_daemon");
     let http_port = handle.http_port();
     let rpc_port = handle.rpc_port();
 
@@ -326,7 +330,7 @@ async fn second_instance_is_locked_out() {
     };
 
     // First instance
-    let handle1 = start_daemon(config.clone())
+    let handle1 = start_daemon_with_secrets(config.clone(), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("first start_daemon");
 
@@ -336,7 +340,7 @@ async fn second_instance_is_locked_out() {
         ws_port: 0,
         ..config.clone()
     };
-    let err = start_daemon(config2)
+    let err = start_daemon_with_secrets(config2, Arc::new(InMemorySecretStore::new()))
         .await
         .expect_err("second start_daemon should fail");
 

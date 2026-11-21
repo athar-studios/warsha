@@ -14,12 +14,14 @@
 //! operating system is not asked about.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use reqwest::Client;
 use serde_json::{json, Value};
 use tempfile::TempDir;
-use warshad::{start_daemon, DaemonConfig};
+use warsha_providers::InMemorySecretStore;
+use warshad::{start_daemon_with_secrets, DaemonConfig};
 
 /// The token the daemon under test is started with.
 const TEST_TOKEN: &str = "child-reaping-token";
@@ -233,7 +235,7 @@ async fn shutting_the_daemon_down_kills_and_reaps_every_child() {
     let data_dir = dir.path().to_path_buf();
     let exe = std::env::current_exe().expect("the test binary names itself");
 
-    let handle = start_daemon(config(&data_dir))
+    let handle = start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("the daemon starts");
     let rpc = Rpc::new(handle.rpc_port());
@@ -284,7 +286,7 @@ async fn a_child_that_already_exited_does_not_stop_a_shutdown() {
     let exe = std::env::current_exe().expect("the test binary names itself");
     let pid_file: PathBuf = data_dir.join("child.pid");
 
-    let handle = start_daemon(config(&data_dir))
+    let handle = start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("the daemon starts");
     let rpc = Rpc::new(handle.rpc_port());
@@ -327,7 +329,7 @@ async fn a_handle_dropped_without_a_shutdown_still_reaps_its_children() {
     let data_dir = dir.path().to_path_buf();
     let exe = std::env::current_exe().expect("the test binary names itself");
 
-    let handle = start_daemon(config(&data_dir))
+    let handle = start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("the daemon starts");
     let rpc = Rpc::new(handle.rpc_port());
@@ -368,7 +370,7 @@ async fn a_restart_takes_the_data_directory_back_and_the_lock_file_stays() {
     let data_dir = dir.path().to_path_buf();
     let lock_file = data_dir.join("warshad.lock");
 
-    let first = start_daemon(config(&data_dir))
+    let first = start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("the first daemon starts");
     assert!(
@@ -383,14 +385,15 @@ async fn a_restart_takes_the_data_directory_back_and_the_lock_file_stays() {
         lock_file.is_file(),
         "a clean shutdown leaves the lock file in place rather than deleting it"
     );
-    let second = start_daemon(config(&data_dir))
+    let second = start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("a second daemon starts over the same data directory after a shutdown");
 
     // And while it is held again, the refusal names the holder's process id — the one
     // fact that turns "the app will not start" into a thing an owner can act on.
     let held = std::process::id().to_string();
-    let refused = start_daemon(config(&data_dir)).await;
+    let refused =
+        start_daemon_with_secrets(config(&data_dir), Arc::new(InMemorySecretStore::new())).await;
     let error = match refused {
         Ok(duplicate) => {
             duplicate.shutdown().await;
