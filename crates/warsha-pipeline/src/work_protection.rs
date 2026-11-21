@@ -490,6 +490,9 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                 {
                     return RiskClass::Risky;
                 }
+                if lowered == "config" && is_risky_git_config_subcommand(remaining) {
+                    return RiskClass::Risky;
+                }
             }
 
             index += 1;
@@ -522,7 +525,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
-    // Node executing REPL or agent-written script files (.js, .mjs, .cjs, etc.).
+    // Node executing REPL, scripts, or --test
     if program_name == "node" || program_name == "nodejs" {
         if args.is_empty() {
             return RiskClass::Risky;
@@ -530,18 +533,37 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         for arg in args {
             let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
             let lowered = clean.to_ascii_lowercase();
-            if lowered.ends_with(".js")
-                || lowered.ends_with(".mjs")
-                || lowered.ends_with(".cjs")
-                || lowered.ends_with(".ts")
-                || lowered.ends_with(".mts")
-                || lowered.ends_with(".cts")
-                || lowered.ends_with(".jsx")
-                || lowered.ends_with(".tsx")
+
+            // --test flag
+            if lowered == "--test"
+                || lowered.starts_with("--test=")
+                || lowered.starts_with("--test ")
             {
                 return RiskClass::Risky;
             }
+
+            // Safe flags: --version/-v/--help/-h
+            if clean == "--version"
+                || clean == "-v"
+                || clean == "-V"
+                || clean == "--help"
+                || clean == "-h"
+                || clean == "help"
+            {
+                continue;
+            }
+
+            // Any non-flag file-like arg (contains no '=' and does not start with '-')
+            // including extensionless, .txt, dotfiles.
+            if !clean.starts_with('-') && !clean.contains('=') {
+                return RiskClass::Risky;
+            }
         }
+    }
+
+    // Java executing single-file source launch (.java) or application execution
+    if program_name == "java" {
+        return RiskClass::Risky;
     }
 
     // Bun executing script files (e.g. bun x.ts).
@@ -617,6 +639,13 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
+    // Direct writes or references to .git/config
+    for arg in args {
+        if crate::command_policy::is_git_config_path(arg) {
+            return RiskClass::Risky;
+        }
+    }
+
     // Writes outside the workspace or deleting >20 files (conservative).
     for arg in args {
         let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
@@ -626,6 +655,42 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
     }
 
     RiskClass::Safe
+}
+
+fn is_risky_git_config_subcommand(args: &[String]) -> bool {
+    for arg in args {
+        let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+        if clean.contains('=') && crate::command_policy::is_risky_git_config(clean) {
+            return true;
+        }
+    }
+
+    let mut positional = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].trim().trim_matches('"').trim_matches('\'').trim();
+        if arg == "--file" || arg == "--blob" {
+            i += 2;
+            continue;
+        }
+        if arg.starts_with('-') {
+            i += 1;
+            continue;
+        }
+        positional.push(arg);
+        i += 1;
+    }
+
+    if positional.len() >= 2 {
+        let key = positional[0];
+        let val = positional[1];
+        let paired = format!("{key}={val}");
+        if crate::command_policy::is_risky_git_config(&paired) {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Maps project permissions to a work protection policy.

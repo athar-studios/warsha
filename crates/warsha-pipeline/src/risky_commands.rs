@@ -39,15 +39,15 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     RiskyCommandDefinition {
         program: "node",
         argument_pattern:
-            "-e|--eval|-pe|-p|--print|--eval=|--evaluate|--evaluate=|-e=|-p=|-pe=|--print=",
-        reason: "Node inline code",
+            "-e|--eval|-pe|-p|--print|--eval=|--evaluate|--evaluate=|-e=|-p=|-pe=|--print=|--test",
+        reason: "Node inline code / test execution",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
         program: "nodejs",
         argument_pattern:
-            "-e|--eval|-pe|-p|--print|--eval=|--evaluate|--evaluate=|-e=|-p=|-pe=|--print=",
-        reason: "Node inline code",
+            "-e|--eval|-pe|-p|--print|--eval=|--evaluate|--evaluate=|-e=|-p=|-pe=|--print=|--test",
+        reason: "Node inline code / test execution",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -70,15 +70,15 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "cargo",
-        argument_pattern: "build|b|test|t|check|clippy",
-        reason: "Cargo build/b/test/t/check/clippy",
+        argument_pattern: "build|b|test|t|check|clippy|bench",
+        reason: "Cargo build/b/test/t/check/clippy/bench",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
         program: "npm",
         argument_pattern:
-            "install|i|ci|add|update|run|publish|exec|x|start|test|t|run-script|rebuild",
-        reason: "Install/Update/Run/Publish/Exec/Rebuild",
+            "install|i|ci|add|update|run|publish|exec|x|start|test|t|run-script|rebuild|restart|stop",
+        reason: "Install/Update/Run/Publish/Exec/Rebuild/Restart/Stop",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -113,8 +113,8 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "composer",
-        argument_pattern: "install|i|ci|add|update",
-        reason: "Install/Update",
+        argument_pattern: "install|i|ci|add|update|exec|run-script",
+        reason: "Install/Update/Exec/RunScript",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
@@ -161,8 +161,8 @@ pub const RISKY_COMMANDS: &[RiskyCommandDefinition] = &[
     },
     RiskyCommandDefinition {
         program: "dotnet",
-        argument_pattern: "run",
-        reason: "Dotnet run",
+        argument_pattern: "run|test",
+        reason: "Dotnet run/test",
         check_arguments_only: true,
     },
     RiskyCommandDefinition {
