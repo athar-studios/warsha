@@ -527,10 +527,18 @@ impl CommandPolicy {
 
         // The allowlist is the hard floor: it is checked FIRST and a rule can
         // never widen it (B3 spec — rules only deny or add an ask on top).
-        let allowed = self
-            .allowed
-            .iter()
-            .any(|entry| entry == trimmed || program_name(entry) == program);
+        // R6-H2: workspace-relative executables (`./npm`, `./bin/tool`, `sub/tool`)
+        // never match a bare allow-list entry via basename.
+        let is_relative = is_workspace_relative_path(trimmed);
+        let allowed = self.allowed.iter().any(|entry| {
+            if entry == trimmed {
+                return true;
+            }
+            if is_relative {
+                return false;
+            }
+            program_name(entry) == program
+        });
         if !allowed {
             // A rule may still DENY a program the allowlist would refuse —
             // denial is recorded with the rule's reason, not the generic one.
@@ -1107,6 +1115,14 @@ fn check_arguments_with_workdir(
             });
         }
 
+        // Check for ext:: transport anywhere (R6-H1)
+        if lowered.starts_with("ext::") {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: argument.to_string(),
+                reason: "git ext:: transport is not allowed".to_string(),
+            });
+        }
+
         // Check for -c, --config, --config-env overrides anywhere
         if argument == "-c" || lowered == "--config" || lowered == "--config-env" {
             if let Some(value) = args.get(index + 1) {
@@ -1122,6 +1138,13 @@ fn check_arguments_with_workdir(
 
         // Check global options before the subcommand
         if !subcommand_found {
+            if lowered == "--bare" {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git --bare is not allowed".to_string(),
+                });
+            }
+
             if argument == "-C" {
                 if let Some(target) = args.get(index + 1) {
                     let clean_target = target.trim().trim_matches('"').trim_matches('\'').trim();
@@ -1212,6 +1235,49 @@ fn check_arguments_with_workdir(
 
             subcommand_found = true;
             let remaining = &args[index + 1..];
+
+            if lowered == "apply" {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git apply is not allowed (can set executable bit)".to_string(),
+                });
+            }
+
+            if lowered == "filter-branch" {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git filter-branch is not allowed".to_string(),
+                });
+            }
+
+            if (lowered == "init" || lowered == "clone")
+                && remaining.iter().any(|a| {
+                    let clean_a = a.trim().trim_matches('"').trim_matches('\'').trim();
+                    let a_low = clean_a.to_ascii_lowercase();
+                    a_low == "--template" || a_low.starts_with("--template=")
+                })
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git init/clone --template is not allowed".to_string(),
+                });
+            }
+
+            if lowered == "fetch-pack"
+                && remaining.iter().any(|a| {
+                    let clean_a = a.trim().trim_matches('"').trim_matches('\'').trim();
+                    let a_low = clean_a.to_ascii_lowercase();
+                    a_low == "--exec"
+                        || a_low.starts_with("--exec=")
+                        || a_low.starts_with("--upload-pack")
+                        || clean_a == "-u"
+                })
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git fetch-pack --exec is not allowed".to_string(),
+                });
+            }
 
             if (lowered == "ls-remote" || lowered == "fetch" || lowered == "clone")
                 && remaining.iter().any(|a| {
@@ -1469,6 +1535,9 @@ pub(crate) fn git_config_override_value(argument: &str) -> Option<&str> {
 /// Whether a git config key can execute programs (alias, fsmonitor, proxies, hooks, textconv, drivers, etc.).
 pub(crate) fn is_program_running_key(normalized_key: &str) -> bool {
     normalized_key.starts_with("alias.")
+        || normalized_key.starts_with("include.")
+        || normalized_key.starts_with("includeif.")
+        || normalized_key.starts_with("protocol.")
         || normalized_key.contains("fsmonitor")
         || normalized_key.contains("proxy")
         || normalized_key.contains("hook")
@@ -1496,6 +1565,14 @@ pub(crate) fn is_risky_git_config(value: &str) -> bool {
     }
     let key = key.trim().trim_matches('"').trim_matches('\'').trim();
     let normalized = key.to_ascii_lowercase();
+
+    // R6-H1: refuse include.*, includeIf.*, and protocol.* overrides
+    if normalized.starts_with("include.")
+        || normalized.starts_with("includeif.")
+        || normalized.starts_with("protocol.")
+    {
+        return true;
+    }
 
     // R5-L2: only treat '!' values as risky for program-running keys, not user.name=!x
     if config_val_trimmed.starts_with('!') {
@@ -1536,6 +1613,31 @@ fn check_git_config_override(value: &str) -> Result<(), CommandPolicyError> {
         });
     }
     Ok(())
+}
+
+/// Whether a program token represents a workspace-relative path (e.g. `./npm`, `bin/tool`, `sub/tool`).
+///
+/// Workspace-relative paths never match bare allow-list entries by basename (R6-H2)
+/// because an agent could author executable files in the workspace (e.g. via `git apply`)
+/// and invoke them without approval.
+pub(crate) fn is_workspace_relative_path(path: &str) -> bool {
+    let clean = path.trim().trim_matches('"').trim_matches('\'').trim();
+    if !clean.contains('/') && !clean.contains('\\') {
+        return false;
+    }
+    if clean.starts_with('/') || clean.starts_with('\\') {
+        return false;
+    }
+    // Windows drive root: e.g. "C:\" or "c:/"
+    let bytes = clean.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'/' || bytes[2] == b'\\')
+    {
+        return false;
+    }
+    true
 }
 
 /// Whether the program token climbs with `..` under either separator convention.
@@ -1768,10 +1870,9 @@ fn allowed_commands_and_paths_pass_policy_check() {
             .ok(),
         Some("/usr/local/bin/node".to_string())
     );
-    assert_eq!(
-        policy.check_command("./git status").ok(),
-        Some("./git".to_string())
-    );
+    // R6-H2: workspace-relative executable does not match bare allow-list entry
+    assert!(policy.check_command("./git status").is_err());
+    assert!(policy.check_command("./npm --version").is_err());
 }
 
 #[cfg(test)]

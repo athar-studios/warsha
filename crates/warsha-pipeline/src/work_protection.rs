@@ -348,8 +348,48 @@ pub enum RiskClass {
 
 use crate::risky_commands::RISKY_COMMANDS;
 
+/// Whether an argument is a pure `--key=value` global flag that cannot load code or execute programs.
+fn is_safe_pure_flag(lowered: &str) -> bool {
+    if !lowered.starts_with("--") {
+        return false;
+    }
+    let Some((key, val)) = lowered.split_once('=') else {
+        return false;
+    };
+    if key.len() <= 2 || val.is_empty() {
+        return false;
+    }
+    let key_name = &key[2..];
+    if key_name.contains("exec")
+        || key_name.contains("script")
+        || key_name.contains("config")
+        || key_name.contains("file")
+        || key_name.contains("load")
+        || key_name.contains("require")
+        || key_name.contains("import")
+        || key_name.contains("eval")
+        || key_name.contains("run")
+        || key_name.contains("plugin")
+        || key_name.contains("hook")
+        || key_name.contains("path")
+        || key_name.contains("env")
+        || key_name.contains("tool")
+        || key_name.contains("cmd")
+        || key_name.contains("entry")
+    {
+        return false;
+    }
+    true
+}
+
 /// Classifies a command as safe or risky.
 pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
+    // R6-H2: workspace-relative executables (e.g. `./npm`, `./bin/tool`, `sub/tool`)
+    // must never match safe commands by basename — treat as Risky.
+    if crate::command_policy::is_workspace_relative_path(program) {
+        return RiskClass::Risky;
+    }
+
     let program_name = crate::command_policy::program_name(program);
 
     // Shell commands are blanket-Risky.
@@ -383,6 +423,14 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
 
     // Git subcommands, config overrides and flags
     if program_name == "git" {
+        // R6-H1: refuse any ext:: transport target
+        if args.iter().any(|a| {
+            let clean = a.trim().trim_matches('"').trim_matches('\'').trim();
+            clean.to_ascii_lowercase().starts_with("ext::")
+        }) {
+            return RiskClass::Risky;
+        }
+
         let mut index = 0;
         let mut subcommand_found = false;
         while index < args.len() {
@@ -412,6 +460,8 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                     }
                     index += 2;
                     continue;
+                } else {
+                    return RiskClass::Risky;
                 }
             } else if let Some(val) = crate::command_policy::git_config_override_value(arg) {
                 if crate::command_policy::is_risky_git_config(val) {
@@ -422,6 +472,11 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             }
 
             if !subcommand_found {
+                // R6-H1: refuse --bare anywhere before the subcommand
+                if lowered == "--bare" {
+                    return RiskClass::Risky;
+                }
+
                 if arg == "-C" {
                     if let Some(target) = args.get(index + 1) {
                         let clean_target =
@@ -429,6 +484,8 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                         if clean_target != "." && clean_target != "./" {
                             return RiskClass::Risky;
                         }
+                    } else {
+                        return RiskClass::Risky;
                     }
                     index += 2;
                     continue;
@@ -455,6 +512,8 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                         {
                             return RiskClass::Risky;
                         }
+                    } else {
+                        return RiskClass::Risky;
                     }
                     index += 2;
                     continue;
@@ -474,8 +533,12 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                     || lowered == "--namespace"
                     || lowered == "--super-prefix"
                 {
-                    index += 2;
-                    continue;
+                    if args.get(index + 1).is_some() {
+                        index += 2;
+                        continue;
+                    } else {
+                        return RiskClass::Risky;
+                    }
                 }
                 if lowered.starts_with("--work-tree=")
                     || lowered.starts_with("--namespace=")
@@ -484,9 +547,11 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                     index += 1;
                     continue;
                 }
+
+                // R6-H1 structural direction: any git global option NOT on the known-safe list
+                // must classify Risky instead of being skipped.
                 if arg.starts_with('-') {
-                    index += 1;
-                    continue;
+                    return RiskClass::Risky;
                 }
 
                 subcommand_found = true;
@@ -494,7 +559,14 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
 
                 if matches!(
                     lowered.as_str(),
-                    "push" | "pull" | "fetch" | "clone" | "submodule" | "rebase"
+                    "push"
+                        | "pull"
+                        | "fetch"
+                        | "clone"
+                        | "submodule"
+                        | "rebase"
+                        | "filter-branch"
+                        | "apply"
                 ) {
                     return RiskClass::Risky;
                 }
@@ -504,6 +576,27 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                         clean_a == "-u"
                             || (clean_a.starts_with("-u") && clean_a.len() > 2)
                             || clean_a.starts_with("--upload-pack")
+                    })
+                {
+                    return RiskClass::Risky;
+                }
+                if lowered == "fetch-pack"
+                    && remaining.iter().any(|a| {
+                        let clean_a = a.trim().trim_matches('"').trim_matches('\'').trim();
+                        let a_low = clean_a.to_ascii_lowercase();
+                        a_low == "--exec"
+                            || a_low.starts_with("--exec=")
+                            || a_low.starts_with("--upload-pack")
+                            || clean_a == "-u"
+                    })
+                {
+                    return RiskClass::Risky;
+                }
+                if (lowered == "init" || lowered == "clone")
+                    && remaining.iter().any(|a| {
+                        let clean_a = a.trim().trim_matches('"').trim_matches('\'').trim();
+                        let a_low = clean_a.to_ascii_lowercase();
+                        a_low == "--template" || a_low.starts_with("--template=")
                     })
                 {
                     return RiskClass::Risky;
@@ -595,16 +688,14 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
-    // Node executing REPL, scripts, or --test
+    // Node: safe allow-list ONLY (--version/-v/-V/--help/-h) (R6-H3)
     if program_name == "node" || program_name == "nodejs" {
         if args.is_empty() {
             return RiskClass::Risky;
         }
         for arg in args {
             let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
-            let lowered = clean.to_ascii_lowercase();
-
-            // Safe flags: --version/-v/--help/-h (note: bare help removed)
+            // Safe flags: ONLY --version/-v/-V/--help/-h
             if clean == "--version"
                 || clean == "-v"
                 || clean == "-V"
@@ -613,44 +704,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             {
                 continue;
             }
-
-            // --test flag
-            if lowered == "--test"
-                || lowered.starts_with("--test=")
-                || lowered.starts_with("--test ")
-            {
-                return RiskClass::Risky;
-            }
-
-            // Known flags with attached or standalone values that execute code or load modules
-            if lowered == "--run"
-                || lowered.starts_with("--run=")
-                || lowered == "--import"
-                || lowered.starts_with("--import=")
-                || lowered == "--require"
-                || lowered.starts_with("--require=")
-                || lowered == "-r"
-                || lowered.starts_with("-r=")
-                || lowered == "--loader"
-                || lowered.starts_with("--loader=")
-                || lowered == "--experimental-loader"
-                || lowered.starts_with("--experimental-loader=")
-                || lowered == "-e"
-                || lowered.starts_with("-e=")
-                || lowered == "--eval"
-                || lowered.starts_with("--eval=")
-                || lowered == "-p"
-                || lowered.starts_with("-p=")
-                || lowered == "--print"
-                || lowered.starts_with("--print=")
-            {
-                return RiskClass::Risky;
-            }
-
-            // Any non-flag argument is treated by node as a script path to execute
-            if !clean.starts_with('-') {
-                return RiskClass::Risky;
-            }
+            return RiskClass::Risky;
         }
     }
 
@@ -674,60 +728,48 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         return RiskClass::Risky;
     }
 
-    // CMake: -S / -B / configure / -E / -P are Risky
+    // CMake: safe allow-list of read-only introspection (R6-H4)
     if program_name == "cmake" {
-        for arg in args {
-            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
-            let lowered = clean.to_ascii_lowercase();
-            if lowered == "-s"
-                || lowered.starts_with("-s=")
-                || lowered.starts_with("-s ")
-                || clean.starts_with("-S")
-                || lowered == "-b"
-                || lowered.starts_with("-b=")
-                || lowered.starts_with("-b ")
-                || clean.starts_with("-B")
-                || lowered == "configure"
-                || lowered == "-p"
-                || clean.starts_with("-P")
-                || lowered == "-e"
-                || clean.starts_with("-E")
-            {
-                return RiskClass::Risky;
-            }
-        }
-    }
-
-    // Plain pnpm <script> / yarn <script>: bare yarn/pnpm (= install) is Risky; safe allow-list
-    if program_name == "pnpm" || program_name == "yarn" {
         if args.is_empty() {
             return RiskClass::Risky;
         }
-        const KNOWN_SAFE_PNPM_YARN_SUBCOMMANDS: &[&str] = &[
-            "--version",
-            "-v",
-            "-V",
-            "--help",
-            "-h",
-            "help",
-            "list",
-            "ls",
-            "why",
-            "info",
-            "view",
-            "outdated",
-            "audit",
-            "licenses",
-        ];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_PNPM_YARN_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+
+            // Safe read-only introspection:
+            // --version / -v / -V / --help / -h / --system-information / --help-*
+            if clean == "--version"
+                || clean == "-v"
+                || clean == "-V"
+                || clean == "--help"
+                || clean == "-h"
+                || clean == "--system-information"
+                || clean.starts_with("--system-information=")
+                || clean.starts_with("--help-")
+            {
+                continue;
             }
+
+            // Safe cache-list flags: combinations of -L, -A, -H, -N
+            if clean.starts_with('-')
+                && clean.len() > 1
+                && clean[1..]
+                    .chars()
+                    .all(|c| matches!(c, 'L' | 'A' | 'H' | 'N'))
+            {
+                continue;
+            }
+
+            return RiskClass::Risky;
         }
     }
 
-    // npm safe allow-list: bare npm Risky; pack/version/link/prune/dedupe/install-test and all others Risky
+    // pnpm & yarn: ALL invocations Risky (pnpm executes .pnpmfile.cjs; yarn honors yarnPath) (R6-H6)
+    if program_name == "pnpm" || program_name == "yarn" {
+        return RiskClass::Risky;
+    }
+
+    // npm safe allow-list: bare npm Risky; scans all args (R6-H5)
     if program_name == "npm" {
         if args.is_empty() {
             return RiskClass::Risky;
@@ -753,11 +795,28 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             "prefix",
             "root",
         ];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_NPM_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        let first_lower = args[0]
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim()
+            .to_ascii_lowercase();
+        let is_view_or_info = first_lower == "view" || first_lower == "info";
+
+        for (i, arg) in args.iter().enumerate() {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_NPM_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            // For `npm view <pkg>` / `npm info <pkg>`, admit the non-flag package name target
+            if i > 0 && is_view_or_info && !clean.starts_with('-') {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
@@ -787,7 +846,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
-    // Deno: bare deno Risky; serve/bench/install/x/run/task/test all Risky; safe allow-list
+    // Deno: scans all args against safe allow-list (R6-H5)
     if program_name == "deno" {
         if args.is_empty() {
             return RiskClass::Risky;
@@ -805,15 +864,20 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             "check",
             "doc",
         ];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_DENO_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_DENO_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
-    // Dotnet: bare dotnet Risky; build/msbuild/pack/publish/restore/test/run all Risky; safe allow-list
+    // Dotnet: scans all args against safe allow-list (R6-H5)
     if program_name == "dotnet" {
         if args.is_empty() {
             return RiskClass::Risky;
@@ -828,22 +892,26 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             "--list-sdks",
             "--list-runtimes",
         ];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_DOTNET_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_DOTNET_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
-    // Cargo: bare cargo Risky; doc/fix/rustc/package/bench/build/test/check/clippy/run all Risky; safe allow-list
+    // Cargo: scans all args against safe allow-list; -v removed (R6-H5)
     if program_name == "cargo" {
         if args.is_empty() {
             return RiskClass::Risky;
         }
         const KNOWN_SAFE_CARGO_SUBCOMMANDS: &[&str] = &[
             "--version",
-            "-v",
             "-V",
             "--help",
             "-h",
@@ -856,15 +924,20 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             "verify-project",
             "report",
         ];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_CARGO_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_CARGO_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
-    // Composer: bare composer Risky; any script-name/dump-autoload/run/run-script/exec/install/update Risky; safe allow-list
+    // Composer: scans all args against safe allow-list (R6-H5)
     if program_name == "composer" {
         if args.is_empty() {
             return RiskClass::Risky;
@@ -888,11 +961,16 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             "audit",
             "suggests",
         ];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_COMPOSER_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_COMPOSER_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
@@ -911,7 +989,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
-    // Rails: bare rails Risky; server/console/test/db:migrate/generate/runner all Risky; safe allow-list
+    // Rails: scans all args against safe allow-list (R6-H5)
     if program_name == "rails" {
         if args.is_empty() {
             return RiskClass::Risky;
@@ -927,30 +1005,40 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             "routes",
             "version",
         ];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_RAILS_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_RAILS_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
-    // Bundle: bare bundle Risky; list/check/install/exec/update all Risky; safe allow-list
+    // Bundle: scans all args against safe allow-list (R6-H5)
     if program_name == "bundle" {
         if args.is_empty() {
             return RiskClass::Risky;
         }
         const KNOWN_SAFE_BUNDLE_SUBCOMMANDS: &[&str] =
             &["--version", "-v", "-V", "--help", "-h", "help", "version"];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_BUNDLE_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_BUNDLE_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
-    // Go: bare go Risky; -toolexec/-vettool Risky; safe allow-list
+    // Go: scans all args against safe allow-list (R6-H5)
     if program_name == "go" {
         if args.is_empty() {
             return RiskClass::Risky;
@@ -980,56 +1068,76 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             "env",
             "doc",
         ];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_GO_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_GO_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
-    // Vite / Next: bare Risky; build/dev Risky; safe allow-list
+    // Vite / Next: scans all args against safe allow-list (R6-H5)
     if program_name == "vite" || program_name == "next" {
         if args.is_empty() {
             return RiskClass::Risky;
         }
         const KNOWN_SAFE_VITE_NEXT_SUBCOMMANDS: &[&str] =
             &["--version", "-v", "-V", "--help", "-h", "help", "info"];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_VITE_NEXT_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_VITE_NEXT_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
-    // Bun: bare bun Risky; script execution/install/test Risky; safe allow-list
+    // Bun: scans all args against safe allow-list (R6-H5)
     if program_name == "bun" {
         if args.is_empty() {
             return RiskClass::Risky;
         }
         const KNOWN_SAFE_BUN_SUBCOMMANDS: &[&str] =
             &["--version", "-v", "-V", "--help", "-h", "help"];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_BUN_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_BUN_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
-    // PocketBase: bare pocketbase Risky; serve/migrate/scripts Risky; safe allow-list
+    // PocketBase: scans all args against safe allow-list (R6-H5)
     if program_name == "pocketbase" {
         if args.is_empty() {
             return RiskClass::Risky;
         }
         const KNOWN_SAFE_POCKETBASE_SUBCOMMANDS: &[&str] =
             &["--version", "-v", "-V", "--help", "-h", "help"];
-        if let Some(first_arg) = args.first() {
-            let clean = first_arg.trim().trim_matches('"').trim_matches('\'').trim();
-            if !KNOWN_SAFE_POCKETBASE_SUBCOMMANDS.contains(&clean.to_ascii_lowercase().as_str()) {
-                return RiskClass::Risky;
+        for arg in args {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            let lowered = clean.to_ascii_lowercase();
+            if KNOWN_SAFE_POCKETBASE_SUBCOMMANDS.contains(&lowered.as_str()) {
+                continue;
             }
+            if is_safe_pure_flag(&lowered) {
+                continue;
+            }
+            return RiskClass::Risky;
         }
     }
 
@@ -1310,11 +1418,11 @@ mod tests {
         );
         assert_eq!(
             classify_command("pnpm", &["list".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("pnpm", &["--version".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("yarn", &["build".to_string()]),
@@ -1326,11 +1434,11 @@ mod tests {
         );
         assert_eq!(
             classify_command("yarn", &["why".to_string(), "foo".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("yarn", &["--version".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("bundle", &["exec".to_string(), "rspec".to_string()]),
@@ -1362,7 +1470,7 @@ mod tests {
         );
         assert_eq!(
             classify_command("cmake", &["--build".to_string(), ".".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("bun", &["test".to_string()]),
