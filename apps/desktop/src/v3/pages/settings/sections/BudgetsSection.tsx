@@ -154,6 +154,10 @@ export function BudgetsSection(): React.ReactElement {
               const currentInput = inputMap[p.id] ?? '10';
               const isOverridden = b !== undefined && b.totalBudgetUsd > 0;
               const effectiveBudget = isOverridden ? b.totalBudgetUsd : defaultBudget;
+              const spent = b?.spentUsd ?? 0;
+              const remaining = isOverridden
+                ? (b?.remainingUsd ?? Math.max(0, effectiveBudget - spent))
+                : Math.max(0, effectiveBudget - spent);
               return (
                 <div key={p.id} className="v3-settings-row" data-testid={`project-budget-row-${p.id}`}>
                   <span className="v3-settings-row-icon" aria-hidden="true">
@@ -172,9 +176,9 @@ export function BudgetsSection(): React.ReactElement {
                       <span>
                         <span>{t('settings.override.effective', { value: `$${effectiveBudget}` })}</span>
                         {' · '}
-                        <span>{t('settings.budgets.spent', { spent: b?.spentUsd ?? 0 })}</span>
+                        <span>{t('settings.budgets.spent', { spent })}</span>
                         {' · '}
-                        <span>{t('settings.budgets.remaining', { remaining: b?.remainingUsd ?? 0 })}</span>
+                        <span>{t('settings.budgets.remaining', { remaining })}</span>
                       </span>
                     </div>
                   </div>

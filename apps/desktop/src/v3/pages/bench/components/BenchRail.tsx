@@ -97,44 +97,56 @@ export const BenchRail: React.FC<BenchRailProps> = ({
         </p>
       )}
 
-      {(projectsStatus === 'ready' || projects.length > 0) && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
-          {projects.map((project) => {
-            const runs = runsByProject[project.id] ?? [];
-            const displayProjectName = project.name.trim() || t('bench.project.unnamed');
-            return (
-              <div
-                key={project.id}
-                style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-1)' }}
-              >
-                <div
-                  style={{
-                    fontSize: 'var(--w-font-size-xs)',
-                    fontWeight: 'var(--w-font-weight-semibold)',
-                    color: 'var(--w-text-muted)',
-                    paddingBlockStart: 'var(--w-space-2)',
-                    paddingInline: 'var(--w-space-2)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={displayProjectName}
-                >
-                  {displayProjectName}
-                </div>
+      {(projectsStatus === 'ready' || projects.length > 0) && (() => {
+        const totalRuns = projects.reduce(
+          (sum, project) => sum + (runsByProject[project.id]?.length ?? 0),
+          0
+        );
 
-                {runs.length === 0 ? (
+        if (totalRuns === 0) {
+          return (
+            <div
+              style={{
+                fontSize: 'var(--w-font-size-xs)',
+                color: 'var(--w-text-faint)',
+                paddingInline: 'var(--w-space-2)',
+              }}
+            >
+              {t('bench.rail.empty_runs')}
+            </div>
+          );
+        }
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
+            {projects.map((project) => {
+              const runs = runsByProject[project.id] ?? [];
+              if (runs.length === 0) {
+                return null;
+              }
+              const displayProjectName = project.name.trim() || t('bench.project.unnamed');
+              return (
+                <div
+                  key={project.id}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-1)' }}
+                >
                   <div
                     style={{
                       fontSize: 'var(--w-font-size-xs)',
-                      color: 'var(--w-text-faint)',
+                      fontWeight: 'var(--w-font-weight-semibold)',
+                      color: 'var(--w-text-muted)',
+                      paddingBlockStart: 'var(--w-space-2)',
                       paddingInline: 'var(--w-space-2)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
+                    title={displayProjectName}
                   >
-                    {t('bench.rail.empty_runs')}
+                    {displayProjectName}
                   </div>
-                ) : (
-                  runs.map((run, idx) => {
+
+                  {runs.map((run, idx) => {
                     const isSelected = run.id === activeRunId && project.id === activeProjectId;
                     const pillState = mapRunStatusToPill(run.status);
                     return (
@@ -178,13 +190,13 @@ export const BenchRail: React.FC<BenchRailProps> = ({
                         </span>
                       </button>
                     );
-                  })
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </nav>
   );
 };

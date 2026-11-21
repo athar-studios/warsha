@@ -1,0 +1,18 @@
+/* packages/ui/src/v3/composites/Toast.css — Toast container positioning & layers */
+
+.w-toast-container {
+  position: fixed;
+  inset-block-start: var(--w-space-5);
+  inset-inline-end: var(--w-space-5);
+  z-index: var(--w-layer-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-2);
+  pointer-events: none;
+  max-height: calc(100vh - 2 * var(--w-space-5));
+  overflow: hidden;
+}
+
+.w-toast-wrapper {
+  pointer-events: auto;
+}
