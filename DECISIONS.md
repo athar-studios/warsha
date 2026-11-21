@@ -2562,6 +2562,7 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
   - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --lib`: 309 passed, 0 failed, 4 ignored.
   - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --tests`: all 18 test binaries (68 integration tests) passed with 0 hangs.
 
+## D-R2-B1-1 — Onboarding Wizard Next Dead-end on Provider Save-Test (2026-11-21)
 - **Context**: Retest-2 blocker B1 on Windows: testers reported 5 failed Next attempts at the provider onboarding step after a successful save-test.
 - **Root Cause**:
   - In `apps/desktop/src/v3/pages/onboarding/index.tsx:353`, `saveTestAction` called `setApiKey('')` upon test success to clear the real secret from memory (F1 decision).

@@ -1,5 +1,49 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Round-4 (H1/H2 approval + H3 keychain) merges finalized into r-next/integration
+- **Scope**: Finalize round-4 merges (H1/H2 approval hardening + H3 keychain test seams) into branch `r-next/integration` on top of base `99a19f5`. Local-only verification across the full Rust workspace, Node verification scripts, and CI policy gates.
+- **Commit History & Merged Branches**:
+  - Base tip: `99a19f5` (style(ui): design pass — tokens, states, RTL and native copy across v3 screens)
+  - Approval lane merge: `d73b12d` (`merge(r4): approval table hardening against sibling-form bypasses and missing risky rows`), merging branch `fix-r4-approval-lane` (commits `f0035ac` + `beb4e98` covering `command_policy.rs`, `risky_commands.rs`, `work_protection.rs`, `verification_tests_impl.rs`, `DECISIONS.md` D-R4-APPROVAL-1, and `PROGRESS.md`).
+  - Keychain lane merge: `6c788d0` (`merge(r4): bound keychain operations and injectable test seams`), merging branch `fix-r4-keychain-lane` (commits `8dce8b4` relay bounded fallback, `84568c4` warshad test injection, `5ef0cbd` docs D-R4-KEYCHAIN-1).
+  - Merged tip: `6c788d0` contains both lane merges and keeps all Run entries from both lanes.
+- **Gate Matrix (verified at merged tip)**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: passed (exit 0, 0 diff).
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy --workspace --all-targets -- -D warnings`: passed (exit 0, 0 warnings).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: passed (546 passed, 0 failed, 7 ignored).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-providers --lib`: passed (68 passed, 0 failed).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-relay --lib`: passed (19 passed, 0 failed).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --lib`: passed (309 passed, 0 failed, 4 ignored).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --tests`: all 18 test binaries passed (68 integration tests), 0 failed, 0 hangs (H3 keychain proving test green).
+  - `node scripts/check-engineering-policy.mjs`: policy: 8 checks, 0 failures (8/0).
+  - `node scripts/check-versions.mjs`: versions aligned (0.3.0).
+  - `node scripts/check-arch.mjs`: arch: 5 rules, 0 violations.
+  - `node scripts/check-wire-contract.mjs`: wire: 11 checks, 0 violations.
+  - `node scripts/ci/i18n-gate.mjs`: 19 pre-existing violations on base 99a19f5 (recorded verbatim, not introduced by R4):
+    `I4 ar "onboarding.provider_deep_seek" contains Latin text: DeepSeek`
+    `I4 ar "onboarding.provider_open_router" contains Latin text: OpenRouter`
+    `I4 ar "onboarding.provider_kimi" contains Latin text: Kimi`
+    `I4 ar "onboarding.provider_glm" contains Latin text: GLM`
+    `I4 ar "onboarding.provider_qwen" contains Latin text: Qwen`
+    `I4 ar "onboarding.custom_base_url_placeholder" contains Latin text: https://api.example.com/v1`
+    `I4 ar "onboarding.custom_model_placeholder" contains Latin text: مثلًا: llama3`
+    `I4 ar "onboarding.validation_url_invalid" contains Latin text: أدخل عنوانًا صحيحًا يبدأ بـ http:// أو https://`
+    `I4 ar "settings.section.integrations.desc" contains Latin text: اربط خدمات خارجية مثل GitHub وSlack وأدِرها بأمان.`
+    `I4 ar "settings.providers.kind.openai" contains Latin text: OpenAI`
+    `I4 ar "settings.providers.kind.anthropic" contains Latin text: Anthropic`
+    `I4 ar "settings.providers.kind.deepseek" contains Latin text: DeepSeek`
+    `I4 ar "settings.connections.add.stdio_only" contains Latin text: خادم محلي على هذا الجهاز، أو خادم بعيد عبر HTTP. يفحص الخادم العنوان قبل الاتصال.`
+    `I4 ar "settings.connections.add.url" contains Latin text: عنوان الخادم — https لأي جهاز، وhttp لهذا الجهاز فقط`
+    `I4 ar "settings.integrations.empty.desc" contains Latin text: اربط حساباتك في GitHub وSlack لتصلك التنبيهات.`
+    `I4 ar "settings.postlaunch.store.play" contains Latin text: Google Play`
+    `I4 ar "settings.postlaunch.store.ios" contains Latin text: App Store`
+    `I4 ar "settings.backend.kind.pocket_base" contains Latin text: PocketBase`
+    `I4 ar "settings.backend.kind.supabase" contains Latin text: Supabase`
+  - `node scripts/ci/actions-gate.mjs`: 1 pre-existing violation on base 99a19f5 (recorded verbatim, not introduced by R4):
+    `A6 registered id "factory.retry" has no e2e case under apps/desktop/e2e/v3/`
+  - `cargo deny check`: advisories FAILED (owner-accepted FAIL on chrono RUSTSEC-2026-0543 only; bans ok, licenses ok, sources ok).
+- **Status**: FIXES COMPLETE — AWAITING CLAUDE VERIFICATION.
+
 ## Run 2026-11-21 — Round-4 HIGH (H1+H2) approval-table hardening (fix-r4-approval)
 - **Scope**: Round-4 HIGH approval-table hardening covering H1 (sibling-form bypasses) and H2 (missing risky rows). Worktree `.agents/worktrees/fix-r4-approval` on branch `fix-r4-approval-lane`. Local-only: no push, no tag, no publish, main untouched.
 - **Root Cause**:
