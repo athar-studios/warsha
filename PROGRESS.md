@@ -1,5 +1,29 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Fix N2 wizard-run-vanishes (Windows BLOCKER) in Warsha 0.3.0
+- **Scope**: Fix onboarding wizard startAction in `apps/desktop/src/v3/pages/onboarding/index.tsx`, colocated tests `Onboarding.test.tsx`, and `apps/desktop/e2e/v3/onboarding.spec.ts` in worktree `.agents/worktrees/fix-retest-wizard` (branch `fix-retest-wizard`). Local-only: no push, no tag, no publish, main untouched.
+- **Problem**: Wizard startAction invoked `createProject -> startRun` with no `budget.set`, causing projects created from wizard to show "$0.00 of $0.00" on the project page and daemon `budget.show` to report "No runs found" (N2 wizard-run-vanishes).
+- **Fix**:
+  - In `apps/desktop/src/v3/pages/onboarding/index.tsx`, added `findDefaultBudget` helper and hooked `usePreferences('*')` to resolve the default budget from `default_budget_usd` preference (defaults to $10 / 1000 cents).
+  - In `startAction`, after `client.createProject` and `client.startRun`, called `client.setProjectBudget(project.id, budgetCents)` before `markOnboardingComplete` and navigation to `/p/${project.id}`.
+  - Handled `setProjectBudget` failure gracefully with `console.warn` and `notify({ type: 'warning', message: t('onboarding.error_title') })` without orphaning run or blocking navigation.
+  - Kept F1/G4 provider key handling untouched. Reused existing `onboarding.error_title` key with native-natural i18n review.
+- **Proving Tests**:
+  - `apps/desktop/src/v3/pages/onboarding/Onboarding.test.tsx` (19/19 passed):
+    - `N2 proving test: wizard start calls createProject -> startRun -> setProjectBudget in order with 1000 cents default and navigates to /p/:id`
+    - `N2 proving test: wizard start respects custom default_budget_usd preference`
+    - `N2 proving test: wizard start handles setProjectBudget failure gracefully without blocking navigation or orphaning run`
+    - `findDefaultBudget returns 10 by default or parses default_budget_usd preference`
+    - Updated `handles step 3 idea creation` test asserting `client.setProjectBudget` call.
+  - `apps/desktop/e2e/v3/onboarding.spec.ts`: added `budget.set` RPC expectations.
+- **Gates**:
+  - `./node_modules/.bin/tsc --noEmit -p apps/desktop/tsconfig.json`: exit code 0.
+  - `./node_modules/.bin/eslint` on changed files: exit code 0.
+  - `vitest run` on `Onboarding.test.tsx`: 19/19 passed.
+  - `node scripts/ci/actions-gate.mjs`: exit code 0 (194 registered, 194 used, 0 violations).
+  - `node scripts/ci/i18n-gate.mjs`: exit code 0 (1040 keys, 0 violations).
+- **Status**: COMPLETE
+
 ## Run 2026-11-21 — GUI Merge Verification (START+NAV+PROVIDER+POLISH in r-next/integration)
 - **Scope**: Merge the four verified GUI fix lanes into `r-next/integration` tip and run the gate matrix on the merged tree. Local-only: no push, no tag, no publish, main untouched.
 - **Merges**:

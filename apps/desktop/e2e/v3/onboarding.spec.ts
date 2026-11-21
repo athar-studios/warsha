@@ -118,6 +118,8 @@ test.describe('Onboarding journeys', () => {
     expect(createProjectCall.method).toBe('projects.create');
     const startRunCall = await expectRpc(page, 'runs.start');
     expect(startRunCall.method).toBe('runs.start');
+    const budgetCall = await expectRpc(page, 'budget.set');
+    expect(budgetCall.method).toBe('budget.set');
 
     // Shell config recorded and navigated to project
     await expect(page).toHaveURL(/#\/p\/proj-created/);
@@ -324,6 +326,7 @@ test.describe('Onboarding action ids', () => {
     await act(page, 'onboarding.start');
     await expectRpc(page, 'projects.create');
     await expectRpc(page, 'runs.start');
+    await expectRpc(page, 'budget.set');
     await expect(page).toHaveURL(/#\/p\/proj-created/);
   });
 

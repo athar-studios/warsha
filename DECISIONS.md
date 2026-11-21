@@ -2430,3 +2430,28 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
   2. Full replacement with `time`/`jiff` touches 171 call sites across 70 files in 8 workspace crates (`warsha-core`, `warsha-store`, `warsha-remote`, `warsha-relay`, `warsha-pipeline`, `warsha-backends`, `warshad`, `apps/desktop/src-tauri`) and alters `sqlx 0.8` features and wire serializations.
   3. Consequently, with the ignore entry removed from `deny.toml` per owner decision, `cargo deny check` reports `error[unmaintained]: chrono is unmaintained` (RUSTSEC-2026-0543), standing as an active governance blocker until the replacement migration is scheduled and executed.
 
+## D-RN-RETEST-N2-1 — Wizard startAction default budget application (2026-11-21)
+- **Problem**: In Warsha 0.3.0, the onboarding wizard `startAction` executed `createProject` -> `startRun` with no `budget.set` call. As a result, the created project showed "$0.00 of $0.00" on the project page, `daemon runs.list` returned `[]`, and `budget.show` failed with "No runs found" (N2 wizard-run-vanishes, Windows retest blocker). Conversely, the home composer correctly invoked `createProject` -> `runs.start` -> `budget.set` ($10 default from `default_budget_usd` preference, or 1000 cents), which the daemon consumes via `PENDING_PROJECT_BUDGETS` in `start_run`.
+- **Decision**: In `apps/desktop/src/v3/pages/onboarding/index.tsx`, align the wizard's `startAction` with the home composer flow:
+  1. Retrieve project default budget from `usePreferences('*')` using helper `findDefaultBudget(preferences)` (reads `default_budget_usd` preference, defaulting to $10 / 1000 cents), with inline fallback query to `client.listPreferences('*')` if preferences are not yet loaded.
+  2. Maintain strict execution sequence: `client.createProject` -> `client.startRun` -> `client.setProjectBudget(project.id, budgetCents)` -> `markOnboardingComplete()` -> `navigate('/p/${project.id}')`.
+  3. Wrap `client.setProjectBudget` in a localized try-catch block: log via `console.warn` and notify via `notify({ type: 'warning', message: t('onboarding.error_title') })` without rethrowing or interrupting the flow, ensuring the run is not orphaned and navigation to `/p/:id` succeeds even if budget setting fails.
+  4. Preserve all existing key handling (F1/G4 fixes remain untouched).
+- **Native-Natural i18n Review**:
+  Per owner order 2026-11-21, reviewed all strings touched/reused in the onboarding error path:
+  - `onboarding.error_title`:
+    - English: "Setup error" (idiomatic, concise)
+    - Arabic: "خطأ في التهيئة" (idiomatic, native terminology for setup/onboarding fault, not literal translation like "خطأ الإعداد")
+  - No new raw strings introduced; existing keys in `@warsha/i18n` catalogs reused. Model/provider names preserved in English.
+- **Evidence**:
+  - `apps/desktop/src/v3/pages/onboarding/Onboarding.test.tsx`: 19/19 tests pass, including:
+    - `N2 proving test: wizard start calls createProject -> startRun -> setProjectBudget in order with 1000 cents default and navigates to /p/:id`
+    - `N2 proving test: wizard start respects custom default_budget_usd preference`
+    - `N2 proving test: wizard start handles setProjectBudget failure gracefully without blocking navigation or orphaning run`
+    - `findDefaultBudget returns 10 by default or parses default_budget_usd preference`
+  - `apps/desktop/e2e/v3/onboarding.spec.ts`: updated to assert `budget.set` RPC occurs after `runs.start`.
+  - `./node_modules/.bin/tsc --noEmit -p apps/desktop/tsconfig.json`: exit code 0.
+  - `./node_modules/.bin/eslint` on changed files: exit code 0.
+  - `node scripts/ci/actions-gate.mjs`: exit code 0 (194 registered, 194 used, 0 violations).
+  - `node scripts/ci/i18n-gate.mjs`: exit code 0 (1040 keys, 0 violations).
+

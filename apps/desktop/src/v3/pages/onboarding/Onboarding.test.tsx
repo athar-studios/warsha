@@ -21,6 +21,7 @@ import { RouterProvider, useRoute } from '../../router';
 
 import OnboardingPage, {
   deriveProjectName,
+  findDefaultBudget,
   isMaskedKey,
   isValidHttpUrl,
   MASKED_KEY_PLACEHOLDER,
@@ -89,6 +90,8 @@ function makeMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     setRoleConfig: vi.fn().mockResolvedValue(undefined),
     createProject: vi.fn().mockResolvedValue(createdProject),
     startRun: vi.fn().mockResolvedValue(startedRun),
+    setProjectBudget: vi.fn().mockResolvedValue(undefined),
+    listPreferences: vi.fn().mockResolvedValue([]),
     ...overrides,
   } as unknown as WarshaClient;
 }
@@ -146,6 +149,16 @@ describe('Onboarding helper utilities', () => {
     expect(deriveProjectName('My Store\nWith inventory')).toBe('My Store');
     const longLine = 'A'.repeat(80);
     expect(deriveProjectName(longLine)).toHaveLength(60);
+  });
+
+  it('findDefaultBudget returns 10 by default or parses default_budget_usd preference', () => {
+    expect(findDefaultBudget(null)).toBe(10);
+    expect(findDefaultBudget(undefined)).toBe(10);
+    expect(findDefaultBudget([])).toBe(10);
+    expect(findDefaultBudget([{ key: 'other', score: 50 }])).toBe(10);
+    expect(findDefaultBudget([{ key: 'default_budget_usd', score: 15 }])).toBe(15);
+    expect(findDefaultBudget([{ key: 'default_budget_usd', score: -5 }])).toBe(10);
+    expect(findDefaultBudget([{ key: 'default_budget_usd', score: 0 }])).toBe(10);
   });
 });
 
@@ -439,6 +452,7 @@ describe('OnboardingPage', () => {
       'en'
     );
     expect(client.startRun).toHaveBeenCalledWith('proj-123', 'Build store\nwith full cart');
+    expect(client.setProjectBudget).toHaveBeenCalledWith('proj-123', 1000);
     expect(setConfigSpy).toHaveBeenCalledWith({ key: 'onboarding_complete', value: 'true' });
     expect(screen.getByTestId('route-inspector').textContent).toBe('/p/proj-123');
   });
@@ -571,5 +585,158 @@ describe('OnboardingPage', () => {
     // Still healthy
     expect(screen.queryByTestId('onboarding-test-error')).toBeNull();
     expect(screen.getByTestId('onboarding-test-success')).toBeTruthy();
+  });
+
+  it('N2 proving test: wizard start calls createProject -> startRun -> setProjectBudget in order with 1000 cents default and navigates to /p/:id', async () => {
+    const callOrder: string[] = [];
+    const client = makeMockClient({
+      createProject: vi.fn().mockImplementation(async () => {
+        callOrder.push('createProject');
+        return {
+          id: 'proj-n2' as ProjectId,
+          name: 'N2 Project',
+          description: 'Idea for N2',
+          path: '/path/to/n2',
+          createdAt: '2026-11-21T00:00:00.000Z',
+          updatedAt: '2026-11-21T00:00:00.000Z',
+        };
+      }),
+      startRun: vi.fn().mockImplementation(async () => {
+        callOrder.push('startRun');
+        return {
+          id: 'run-n2' as RunId,
+          projectId: 'proj-n2' as ProjectId,
+          stage: 'idea',
+          status: 'running',
+          runMode: 'agent',
+          startedAt: '2026-11-21T00:00:00.000Z',
+          updatedAt: '2026-11-21T00:00:00.000Z',
+        };
+      }),
+      setProjectBudget: vi.fn().mockImplementation(async () => {
+        callOrder.push('setProjectBudget');
+      }),
+    });
+
+    const setConfigSpy = vi.fn().mockResolvedValue(undefined);
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
+      invoke: (cmd: string, args: unknown) => {
+        if (cmd === 'set_config') {
+          callOrder.push('markOnboardingComplete');
+          return setConfigSpy(args);
+        }
+        return Promise.resolve('');
+      },
+      transformCallback: () => 1,
+      unregisterCallback: () => undefined,
+      convertFileSrc: (p: string) => p,
+    };
+
+    window.location.hash = '#/onboarding?step=idea';
+    await renderOnboarding({ client, locale: 'en', initialPath: '/onboarding?step=idea' });
+
+    const textarea = screen.getByLabelText(/Your first idea/i);
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'N2 Project Idea\nWith multiple lines' } });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-start-btn'));
+      await Promise.resolve();
+    });
+
+    // Check parameters
+    expect(client.createProject).toHaveBeenCalledWith(
+      'N2 Project Idea',
+      'N2 Project Idea\nWith multiple lines',
+      'en'
+    );
+    expect(client.startRun).toHaveBeenCalledWith('proj-n2', 'N2 Project Idea\nWith multiple lines');
+    expect(client.setProjectBudget).toHaveBeenCalledWith('proj-n2', 1000);
+
+    // Assert exact order: createProject -> startRun -> setProjectBudget -> markOnboardingComplete
+    expect(callOrder).toEqual([
+      'createProject',
+      'startRun',
+      'setProjectBudget',
+      'markOnboardingComplete',
+    ]);
+
+    // Navigated to /p/:id
+    expect(screen.getByTestId('route-inspector').textContent).toBe('/p/proj-n2');
+  });
+
+  it('N2 proving test: wizard start respects custom default_budget_usd preference', async () => {
+    const client = makeMockClient({
+      listPreferences: vi.fn().mockResolvedValue([
+        { key: 'default_budget_usd', score: 25 },
+      ]),
+    });
+
+    window.location.hash = '#/onboarding?step=idea';
+    await renderOnboarding({ client, locale: 'en', initialPath: '/onboarding?step=idea' });
+
+    const textarea = screen.getByLabelText(/Your first idea/i);
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'Custom budget app' } });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-start-btn'));
+      await Promise.resolve();
+    });
+
+    // 25 USD -> 2500 cents
+    expect(client.setProjectBudget).toHaveBeenCalledWith('proj-123', 2500);
+    expect(screen.getByTestId('route-inspector').textContent).toBe('/p/proj-123');
+  });
+
+  it('N2 proving test: wizard start handles setProjectBudget failure gracefully without blocking navigation or orphaning run', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const budgetError = new Error('Budget service temporarily unreachable');
+    const client = makeMockClient({
+      setProjectBudget: vi.fn().mockRejectedValue(budgetError),
+    });
+
+    const setConfigSpy = vi.fn().mockResolvedValue(undefined);
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
+      invoke: (cmd: string, args: unknown) => {
+        if (cmd === 'set_config') return setConfigSpy(args);
+        return Promise.resolve('');
+      },
+      transformCallback: () => 1,
+      unregisterCallback: () => undefined,
+      convertFileSrc: (p: string) => p,
+    };
+
+    window.location.hash = '#/onboarding?step=idea';
+    await renderOnboarding({ client, locale: 'en', initialPath: '/onboarding?step=idea' });
+
+    const textarea = screen.getByLabelText(/Your first idea/i);
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'Resilient project idea' } });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-start-btn'));
+      await Promise.resolve();
+    });
+
+    // Both project and run were created
+    expect(client.createProject).toHaveBeenCalled();
+    expect(client.startRun).toHaveBeenCalled();
+    expect(client.setProjectBudget).toHaveBeenCalledWith('proj-123', 1000);
+
+    // Warning was logged
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      'Failed to set initial project budget:',
+      budgetError
+    );
+
+    // Navigation and onboarding completion were NOT blocked
+    expect(setConfigSpy).toHaveBeenCalledWith({ key: 'onboarding_complete', value: 'true' });
+    expect(screen.getByTestId('route-inspector').textContent).toBe('/p/proj-123');
+
+    consoleWarnSpy.mockRestore();
   });
 });
