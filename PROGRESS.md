@@ -1,5 +1,10 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Fallback store merged into r-next/integration (3515f2c)
+- **Merge**: `fix-retest2-fallback` (`4b6b0ad`) → `r-next/integration` as `3515f2c`, on top of retest-2 merge tip `56c18e3` (B1+B2+toasts). Local-only: no push, no tag, no publish, main untouched.
+- **Gates on merged tip `3515f2c`**: `cargo fmt --check` 0; `cargo clippy --workspace --all-targets` 0; `warsha-providers --lib` 68/0; `warshad --lib` 309/0/4 ignored; `tsc` desktop+UI 0; `eslint` touched 0; `policy` 8/0; `arch` 5/0; `versions` aligned 0.3.0; `wire` 11/0; `actions` 194/194/0; `i18n` 1040/0; `cargo deny` only owner-accepted chrono RUSTSEC-2026-0543 (new aead/chacha20poly1305 crates add no new advisories).
+- **Status**: FIXES COMPLETE — AWAITING CLAUDE VERIFICATION.
+
 ## Run 2026-11-21 — Owner-approved encrypted fallback secret store for Warsha provider keys (fix-retest2-fallback)
 - **Scope**: Implement owner-approved encrypted fallback secret store for Warsha provider keys when OS keychain is locked or unavailable. Worktree `.agents/worktrees/fix-retest2-fallback` on branch `fix-retest2-fallback`. Local-only: no push, no tag, no publish, main untouched.
 - **Root Cause**: In headless Linux environments or locked keychain sessions, OS keyring operations hang or fail. `crates/warsha-providers/src/secrets.rs` previously rejected file-backed stores due to plaintext risk, leaving no fallback mechanism when the OS keychain was unavailable and causing provider additions or adapter builds to wedge or fail.
