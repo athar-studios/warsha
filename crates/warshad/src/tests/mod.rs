@@ -4086,6 +4086,87 @@ mod runs_start_budget {
         assert_eq!(second.budget_cents, Some(500));
         assert_eq!(second.spent_cents, 0);
     }
+
+    /// N2 fix: `budget.set` and `budget.show` on a brand-new project with no runs
+    /// must succeed without returning "No runs found for project".
+    #[tokio::test]
+    async fn budget_set_and_show_succeed_on_runless_project() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Runless Budget Project".to_string(),
+                "A project that has no runs yet".to_string(),
+                "ar".to_string(),
+                None,
+                None,
+            )
+            .await
+            .expect("project created");
+
+        // 1. Calling show_budget before any run exists returns spent: 0, budget: None
+        let initial_status = rpc
+            .show_budget(&owner, project.id)
+            .await
+            .expect("show_budget on runless project must succeed");
+        assert_eq!(initial_status.project_id, project.id);
+        assert_eq!(initial_status.spent_cents, 0);
+        assert_eq!(initial_status.budget_cents, None);
+        assert_eq!(initial_status.remaining_cents, None);
+
+        // 2. Calling set_budget on runless project succeeds (does NOT error with "No runs found for project")
+        rpc.set_budget(&owner, project.id, 2500)
+            .await
+            .expect("set_budget on runless project must succeed");
+
+        // 3. Calling show_budget again reflects the pending budget
+        let updated_status = rpc
+            .show_budget(&owner, project.id)
+            .await
+            .expect("show_budget after set_budget on runless project must succeed");
+        assert_eq!(updated_status.project_id, project.id);
+        assert_eq!(updated_status.spent_cents, 0);
+        assert_eq!(updated_status.budget_cents, Some(2500));
+        assert_eq!(updated_status.remaining_cents, Some(2500));
+
+        // 4. Start a run for that project — start_run consumes the pending budget and applies it to the run
+        let run = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "Build an online bookstore".to_string(),
+                None,
+                None,
+            )
+            .await
+            .expect("start_run must succeed");
+        assert_eq!(run.budget_cents, Some(2500));
+
+        // 5. show_budget after run creation must report the pending cents stored on the run (not None)
+        let post_run_status = rpc
+            .show_budget(&owner, project.id)
+            .await
+            .expect("show_budget after start_run must succeed");
+        assert_eq!(post_run_status.project_id, project.id);
+        assert_eq!(post_run_status.spent_cents, 0);
+        assert_eq!(post_run_status.budget_cents, Some(2500));
+        assert_eq!(post_run_status.remaining_cents, Some(2500));
+
+        // 6. Calling show_budget / set_budget on a non-existent project fails with error
+        let non_existent = ProjectId(uuid::Uuid::new_v4());
+        assert!(
+            rpc.show_budget(&owner, non_existent).await.is_err(),
+            "show_budget on non-existent project must fail"
+        );
+        assert!(
+            rpc.set_budget(&owner, non_existent, 1000).await.is_err(),
+            "set_budget on non-existent project must fail"
+        );
+    }
 }
 
 mod runs_followup {

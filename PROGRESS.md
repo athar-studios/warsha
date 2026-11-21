@@ -1,5 +1,24 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — GUI Fix Lane (N2 Blocking Start + N3 Picker Refresh)
+- **Scope**: Fix N2 (blocking home composer start on run-less project) and N3 (project picker refresh after creation) in `.agents/worktrees/fix-gui-start`. Local-only: no push, no tag, main untouched.
+- **Root Cause & Fixes**:
+  - N2: Home composer called `budget.set` before `runs.start`, while daemon's `set_budget` returned `-32000: No runs found for project` when no runs existed. Fixed daemon `show_budget` and `set_budget` in `crates/warshad/src/lib.rs` to handle run-less projects with `spent_cents: 0` and pending budget map (`PENDING_PROJECT_BUDGETS`), verifying project existence first. In `start_run`, pending project budgets are consumed after run creation and persisted via `pipeline.set_run_budget`, ensuring subsequent `show_budget` calls report the budget. Changed frontend `startAction` order to `projects.create -> runs.start -> budget.set`.
+  - N3: `useProjects` only fetched once on mount. Added cross-instance reload notifier in `apps/desktop/src/v3/data/useProjects.ts` (`reloadAllProjects` / subscriber set), and invoked `projectsResult.reload()` in `startAction` and `startInterviewAction` in `apps/desktop/src/v3/pages/home/index.tsx`.
+- **Proving Tests**:
+  - `crates/warshad/src/tests/mod.rs`: `budget_set_and_show_succeed_on_runless_project` (verifies `budget.show` returns spent 0 on run-less project, `budget.set` records pending budget, `start_run` consumes pending budget applying it to the new run, post-run `show_budget` reports the budget, and non-existent project returns error).
+  - `apps/desktop/src/v3/pages/home/Home.test.tsx`:
+    - Updated call order test: `projects.create -> runs.start -> budget.set`.
+    - `succeeds on first run for brand-new project: runs.start executes and projects list reloads`.
+    - `reloads project list on home.interview.start after project creation`.
+- **Gate Matrix**:
+  - `cargo fmt --all -- --check`: exit code 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warshad --all-targets -- -D warnings`: exit code 0 (0 warnings, 0 errors).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad -- runs_start_budget`: exit code 0 (2 passed).
+  - `pnpm --dir apps/desktop exec tsc --noEmit`: exit code 0 (0 errors).
+  - `pnpm --dir apps/desktop exec eslint src/v3/data/useProjects.ts src/v3/pages/home/Home.test.tsx src/v3/pages/home/index.tsx`: exit code 0 (0 errors).
+  - `pnpm --dir apps/desktop exec vitest run src/v3/pages/home src/v3/data/useProjects.test.ts`: exit code 0 (3 test files passed, 23 tests passed).
+
 ## Run 2026-11-21 — Reconcile fix-r3-ci Uncommitted Lane State into r-next/integration
 - **Scope**: Reconcile uncommitted F3/CI fixes from lane `.agents/worktrees/fix-r3-ci` (detached at `6002ee7`) into `.agents/worktrees/r-next-integration` (branch `r-next/integration`, tip `7899deb`). Re-run all verification gates and record status anew. Local-only: no push, no tag, no publish, main untouched.
 - **Per-File Reconciliation & Semantic Hunks Analysis**:
