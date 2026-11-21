@@ -616,11 +616,26 @@ export default function HomePage(): React.ReactElement {
       {
         id: 'name',
         header: t('home.col_name'),
-        accessor: (row) => (
-          <bdi dir="auto" style={{ fontWeight: 'var(--w-font-weight-semibold)' }}>
-            {row.name || t('home.project_unnamed')}
-          </bdi>
-        ),
+        accessor: (row) => {
+          const displayName = row.name || t('home.project_unnamed');
+          return (
+            <bdi
+              dir="auto"
+              title={displayName}
+              style={{
+                display: 'block',
+                fontWeight: 'var(--w-font-weight-semibold)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minInlineSize: 0,
+                maxInlineSize: '100%',
+              }}
+            >
+              {displayName}
+            </bdi>
+          );
+        },
       },
       {
         id: 'status',
@@ -999,8 +1014,27 @@ export default function HomePage(): React.ReactElement {
                       data-testid={`home-project-card-${project.id}`}
                     >
                       <div className="v3-home-card-header">
-                        <h3 className="v3-home-card-title">
-                          <bdi dir="auto">{project.name || t('home.project_unnamed')}</bdi>
+                        <h3
+                          className="v3-home-card-title"
+                          style={{
+                            minInlineSize: 0,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <bdi
+                            dir="auto"
+                            title={project.name || t('home.project_unnamed')}
+                            style={{
+                              display: 'block',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              minInlineSize: 0,
+                              maxInlineSize: '100%',
+                            }}
+                          >
+                            {project.name || t('home.project_unnamed')}
+                          </bdi>
                         </h3>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
                           {runs?.[0]?.runMode && toRunModeChip(runs[0].runMode) !== 'agent' ? (

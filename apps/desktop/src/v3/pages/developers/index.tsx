@@ -15,6 +15,11 @@ import SessionDetail from './SessionDetail';
 import { formatMs } from './format';
 import { buildReceipt, burnRateCentsPerHour, costPerPacketCents, groupByParent, runCostCents, sessionMetrics } from './metrics';
 
+export function formatCentsAsDollars(cents: number | null | undefined): string {
+  const value = (cents ?? 0) / 100;
+  return `$${value.toFixed(2)}`;
+}
+
 const DevelopersPage: React.FC = () => {
   const t = useT();
   const client = useClient();
@@ -208,6 +213,7 @@ const DevelopersPage: React.FC = () => {
         <Select
           label={t('developers.filter.project')}
           data-testid="developers-filter-project"
+          title={projects?.find((p) => p.id === projectId)?.name ?? ''}
           value={projectId ?? ''}
           onChange={(event) => {
             setProjectId((event.target.value as ProjectId) || null);
@@ -268,8 +274,11 @@ const DevelopersPage: React.FC = () => {
       <div className="developers-budget" data-testid="developers-budget">
         <span>
           {t('developers.budget', {
-            spent: budget?.spentCents ?? 0,
-            cap: budget?.capCents === null || budget === null ? t('developers.unknown') : String(budget.capCents),
+            spent: formatCentsAsDollars(budget?.spentCents),
+            cap:
+              budget?.capCents === null || budget === null
+                ? t('developers.unknown')
+                : formatCentsAsDollars(budget.capCents),
           })}
         </span>
         {budget?.capCents !== null && budget !== null && budget.capCents > 0 && (

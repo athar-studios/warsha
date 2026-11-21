@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -63,7 +65,7 @@ describe('Toast composite', () => {
     expect(handleDismiss).toHaveBeenCalledWith('t1');
   });
 
-  it('auto-dismisses success toast after 5s', () => {
+  it('auto-dismisses non-blocking toast after bounded duration (10s)', () => {
     render(
       <ToastProvider>
         <TestComponent />
@@ -73,6 +75,13 @@ describe('Toast composite', () => {
     fireEvent.click(screen.getByText('إظهار نجاح'));
     expect(screen.getByText('تم الإنجاز')).toBeInTheDocument();
 
+    // Still visible before bounded timeout (e.g. at 5s)
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(screen.getByText('تم الإنجاز')).toBeInTheDocument();
+
+    // Auto-dismisses at 10s (5000ms + 5100ms = 10100ms)
     act(() => {
       vi.advanceTimersByTime(5100);
     });
@@ -112,6 +121,12 @@ describe('Toast composite', () => {
     // After 10s it should still be there because errors persist!
     act(() => {
       vi.advanceTimersByTime(10000);
+    });
+    expect(screen.getByText('فشل مزامنة')).toBeInTheDocument();
+
+    // Even after 30s it persists!
+    act(() => {
+      vi.advanceTimersByTime(20000);
     });
     expect(screen.getByText('فشل مزامنة')).toBeInTheDocument();
 

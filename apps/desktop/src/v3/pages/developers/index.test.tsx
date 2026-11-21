@@ -12,7 +12,7 @@ import { DataReadyProvider } from '../../app/DataReadyContext';
 import { DensityProvider } from '../../app/DensityContext';
 import { ThemeProvider } from '../../app/ThemeContext';
 
-import DevelopersPage from './index';
+import DevelopersPage, { formatCentsAsDollars } from './index';
 
 const PROJECT = { id: 'p1', name: 'Alpha', createdAt: '2026-11-18T09:00:00.000Z', updatedAt: '2026-11-18T09:00:00.000Z' };
 
@@ -133,8 +133,19 @@ describe('DevelopersPage (E4)', () => {
     await waitFor(() => expect(screen.getAllByTestId('developers-cell-cost')[0]).toHaveTextContent('7 ¢'));
     // packets: 7 ÷ 1 succeeded subtask = 7.0 ¢
     expect(screen.getByTestId('developers-cost-packet')).toHaveTextContent('7.0 ¢');
-    // budget: 7 ¢ spent of 200 ¢ cap
-    expect(screen.getByTestId('developers-budget')).toHaveTextContent('7 ¢');
+    // budget: $0.07 spent of $2.00 cap (cents divided by 100 with 2-decimal formatting)
+    expect(screen.getByTestId('developers-budget')).toHaveTextContent('$0.07 of $2.00');
+  });
+
+  describe('formatCentsAsDollars', () => {
+    it('formats cents to 2-decimal dollar strings including pantry $10.00 case', () => {
+      expect(formatCentsAsDollars(0)).toBe('$0.00');
+      expect(formatCentsAsDollars(7)).toBe('$0.07');
+      expect(formatCentsAsDollars(200)).toBe('$2.00');
+      expect(formatCentsAsDollars(1000)).toBe('$10.00');
+      expect(formatCentsAsDollars(null)).toBe('$0.00');
+      expect(formatCentsAsDollars(undefined)).toBe('$0.00');
+    });
   });
 
   it('opens the detail on row click and shows the stop action', async () => {

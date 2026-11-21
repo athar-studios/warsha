@@ -384,4 +384,72 @@ describe('ModelsSection - Model Discovery & Live List Diff', () => {
       expect(screen.queryByTestId('add-provider-dialog')).toBeNull();
     });
   });
+
+  describe('sanitizeSecretError', () => {
+    it('strips duplicate HTTP prefixes and RPC envelopes', () => {
+      expect(
+        sanitizeSecretError('HTTP 400: HTTP 400: Bad Request')
+      ).toBe('HTTP 400: Bad Request');
+
+      expect(
+        sanitizeSecretError('RPC error -32603: HTTP 500: HTTP 500: Server Failure')
+      ).toBe('HTTP 500: Server Failure');
+    });
+
+    it('sanitizes raw RPC JSON dump into clean user message', () => {
+      expect(
+        sanitizeSecretError('HTTP 401: {"error":{"message":"Incorrect API key provided: sk-abcdef12345"}}', 'sk-abcdef12345')
+      ).toBe('HTTP 401: Incorrect API key provided: [redacted]');
+
+      expect(
+        sanitizeSecretError('HTTP 400: HTTP 400: {"error":"Model not supported"}')
+      ).toBe('HTTP 400: Model not supported');
+
+      expect(
+        sanitizeSecretError('{"message":"Rate limit reached"}')
+      ).toBe('Rate limit reached');
+    });
+
+    it('redacts sensitive API keys and tokens', () => {
+      expect(
+        sanitizeSecretError('Failed with Bearer eyJhbGciOiJIUzI1NiJ9 and sk-1234567890abcdef')
+      ).toBe('Failed with Bearer [redacted] and [redacted]');
+    });
+  });
+
+  it('resets save button loading state on failure when adding a provider', async () => {
+    const client = createClient({
+      addProvider: vi.fn().mockRejectedValue(new Error('HTTP 401: HTTP 401: {"error":{"message":"Unauthorized key"}}')),
+    });
+    renderSection(client, 'en');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-add-button')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByTestId('provider-add-button'));
+    await waitFor(() => {
+      expect(screen.getByTestId('add-provider-dialog')).toBeDefined();
+    });
+
+    const nameInput = screen.getByTestId('provider-form-name').querySelector('input')!;
+    const keyInput = screen.getByTestId('provider-form-key').querySelector('input')!;
+    fireEvent.change(nameInput, { target: { value: 'test-provider' } });
+    fireEvent.change(keyInput, { target: { value: 'sk-secret-key-123' } });
+
+    const saveBtn = screen.getByRole('button', { name: 'Save provider' });
+    expect(saveBtn).not.toHaveAttribute('aria-busy');
+
+    fireEvent.click(saveBtn);
+
+    // Error banner renders sanitized message (single prefix, extracted from JSON, secret redacted)
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeDefined();
+      expect(screen.getByRole('alert')).toHaveTextContent('HTTP 401: Unauthorized key');
+    });
+
+    // Save button loading state is reset
+    expect(saveBtn).not.toHaveAttribute('aria-busy');
+    expect(saveBtn).not.toBeDisabled();
+  });
 });
