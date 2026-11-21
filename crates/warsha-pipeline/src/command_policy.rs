@@ -446,8 +446,17 @@ impl CommandPolicy {
         program_token: &str,
         args: &[String],
     ) -> Result<(), CommandPolicyError> {
+        self.check_invocation_with_workdir(program_token, args, None)
+    }
+
+    pub fn check_invocation_with_workdir(
+        &self,
+        program_token: &str,
+        args: &[String],
+        working_dir: Option<&Path>,
+    ) -> Result<(), CommandPolicyError> {
         self.check_program(program_token)?;
-        check_arguments(program_token, args)?;
+        check_arguments_with_workdir(program_token, args, working_dir)?;
 
         let mut current_prog = program_token;
         let mut current_args = args;
@@ -462,7 +471,7 @@ impl CommandPolicy {
                 });
             }
             self.check_program(inner_prog)?;
-            check_arguments(inner_prog, inner_args)?;
+            check_arguments_with_workdir(inner_prog, inner_args, working_dir)?;
             current_prog = inner_prog;
             current_args = inner_args;
         }
@@ -596,7 +605,7 @@ impl CommandPolicy {
         args: &[String],
         working_dir: &Path,
     ) -> (Option<u32>, Result<CommandOutput, CommandPolicyError>) {
-        if let Err(err) = self.check_invocation(program, args) {
+        if let Err(err) = self.check_invocation_with_workdir(program, args, Some(working_dir)) {
             return (None, Err(err));
         }
 
@@ -899,6 +908,53 @@ pub(crate) fn find_wrapped_command<'a>(
     }
 }
 
+/// Check if an argument to sqlite3 attempts command execution (.shell, .system, .once/.output with pipe, -init, --init, .read, .import, .load).
+/// Supports full and prefix forms (e.g. .sh, .she, .shel, .sy, .sys, .syst, .re, .rea, .im, .imp, .lo, .loa).
+pub(crate) fn is_risky_sqlite3_arg(arg: &str, next_arg: Option<&str>) -> bool {
+    let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+    let lowered = clean.to_ascii_lowercase();
+
+    if lowered == "-init"
+        || lowered.starts_with("-init=")
+        || lowered == "--init"
+        || lowered.starts_with("--init=")
+    {
+        return true;
+    }
+
+    if lowered.starts_with(".once") || lowered.starts_with(".output") {
+        let next_is_pipe = next_arg
+            .map(|a| {
+                a.trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .trim()
+                    .starts_with('|')
+            })
+            .unwrap_or(false);
+        if lowered.contains('|') || next_is_pipe {
+            return true;
+        }
+    }
+
+    for part in lowered.split(';') {
+        let trimmed_part = part.trim();
+        if let Some(cmd) = trimmed_part.strip_prefix('.') {
+            let first_token = cmd.split_whitespace().next().unwrap_or(cmd);
+            if first_token.starts_with("sh")
+                || first_token.starts_with("sy")
+                || first_token.starts_with("re")
+                || first_token.starts_with("im")
+                || first_token.starts_with("lo")
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Judge the arguments of a program for a second program named through them.
 ///
 /// The allow-list bounds which **programs** run; it cannot bound what an
@@ -908,8 +964,26 @@ pub(crate) fn find_wrapped_command<'a>(
 /// directory of git's own executables — so its grammar is narrowed here: an
 /// override whose key names a program or hook is refused unless its value is
 /// empty, and `--exec-path` is refused outright (KEEL checkpoint finding M3).
-fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyError> {
+fn check_arguments_with_workdir(
+    program: &str,
+    args: &[String],
+    working_dir: Option<&Path>,
+) -> Result<(), CommandPolicyError> {
+    let prog = program_name(program);
+    let is_git = prog == "git";
+    let mut skip_next = false;
     for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if is_git && (arg == "-m" || arg == "--message") {
+            skip_next = true;
+            continue;
+        }
+        if is_git && (arg.starts_with("-m") || arg.starts_with("--message=")) {
+            continue;
+        }
         if is_git_config_path(arg) {
             return Err(CommandPolicyError::InvalidCommand {
                 command: arg.clone(),
@@ -918,31 +992,36 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
         }
     }
 
-    let prog = program_name(program);
     if prog == "sqlite3" {
         for (i, arg) in args.iter().enumerate() {
-            let trimmed = arg.trim();
-            let lowered = trimmed.to_ascii_lowercase();
-            if lowered.starts_with(".shell") || lowered.starts_with(".system") {
+            if is_risky_sqlite3_arg(arg, args.get(i + 1).map(|s| s.as_str())) {
                 return Err(CommandPolicyError::InvalidCommand {
                     command: arg.clone(),
-                    reason: "sqlite3 shell execution is not allowed".to_string(),
+                    reason: "sqlite3 command execution is not allowed".to_string(),
                 });
-            }
-            if lowered.starts_with(".once") || lowered.starts_with(".output") {
-                let next_is_pipe = args
-                    .get(i + 1)
-                    .map(|a| a.trim().starts_with('|'))
-                    .unwrap_or(false);
-                if lowered.contains('|') || next_is_pipe {
-                    return Err(CommandPolicyError::InvalidCommand {
-                        command: arg.clone(),
-                        reason: "sqlite3 shell execution is not allowed".to_string(),
-                    });
-                }
             }
         }
         return Ok(());
+    }
+
+    if prog == "go" {
+        for arg in args {
+            let lowered = arg
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .to_ascii_lowercase();
+            if lowered.starts_with("-toolexec")
+                || lowered.starts_with("--toolexec")
+                || lowered.starts_with("-vettool")
+                || lowered.starts_with("--vettool")
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: arg.clone(),
+                    reason: "go -toolexec / -vettool is not allowed".to_string(),
+                });
+            }
+        }
     }
 
     if prog == "find" {
@@ -979,7 +1058,7 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
                         if is_shell_command(&first) {
                             return Err(CommandPolicyError::ShellRefused { command: first });
                         }
-                        check_arguments(&first, &r)?;
+                        check_arguments_with_workdir(&first, &r, working_dir)?;
                     }
                 }
             }
@@ -995,7 +1074,7 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
                 command: inner_prog.to_string(),
             });
         }
-        return check_arguments(inner_prog, inner_args);
+        return check_arguments_with_workdir(inner_prog, inner_args, working_dir);
     }
 
     if prog != "git" {
@@ -1016,6 +1095,18 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
             });
         }
 
+        // Check for --upload-pack / --receive-pack anywhere
+        if lowered == "--upload-pack"
+            || lowered.starts_with("--upload-pack=")
+            || lowered == "--receive-pack"
+            || lowered.starts_with("--receive-pack=")
+        {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: argument.to_string(),
+                reason: "git --upload-pack / --receive-pack is not allowed".to_string(),
+            });
+        }
+
         // Check for -c, --config, --config-env overrides anywhere
         if argument == "-c" || lowered == "--config" || lowered == "--config-env" {
             if let Some(value) = args.get(index + 1) {
@@ -1031,18 +1122,83 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
 
         // Check global options before the subcommand
         if !subcommand_found {
-            if argument == "-C"
-                || lowered == "--git-dir"
-                || lowered == "--work-tree"
-                || lowered == "--namespace"
-                || lowered == "--super-prefix"
-            {
+            if argument == "-C" {
+                if let Some(target) = args.get(index + 1) {
+                    let clean_target = target.trim().trim_matches('"').trim_matches('\'').trim();
+                    let is_current = clean_target == "." || clean_target == "./";
+                    let is_work_dir = working_dir.is_some_and(|wd| {
+                        Path::new(clean_target) == wd || clean_target == wd.to_string_lossy()
+                    });
+                    if !is_current && !is_work_dir {
+                        return Err(CommandPolicyError::InvalidCommand {
+                            command: argument.to_string(),
+                            reason: "git -C with target other than . is not allowed".to_string(),
+                        });
+                    }
+                }
                 index += 2;
                 continue;
             }
-            if (argument.starts_with("-C") && argument.len() > 2)
-                || lowered.starts_with("--git-dir=")
-                || lowered.starts_with("--work-tree=")
+            if argument.starts_with("-C") && argument.len() > 2 {
+                let target = &argument[2..];
+                let clean_target = target.trim().trim_matches('"').trim_matches('\'').trim();
+                let is_current = clean_target == "." || clean_target == "./";
+                let is_work_dir = working_dir.is_some_and(|wd| {
+                    Path::new(clean_target) == wd || clean_target == wd.to_string_lossy()
+                });
+                if !is_current && !is_work_dir {
+                    return Err(CommandPolicyError::InvalidCommand {
+                        command: argument.to_string(),
+                        reason: "git -C with target other than . is not allowed".to_string(),
+                    });
+                }
+                index += 1;
+                continue;
+            }
+
+            if lowered == "--git-dir" {
+                if let Some(target) = args.get(index + 1) {
+                    let clean_target = target.trim().trim_matches('"').trim_matches('\'').trim();
+                    let norm = clean_target.replace('\\', "/");
+                    let is_git_dir =
+                        norm == ".git" || norm == "./.git" || norm == ".git/" || norm == "./.git/";
+                    let is_work_dir_git =
+                        working_dir.is_some_and(|wd| Path::new(clean_target) == wd.join(".git"));
+                    if !is_git_dir && !is_work_dir_git {
+                        return Err(CommandPolicyError::InvalidCommand {
+                            command: argument.to_string(),
+                            reason: "git --git-dir with alternate git directory is not allowed"
+                                .to_string(),
+                        });
+                    }
+                }
+                index += 2;
+                continue;
+            }
+            if lowered.starts_with("--git-dir=") {
+                let target = &argument["--git-dir=".len()..];
+                let clean_target = target.trim().trim_matches('"').trim_matches('\'').trim();
+                let norm = clean_target.replace('\\', "/");
+                let is_git_dir =
+                    norm == ".git" || norm == "./.git" || norm == ".git/" || norm == "./.git/";
+                let is_work_dir_git =
+                    working_dir.is_some_and(|wd| Path::new(clean_target) == wd.join(".git"));
+                if !is_git_dir && !is_work_dir_git {
+                    return Err(CommandPolicyError::InvalidCommand {
+                        command: argument.to_string(),
+                        reason: "git --git-dir with alternate git directory is not allowed"
+                            .to_string(),
+                    });
+                }
+                index += 1;
+                continue;
+            }
+
+            if lowered == "--work-tree" || lowered == "--namespace" || lowered == "--super-prefix" {
+                index += 2;
+                continue;
+            }
+            if lowered.starts_with("--work-tree=")
                 || lowered.starts_with("--namespace=")
                 || lowered.starts_with("--super-prefix=")
             {
@@ -1056,6 +1212,52 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
 
             subcommand_found = true;
             let remaining = &args[index + 1..];
+
+            if (lowered == "ls-remote" || lowered == "fetch" || lowered == "clone")
+                && remaining.iter().any(|a| {
+                    let clean_a = a.trim().trim_matches('"').trim_matches('\'').trim();
+                    clean_a == "-u"
+                        || (clean_a.starts_with("-u") && clean_a.len() > 2)
+                        || clean_a.starts_with("--upload-pack")
+                })
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git --upload-pack is not allowed".to_string(),
+                });
+            }
+
+            if lowered == "grep"
+                && remaining.iter().any(|a| {
+                    let a_clean = a.trim().trim_matches('"').trim_matches('\'').trim();
+                    let a_low = a_clean.to_ascii_lowercase();
+                    a_clean == "-O"
+                        || (a_clean.starts_with("-O") && a_clean.len() > 2)
+                        || a_low == "--open-files-in-pager"
+                        || a_low.starts_with("--open-files-in-pager=")
+                })
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git grep -O / --open-files-in-pager is not allowed".to_string(),
+                });
+            }
+
+            if lowered == "difftool"
+                && remaining.iter().any(|a| {
+                    let a_clean = a.trim().trim_matches('"').trim_matches('\'').trim();
+                    let a_low = a_clean.to_ascii_lowercase();
+                    a_clean == "-x"
+                        || (a_clean.starts_with("-x") && a_clean.len() > 2)
+                        || a_low == "--extcmd"
+                        || a_low.starts_with("--extcmd=")
+                })
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git difftool -x / --extcmd is not allowed".to_string(),
+                });
+            }
 
             if lowered == "rebase"
                 && remaining.iter().any(|a| {
@@ -1116,11 +1318,18 @@ fn check_arguments(program: &str, args: &[String]) -> Result<(), CommandPolicyEr
 fn check_git_config_subcommand(args: &[String]) -> Result<(), CommandPolicyError> {
     for arg in args {
         let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
-        if clean.contains('=') && is_risky_git_config(clean) {
-            return Err(CommandPolicyError::InvalidCommand {
-                command: clean.to_string(),
-                reason: format!("git config `{clean}` {GIT_CONFIG_PROGRAM_REASON}"),
-            });
+        if clean.contains('=') {
+            if is_risky_git_config(clean) {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: clean.to_string(),
+                    reason: format!("git config `{clean}` {GIT_CONFIG_PROGRAM_REASON}"),
+                });
+            } else {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: clean.to_string(),
+                    reason: "git config writes are not allowed".to_string(),
+                });
+            }
         }
     }
 
@@ -1128,11 +1337,22 @@ fn check_git_config_subcommand(args: &[String]) -> Result<(), CommandPolicyError
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].trim().trim_matches('"').trim_matches('\'').trim();
-        if arg == "--file" || arg == "--blob" {
+        if arg == "--file" || arg == "-f" || arg == "--blob" {
             i += 2;
             continue;
         }
         if arg.starts_with('-') {
+            let lowered = arg.to_ascii_lowercase();
+            if lowered == "--unset"
+                || lowered == "--unset-all"
+                || lowered == "--add"
+                || lowered == "--replace-all"
+            {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: arg.to_string(),
+                    reason: "git config writes are not allowed".to_string(),
+                });
+            }
             i += 1;
             continue;
         }
@@ -1140,14 +1360,42 @@ fn check_git_config_subcommand(args: &[String]) -> Result<(), CommandPolicyError
         i += 1;
     }
 
-    if positional.len() >= 2 {
-        let key = positional[0];
-        let val = positional[1];
-        let paired = format!("{key}={val}");
-        if is_risky_git_config(&paired) {
+    if !positional.is_empty() {
+        let first = positional[0];
+        if first.eq_ignore_ascii_case("set") {
+            if positional.len() >= 3 {
+                let key = positional[1];
+                let val = positional[2];
+                let paired = format!("{key}={val}");
+                if is_risky_git_config(&paired) {
+                    return Err(CommandPolicyError::InvalidCommand {
+                        command: paired,
+                        reason: format!("git config `{key}` {GIT_CONFIG_PROGRAM_REASON}"),
+                    });
+                }
+            }
+            return Err(CommandPolicyError::InvalidCommand {
+                command: first.to_string(),
+                reason: "git config writes are not allowed".to_string(),
+            });
+        } else if first.eq_ignore_ascii_case("unset") {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: first.to_string(),
+                reason: "git config writes are not allowed".to_string(),
+            });
+        } else if positional.len() >= 2 {
+            let key = positional[0];
+            let val = positional[1];
+            let paired = format!("{key}={val}");
+            if is_risky_git_config(&paired) {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: paired,
+                    reason: format!("git config `{key}` {GIT_CONFIG_PROGRAM_REASON}"),
+                });
+            }
             return Err(CommandPolicyError::InvalidCommand {
                 command: paired,
-                reason: format!("git config `{key}` {GIT_CONFIG_PROGRAM_REASON}"),
+                reason: "git config writes are not allowed".to_string(),
             });
         }
     }
@@ -1155,12 +1403,49 @@ fn check_git_config_subcommand(args: &[String]) -> Result<(), CommandPolicyError
     Ok(())
 }
 
-/// Whether a path points to `.git/config` directly.
+/// Whether a path points to `.git/config` directly or points into `.git`.
+///
+/// Normalizes redundant slashes, dot-segments, Windows backslashes, and compares
+/// case-insensitively (e.g. `.git/config`, `.git//config`, `.git/./config`, `.GIT/config`).
+/// Fixes R5-L1 over-match: does not match innocent arguments like `fix-.git/config-handling`.
 pub(crate) fn is_git_config_path(path: &str) -> bool {
     let clean = path.trim().trim_matches('"').trim_matches('\'').trim();
-    let normalized = clean.replace('\\', "/");
-    let trimmed = normalized.strip_prefix("./").unwrap_or(&normalized);
-    trimmed == ".git/config" || trimmed.ends_with("/.git/config") || trimmed.contains(".git/config")
+    if clean.is_empty() {
+        return false;
+    }
+    let target = if let Some((flag, val)) = clean.split_once('=') {
+        if flag.starts_with('-') {
+            val.trim().trim_matches('"').trim_matches('\'').trim()
+        } else {
+            clean
+        }
+    } else {
+        clean
+    };
+
+    let normalized = target.replace('\\', "/");
+    let segments: Vec<&str> = normalized
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect();
+
+    if segments.is_empty() {
+        return false;
+    }
+
+    for (i, seg) in segments.iter().enumerate() {
+        if seg.eq_ignore_ascii_case(".git") && i + 1 < segments.len() {
+            let rest_first = segments[i + 1].to_ascii_lowercase();
+            if rest_first.starts_with("config")
+                || rest_first == "hooks"
+                || rest_first == "worktrees"
+            {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 /// The `key=value` an attached `-c…`, `--config=…` or `--config-env=…` token carries.
@@ -1181,6 +1466,20 @@ pub(crate) fn git_config_override_value(argument: &str) -> Option<&str> {
     None
 }
 
+/// Whether a git config key can execute programs (alias, fsmonitor, proxies, hooks, textconv, drivers, etc.).
+pub(crate) fn is_program_running_key(normalized_key: &str) -> bool {
+    normalized_key.starts_with("alias.")
+        || normalized_key.contains("fsmonitor")
+        || normalized_key.contains("proxy")
+        || normalized_key.contains("hook")
+        || normalized_key.contains("textconv")
+        || normalized_key.contains("driver")
+        || GIT_PROGRAM_CONFIG_KEYS.contains(&normalized_key)
+        || GIT_PROGRAM_CONFIG_PREFIXES
+            .iter()
+            .any(|prefix| normalized_key.starts_with(prefix))
+}
+
 /// Check whether a git config string `key=value` overrides a program-executing key with a non-empty value.
 pub(crate) fn is_risky_git_config(value: &str) -> bool {
     let clean = value.trim().trim_matches('"').trim_matches('\'').trim();
@@ -1198,22 +1497,16 @@ pub(crate) fn is_risky_git_config(value: &str) -> bool {
     let key = key.trim().trim_matches('"').trim_matches('\'').trim();
     let normalized = key.to_ascii_lowercase();
 
-    // Any config value starting with '!' is a shell command execution in git (e.g. alias.* shell '!' form)
+    // R5-L2: only treat '!' values as risky for program-running keys, not user.name=!x
     if config_val_trimmed.starts_with('!') {
+        return is_program_running_key(&normalized);
+    }
+
+    if is_program_running_key(&normalized) {
         return true;
     }
 
-    // Any fsmonitor variant (e.g. core.fsmonitor, fsmonitor.allowremote, core.fsmonitorhook, etc.)
-    if normalized.contains("fsmonitor") {
-        return true;
-    }
-
-    GIT_PROGRAM_CONFIG_KEYS
-        .iter()
-        .any(|denied| *denied == normalized)
-        || GIT_PROGRAM_CONFIG_PREFIXES
-            .iter()
-            .any(|prefix| normalized.starts_with(prefix))
+    false
 }
 
 /// Refuse a `git` config override whose key names a program and whose value is set.
