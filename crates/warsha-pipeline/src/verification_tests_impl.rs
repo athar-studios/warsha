@@ -1556,4 +1556,937 @@ mod tests {
             "cargo run should remain Risky"
         );
     }
+
+    #[tokio::test]
+    async fn test_r5_h1_filesystem_tool_refuses_git_dir_and_file() {
+        let dir = std::env::temp_dir().join("r5-h1-filesystem-git-guard-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir);
+
+        // 1. Direct write_file attempts to .git directory or files under it
+        let check_refused = |path: &str| {
+            let res = executor.write_file(path, "malicious payload");
+            assert!(
+                matches!(res, Ok(r) if !r.success),
+                "write to {path} must be refused"
+            );
+        };
+
+        check_refused(".git");
+        check_refused(".git/config");
+        check_refused(".git//config");
+        check_refused(".git/./config");
+        check_refused(".GIT/config");
+        check_refused(".Git/config");
+        check_refused("sub/.git/hooks/pre-commit");
+        check_refused("sub/.git");
+
+        // 2. Through AgentTool::WriteFile execution
+        let res = executor
+            .execute(&AgentTool::WriteFile {
+                path: ".git/config".to_string(),
+                content: "malicious".to_string(),
+            })
+            .await;
+        assert!(
+            !res.success,
+            "AgentTool::WriteFile to .git/config must fail"
+        );
+
+        let res2 = executor
+            .execute(&AgentTool::WriteFile {
+                path: ".git".to_string(),
+                content: "malicious".to_string(),
+            })
+            .await;
+        assert!(!res2.success, "AgentTool::WriteFile to .git must fail");
+
+        // 3. Negative controls: innocent files must be writable
+        let res_ok = executor.write_file("src/main.rs", "fn main() {}");
+        assert!(
+            matches!(res_ok, Ok(r) if r.success),
+            "ordinary source file must be writable"
+        );
+
+        let res_config_txt = executor.write_file("git-config.txt", "notes");
+        assert!(
+            matches!(res_config_txt, Ok(r) if r.success),
+            "git-config.txt must be writable"
+        );
+
+        let res_l1 = executor.write_file("fix-.git/config-handling.txt", "notes");
+        assert!(
+            matches!(res_l1, Ok(r) if r.success),
+            "fix-.git/config-handling.txt must be writable (R5-L1 fix)"
+        );
+    }
+
+    #[test]
+    fn test_r5_h1_git_command_policy_and_classification() {
+        let policy = CommandPolicy::from_config(&["git".to_string(), "echo".to_string()]);
+
+        // 1. --git-dir with repo-like target
+        assert!(
+            policy.check_command("git --git-dir=alt status").is_err(),
+            "git --git-dir=alt must be refused"
+        );
+        assert!(
+            policy
+                .check_command("git --git-dir /tmp/alt status")
+                .is_err(),
+            "git --git-dir /tmp/alt must be refused"
+        );
+        assert_eq!(
+            classify_command("git", &["--git-dir=alt".to_string(), "status".to_string()]),
+            RiskClass::Risky,
+            "git --git-dir=alt must be Risky"
+        );
+
+        // 2. -C with repo-like target
+        assert!(
+            policy.check_command("git -C sub status").is_err(),
+            "git -C sub must be refused"
+        );
+        assert!(
+            policy.check_command("git -C /tmp status").is_err(),
+            "git -C /tmp must be refused"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &["-C".to_string(), "sub".to_string(), "status".to_string()]
+            ),
+            RiskClass::Risky,
+            "git -C sub must be Risky"
+        );
+
+        // 3. git config writes in ANY form
+        assert!(
+            policy
+                .check_command("git config set alias.q '!touch /tmp/pwn'")
+                .is_err(),
+            "git config set alias.q must be refused"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "config".to_string(),
+                    "set".to_string(),
+                    "alias.q".to_string(),
+                    "!touch /tmp/pwn".to_string(),
+                ]
+            ),
+            RiskClass::Risky,
+            "git config set alias.q must be Risky"
+        );
+        assert!(
+            policy
+                .check_command("git config alias.q '!touch /tmp/pwn'")
+                .is_err(),
+            "git config alias.q must be refused"
+        );
+        assert!(
+            policy.check_command("git config user.name Alice").is_err(),
+            "git config user.name Alice must be refused"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "config".to_string(),
+                    "user.name".to_string(),
+                    "Alice".to_string(),
+                ]
+            ),
+            RiskClass::Risky,
+            "git config user.name Alice must be Risky"
+        );
+        assert!(
+            policy
+                .check_command("git config --add core.editor nano")
+                .is_err(),
+            "git config --add must be refused"
+        );
+
+        // 4. grep -O / --open-files-in-pager
+        assert!(
+            policy.check_command("git grep -O/bin/sh foo").is_err(),
+            "git grep -O must be refused"
+        );
+        assert!(
+            policy
+                .check_command("git grep --open-files-in-pager=/bin/sh foo")
+                .is_err(),
+            "git grep --open-files-in-pager must be refused"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "grep".to_string(),
+                    "-O/bin/sh".to_string(),
+                    "foo".to_string()
+                ]
+            ),
+            RiskClass::Risky,
+            "git grep -O must be Risky"
+        );
+
+        // 5. --upload-pack / --receive-pack
+        assert!(
+            policy
+                .check_command("git ls-remote --upload-pack=node origin")
+                .is_err(),
+            "git ls-remote --upload-pack must be refused"
+        );
+        assert!(
+            policy
+                .check_command("git fetch --upload-pack=node origin")
+                .is_err(),
+            "git fetch --upload-pack must be refused"
+        );
+        assert!(
+            policy
+                .check_command("git push --receive-pack=node origin")
+                .is_err(),
+            "git push --receive-pack must be refused"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "ls-remote".to_string(),
+                    "--upload-pack=node".to_string(),
+                    "origin".to_string(),
+                ]
+            ),
+            RiskClass::Risky,
+            "git ls-remote --upload-pack must be Risky"
+        );
+
+        // 6. difftool -x
+        assert!(
+            policy.check_command("git difftool -x /bin/sh").is_err(),
+            "git difftool -x must be refused"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "difftool".to_string(),
+                    "-x".to_string(),
+                    "/bin/sh".to_string(),
+                ]
+            ),
+            RiskClass::Risky,
+            "git difftool -x must be Risky"
+        );
+
+        // Negative controls:
+        // R5-L1: git commit -m with .git/config in commit message must NOT be refused
+        assert!(
+            policy
+                .check_command("git commit -m \"fix .git/config handling\"")
+                .is_ok(),
+            "git commit -m with .git/config in message must pass"
+        );
+        assert!(
+            policy
+                .check_command("git commit -m fix-.git/config-handling")
+                .is_ok(),
+            "git commit -m fix-.git/config-handling must pass"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "commit".to_string(),
+                    "-m".to_string(),
+                    "fix .git/config handling".to_string(),
+                ]
+            ),
+            RiskClass::Safe,
+            "git commit -m with .git/config must be Safe"
+        );
+
+        // R5-L2: empty fsmonitor value is Safe
+        assert!(
+            policy
+                .check_command("git -c core.fsmonitor= status")
+                .is_ok(),
+            "empty core.fsmonitor must be allowed"
+        );
+        assert!(
+            policy
+                .check_command("git -c core.fsmonitor=\"\" status")
+                .is_ok(),
+            "empty core.fsmonitor must be allowed"
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "core.fsmonitor=".to_string(),
+                    "status".to_string(),
+                ]
+            ),
+            RiskClass::Safe,
+            "empty core.fsmonitor must be Safe"
+        );
+
+        // R5-L2: user.name=!x is Safe (only program-running keys treat ! as risky)
+        assert!(
+            policy.check_command("git -c user.name=!x status").is_ok(),
+            "git -c user.name=!x must be allowed"
+        );
+
+        // Normal git commands
+        assert!(
+            policy.check_command("git --git-dir=.git status").is_ok(),
+            "git --git-dir=.git status must be allowed"
+        );
+        assert!(
+            policy.check_command("git -C . status").is_ok(),
+            "git -C . status must be allowed"
+        );
+        assert!(
+            policy.check_command("git -C ./ status").is_ok(),
+            "git -C ./ status must be allowed"
+        );
+        assert!(
+            policy.check_command("git status").is_ok(),
+            "git status must be allowed"
+        );
+        assert_eq!(
+            classify_command("git", &["status".to_string()]),
+            RiskClass::Safe,
+            "git status must be Safe"
+        );
+    }
+
+    #[test]
+    fn test_r5_h2_node_classifier_bugs() {
+        // bare help treated as script path by node -> Risky
+        assert_eq!(
+            classify_command("node", &["help".to_string()]),
+            RiskClass::Risky,
+            "node help must be Risky"
+        );
+        assert_eq!(
+            classify_command("nodejs", &["help".to_string()]),
+            RiskClass::Risky,
+            "nodejs help must be Risky"
+        );
+
+        // attached flags starting with '-' and containing '=' must NOT be skipped
+        assert_eq!(
+            classify_command("node", &["--run=build".to_string()]),
+            RiskClass::Risky,
+            "node --run=build must be Risky"
+        );
+        assert_eq!(
+            classify_command("node", &["--import=./imp.mjs".to_string()]),
+            RiskClass::Risky,
+            "node --import= must be Risky"
+        );
+        assert_eq!(
+            classify_command("node", &["--require=./req.js".to_string()]),
+            RiskClass::Risky,
+            "node --require= must be Risky"
+        );
+        assert_eq!(
+            classify_command("node", &["--loader=./load.mjs".to_string()]),
+            RiskClass::Risky,
+            "node --loader= must be Risky"
+        );
+        assert_eq!(
+            classify_command("node", &["--experimental-loader=./exp.mjs".to_string()]),
+            RiskClass::Risky,
+            "node --experimental-loader= must be Risky"
+        );
+        assert_eq!(
+            classify_command("node", &["--eval=1+1".to_string()]),
+            RiskClass::Risky,
+            "node --eval= must be Risky"
+        );
+        assert_eq!(
+            classify_command("node", &["--print=1".to_string()]),
+            RiskClass::Risky,
+            "node --print= must be Risky"
+        );
+
+        // Negative controls: safe flags remain Safe
+        assert_eq!(
+            classify_command("node", &["--version".to_string()]),
+            RiskClass::Safe,
+            "node --version must be Safe"
+        );
+        assert_eq!(
+            classify_command("node", &["-v".to_string()]),
+            RiskClass::Safe,
+            "node -v must be Safe"
+        );
+        assert_eq!(
+            classify_command("node", &["--help".to_string()]),
+            RiskClass::Safe,
+            "node --help must be Safe"
+        );
+        assert_eq!(
+            classify_command("node", &["-h".to_string()]),
+            RiskClass::Safe,
+            "node -h must be Safe"
+        );
+    }
+
+    #[test]
+    fn test_r5_h3_safe_subcommand_allow_lists() {
+        // 1. npm safe reads vs risky operations
+        assert_eq!(
+            classify_command("npm", &["--version".to_string()]),
+            RiskClass::Safe,
+            "npm --version must be Safe"
+        );
+        assert_eq!(
+            classify_command("npm", &["-v".to_string()]),
+            RiskClass::Safe,
+            "npm -v must be Safe"
+        );
+        assert_eq!(
+            classify_command("npm", &["--help".to_string()]),
+            RiskClass::Safe,
+            "npm --help must be Safe"
+        );
+        assert_eq!(
+            classify_command("npm", &["list".to_string()]),
+            RiskClass::Safe,
+            "npm list must be Safe"
+        );
+        assert_eq!(
+            classify_command("npm", &["ls".to_string()]),
+            RiskClass::Safe,
+            "npm ls must be Safe"
+        );
+        assert_eq!(
+            classify_command("npm", &["view".to_string(), "react".to_string()]),
+            RiskClass::Safe,
+            "npm view must be Safe"
+        );
+        assert_eq!(
+            classify_command("npm", &["info".to_string(), "react".to_string()]),
+            RiskClass::Safe,
+            "npm info must be Safe"
+        );
+        assert_eq!(
+            classify_command("npm", &["outdated".to_string()]),
+            RiskClass::Safe,
+            "npm outdated must be Safe"
+        );
+        assert_eq!(
+            classify_command("npm", &["audit".to_string()]),
+            RiskClass::Safe,
+            "npm audit must be Safe"
+        );
+        assert_eq!(
+            classify_command("npm", &["licenses".to_string()]),
+            RiskClass::Safe,
+            "npm licenses must be Safe"
+        );
+
+        // npm risky commands
+        assert_eq!(
+            classify_command("npm", &["pack".to_string()]),
+            RiskClass::Risky,
+            "npm pack must be Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &["version".to_string()]),
+            RiskClass::Risky,
+            "npm version must be Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &["link".to_string()]),
+            RiskClass::Risky,
+            "npm link must be Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &["prune".to_string()]),
+            RiskClass::Risky,
+            "npm prune must be Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &["dedupe".to_string()]),
+            RiskClass::Risky,
+            "npm dedupe must be Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &["install-test".to_string()]),
+            RiskClass::Risky,
+            "npm install-test must be Risky"
+        );
+        assert_eq!(
+            classify_command("npm", &[]),
+            RiskClass::Risky,
+            "bare npm must be Risky"
+        );
+
+        // 2. sqlite3 risky arguments
+        let policy = CommandPolicy::from_config(&["sqlite3".to_string()]);
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".shell whoami".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".shel id".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".system calc".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".syst ls".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".read evil.sql".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".import data tbl".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &[
+                    "-init".to_string(),
+                    "evil.sql".to_string(),
+                    "db.sqlite".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &[
+                    "--init".to_string(),
+                    "evil.sql".to_string(),
+                    "db.sqlite".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".load ./ext".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "sqlite3",
+                &["db.sqlite".to_string(), ".sh whoami".to_string()]
+            ),
+            RiskClass::Risky
+        );
+        assert!(policy
+            .check_command("sqlite3 db.sqlite \".shell whoami\"")
+            .is_err());
+        assert!(policy
+            .check_command("sqlite3 db.sqlite \".load ./ext\"")
+            .is_err());
+        assert!(policy
+            .check_command("sqlite3 -init evil.sql db.sqlite")
+            .is_err());
+
+        // 3. php & deno
+        assert_eq!(
+            classify_command("php", &["test.php".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(classify_command("php", &[]), RiskClass::Risky);
+        assert_eq!(
+            classify_command("php", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("php", &["-v".to_string()]),
+            RiskClass::Safe
+        );
+
+        assert_eq!(
+            classify_command("deno", &["run".to_string(), "app.ts".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("deno", &["serve".to_string(), "app.ts".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("deno", &["bench".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("deno", &["install".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("deno", &["x".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("deno", &["app.ts".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("deno", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("deno", &["lint".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 4. dotnet
+        assert_eq!(
+            classify_command("dotnet", &["build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("dotnet", &["msbuild".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("dotnet", &["pack".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("dotnet", &["publish".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("dotnet", &["restore".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("dotnet", &["test".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("dotnet", &["run".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("dotnet", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 5. cargo
+        assert_eq!(
+            classify_command("cargo", &["doc".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["fix".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["rustc".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["package".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["bench".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 6. composer
+        assert_eq!(
+            classify_command("composer", &["dump-autoload".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("composer", &["run".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("composer", &["run-script".to_string(), "test".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("composer", &["exec".to_string(), "whoami".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("composer", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 7. mvn
+        assert_eq!(
+            classify_command("mvn", &["compile".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("mvn", &["test".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("mvn", &["package".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("mvn", &["validate".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("mvn", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 8. rails
+        assert_eq!(
+            classify_command("rails", &["server".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rails", &["console".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rails", &["test".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rails", &["db:migrate".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rails", &["generate".to_string(), "model".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rails", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 9. bundle
+        assert_eq!(
+            classify_command("bundle", &["list".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("bundle", &["check".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("bundle", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 10. go
+        assert_eq!(
+            classify_command("go", &["build".to_string(), "-toolexec=evil".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("go", &["vet".to_string(), "-vettool=evil".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("go", &["version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("go", &["env".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 11. vite / next
+        assert_eq!(
+            classify_command("vite", &["dev".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("vite", &["build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("vite", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("next", &["dev".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("next", &["build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("next", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 12. eslint ANY invocation Risky
+        assert_eq!(
+            classify_command("eslint", &["src/".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("eslint", &["--version".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(classify_command("eslint", &[]), RiskClass::Risky);
+
+        // 13. cmake
+        assert_eq!(
+            classify_command(
+                "cmake",
+                &[
+                    "-S".to_string(),
+                    ".".to_string(),
+                    "-B".to_string(),
+                    "build".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["configure".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["--build".to_string(), ".".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 14. javac & rustc ANY invocation Risky
+        assert_eq!(
+            classify_command("javac", &["Foo.java".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("javac", &["-version".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rustc", &["main.rs".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("rustc", &["--version".to_string()]),
+            RiskClass::Risky
+        );
+
+        // 15. yarn bare Risky
+        assert_eq!(classify_command("yarn", &[]), RiskClass::Risky);
+        assert_eq!(
+            classify_command("yarn", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+
+        // 16. prettier / pocketbase / bun
+        assert_eq!(
+            classify_command("prettier", &["--config".to_string(), "evil.js".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("prettier", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("bun", &["run".to_string(), "build".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("bun", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("pocketbase", &["serve".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("pocketbase", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r5_ask_for_risky_routes_to_approval() {
+        let dir = std::env::temp_dir().join("r5-ask-for-risky-plumbing-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let approvals = Arc::new(McpApprovals::new(None));
+        let policy = WorkProtectionPolicy {
+            mode: PermissionMode::AskForRisky,
+            snapshot_before_edit: false,
+            worktree_isolation: false,
+            read_before_write: false,
+        };
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "npm".to_string(),
+                "node".to_string(),
+                "git".to_string(),
+            ]))
+            .with_protection(Some(policy))
+            .with_mcp_approvals(approvals.clone(), Some("run-r5-plumbing".to_string()));
+
+        // Risky command: npm pack must be queued for approval and refused
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "npm".to_string(),
+                args: vec!["pack".to_string()],
+            })
+            .await;
+        assert!(!res.success, "npm pack must be refused under AskForRisky");
+        assert_eq!(approvals.pending().len(), 1, "npm pack must queue approval");
+
+        // Risky command: node --run=build must be queued for approval and refused
+        let res2 = executor
+            .execute(&AgentTool::RunCommand {
+                command: "node".to_string(),
+                args: vec!["--run=build".to_string()],
+            })
+            .await;
+        assert!(
+            !res2.success,
+            "node --run=build must be refused under AskForRisky"
+        );
+        assert_eq!(
+            approvals.pending().len(),
+            2,
+            "node --run=build must queue approval"
+        );
+    }
 }

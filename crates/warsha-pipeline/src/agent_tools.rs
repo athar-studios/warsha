@@ -293,6 +293,23 @@ impl PartialEq for FilesystemToolExecutor {
 
 impl Eq for FilesystemToolExecutor {}
 
+/// Returns true if the path points into a `.git` directory or is itself named `.git`.
+/// Normalizes redundant slashes, dot-segments, Windows backslashes, and checks
+/// case-insensitively (e.g. `.git`, `.GIT`, `.git//config`, `.git/./config`, `sub/.git`).
+pub(crate) fn is_git_write_target(path: &str) -> bool {
+    let clean = path.trim().trim_matches('"').trim_matches('\'').trim();
+    if clean.is_empty() {
+        return false;
+    }
+    let normalized = clean.replace('\\', "/");
+    let segments: Vec<&str> = normalized
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect();
+
+    segments.iter().any(|s| s.eq_ignore_ascii_case(".git"))
+}
+
 impl FilesystemToolExecutor {
     /// An executor rooted at `working_dir`.
     ///
@@ -371,6 +388,14 @@ impl FilesystemToolExecutor {
     /// The directory every path is resolved against.
     pub fn working_dir(&self) -> &Path {
         &self.working_dir
+    }
+
+    /// Whether `path` names `.git` directly or points inside a `.git/` directory.
+    ///
+    /// Normalizes redundant slashes, dot-segments, Windows backslashes, and compares
+    /// case-insensitively (e.g. `.git`, `.GIT`, `.git//config`, `.git/./config`, `sub/.git`).
+    pub fn is_git_write_target(path: &str) -> bool {
+        is_git_write_target(path)
     }
 
     /// The absolute path `path` names, after the screen.
@@ -493,6 +518,9 @@ impl FilesystemToolExecutor {
     /// guard keys on, so `./notes.md` and `notes.md` agree. A file that does
     /// exist still needs a prior read.
     fn write_allowed(&self, path: &str) -> Result<bool, String> {
+        if is_git_write_target(path) {
+            return Err(format!("writes under .git or to .git are refused ({path})"));
+        }
         let Some(guard) = &self.read_guard else {
             return Ok(true);
         };
@@ -536,12 +564,41 @@ impl FilesystemToolExecutor {
     }
 
     /// Write a text file, creating the parent directories it needs.
-    fn write_file(&self, path: &str, content: &str) -> Result<ToolResult, ToolError> {
+    pub(crate) fn write_file(&self, path: &str, content: &str) -> Result<ToolResult, ToolError> {
         let tool = AgentTool::WriteFile {
             path: path.to_string(),
             content: content.to_string(),
         };
+        if is_git_write_target(path) {
+            return Ok(ToolResult::failed(
+                tool,
+                format!("writes under .git or to .git are refused ({path})"),
+            ));
+        }
         let resolved = self.resolve_contained_path(path)?;
+        if let Ok(canonical_root) = self.working_dir.canonicalize() {
+            let to_check = if resolved.exists() {
+                resolved.canonicalize().ok()
+            } else {
+                resolved
+                    .parent()
+                    .and_then(|p| p.canonicalize().ok())
+                    .map(|p| p.join(resolved.file_name().unwrap_or_default()))
+            };
+            if let Some(target) = to_check {
+                if let Ok(rel) = target.strip_prefix(&canonical_root) {
+                    if rel
+                        .components()
+                        .any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case(".git"))
+                    {
+                        return Ok(ToolResult::failed(
+                            tool,
+                            format!("writes under .git or to .git are refused ({path})"),
+                        ));
+                    }
+                }
+            }
+        }
         // B2: read-only confinement refuses every write by name.
         if let Some(policy) = &self.protection {
             if policy.mode == PermissionMode::ReadOnly {
@@ -672,6 +729,12 @@ impl ToolExecutor for FilesystemToolExecutor {
         // Read-before-write: refuse a write to an unread path before any file is
         // touched. With no guard installed this is always allowed.
         if let AgentTool::WriteFile { path, .. } = tool {
+            if is_git_write_target(path) {
+                return ToolResult::failed(
+                    tool.clone(),
+                    format!("writes under .git or to .git are refused ({path})"),
+                );
+            }
             match self.write_allowed(path) {
                 Ok(true) => {}
                 Ok(false) => {
