@@ -10,12 +10,13 @@
   - R6-H5 (Safe-subcommand allow-lists all-args scan): Updated all safe-subcommand allow-lists (`npm`, `deno`, `dotnet`, `cargo`, `composer`, `rails`, `bundle`, `go`, `vite`/`next`, `bun`, `pocketbase`) to scan all arguments rather than only the first; introduced `is_safe_pure_flag` rejecting script/config/eval/tool/path/env flags; removed `-v` from the cargo safe list to prevent `-v doc` / `-v fix` / `-v package` code execution.
   - R6-H6 (pnpm & yarn blanket Risky): Classified all `pnpm` and `yarn` invocations as Risky due to unconditional script/config loading (`.pnpmfile.cjs` and `yarnPath`); updated existing tests asserting `--version`/`list`/`why` Safe to Risky.
   - Proving tests: Added 6 comprehensive proving tests in `crates/warsha-pipeline/src/verification_tests_impl.rs` covering all required shapes for R6-H1 through R6-H6.
-- **Gate Matrix (worktree `fix-r6-approval`)**:
-  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: passed (exit 0).
-  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: passed (exit 0).
-  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 571 passed, 0 failed, 7 ignored (exit 0).
-  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit 0).
-- **Status**: COMPLETE — Ready for verification.
+- **Gate Matrix (merged tip `6a75ea1`, verified by PM)**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 571 passed, 0 failed, 7 ignored (incl 6 r6_* proving tests).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+  - `node scripts/check-versions.mjs`: aligned. `check-arch.mjs`: 5/0. `check-wire-contract.mjs`: 11/0.
+- **Status**: FIXES COMPLETE — AWAITING CLAUDE VERIFICATION.
 
 ## Run 2026-11-21 — Round-5 (H1/H2 approval classes + SIGTERM hang) merged into r-next/integration
 - **Scope**: Round-5 Codex NOT CLEAR follow-up fixing all 3 HIGHs (R5-H1 file-tool `.git/config` + git-dir/-C/config-set/grep -O/upload-pack variants, R5-H2 node `=`-flag bugs, R5-H3 safe-class toolchain executions incl folded R4-M1/R4-M2) + R5-M1 SIGTERM shutdown hang. Branches `fix-r5-approval-lane` + `fix-r5-shutdown-lane` merged into `r-next/integration` at `bac6375`. Local-only: no push, no tag, no publish, main untouched.
