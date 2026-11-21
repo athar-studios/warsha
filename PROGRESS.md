@@ -1,5 +1,26 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Fix B1 onboarding wizard Next dead-end after provider save-test
+- **Scope**: Fix B1 onboarding wizard Next dead-end in `apps/desktop/src/v3/pages/onboarding/index.tsx` and colocated tests `Onboarding.test.tsx` in worktree `.agents/worktrees/fix-retest2-b1` on branch `fix-retest2-b1-lane`. Local-only: no push, no tag, no publish, main untouched.
+- **Root Cause**: `saveTestAction` called `setApiKey('')` on success to wipe the secret from memory (F1 decision), but the API key `TextField` has `required`. Clearing to empty left the required field blank, triggering validation on re-submit (`validation_key_required`) and stalling Next advance.
+- **Fix**:
+  - In `apps/desktop/src/v3/pages/onboarding/index.tsx:353`, set `setApiKey(MASKED_KEY_PLACEHOLDER)` instead of `''` on save-test success.
+  - Clears the secret key from React state immediately (F1 invariant preserved), preserves typed key on failure (F1 invariant preserved), satisfies `required`, and reflects configured healthy state.
+  - Leverages existing `isMaskedKey` check (lines 309-318) so any subsequent save-test click skips re-test and does not call the daemon with the placeholder sentinel.
+  - Decision recorded as `D-R2-B1-1` in `DECISIONS.md`.
+- **Proving Tests**:
+  - `apps/desktop/src/v3/pages/onboarding/Onboarding.test.tsx`:
+    - Added `B1 proving test: Next advances after successful provider save-test with masked key` (asserts required, save-test success, key masked to `MASKED_KEY_PLACEHOLDER`, real secret cleared, Next advances to step 3 `idea`, Back returns to provider with key still masked, subsequent save-test skips re-test without daemon call, Next advances to idea again). Failed before fix (`expected '' to be '••••••••'`), passed after fix.
+    - Updated line 298 assertion to expect `MASKED_KEY_PLACEHOLDER`.
+- **Gates**:
+  - `./node_modules/.bin/tsc --noEmit -p apps/desktop`: exit code 0.
+  - `./node_modules/.bin/eslint` on changed files: exit code 0.
+  - Vitest `Onboarding.test.tsx`: 20/20 passed.
+  - Desktop vitest full suite: 82 files, 722 passed.
+  - `node scripts/ci/actions-gate.mjs`: exit code 0 (194 registered, 194 used, 0 violations).
+  - `node scripts/ci/i18n-gate.mjs`: exit code 0 (1040 keys, 0 violations).
+- **Status**: COMPLETE
+
 ## Run 2026-11-21 — GUI Retest Fix Verification (N2 + G2b + Keyring + Minors in r-next/integration)
 - **Scope**: Verify merged tip with all four retest lanes + record key-clear coverage. Local-only: no push, no tag, no publish, main untouched.
 - **Merges**: `5f4d495` wizard (N2), `251fff8` inbox (G2b), `85ba245` keyring (N-1/N-2/N-3), `196470c` minors.

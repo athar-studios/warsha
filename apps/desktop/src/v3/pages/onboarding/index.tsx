@@ -349,8 +349,9 @@ export default function OnboardingPage(): React.ReactElement {
       setTestPassed(true);
       providersResult.reload();
       await reloadCapabilities();
-      // F1: Empty key only after successful test
-      setApiKey('');
+      // F1/G4/B1: Replace secret key with mask placeholder after successful test.
+      // Secret is wiped from memory, field satisfies `required`, and reflects saved healthy state.
+      setApiKey(MASKED_KEY_PLACEHOLDER);
     } catch (err) {
       // F1: Save must happen only after a successful test. If testProvider fails, roll back
       // so provider is not saved in daemon settings/secrets.
