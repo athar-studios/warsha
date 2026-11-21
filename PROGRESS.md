@@ -1,5 +1,19 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-21 — Round-5 (H1/H2 approval classes + SIGTERM hang) merged into r-next/integration
+- **Scope**: Round-5 Codex NOT CLEAR follow-up fixing all 3 HIGHs (R5-H1 file-tool `.git/config` + git-dir/-C/config-set/grep -O/upload-pack variants, R5-H2 node `=`-flag bugs, R5-H3 safe-class toolchain executions incl folded R4-M1/R4-M2) + R5-M1 SIGTERM shutdown hang. Branches `fix-r5-approval-lane` + `fix-r5-shutdown-lane` merged into `r-next/integration` at `bac6375`. Local-only: no push, no tag, no publish, main untouched.
+- **Changes**:
+  - Approval lane (6 files, +1972/-133): `.git` guard in file-tool write path (refuses writes under `.git/` or to `.git`, normalized `.git//`, `.git/./`, backslash, case-insensitive spellings, innocent-substring safe); git `--git-dir`/`-C` repo-target refusal, `config` writes ANY form refused (`set` pairing bug fixed), `grep -O`/`difftool -x`/`--upload-pack`/`--receive-pack` Risky; node bare `help` removed from safe list + `=`-attached flags parsed (`--run=/--import=/--require=/--loader=/--eval=/--print=` Risky); safe-subcommand allow-lists for npm/sqlite3/php/deno/dotnet/cargo/composer/mvn/rails/bundle/go/vite/next/eslint(any)/cmake/javac(any)/rustc(any)/yarn/prettier/pocketbase/bun; L1 commit-message over-match fixed, L2 `!`-value noise scoped to program-running keys.
+  - Shutdown lane (5 files, +267/-74): `run_detached_keyring`/`run_detached_trust` detached-thread rendezvous replacing `spawn_blocking` in `openai.rs` load/store/delete + `relay/lib.rs` save/build trust; 3 hang regression tests (`detached_keyring_timeout_does_not_hang_runtime_drop`, `relay_trust_hang_does_not_block_runtime_drop`, `daemon_shutdown_with_hanging_secret_store_completes_within_bound`); production `warshad --foreground` SIGTERM exit 0 in 0.007s on locked keychain.
+- **Gate Matrix (verified at merged tip `bac6375`)**:
+  - `CARGO_HOME=/tmp/cargo-home cargo fmt -- --check`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo clippy -p warsha-pipeline -p warsha-providers -p warsha-relay -p warshad --all-targets -- -D warnings`: exit 0.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 565 passed, 0 failed, 7 ignored (incl 5 r5_* proving tests).
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-relay --lib`: 20 passed, 0 failed.
+  - `CARGO_HOME=/tmp/cargo-home cargo test -p warshad --test m1_daemon`: 5 passed, 0 failed.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures. `check-versions.mjs`: aligned. `check-arch.mjs`: 5/0. `check-wire-contract.mjs`: 11/0.
+- **Status**: FIXES COMPLETE — AWAITING CLAUDE VERIFICATION.
+
 ## Run 2026-11-21 — Round-5 M1 fix production SIGTERM shutdown hang on locked keyring (D-R5-SHUTDOWN-1)
 - **Scope**: Fix R5-M1 production daemon SIGTERM shutdown hang on locked keyring. Replaced `tokio::task::spawn_blocking` keyring calls in `crates/warsha-providers/src/openai.rs` and `crates/warsha-relay/src/lib.rs` with detached OS threads (`std::thread::Builder::new().name(...).spawn(...)`) + `tokio::sync::oneshot` channel rendezvous + `tokio::time::timeout`. Detached threads run outside Tokio's threadpool so runtime drop on shutdown never waits for parked D-Bus calls. Added regression tests proving clean runtime drop on timeout/shutdown without touching host keychain.
 - **Changes**:
