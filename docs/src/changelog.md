@@ -150,6 +150,7 @@ nothing is written ahead of the work.
 - **M16 — dependency and update policy.** Renovate opens pull requests weekly with auto-merge off
   and the Goose pin tracked by a custom manager; the Tauri updater is configured but has no signing
   key published, so nothing can install yet.
+- **UX F6 (0.3.0) — Linux runtime requirements documented.** The shipped 0.3.0 Linux x86_64 binaries (`warsha`, `warshad`, `.deb`, `.AppImage`) require `GLIBC >= 2.39` and `libssl.so.3` due to dynamic linkage against the Ubuntu 24.04 build runner. Documented distribution compatibility limits and workarounds (cargo source build, Docker container) in `docs/INSTALL.md` §6; wider-compatibility build paths proposed in `DECISIONS.md` `D-RN-UX-F6-1`.
 
 #### Fixed
 

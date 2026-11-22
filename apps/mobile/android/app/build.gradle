@@ -58,8 +58,8 @@ android {
         applicationId "dev.warsha.remote"
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 301
+        versionName "0.3.1"
     }
 
     signingConfigs {
@@ -106,7 +106,8 @@ android {
 
 // ---------------------------------------------------------------------------
 // Sync the built remote PWA (apps/remote/dist) into assets/public.
-// Builds apps/remote via pnpm first when dist/ is missing.
+// buildRemoteWebAssets builds apps/remote via pnpm first, as a dependency: a
+// Sync with a missing source dir is NO-SOURCE and would skip any doFirst.
 // ---------------------------------------------------------------------------
 def remoteDistDir = rootDir.toPath()
         .normalize().resolve("../../../apps/remote/dist").toFile()
@@ -115,28 +116,35 @@ assert remoteDistDir.parentFile.name == "remote"
 
 def webAssetsDir = file("src/main/assets/public")
 
+def buildRemoteWebAssets = tasks.register("buildRemoteWebAssets") {
+    description = "Builds apps/remote into apps/remote/dist " +
+            "(pnpm --filter warsha-remote build)."
+    group = "warsha"
+
+    doLast {
+        logger.lifecycle("Building apps/remote with pnpm before sync…")
+        def repoRoot = remoteDistDir.parentFile.parentFile.parentFile
+        def pnpm = org.gradle.internal.os.OperatingSystem.current().isWindows()
+                ? ["cmd", "/c", "pnpm"] : ["pnpm"]
+        def result = providers.exec {
+            workingDir repoRoot
+            commandLine pnpm + ["--filter", "warsha-remote", "build"]
+        }.result.get()
+        result.assertNormalExitValue()
+        if (!new File(remoteDistDir, "index.html").isFile()) {
+            throw new GradleException(
+                    "apps/remote/dist/index.html missing after build. " +
+                    "Run `pnpm --filter warsha-remote build` manually.")
+        }
+    }
+}
+
 def syncRemoteWebAssets = tasks.register("syncRemoteWebAssets", Sync) {
     description = "Copies apps/remote/dist into android assets/public " +
             "(the WebView loads file:///android_asset/public/index.html)."
     group = "warsha"
 
-    doFirst {
-        if (!remoteDistDir.isDirectory() || !new File(remoteDistDir, "index.html").isFile()) {
-            logger.lifecycle("apps/remote/dist is missing — building it with pnpm…")
-            def repoRoot = remoteDistDir.parentFile.parentFile.parentFile
-            def pnpm = org.gradle.internal.os.OperatingSystem.current().isWindows()
-                    ? ["cmd", "/c", "pnpm"] : ["pnpm"]
-            exec {
-                workingDir repoRoot
-                commandLine pnpm + ["--filter", "warsha-remote", "build"]
-            }
-            if (!new File(remoteDistDir, "index.html").isFile()) {
-                throw new GradleException(
-                        "apps/remote/dist/index.html still missing after build. " +
-                        "Run `pnpm --filter warsha-remote build` manually.")
-            }
-        }
-    }
+    dependsOn buildRemoteWebAssets
 
     from remoteDistDir
     into webAssetsDir

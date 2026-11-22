@@ -9,9 +9,6 @@
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>ورشة — Warsha Remote</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="manifest" href="/manifest.webmanifest">
     <!--
       The manifest is the install candidate; these three are what a manifest cannot carry. iOS ignores
@@ -34,6 +31,32 @@
     <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0e0e0e" media="(prefers-color-scheme: dark)">
     <meta name="description" content="ورشة — طاولة العمل عن بُعد">
+    <!--
+      The policy is mirrored by warshad's response middleware (`crates/warshad/src/lib.rs`, the
+      `REMOTE_CSP` const), byte for byte, so the bundle is held to one rule set whether it is
+      served by the daemon or opened from another host. The desktop webview carries the same
+      directives in `apps/desktop/src-tauri/tauri.conf.json` — its copy is JSON-embedded and
+      names the `ipc:` and wildcard-loopback sources Tauri adds, so it is directive-level
+      parity, not byte parity. `scripts/check-wire-contract.mjs` reads all three and fails on a
+      drifted directive; the two strings below must stay byte-identical.
+      The fonts are the ones bundled by `@warsha/ui/v3/fonts.css` (`@fontsource/ibm-plex-sans-arabic`
+      and `@fontsource/ibm-plex-mono`, owner decision OD-U2 = A): same-origin files, so `font-src
+      'self'` is all they need and no third-party font origin is allowed. `'unsafe-inline'` stays in
+      `style-src` because Vite's dev server injects `<style>` tags for HMR — the built bundle's React
+      `style` props are CSSOM writes, which CSP does not govern. `connect-src 'self'` covers the
+      daemon's own origin, including the `ws:` upgrade of it, and the loopback pairs cover a bundle
+      served elsewhere (Vite dev, the desktop). `frame-ancestors` is header-only and is enforced by
+      the daemon's middleware; it is kept here so the two strings read the same. `object-src 'none'`
+      and `base-uri 'self'` are stated rather than inherited from `default-src 'self'`: they are what
+      refuses plugin content and a `<base>` override outright. `'unsafe-inline'`/`'unsafe-eval'` are
+      absent from `script-src` in every copy and must stay absent, and `data:`/`blob:` are absent
+      from it too (R-KEEL checkpoint row 15): a document able to mint one of those URLs could run
+      script from it, which is the inline hole the absence of `'unsafe-inline'` exists to shut. The
+      schemes stay in `img-src` (the pairing QR is a `data:image/png`) and `style-src`; the one
+      worker this bundle registers is `/sw.js`, a same-origin URL, and a worker's script is bounded
+      by `worker-src` falling back to `script-src`, so `script-src 'self'` covers it.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self'; style-src 'self' data: blob: 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8766 http://localhost:8765 ws://localhost:8766; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self';">
   </head>
   <body>
     <div id="root"></div>

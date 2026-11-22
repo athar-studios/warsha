@@ -1,29 +1,35 @@
-//! End-to-end test: a written request becomes a working, tested, built binary.
-//!
-//! The flow is the one a real project takes, with a cheap model in place of a
-//! cloud one: the daemon's RPC layer creates the project and starts the run, the
-//! agent asks its clarifying question and the owner answers it, the plan is shown
-//! in Plan mode and approved into Agent mode, the run walks the pipeline stages
-//! with the mock provider answering every one, the planned Rust project lands in a
-//! temporary directory, and `cargo test`, `cargo build` and the built binary are
-//! what decide whether the result is green.
-//!
-//! What the test does not pretend:
-//!
-//! - **No network, no key, no spend.** The only provider on the router is
-//!   [`MockProvider`]. It is also the cheap model: the router prices a stage call
-//!   at a fraction of a cent, so a run to the code stage costs cents.
-//! - **The mock provider answers every stage with one sentence.** The intake
-//!   question, the plan, the code and the tests are the scripted answers below —
-//!   the canned LLM responses the flow needs. The three answers that carry real
-//!   content — the plan, the code and the test — are recorded through the same
-//!   [`PipelineEngine::upsert_artifact`] call an agent's output would use, and the
-//!   test asserts the mock's sentence was there first, so the stage really did
-//!   reach the provider.
-//! - **`cargo` runs as a real subprocess** in the generated project (offline, no
-//!   dependencies), so "tests green" and "the binary prints the greeting" mean
-//!   exactly what they say.
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
 
+/// End-to-end test: a written request becomes a working, tested, built binary.
+///
+/// The flow is the one a real project takes, with a cheap model in place of a
+/// cloud one: the daemon's RPC layer creates the project and starts the run, the
+/// agent asks its clarifying question and the owner answers it, the plan is shown
+/// in Plan mode and approved into Agent mode, the run walks the pipeline stages
+/// with the mock provider answering every one, the planned Rust project lands in a
+/// temporary directory, and `cargo test`, `cargo build` and the built binary are
+/// what decide whether the result is green.
+///
+/// What the test does not pretend:
+///
+/// - **No network, no key, no spend.** The only provider on the router is
+///   [`MockProvider`]. It is also the cheap model: the router prices a stage call
+///   at a fraction of a cent, so a run to the code stage costs cents.
+/// - **The mock provider answers every stage with one sentence.** The intake
+///   question, the plan, the code and the tests are the scripted answers below —
+///   the canned LLM responses the flow needs. The three answers that carry real
+///   content — the plan, the code and the test — are recorded through the same
+///   [`PipelineEngine::upsert_artifact`] call an agent's output would use, and the
+///   test asserts the mock's sentence was there first, so the stage really did
+///   reach the provider.
+/// - **`cargo` runs as a real subprocess** in the generated project (offline, no
+///   dependencies), so "tests green" and "the binary prints the greeting" mean
+///   exactly what they say.
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -39,8 +45,9 @@ use warsha_core::{
 use warsha_pipeline::{
     AgentLoop, AgentMode, AskUserRequest, InMemoryCrashReportStore, InMemoryMcpManager,
     InMemoryPairingStore, InMemoryPreferenceStore, InMemoryProcessManager,
-    InMemoryStoreReviewStore, LivePreviewManager, McpManager, MockRoutineRunner, PipelineEngine,
-    ProcessManager, RoutineRegistry, RoutineRunner, RoutineScheduler, RunMode, RunModeConfig,
+    InMemoryStoreReviewStore, LivePreviewManager, McpManager, PipelineEngine, ProcessManager,
+    RoutineRegistry, RoutineRunner, RoutineScheduler, RunMode, RunModeConfig,
+    UnavailableRoutineRunner,
 };
 use warsha_providers::{InMemorySecretStore, MockProvider, ProviderRouter};
 use warsha_remote::{DeviceIdentity, DeviceRegistry};
@@ -110,6 +117,7 @@ pub fn greeting(name: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::greeting;
 
@@ -188,12 +196,14 @@ async fn e2e_request_to_artifact() {
             PACKAGE_NAME.to_string(),
             HELLO_REQUEST.to_string(),
             "en".to_string(),
+            None,
+            None,
         )
         .await
         .expect("projects.create succeeds");
     assert_eq!(project.name, PACKAGE_NAME);
     let run = rpc
-        .start_run(&ext, project.id, HELLO_REQUEST.to_string())
+        .start_run(&ext, project.id, HELLO_REQUEST.to_string(), None, None)
         .await
         .expect("runs.start succeeds");
     assert_eq!(run.current_stage, Stage::Idea);
@@ -264,6 +274,11 @@ async fn e2e_request_to_artifact() {
     assert_eq!(approval.from, AgentMode::Plan);
     assert_eq!(approval.to, AgentMode::Agent);
 
+    // ---- 5. Execute the plan: advance to Gate A, approve, then run stages.
+    let engine = state.pipeline.clone();
+    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Gate A: the owner's approval of the brief, through the daemon's RPC layer.
     let device = owner;
     let run = rpc
@@ -275,10 +290,6 @@ async fn e2e_request_to_artifact() {
         "gate A is approved"
     );
 
-    // ---- 5. Execute the plan: the stages run, then the code lands.
-    let engine = state.pipeline.clone();
-    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
-    assert_eq!(run.current_stage, Stage::GateA);
     let run = engine
         .advance_stage(run.id)
         .await
@@ -531,7 +542,8 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
     ));
 
     let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
-    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(MockRoutineRunner::new());
+    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
+        Arc::new(UnavailableRoutineRunner::new());
     let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
     let identity = DeviceIdentity::generate("e2e daemon".to_string()).expect("device id");
@@ -557,6 +569,10 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
         agent_loop: Arc::new(RwLock::new(AgentLoop::new())),
+        mcp_permissions: Arc::new(warsha_pipeline::StaticPermissions::new()),
+        mcp_approvals: Arc::new(warsha_pipeline::McpApprovals::default()),
+        run_worktrees: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        agent_sessions: Arc::new(warsha_pipeline::RunAgentSessions::new()),
         processes,
         mcp,
         previews,
@@ -587,6 +603,7 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         // A hand-built state has no background pump draining the store bus, so this
         // sequencer simply starts empty; direct RPC calls read the store, not this.
         events: std::sync::Arc::new(warshad::EventSequencer::new()),
+        start_time: std::time::Instant::now(),
     })
 }
 

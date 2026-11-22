@@ -58,6 +58,7 @@ export const RUN: RunSummary = {
   status: 'running',
   startedAt: '2026-11-02T08:00:00.000Z',
   updatedAt: '2026-11-02T10:04:00.000Z',
+  runMode: 'agent',
 };
 
 /** A second run, so a ledger with two rows is a thing a test can actually assert on. */

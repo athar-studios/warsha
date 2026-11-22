@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! `devices.pair` over the real transport (task #58).
 //!
 //! The pairing write is the one RPC the shipped client had never reached: measured against
@@ -16,9 +23,11 @@
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
+use warsha_providers::InMemorySecretStore;
 use warsha_remote::{DeviceIdentity, PairingData};
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
+use warshad::{start_daemon_with_secrets, DaemonConfig, DaemonHandle, RateLimitConfig};
 
 /// The daemon's own bearer token: the owner credential the desktop holds. `devices.pair`
 /// is an Owner-policy method (`crates/warshad/src/auth.rs:359-363`), so this is the only
@@ -75,7 +84,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }
@@ -337,8 +348,9 @@ async fn a_qr_payload_walks_both_ends_of_the_pairing_round_trip() {
 }
 
 /// A minted pairing link from `devices.pair-start` authenticates the phone's session,
-/// appears in the devices ledger, allows the phone to call Session-policy methods like
-/// `devices.pair`, and revoking the device cuts off its access immediately.
+/// appears in the devices ledger, still lets the phone call ordinary Session methods, is
+/// refused enrolment (`devices.pair` is the owner's, H2), and revoking the device cuts off
+/// its access immediately.
 #[tokio::test]
 async fn a_minted_pairing_authenticates_the_session_and_dies_on_revoke() {
     let daemon = Daemon::start().await;
@@ -384,15 +396,41 @@ async fn a_minted_pairing_authenticates_the_session_and_dies_on_revoke() {
         "minted device was not in devices.list: {devices}"
     );
 
-    // 4. The phone (Session role) can call devices.pair
+    // 4. The phone (Session role) is refused `devices.pair` (H2): enrolling another
+    //    device is the owner's act, so a paired device cannot hand out access with
+    //    caller-supplied pairing data.
     let (_second_identity, second_pairing) = fresh_pairing();
-    rpc_ok(
+    let (status, body) = rpc(
         port,
         &phone_token,
         "devices.pair",
         json!({ "pairing_data": pairing_json(&second_pairing) }),
     )
     .await;
+    assert_eq!(status, reqwest::StatusCode::OK);
+    assert_eq!(
+        body["error"]["code"], -32002,
+        "a paired device was allowed to enrol another device: {body}"
+    );
+
+    // 4b. The owner token — the only enrolment credential, and what `warsha pair` holds —
+    //     still pairs that same data.
+    rpc_ok(
+        port,
+        OWNER,
+        "devices.pair",
+        json!({ "pairing_data": pairing_json(&second_pairing) }),
+    )
+    .await;
+    let devices = rpc_ok(port, OWNER, "devices.list", json!([])).await;
+    assert!(
+        devices
+            .as_array()
+            .expect("devices.list is a list")
+            .iter()
+            .any(|d| d["device_id"] == device_id_value(&_second_identity)),
+        "the owner's pairing never reached the ledger: {devices}"
+    );
 
     // 5. But the phone CANNOT call Owner-only methods like devices.pair-start or devices.revoke
     let (_, refusal) = rpc(port, &phone_token, "devices.pair-start", json!([])).await;

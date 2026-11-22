@@ -86,7 +86,7 @@ commit; the ids are what a failing build prints, so they are part of the interfa
 
   ```text
   tier 0  warsha-core
-  tier 1  warsha-store
+  tier 1  warsha-store  warsha-catalog
   tier 2  warsha-providers  warsha-git  warsha-remote
   tier 3  warsha-pipeline  warsha-backends
   tier 4  warshad  warsha-cli  warsha-relay

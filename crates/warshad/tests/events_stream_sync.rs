@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! WS3 — the daemon's sequenced event stream, replay, and run-control RPCs.
 //!
 //! What this file pins down, end to end against a real daemon wherever the
@@ -28,6 +35,7 @@
 //! `WARSHA_LLM_API_KEY` stays offline.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -37,9 +45,10 @@ use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use warsha_core::{Event, EventKind, RunId, Stage};
+use warsha_providers::InMemorySecretStore;
 use warshad::{
-    scrub_event_payload, start_daemon, windows_firewall_command, DaemonConfig, DaemonHandle,
-    EventSequencer, RateLimitConfig,
+    scrub_event_payload, start_daemon_with_secrets, windows_firewall_command, DaemonConfig,
+    DaemonHandle, EventSequencer, RateLimitConfig,
 };
 
 /// The daemon's own bearer token for this test's daemon.
@@ -109,7 +118,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }
@@ -366,18 +377,19 @@ async fn seq_is_monotonic_across_start_advance_approve_followup_cancel_artifacts
 
     // Each action must produce at least one event, and later actions must be
     // stamped later — the stream's order is the store's order.
-    rpc_ok(
-        port,
-        "gates.approve",
-        json!({ "run_id": run_id, "stage": "gate_a" }),
-    )
-    .await;
     let advanced = rpc_ok(port, "runs.advance", json!({ "run_id": run_id.clone() })).await;
     assert_eq!(
         advanced["id"].as_str(),
         Some(run_id.as_str()),
         "runs.advance must answer the same run"
     );
+
+    rpc_ok(
+        port,
+        "gates.approve",
+        json!({ "run_id": run_id, "stage": "gate_a" }),
+    )
+    .await;
 
     let followed = rpc_ok(
         port,
@@ -469,6 +481,7 @@ async fn seq_is_monotonic_across_start_advance_approve_followup_cancel_artifacts
 /// Produce at least four events on a fresh daemon and return the run id.
 async fn seed_events(port: u16) -> String {
     let run_id = start_run(port, "Replay Shop").await;
+    rpc_ok(port, "runs.advance", json!({ "run_id": run_id.clone() })).await;
     rpc_ok(
         port,
         "gates.approve",

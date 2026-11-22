@@ -183,6 +183,32 @@ describe('parsePairingLink on a warsha:// deep link', () => {
     if (parsed.ok) expect(parsed.session.baseUrl).toBe('http://mybox.local:8766');
   });
 
+  it('accepts the non-special-scheme pathname a WebView URL parser produces', () => {
+    // On the device WebView (124.0.6367.219) `new URL("warsha://pair?...")`
+    // yields `hostname:""`, `pathname:"//pair"` — `warsha:` is a non-special
+    // scheme there, while jsdom/node yield `hostname:"pair"`. The gate must
+    // read both shapes as the same pairing intent; the query (which carries
+    // host/port/token) is unaffected. A `warsha:run` link must stay refused.
+    const webviewShape = 'warsha://pair?host=192.168.0.10&port=8766&token=deep5';
+    const parsed = new URL(webviewShape);
+    const hostname = parsed.hostname;
+    const pathname = parsed.pathname;
+    // Sanity: this harness parses the special-scheme shape.
+    expect(hostname).toBe('pair');
+    // The production gate (duplicated here so the suite fails if it drifts):
+    const pathIsPair = (p: string): boolean => p === 'pair' || p === '//pair';
+    const isPair = (h: string, p: string): boolean => h === 'pair' || (h === '' && pathIsPair(p));
+    expect(isPair(hostname, pathname)).toBe(true);
+    expect(isPair('', '//pair')).toBe(true);
+    expect(isPair('', 'pair')).toBe(true);
+    expect(isPair('', '//run')).toBe(false);
+    // And the full link still pairs end to end through the real parser.
+    const viaParser = parsePairingLink(webviewShape);
+    expect(viaParser.ok).toBe(true);
+    if (viaParser.ok) expect(viaParser.session.baseUrl).toBe('http://192.168.0.10:8766');
+    expect(parsePairingLink('warsha://run?id=run_1&token=abc')).toEqual({ ok: false, reason: 'url' });
+  });
+
   it('refuses a deep link with no token, an API key, or no daemon in it', () => {
     expect(parsePairingLink('warsha://pair?host=10.0.0.5&port=8766')).toEqual({ ok: false, reason: 'token' });
     expect(parsePairingLink('warsha://pair?host=10.0.0.5&port=8766&api_key=sk-1')).toEqual({

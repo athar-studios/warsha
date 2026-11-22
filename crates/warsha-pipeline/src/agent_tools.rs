@@ -11,23 +11,26 @@
 //! `handoff.rs` has a private one for bundle paths, and reaching into it would be
 //! the cross-module private access `ARCH_RULES.md` R4 forbids.
 //!
-//! A command runs through `std::process::Command` with the working directory as
-//! its `current_dir`, and a non-zero exit is a *result* (`success: false`, with
-//! stdout, stderr and the code in the output) rather than an error: the command
-//! ran and failed, which is what a loop needs to read. Two limits are deliberate.
-//! There is no timeout — `output()` waits for the child to exit, so the caller's
-//! thread is busy for as long as the command runs, and the daemon's `process.*`
-//! spawner stays the timeout-capable path — and a command line is split on
-//! whitespace only, with no shell, no quoting and no expansion.
+//! A command runs through [`crate::CommandPolicy`] (backed by `tokio::process`)
+//! with the working directory as its `current_dir`, `env_clear()` plus a minimal
+//! fixed environment, a 120-second default timeout, and a 1 MiB output cap. A
+//! non-zero exit is a *result* (`success: false`, with stdout, stderr and the code
+//! in the output) rather than an error: the command ran and failed, which is what
+//! a loop needs to read. Policy refusals and spawn/timeout failures are
+//! [`ToolError`] values surfaced to the agent as failed tool results.
 
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::work_protection::ReadBeforeWriteGuard;
+use crate::command_policy::{CommandPolicy, CommandPolicyError};
+use crate::work_protection::{
+    classify_command_with_workdir, PermissionMode, ReadBeforeWriteGuard, RiskClass,
+    WorkProtectionPolicy,
+};
 
 /// One tool call.
 ///
@@ -164,16 +167,72 @@ pub enum ToolError {
         /// The io error, rendered.
         error: String,
     },
+    /// The program was refused by the command execution policy.
+    #[error("command `{command}` refused: {reason}")]
+    CommandRefused {
+        /// The program that was named.
+        command: String,
+        /// Why the policy refused it.
+        reason: String,
+    },
+    /// The program timed out and was killed.
+    #[error("command `{command}` timed out after {timeout_secs}s and was killed")]
+    CommandTimedOut {
+        /// The program that was named.
+        command: String,
+        /// The timeout in whole seconds.
+        timeout_secs: u64,
+    },
+    /// The MCP call was denied.
+    #[error("denied by MCP permission {server}::{tool}")]
+    McpDenied { server: String, tool: String },
+    /// The MCP call requires approval.
+    #[error("approval required: {server}::{tool} is ask by default")]
+    McpApprovalRequired { server: String, tool: String },
+}
+
+impl From<CommandPolicyError> for ToolError {
+    fn from(error: CommandPolicyError) -> Self {
+        match error {
+            CommandPolicyError::BlankCommand => ToolError::BlankCommand,
+            CommandPolicyError::Spawn { command, error } => ToolError::Spawn { command, error },
+            CommandPolicyError::TimedOut { command, timeout } => ToolError::CommandTimedOut {
+                command,
+                timeout_secs: timeout.as_secs(),
+            },
+            CommandPolicyError::ShellRefused { command } => ToolError::CommandRefused {
+                command,
+                reason: "shell is refused unless explicitly allow-listed".to_string(),
+            },
+            CommandPolicyError::NotAllowed { command } => ToolError::CommandRefused {
+                command,
+                reason: "not in the allowed commands list".to_string(),
+            },
+            CommandPolicyError::ShellSyntax { command } => ToolError::CommandRefused {
+                command,
+                reason: "names shell syntax rather than a program".to_string(),
+            },
+            CommandPolicyError::ParentTraversal { command } => ToolError::CommandRefused {
+                command,
+                reason: "program path may not climb with `..`".to_string(),
+            },
+            CommandPolicyError::InvalidCommand { command, reason } => {
+                ToolError::CommandRefused { command, reason }
+            }
+            CommandPolicyError::Wait { command, error } => ToolError::Spawn { command, error },
+        }
+    }
 }
 
 /// The seam Agent mode drives: one call in, one [`ToolResult`] out.
 ///
 /// `Send + Sync` because the loop that holds it lives behind a lock in an async
-/// daemon. `execute` is synchronous — a file read and a short command are — so an
-/// implementation must not park on anything a caller cannot interrupt.
+/// daemon. `execute` is async so that long-running commands, file operations,
+/// and external tools do not block worker threads.
+#[async_trait]
 pub trait ToolExecutor: Send + Sync {
     /// Run `tool` and describe what happened.
-    fn execute(&self, tool: &AgentTool) -> ToolResult;
+    async fn execute(&self, tool: &AgentTool) -> ToolResult;
 }
 
 /// The executor a loop holds before a caller wires one: it refuses every call and
@@ -181,8 +240,9 @@ pub trait ToolExecutor: Send + Sync {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoToolExecutor;
 
+#[async_trait]
 impl ToolExecutor for NoToolExecutor {
-    fn execute(&self, tool: &AgentTool) -> ToolResult {
+    async fn execute(&self, tool: &AgentTool) -> ToolResult {
         ToolResult::failed(
             tool.clone(),
             format!(
@@ -198,23 +258,58 @@ impl ToolExecutor for NoToolExecutor {
 /// By default a write needs no prior read. [`FilesystemToolExecutor::with_read_before_write`]
 /// installs a shared [`ReadBeforeWriteGuard`] so an unread file cannot be
 /// overwritten; clones of the executor share the same guard.
+use crate::mcp_approval::McpApprovals;
+use crate::mcp_permission::MCP_AGENT_ROLE;
+use serde_json::json;
+
 #[derive(Debug, Clone)]
 pub struct FilesystemToolExecutor {
     working_dir: PathBuf,
     /// `None` leaves writes unrestricted; `Some` enforces read-before-write.
     read_guard: Option<Arc<Mutex<ReadBeforeWriteGuard>>>,
+    /// Command execution policy bounding `RunCommand` invocations.
+    command_policy: CommandPolicy,
+    /// Work-protection policy carried from the run's effective permissions (B2):
+    /// `None` keeps today's behaviour; `Some` classifies every `RunCommand` and
+    /// routes risky ones to the approval queue under ask-for-risky confinement.
+    protection: Option<WorkProtectionPolicy>,
+    /// Shared MCP approvals queue for native/MCP/bridge asks.
+    mcp_approvals: Option<Arc<McpApprovals>>,
+    /// Run ID for context in approvals.
+    run_id: Option<String>,
 }
 
 impl PartialEq for FilesystemToolExecutor {
     /// Two executors are equal when they root at the same directory and agree on
-    /// whether read-before-write is enforced — not on the identity of the guard.
+    /// whether read-before-write is enforced and on command policy.
     fn eq(&self, other: &Self) -> bool {
         self.working_dir == other.working_dir
             && self.read_guard.is_some() == other.read_guard.is_some()
+            && self.command_policy == other.command_policy
+            && self.protection.is_some() == other.protection.is_some()
+            && self.mcp_approvals.is_some() == other.mcp_approvals.is_some()
+            && self.run_id == other.run_id
     }
 }
 
 impl Eq for FilesystemToolExecutor {}
+
+/// Returns true if the path points into a `.git` directory or is itself named `.git`.
+/// Normalizes redundant slashes, dot-segments, Windows backslashes, and checks
+/// case-insensitively (e.g. `.git`, `.GIT`, `.git//config`, `.git/./config`, `sub/.git`).
+pub(crate) fn is_git_write_target(path: &str) -> bool {
+    let clean = path.trim().trim_matches('"').trim_matches('\'').trim();
+    if clean.is_empty() {
+        return false;
+    }
+    let normalized = clean.replace('\\', "/");
+    let segments: Vec<&str> = normalized
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .collect();
+
+    segments.iter().any(|s| s.eq_ignore_ascii_case(".git"))
+}
 
 impl FilesystemToolExecutor {
     /// An executor rooted at `working_dir`.
@@ -222,11 +317,57 @@ impl FilesystemToolExecutor {
     /// Nothing is created or checked here, so construction cannot fail: the
     /// directory is made by the first write and a read or a command in a directory
     /// that does not exist reports an io or spawn failure.
+    ///
+    /// **Command execution fails closed**: a new executor carries
+    /// [`CommandPolicy::deny_all`], so `RunCommand` refuses every program until a
+    /// caller installs an allow-list with [`Self::with_command_policy`] (KEEL
+    /// checkpoint finding L11). An executor built somewhere the configuration was
+    /// not threaded through therefore runs nothing rather than the permissive
+    /// [`CommandPolicy::default`] list; the daemon installs its configured list in
+    /// exactly one place (`warshad::build_agent_loop`).
     pub fn new(working_dir: impl Into<PathBuf>) -> Self {
         Self {
             working_dir: working_dir.into(),
             read_guard: None,
+            command_policy: CommandPolicy::deny_all(),
+            protection: None,
+            mcp_approvals: None,
+            run_id: None,
         }
+    }
+
+    /// Attach the shared MCP approvals queue and run context.
+    pub fn with_mcp_approvals(
+        mut self,
+        approvals: Arc<McpApprovals>,
+        run_id: Option<String>,
+    ) -> Self {
+        self.mcp_approvals = Some(approvals);
+        self.run_id = run_id;
+        self
+    }
+
+    /// Install the work-protection policy this run resolved from its project
+    /// permissions (B2). `None` keeps the executor out of the approval path.
+    pub fn with_protection(mut self, policy: Option<WorkProtectionPolicy>) -> Self {
+        self.protection = policy;
+        self
+    }
+
+    /// The work-protection policy installed on this executor, if any.
+    pub fn protection(&self) -> Option<&WorkProtectionPolicy> {
+        self.protection.as_ref()
+    }
+
+    /// Set the command execution policy for `RunCommand` invocations.
+    pub fn with_command_policy(mut self, policy: CommandPolicy) -> Self {
+        self.command_policy = policy;
+        self
+    }
+
+    /// The command execution policy installed on this executor.
+    pub fn command_policy(&self) -> &CommandPolicy {
+        &self.command_policy
     }
 
     /// Turn read-before-write enforcement on (`true`) or off (`false`).
@@ -250,6 +391,14 @@ impl FilesystemToolExecutor {
         &self.working_dir
     }
 
+    /// Whether `path` names `.git` directly or points inside a `.git/` directory.
+    ///
+    /// Normalizes redundant slashes, dot-segments, Windows backslashes, and compares
+    /// case-insensitively (e.g. `.git`, `.GIT`, `.git//config`, `.git/./config`, `sub/.git`).
+    pub fn is_git_write_target(path: &str) -> bool {
+        is_git_write_target(path)
+    }
+
     /// The absolute path `path` names, after the screen.
     ///
     /// Refused: a blank path, an absolute path, a Windows drive prefix, and any
@@ -271,6 +420,79 @@ impl FilesystemToolExecutor {
             return Err(ToolError::PathEscapesWorkingDir(trimmed.to_string()));
         }
         Ok(self.working_dir.join(candidate))
+    }
+
+    /// Resolve `path` for a write or read operation, ensuring it stays contained within
+    /// the workspace and does not escape via symlinks.
+    ///
+    /// Refused:
+    /// - Any path refused by [`Self::resolve`] (blank, absolute, `..`, drive prefix).
+    /// - Any path whose final component is a symlink (including dangling links).
+    /// - Any path that resolves outside the workspace root (via symlinked parent directories).
+    /// - Any path whose deepest existing parent cannot be resolved or escapes the workspace.
+    pub fn resolve_contained_path(&self, path: &str) -> Result<PathBuf, ToolError> {
+        let resolved = self.resolve(path)?;
+
+        // The workspace root as the operating system sees it, so containment
+        // checks compare resolved real paths.
+        let canonical_root = self
+            .working_dir
+            .canonicalize()
+            .map_err(|error| ToolError::Io {
+                path: self.working_dir.display().to_string(),
+                error: error.to_string(),
+            })?;
+
+        // Refuse if the final component is a symlink (including dangling links).
+        if let Ok(meta) = std::fs::symlink_metadata(&resolved) {
+            if meta.file_type().is_symlink() {
+                return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
+            }
+            let canonical_target = resolved
+                .canonicalize()
+                .map_err(|_| ToolError::PathEscapesWorkingDir(path.to_string()))?;
+            if !canonical_target.starts_with(&canonical_root) {
+                return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
+            }
+            return Ok(resolved);
+        }
+
+        // Target does not exist: find the deepest existing parent.
+        let mut deepest_existing = None;
+        let mut current = resolved.parent();
+        while let Some(parent) = current {
+            match std::fs::symlink_metadata(parent) {
+                Ok(meta) => {
+                    deepest_existing = Some((parent, meta));
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    current = parent.parent();
+                }
+                Err(e) => {
+                    return Err(ToolError::Io {
+                        path: parent.display().to_string(),
+                        error: e.to_string(),
+                    });
+                }
+            }
+        }
+
+        let Some((existing_parent, _meta)) = deepest_existing else {
+            return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
+        };
+
+        // If the deepest existing parent is a dangling symlink or points outside,
+        // canonicalize will fail or produce a path outside the workspace root.
+        let canonical_parent = existing_parent
+            .canonicalize()
+            .map_err(|_| ToolError::PathEscapesWorkingDir(path.to_string()))?;
+
+        if !canonical_parent.starts_with(&canonical_root) {
+            return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
+        }
+
+        Ok(resolved)
     }
 
     /// The resolved absolute path with `.` components normalised away, so
@@ -297,6 +519,9 @@ impl FilesystemToolExecutor {
     /// guard keys on, so `./notes.md` and `notes.md` agree. A file that does
     /// exist still needs a prior read.
     fn write_allowed(&self, path: &str) -> Result<bool, String> {
+        if is_git_write_target(path) {
+            return Err(format!("writes under .git or to .git are refused ({path})"));
+        }
         let Some(guard) = &self.read_guard else {
             return Ok(true);
         };
@@ -329,7 +554,7 @@ impl FilesystemToolExecutor {
         let tool = AgentTool::ReadFile {
             path: path.to_string(),
         };
-        let resolved = self.resolve(path)?;
+        let resolved = self.resolve_contained_path(path)?;
         match std::fs::read_to_string(&resolved) {
             Ok(content) => Ok(ToolResult::ok(tool, content)),
             Err(error) => Ok(ToolResult::failed(
@@ -340,18 +565,65 @@ impl FilesystemToolExecutor {
     }
 
     /// Write a text file, creating the parent directories it needs.
-    fn write_file(&self, path: &str, content: &str) -> Result<ToolResult, ToolError> {
+    pub(crate) fn write_file(&self, path: &str, content: &str) -> Result<ToolResult, ToolError> {
         let tool = AgentTool::WriteFile {
             path: path.to_string(),
             content: content.to_string(),
         };
-        let resolved = self.resolve(path)?;
+        if is_git_write_target(path) {
+            return Ok(ToolResult::failed(
+                tool,
+                format!("writes under .git or to .git are refused ({path})"),
+            ));
+        }
+        let resolved = self.resolve_contained_path(path)?;
+        if let Ok(canonical_root) = self.working_dir.canonicalize() {
+            let to_check = if resolved.exists() {
+                resolved.canonicalize().ok()
+            } else {
+                resolved
+                    .parent()
+                    .and_then(|p| p.canonicalize().ok())
+                    .map(|p| p.join(resolved.file_name().unwrap_or_default()))
+            };
+            if let Some(target) = to_check {
+                if let Ok(rel) = target.strip_prefix(&canonical_root) {
+                    if rel
+                        .components()
+                        .any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case(".git"))
+                    {
+                        return Ok(ToolResult::failed(
+                            tool,
+                            format!("writes under .git or to .git are refused ({path})"),
+                        ));
+                    }
+                }
+            }
+        }
+        // B2: read-only confinement refuses every write by name.
+        if let Some(policy) = &self.protection {
+            if policy.mode == PermissionMode::ReadOnly {
+                return Ok(ToolResult::failed(
+                    tool,
+                    format!(
+                        "writes are refused under read-only permissions ({})",
+                        resolved.display()
+                    ),
+                ));
+            }
+        }
         if let Some(parent) = resolved.parent() {
             if let Err(error) = std::fs::create_dir_all(parent) {
                 return Ok(ToolResult::failed(
                     tool,
                     format!("could not create {}: {error}", parent.display()),
                 ));
+            }
+        }
+        // Defense-in-depth: re-check that the target component has not become a symlink.
+        if let Ok(meta) = std::fs::symlink_metadata(&resolved) {
+            if meta.file_type().is_symlink() {
+                return Err(ToolError::PathEscapesWorkingDir(path.to_string()));
             }
         }
         match std::fs::write(&resolved, content) {
@@ -366,49 +638,113 @@ impl FilesystemToolExecutor {
         }
     }
 
-    /// Run a program in the working directory and describe the exit.
-    fn run_command(&self, command: &str, args: &[String]) -> Result<ToolResult, ToolError> {
+    /// Run a program in the working directory under the command execution policy.
+    ///
+    /// B2: the command allowlist stays the hard floor — a program outside the
+    /// policy is refused, never asked. When a work-protection policy is installed
+    /// and the command classifies risky (shell, network, publish/push, paths
+    /// outside the workspace), the ask-for-risky mode routes it to the approval
+    /// queue instead of running it; never-ask (auto-inside-project) runs it only
+    /// when safe. Read-only confinement refuses every command by name.
+    ///
+    /// B3: an ask-mode refusal registers a pending entry on the shared queue
+    /// (the same one MCP and bridge asks use) so the owner sees the native ask
+    /// with the tool, exact arguments, role, and run — and the refusal text
+    /// points at the queue either way.
+    async fn run_command(&self, command: &str, args: &[String]) -> Result<ToolResult, ToolError> {
         let tool = AgentTool::RunCommand {
             command: command.to_string(),
             args: args.to_vec(),
         };
-        if command.trim().is_empty() {
-            return Err(ToolError::BlankCommand);
-        }
-        let output = Command::new(command.trim())
-            .args(args)
-            .current_dir(&self.working_dir)
-            .output();
-        let output = match output {
-            Ok(output) => output,
-            Err(error) => {
-                return Err(ToolError::Spawn {
-                    command: command.trim().to_string(),
-                    error: error.to_string(),
-                })
+        let (program, effective_args) =
+            crate::command_policy::resolve_program_and_args(command, args)?;
+        if let Some(policy) = &self.protection {
+            match policy.mode {
+                PermissionMode::FullAccess => {}
+                PermissionMode::AutoInsideProject => {
+                    if classify_command_with_workdir(
+                        &program,
+                        &effective_args,
+                        Some(&self.working_dir),
+                    ) == RiskClass::Risky
+                    {
+                        return Err(ToolError::CommandRefused {
+                            command: format!("{command} {}", args.join(" ")),
+                            reason:
+                                "risky command under never-ask permissions; the owner must allow it"
+                                    .into(),
+                        });
+                    }
+                }
+                PermissionMode::ReadOnly => {
+                    return Err(ToolError::CommandRefused {
+                        command: format!("{command} {}", args.join(" ")),
+                        reason: "commands are refused under read-only permissions".into(),
+                    });
+                }
+                PermissionMode::AskAlways | PermissionMode::AskForRisky => {
+                    let risky = classify_command_with_workdir(
+                        &program,
+                        &effective_args,
+                        Some(&self.working_dir),
+                    ) == RiskClass::Risky;
+                    if risky || policy.mode == PermissionMode::AskAlways {
+                        let command_line = format!("{command} {}", args.join(" "));
+                        // One shared ask-queue (B3): register the native ask so
+                        // the owner's approval UI shows it beside MCP asks.
+                        if let (Some(approvals), Some(run_id)) = (&self.mcp_approvals, &self.run_id)
+                        {
+                            let summary = format!("run the command `{command_line}`");
+                            match approvals.register_pending(
+                                run_id,
+                                "native",
+                                "run_command",
+                                MCP_AGENT_ROLE,
+                                &json!({ "command": program, "args": effective_args }),
+                                summary,
+                            ) {
+                                Ok(_question_id) => {}
+                                Err(error) => {
+                                    // The queue refused (cap, dedupe, persistence):
+                                    // fail closed — the ask cannot be answered, so
+                                    // the command is refused, never run.
+                                    return Err(ToolError::CommandRefused {
+                                        command: command_line,
+                                        reason: format!(
+                                            "the approval queue refused the ask: {error}"
+                                        ),
+                                    });
+                                }
+                            }
+                        }
+                        return Err(ToolError::CommandRefused {
+                            command: command_line,
+                            reason: "this command needs the owner's approval under the project's permission settings; ask via the approval queue".into(),
+                        });
+                    }
+                }
             }
-        };
-
-        let mut text = String::new();
-        text.push_str(&String::from_utf8_lossy(&output.stdout));
-        text.push_str(&String::from_utf8_lossy(&output.stderr));
-        if !text.ends_with('\n') && !text.is_empty() {
-            text.push('\n');
         }
-        let code = output.status.code();
-        text.push_str(&match code {
-            Some(code) => format!("exit code: {code}"),
-            None => "exit code: killed by a signal".to_string(),
-        });
-        Ok(ToolResult::new(tool, output.status.success(), text))
+        let output = self
+            .command_policy
+            .execute_resolved(&program, &effective_args, &self.working_dir)
+            .await?;
+        Ok(ToolResult::new(tool, output.success, output.format_text()))
     }
 }
 
+#[async_trait]
 impl ToolExecutor for FilesystemToolExecutor {
-    fn execute(&self, tool: &AgentTool) -> ToolResult {
+    async fn execute(&self, tool: &AgentTool) -> ToolResult {
         // Read-before-write: refuse a write to an unread path before any file is
         // touched. With no guard installed this is always allowed.
         if let AgentTool::WriteFile { path, .. } = tool {
+            if is_git_write_target(path) {
+                return ToolResult::failed(
+                    tool.clone(),
+                    format!("writes under .git or to .git are refused ({path})"),
+                );
+            }
             match self.write_allowed(path) {
                 Ok(true) => {}
                 Ok(false) => {
@@ -424,7 +760,7 @@ impl ToolExecutor for FilesystemToolExecutor {
         let outcome = match tool {
             AgentTool::ReadFile { path } => self.read_file(path),
             AgentTool::WriteFile { path, content } => self.write_file(path, content),
-            AgentTool::RunCommand { command, args } => self.run_command(command, args),
+            AgentTool::RunCommand { command, args } => self.run_command(command, args).await,
             AgentTool::CallTool { .. } => {
                 return ToolResult::failed(
                     tool.clone(),
@@ -450,6 +786,7 @@ impl ToolExecutor for FilesystemToolExecutor {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::test_util::fresh_tempdir;
@@ -497,15 +834,24 @@ mod tests {
         FilesystemToolExecutor::new(dir)
     }
 
-    #[test]
-    fn a_read_file_tool_returns_the_file_content() {
+    fn shell_executor(dir: &Path) -> FilesystemToolExecutor {
+        FilesystemToolExecutor::new(dir).with_command_policy(CommandPolicy::from_config(&[
+            "cmd".to_string(),
+            "sh".to_string(),
+        ]))
+    }
+
+    #[tokio::test]
+    async fn a_read_file_tool_returns_the_file_content() {
         let temp = fresh_tempdir();
         std::fs::write(temp.path().join("notes.md"), "first\nsecond\n")
             .expect("the file is written");
 
-        let result = executor(temp.path()).execute(&AgentTool::ReadFile {
-            path: "notes.md".to_string(),
-        });
+        let result = executor(temp.path())
+            .execute(&AgentTool::ReadFile {
+                path: "notes.md".to_string(),
+            })
+            .await;
 
         assert!(result.success, "unexpected result: {result:?}");
         assert_eq!(result.output, "first\nsecond\n");
@@ -513,14 +859,16 @@ mod tests {
         assert_eq!(result.status(), "ok");
     }
 
-    #[test]
-    fn a_write_file_tool_writes_the_content() {
+    #[tokio::test]
+    async fn a_write_file_tool_writes_the_content() {
         let temp = fresh_tempdir();
 
-        let result = executor(temp.path()).execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "hello from the agent\n".to_string(),
-        });
+        let result = executor(temp.path())
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "hello from the agent\n".to_string(),
+            })
+            .await;
 
         assert!(result.success, "unexpected result: {result:?}");
         assert!(result.output.starts_with("wrote 21 bytes to "));
@@ -530,14 +878,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_write_file_tool_creates_the_parent_directories() {
+    #[tokio::test]
+    async fn a_write_file_tool_creates_the_parent_directories() {
         let temp = fresh_tempdir();
 
-        let result = executor(temp.path()).execute(&AgentTool::WriteFile {
-            path: "factory/runs/turn-1/notes.md".to_string(),
-            content: "nested".to_string(),
-        });
+        let result = executor(temp.path())
+            .execute(&AgentTool::WriteFile {
+                path: "factory/runs/turn-1/notes.md".to_string(),
+                content: "nested".to_string(),
+            })
+            .await;
 
         assert!(result.success, "unexpected result: {result:?}");
         let written = temp.path().join("factory/runs/turn-1/notes.md");
@@ -548,13 +898,15 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_read_of_a_missing_file_is_a_failed_result() {
+    #[tokio::test]
+    async fn a_read_of_a_missing_file_is_a_failed_result() {
         let temp = fresh_tempdir();
 
-        let result = executor(temp.path()).execute(&AgentTool::ReadFile {
-            path: "missing.md".to_string(),
-        });
+        let result = executor(temp.path())
+            .execute(&AgentTool::ReadFile {
+                path: "missing.md".to_string(),
+            })
+            .await;
 
         assert!(!result.success);
         assert_eq!(result.status(), "failed");
@@ -566,12 +918,14 @@ mod tests {
         assert!(result.output.contains("missing.md"));
     }
 
-    #[test]
-    fn a_run_command_tool_runs_the_command_in_the_working_directory() {
+    #[tokio::test]
+    async fn a_run_command_tool_runs_the_command_in_the_working_directory() {
         let temp = fresh_tempdir();
         let (command, args) = printing_command();
 
-        let result = executor(temp.path()).execute(&AgentTool::RunCommand { command, args });
+        let result = shell_executor(temp.path())
+            .execute(&AgentTool::RunCommand { command, args })
+            .await;
 
         assert!(result.success, "unexpected result: {result:?}");
         assert!(
@@ -586,12 +940,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_run_command_tool_reports_a_non_zero_exit_as_a_failed_result() {
+    #[tokio::test]
+    async fn a_run_command_tool_reports_a_non_zero_exit_as_a_failed_result() {
         let temp = fresh_tempdir();
         let (command, args) = failing_command();
 
-        let result = executor(temp.path()).execute(&AgentTool::RunCommand { command, args });
+        let result = shell_executor(temp.path())
+            .execute(&AgentTool::RunCommand { command, args })
+            .await;
 
         assert!(!result.success);
         // Both streams and the code are in the output: the command ran and failed.
@@ -607,14 +963,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_missing_program_is_a_refusal() {
+    #[tokio::test]
+    async fn a_missing_program_is_a_refusal() {
         let temp = fresh_tempdir();
+        let exec = executor(temp.path()).with_command_policy(CommandPolicy::from_config(&[
+            "warsha-no-such-program".to_string(),
+        ]));
 
-        let result = executor(temp.path()).execute(&AgentTool::RunCommand {
-            command: "warsha-no-such-program".to_string(),
-            args: Vec::new(),
-        });
+        let result = exec
+            .execute(&AgentTool::RunCommand {
+                command: "warsha-no-such-program".to_string(),
+                args: Vec::new(),
+            })
+            .await;
 
         assert!(!result.success);
         assert!(
@@ -626,8 +987,93 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_path_outside_the_working_directory_is_refused() {
+    #[tokio::test]
+    async fn an_allowlisted_executor_refuses_shells_and_unlisted_commands() {
+        let temp = fresh_tempdir();
+        // The executor's `new` is deny-all (see
+        // `a_new_executor_denies_every_command_until_an_allowlist_is_installed`), so a
+        // policy that admits a toolchain but no shell is installed explicitly: that is
+        // what makes a shell refusal `ShellRefused` rather than merely unlisted.
+        let exec = executor(temp.path())
+            .with_command_policy(CommandPolicy::from_config(&["cargo".to_string()]));
+
+        for shell in ["sh", "bash", "cmd", "powershell", "pwsh"] {
+            let result = exec
+                .execute(&AgentTool::RunCommand {
+                    command: shell.to_string(),
+                    args: vec!["--help".to_string()],
+                })
+                .await;
+            assert!(!result.success, "shell `{shell}` was not refused");
+            assert!(
+                result.output.contains("refused") && result.output.contains("shell"),
+                "unexpected shell refusal for `{shell}`: {}",
+                result.output
+            );
+        }
+
+        let unlisted = exec
+            .execute(&AgentTool::RunCommand {
+                command: "rm -rf /".to_string(),
+                args: Vec::new(),
+            })
+            .await;
+        assert!(!unlisted.success);
+        assert!(
+            unlisted.output.contains("not in the allowed commands list"),
+            "unexpected output: {}",
+            unlisted.output
+        );
+    }
+
+    /// R-KEEL row 11: a fresh executor is fail-closed, so an executor built without
+    /// the daemon's configuration runs nothing instead of the permissive default
+    /// list. The programs checked are `DEFAULT_ALLOWED_COMMANDS` entries, i.e. what
+    /// a default-allowed executor would have run.
+    #[tokio::test]
+    async fn a_new_executor_denies_every_command_until_an_allowlist_is_installed() {
+        let temp = fresh_tempdir();
+        let denied = executor(temp.path());
+
+        assert!(
+            denied.command_policy().allowed().is_empty(),
+            "a new executor installed an allow-list: {:?}",
+            denied.command_policy().allowed()
+        );
+        for program in ["cargo", "npm", "git"] {
+            assert!(
+                matches!(
+                    denied.command_policy().check_program(program),
+                    Err(CommandPolicyError::NotAllowed { .. })
+                ),
+                "`{program}` was not refused by the default policy"
+            );
+            let result = denied
+                .execute(&AgentTool::RunCommand {
+                    command: program.to_string(),
+                    args: vec!["--version".to_string()],
+                })
+                .await;
+            assert!(!result.success, "`{program}` ran on a default executor");
+            assert!(
+                result.output.contains("not in the allowed commands list"),
+                "unexpected refusal for `{program}`: {}",
+                result.output
+            );
+        }
+
+        // The explicit list is what opens the door, and only for its own entries.
+        let allowed = executor(temp.path())
+            .with_command_policy(CommandPolicy::from_config(&["cargo".to_string()]));
+        assert!(allowed.command_policy().check_program("cargo").is_ok());
+        assert!(matches!(
+            allowed.command_policy().check_program("npm"),
+            Err(CommandPolicyError::NotAllowed { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_path_outside_the_working_directory_is_refused() {
         let temp = fresh_tempdir();
         // The workspace is one directory inside the temporary one, so the file an
         // escaping write would reach is known to be absent before the attempt.
@@ -643,10 +1089,12 @@ mod tests {
             assert_eq!(error, ToolError::PathEscapesWorkingDir(path.to_string()));
         }
 
-        let result = executor.execute(&AgentTool::WriteFile {
-            path: "../escape.md".to_string(),
-            content: "no".to_string(),
-        });
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "../escape.md".to_string(),
+                content: "no".to_string(),
+            })
+            .await;
         assert!(!result.success);
         assert!(result
             .output
@@ -658,22 +1106,103 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_blank_path_and_a_blank_command_are_refused() {
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn symlink_to_parent_dir_is_refused() {
+        let temp = fresh_tempdir();
+        let workspace = temp.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace made");
+        let executor = executor(&workspace);
+        let link_path = workspace.join("link_to_parent");
+
+        std::os::unix::fs::symlink("..", &link_path).expect("link created");
+
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "link_to_parent/escape.md".to_string(),
+                content: "bad".to_string(),
+            })
+            .await;
+        assert!(!result.success, "Write should fail");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn symlink_to_etc_is_refused() {
+        let temp = fresh_tempdir();
+        let workspace = temp.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace made");
+        let executor = executor(&workspace);
+        let link_path = workspace.join("link_to_etc");
+
+        std::os::unix::fs::symlink("/etc", &link_path).expect("link created");
+
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "link_to_etc/passwd".to_string(),
+                content: "bad".to_string(),
+            })
+            .await;
+        assert!(!result.success, "Write should fail");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dangling_symlink_is_refused() {
+        let temp = fresh_tempdir();
+        let workspace = temp.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace made");
+        let executor = executor(&workspace);
+        let link_path = workspace.join("dangling_link");
+
+        std::os::unix::fs::symlink("/tmp/nonexistent", &link_path).expect("link created");
+
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "dangling_link/file.txt".to_string(),
+                content: "bad".to_string(),
+            })
+            .await;
+        assert!(!result.success, "Write should fail");
+    }
+
+    #[tokio::test]
+    async fn normal_nested_paths_still_work() {
+        let temp = fresh_tempdir();
+        let workspace = temp.path().join("work");
+        std::fs::create_dir_all(&workspace).expect("workspace made");
+        let executor = executor(&workspace);
+
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "nested/dir/file.txt".to_string(),
+                content: "good".to_string(),
+            })
+            .await;
+        assert!(result.success, "Write should succeed");
+        assert!(workspace.join("nested/dir/file.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn a_blank_path_and_a_blank_command_are_refused() {
         let temp = fresh_tempdir();
         let executor = executor(temp.path());
 
         assert_eq!(executor.resolve("   "), Err(ToolError::BlankPath));
-        let read = executor.execute(&AgentTool::ReadFile {
-            path: " ".to_string(),
-        });
+        let read = executor
+            .execute(&AgentTool::ReadFile {
+                path: " ".to_string(),
+            })
+            .await;
         assert!(!read.success);
         assert_eq!(read.output, "the path is blank");
 
-        let run = executor.execute(&AgentTool::RunCommand {
-            command: "  ".to_string(),
-            args: Vec::new(),
-        });
+        let run = executor
+            .execute(&AgentTool::RunCommand {
+                command: "  ".to_string(),
+                args: Vec::new(),
+            })
+            .await;
         assert!(!run.success);
         assert_eq!(run.output, "the command is blank");
     }
@@ -690,14 +1219,14 @@ mod tests {
         assert_eq!(executor.working_dir(), temp.path());
     }
 
-    #[test]
-    fn the_no_tool_executor_refuses_every_tool() {
+    #[tokio::test]
+    async fn the_no_tool_executor_refuses_every_tool() {
         let tool = AgentTool::WriteFile {
             path: "notes.md".to_string(),
             content: "no".to_string(),
         };
 
-        let result = NoToolExecutor.execute(&tool);
+        let result = NoToolExecutor.execute(&tool).await;
 
         assert!(!result.success);
         assert_eq!(result.tool, tool);
@@ -729,30 +1258,34 @@ mod tests {
         assert_eq!(parsed.status(), "ok");
     }
 
-    #[test]
-    fn the_default_executor_writes_without_a_prior_read() {
+    #[tokio::test]
+    async fn the_default_executor_writes_without_a_prior_read() {
         let temp = fresh_tempdir();
         let executor = executor(temp.path());
 
-        let result = executor.execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "no read needed".to_string(),
-        });
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "no read needed".to_string(),
+            })
+            .await;
 
         assert!(result.success, "unexpected result: {result:?}");
         assert!(temp.path().join("notes.md").is_file());
     }
 
-    #[test]
-    fn an_enforced_executor_refuses_an_unread_write_and_writes_nothing() {
+    #[tokio::test]
+    async fn an_enforced_executor_refuses_an_unread_write_and_writes_nothing() {
         let temp = fresh_tempdir();
         std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
         let executor = executor(temp.path()).with_read_before_write(true);
 
-        let result = executor.execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "should not land".to_string(),
-        });
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "should not land".to_string(),
+            })
+            .await;
 
         assert!(!result.success);
         assert!(
@@ -767,15 +1300,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_enforced_executor_creates_a_missing_file_without_a_prior_read() {
+    #[tokio::test]
+    async fn an_enforced_executor_creates_a_missing_file_without_a_prior_read() {
         let temp = fresh_tempdir();
         let executor = executor(temp.path()).with_read_before_write(true);
 
-        let result = executor.execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "a genuine create".to_string(),
-        });
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "a genuine create".to_string(),
+            })
+            .await;
 
         assert!(result.success, "the create was refused: {result:?}");
         assert_eq!(
@@ -784,10 +1319,12 @@ mod tests {
         );
 
         // The dotted form resolves to the same missing file: still a create.
-        let dotted = executor.execute(&AgentTool::WriteFile {
-            path: "./drafts/./plan.md".to_string(),
-            content: "nested create".to_string(),
-        });
+        let dotted = executor
+            .execute(&AgentTool::WriteFile {
+                path: "./drafts/./plan.md".to_string(),
+                content: "nested create".to_string(),
+            })
+            .await;
         assert!(dotted.success, "the dotted create was refused: {dotted:?}");
         assert_eq!(
             std::fs::read_to_string(temp.path().join("drafts/plan.md"))
@@ -796,17 +1333,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_enforced_executor_refuses_an_unread_overwrite_via_the_dotted_path() {
+    #[tokio::test]
+    async fn an_enforced_executor_refuses_an_unread_overwrite_via_the_dotted_path() {
         let temp = fresh_tempdir();
         std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
         let executor = executor(temp.path()).with_read_before_write(true);
 
         // The file exists; the dotted spelling must not read as a create.
-        let result = executor.execute(&AgentTool::WriteFile {
-            path: "./notes.md".to_string(),
-            content: "should not land".to_string(),
-        });
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "./notes.md".to_string(),
+                content: "should not land".to_string(),
+            })
+            .await;
 
         assert!(
             !result.success,
@@ -818,16 +1357,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_disabled_executor_overwrites_an_unread_file() {
+    #[tokio::test]
+    async fn a_disabled_executor_overwrites_an_unread_file() {
         let temp = fresh_tempdir();
         std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
         let executor = executor(temp.path()).with_read_before_write(false);
 
-        let result = executor.execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "replaced without a read".to_string(),
-        });
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "replaced without a read".to_string(),
+            })
+            .await;
 
         assert!(result.success, "unexpected result: {result:?}");
         assert_eq!(
@@ -836,21 +1377,25 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_enforced_executor_allows_a_read_then_write() {
+    #[tokio::test]
+    async fn an_enforced_executor_allows_a_read_then_write() {
         let temp = fresh_tempdir();
         std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
         let executor = executor(temp.path()).with_read_before_write(true);
 
-        let read = executor.execute(&AgentTool::ReadFile {
-            path: "notes.md".to_string(),
-        });
+        let read = executor
+            .execute(&AgentTool::ReadFile {
+                path: "notes.md".to_string(),
+            })
+            .await;
         assert!(read.success, "unexpected read: {read:?}");
 
-        let write = executor.execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "updated".to_string(),
-        });
+        let write = executor
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "updated".to_string(),
+            })
+            .await;
         assert!(write.success, "the read-then-write was refused: {write:?}");
         assert_eq!(
             std::fs::read_to_string(temp.path().join("notes.md")).expect("the file is readable"),
@@ -858,59 +1403,69 @@ mod tests {
         );
     }
 
-    #[test]
-    fn clones_share_the_read_before_write_guard() {
+    #[tokio::test]
+    async fn clones_share_the_read_before_write_guard() {
         let temp = fresh_tempdir();
         std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
         let executor = executor(temp.path()).with_read_before_write(true);
         let clone = executor.clone();
 
         // Read through the original; the clone must see that read.
-        let read = executor.execute(&AgentTool::ReadFile {
-            path: "notes.md".to_string(),
-        });
+        let read = executor
+            .execute(&AgentTool::ReadFile {
+                path: "notes.md".to_string(),
+            })
+            .await;
         assert!(read.success);
 
-        let write = clone.execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "updated".to_string(),
-        });
+        let write = clone
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "updated".to_string(),
+            })
+            .await;
         assert!(
             write.success,
             "the clone did not share the guard: {write:?}"
         );
     }
 
-    #[test]
-    fn the_guard_normalises_paths_relative_to_the_working_dir() {
+    #[tokio::test]
+    async fn the_guard_normalises_paths_relative_to_the_working_dir() {
         let temp = fresh_tempdir();
         std::fs::write(temp.path().join("notes.md"), "original").expect("the file is written");
         let executor = executor(temp.path()).with_read_before_write(true);
 
         // Read via the dotted form, write via the plain form: the same file.
-        let read = executor.execute(&AgentTool::ReadFile {
-            path: "./notes.md".to_string(),
-        });
+        let read = executor
+            .execute(&AgentTool::ReadFile {
+                path: "./notes.md".to_string(),
+            })
+            .await;
         assert!(read.success);
 
-        let write = executor.execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "updated".to_string(),
-        });
+        let write = executor
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "updated".to_string(),
+            })
+            .await;
         assert!(write.success, "normalisation mismatch: {write:?}");
     }
 
-    #[test]
-    fn turning_enforcement_off_restores_unrestricted_writes() {
+    #[tokio::test]
+    async fn turning_enforcement_off_restores_unrestricted_writes() {
         let temp = fresh_tempdir();
         let executor = executor(temp.path())
             .with_read_before_write(true)
             .with_read_before_write(false);
 
-        let result = executor.execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "no read needed".to_string(),
-        });
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "no read needed".to_string(),
+            })
+            .await;
 
         assert!(result.success, "unexpected result: {result:?}");
     }
@@ -928,8 +1483,8 @@ mod tests {
         assert_ne!(plain, enforced);
     }
 
-    #[test]
-    fn a_poisoned_guard_fails_the_call_instead_of_panicking() {
+    #[tokio::test]
+    async fn a_poisoned_guard_fails_the_call_instead_of_panicking() {
         let temp = fresh_tempdir();
         let executor = executor(temp.path()).with_read_before_write(true);
         let guard = executor.read_guard.as_ref().expect("a guard is installed");
@@ -942,10 +1497,12 @@ mod tests {
         });
         assert!(handle.join().is_err(), "the thread did not panic");
 
-        let result = executor.execute(&AgentTool::WriteFile {
-            path: "notes.md".to_string(),
-            content: "should not land".to_string(),
-        });
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "notes.md".to_string(),
+                content: "should not land".to_string(),
+            })
+            .await;
         assert!(!result.success);
         assert!(
             result.output.contains("poisoned"),
@@ -953,5 +1510,417 @@ mod tests {
             result.output
         );
         assert!(!temp.path().join("notes.md").exists());
+    }
+
+    #[test]
+    fn mcp_error_variants_are_byte_identical_to_the_strings_they_replace() {
+        assert_eq!(
+            ToolError::McpDenied {
+                server: "files".to_string(),
+                tool: "write".to_string()
+            }
+            .to_string(),
+            "denied by MCP permission files::write"
+        );
+        assert_eq!(
+            ToolError::McpApprovalRequired {
+                server: "files".to_string(),
+                tool: "write".to_string()
+            }
+            .to_string(),
+            "approval required: files::write is ask by default"
+        );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+mod protection_tests {
+    use super::*;
+    use crate::test_util::fresh_tempdir;
+
+    fn executor_with(policy: Option<WorkProtectionPolicy>) -> FilesystemToolExecutor {
+        FilesystemToolExecutor::new("/tmp/b2-test")
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "bash".to_string(),
+            ]))
+            .with_protection(policy)
+    }
+
+    fn policy(mode: PermissionMode) -> Option<WorkProtectionPolicy> {
+        Some(WorkProtectionPolicy {
+            mode,
+            snapshot_before_edit: false,
+            worktree_isolation: false,
+            read_before_write: false,
+        })
+    }
+
+    #[tokio::test]
+    async fn read_only_refuses_writes_by_name() {
+        let dir = std::env::temp_dir().join("b2-readonly-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir).with_protection(policy(
+            PermissionMode::ReadOnly, // read-only confinement refuses every write
+        ));
+        let result = executor
+            .execute(&AgentTool::WriteFile {
+                path: "new.txt".to_string(),
+                content: "x".to_string(),
+            })
+            .await;
+        assert!(
+            !result.success,
+            "read-only confinement must refuse workspace writes"
+        );
+        assert!(
+            result.output.contains("read-only permissions"),
+            "refusal names the confinement: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn risky_command_under_ask_for_risky_is_refused() {
+        let executor = executor_with(policy(PermissionMode::AskForRisky));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec!["-c".to_string(), "echo hi".to_string()],
+            })
+            .await;
+        assert!(
+            !result.success,
+            "risky command must be refused under ask-for-risky"
+        );
+        assert!(
+            result.output.contains("approval"),
+            "refusal must name the approval path, got: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn safe_command_under_ask_for_risky_runs() {
+        let dir = std::env::temp_dir().join("b2-safe-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
+            .with_protection(policy(PermissionMode::AskForRisky));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git".to_string(),
+                args: vec!["status".to_string()],
+            })
+            .await;
+        // git status is safe: it runs (its success depends on the dir, but it must not be refused by the protection layer)
+        assert!(
+            result.success
+                || result.output.contains("fatal")
+                || result.output.contains("not a git repository")
+                || !result.output.contains("approval"),
+            "safe command must not be refused by the protection layer, got: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn risky_command_under_never_ask_is_refused() {
+        let executor = executor_with(policy(PermissionMode::AutoInsideProject));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec![],
+            })
+            .await;
+        assert!(
+            !result.success,
+            "risky command must be refused under never-ask"
+        );
+    }
+
+    #[tokio::test]
+    async fn full_access_runs_everything_the_policy_allows() {
+        let executor = executor_with(policy(PermissionMode::FullAccess));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec![],
+            })
+            .await;
+        // Full access skips the protection layer entirely; the command policy still applies
+        // (bash is in the test config), so the result must not be a protection refusal.
+        assert!(
+            !result.output.contains("approval") && !result.output.contains("never-ask"),
+            "full access must not consult the protection layer, got: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn no_protection_keeps_today_behaviour() {
+        let executor = executor_with(None);
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec![],
+            })
+            .await;
+        assert!(
+            !result.output.contains("approval"),
+            "no policy must keep the old behaviour, got: {}",
+            result.output
+        );
+    }
+
+    #[tokio::test]
+    async fn risky_command_under_ask_registers_on_the_shared_queue() {
+        let approvals = Arc::new(McpApprovals::new(None));
+        let dir = std::env::temp_dir().join("b3-queue-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b3-1".to_string()));
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "bash".to_string(),
+                args: vec!["-c".to_string(), "echo hi".to_string()],
+            })
+            .await;
+        assert!(
+            !result.success,
+            "the ask-mode refusal still refuses the command"
+        );
+        let pending = approvals.pending();
+        assert_eq!(
+            pending.len(),
+            1,
+            "the native ask must register on the shared queue"
+        );
+        assert_eq!(pending[0].server, "native");
+        assert_eq!(pending[0].tool, "run_command");
+        assert_eq!(pending[0].run_id, "run-b3-1");
+        assert_eq!(pending[0].role, "agent");
+    }
+
+    #[tokio::test]
+    async fn test_read_file_symlink_containment() {
+        let temp = fresh_tempdir();
+        let dir = temp.path();
+        let executor = FilesystemToolExecutor::new(dir);
+
+        // Create a file
+        let file_path = dir.join("file.txt");
+        std::fs::write(&file_path, "content").unwrap();
+
+        // Read file (safe)
+        let res = executor.read_file("file.txt").unwrap();
+        assert!(res.success);
+
+        // Read outside via symlink (refused)
+        let outside_temp = fresh_tempdir();
+        let outside_file = outside_temp.path().join("outside.txt");
+        std::fs::write(&outside_file, "outside content").unwrap();
+
+        let link_path = dir.join("link.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside_file, &link_path).unwrap();
+        #[cfg(windows)]
+        let _ = std::os::windows::fs::symlink_file(&outside_file, &link_path);
+
+        #[cfg(unix)]
+        {
+            assert!(link_path.exists(), "symlink target must exist");
+            let read_result = executor.read_file("link.txt");
+            assert!(matches!(
+                read_result,
+                Err(ToolError::PathEscapesWorkingDir(_))
+            ));
+        }
+        #[cfg(windows)]
+        {
+            if link_path.exists() {
+                let read_result = executor.read_file("link.txt");
+                assert!(matches!(
+                    read_result,
+                    Err(ToolError::PathEscapesWorkingDir(_))
+                ));
+            } else {
+                // If Windows unprivileged symlink creation failed, verify escape refusal
+                // via direct outside path to ensure the check remains non-vacuous.
+                let outside_str = outside_file.to_str().unwrap();
+                let read_result = executor.read_file(outside_str);
+                assert!(matches!(
+                    read_result,
+                    Err(ToolError::PathEscapesWorkingDir(_))
+                ));
+            }
+        }
+    }
+
+    // M4: Restore test
+    #[tokio::test]
+    async fn ask_without_a_run_id_never_registers() {
+        let approvals = Arc::new(McpApprovals::new(None));
+        let temp = fresh_tempdir();
+        let dir = temp.path();
+        let executor = FilesystemToolExecutor::new(dir)
+            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
+            .with_protection(policy(PermissionMode::AskAlways))
+            .with_mcp_approvals(approvals.clone(), None);
+        let result = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git".to_string(),
+                args: vec!["push".to_string()],
+            })
+            .await;
+        assert!(!result.success);
+        assert!(
+            approvals.pending().is_empty(),
+            "a daemon-wide loop (no run id) must never register a pending ask"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_full_access_commands_pass() {
+        let dir = std::env::temp_dir().join("full-access-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+                "make".to_string(),
+                "cargo".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::FullAccess));
+
+        for cmd in [
+            "git push",
+            "npm install",
+            "npm run build",
+            "make",
+            "cargo run",
+        ] {
+            let res = executor
+                .run_command(cmd, &[])
+                .await
+                .expect("command should run");
+            // Command might fail due to missing environment, but should NOT be refused
+            assert!(res.success || !res.output.contains("refused"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cargo_publish_bypass() {
+        let dir = std::env::temp_dir().join("cargo-publish-bypass");
+        let _ = std::fs::create_dir_all(&dir);
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-bypass-1".to_string()));
+
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "cargo".to_string(),
+                args: vec!["publish".to_string()],
+            })
+            .await;
+
+        assert!(!res.success, "cargo publish should be refused/asked");
+        assert_eq!(approvals.pending().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn bypass_tests_git_push_compound() {
+        let dir = std::env::temp_dir().join("b5-bypass-test-1");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b5-1".to_string()));
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git push origin main".to_string(),
+                args: vec![],
+            })
+            .await;
+        assert!(!res.success, "git push origin main should be refused");
+        assert_eq!(approvals.pending().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn bypass_tests_usr_bin_git_path() {
+        let dir = std::env::temp_dir().join("b5-bypass-test-2");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b5-2".to_string()));
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "/usr/bin/git".to_string(),
+                args: vec!["push".to_string()],
+            })
+            .await;
+        assert!(!res.success, "/usr/bin/git push should be refused");
+        assert_eq!(approvals.pending().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn bypass_tests_npm_publish_compound() {
+        let dir = std::env::temp_dir().join("b5-bypass-test-3");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b5-3".to_string()));
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "npm publish".to_string(),
+                args: vec![],
+            })
+            .await;
+        assert!(!res.success, "npm publish should be refused");
+        assert_eq!(approvals.pending().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn bypass_tests_quoted_git_exe() {
+        let dir = std::env::temp_dir().join("b5-bypass-test-4");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let executor = FilesystemToolExecutor::new(&dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+            ]))
+            .with_protection(policy(PermissionMode::AskForRisky))
+            .with_mcp_approvals(approvals.clone(), Some("run-b5-4".to_string()));
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "\"git.exe\"".to_string(),
+                args: vec!["push".to_string()],
+            })
+            .await;
+        assert!(!res.success, "git.exe push should be refused");
+        assert_eq!(approvals.pending().len(), 1);
     }
 }

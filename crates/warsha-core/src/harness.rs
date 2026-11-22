@@ -60,6 +60,7 @@ pub struct HarnessStage {
 pub struct HarnessRules {
     /// Upper bound on build-test-repair iterations before the run stops.
     pub max_repair_iterations: u32,
+    pub coding_cli_timeout_seconds: Option<u64>,
     /// Hard spending limit for the run, in cents; `None` means uncapped.
     pub budget_cap_cents: Option<u64>,
     /// Whether a stage may fan out to parallel subagents.
@@ -189,6 +190,7 @@ fn complex_workbench() -> HarnessDefinition {
         ],
         HarnessRules {
             max_repair_iterations: 5,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: None,
             allow_parallel_subagents: true,
             require_verification_receipt: false,
@@ -254,6 +256,7 @@ fn autonomous_factory() -> HarnessDefinition {
         ],
         HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(2_000),
             allow_parallel_subagents: true,
             require_verification_receipt: true,
@@ -312,6 +315,7 @@ fn ticket_to_pr() -> HarnessDefinition {
         ],
         HarnessRules {
             max_repair_iterations: 2,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(500),
             allow_parallel_subagents: false,
             require_verification_receipt: true,
@@ -350,6 +354,7 @@ fn graph_gated() -> HarnessDefinition {
         ],
         HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(300),
             allow_parallel_subagents: false,
             require_verification_receipt: true,
@@ -411,6 +416,7 @@ fn fleet_worktrees() -> HarnessDefinition {
         ],
         HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(5_000),
             allow_parallel_subagents: true,
             require_verification_receipt: true,
@@ -477,6 +483,7 @@ fn sealed_envelope() -> HarnessDefinition {
         ],
         HarnessRules {
             max_repair_iterations: 2,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(1_000),
             allow_parallel_subagents: false,
             require_verification_receipt: true,
@@ -503,6 +510,7 @@ fn solo_bench() -> HarnessDefinition {
         )],
         HarnessRules {
             max_repair_iterations: 1,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(100),
             allow_parallel_subagents: false,
             require_verification_receipt: false,
@@ -511,6 +519,7 @@ fn solo_bench() -> HarnessDefinition {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

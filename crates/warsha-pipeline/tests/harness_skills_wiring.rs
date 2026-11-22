@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Harness + Skills wiring test for pipeline execution.
 //!
 //! This test verifies that the `execute_stage` method correctly:
@@ -63,8 +70,7 @@ async fn create_project(store: &Arc<Store>) -> ProjectId {
         language: "ar".to_string(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
-        repo_path: None,
-        repo_url: None,
+        ..Default::default()
     };
     store.create_project(&project).await.expect("a project");
     project.id
@@ -140,6 +146,7 @@ impl ChatProvider for CapturingProvider {
                 input: 100,
                 output: 50,
                 total: 150,
+                cost_cents: None,
             },
         })
     }
@@ -157,6 +164,10 @@ impl ChatProvider for CapturingProvider {
 
     fn cost_of(&self, _model: &str, _usage: &TokenUsage) -> ProviderResult<u64> {
         Ok(1)
+    }
+
+    async fn get_quota(&self) -> ProviderResult<warsha_core::ProviderQuota> {
+        Ok(warsha_core::ProviderQuota::Unknown)
     }
 }
 
@@ -198,6 +209,7 @@ async fn execute_stage_uses_harness_prompt_template_when_available() {
         ],
         rules: warsha_core::HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(2000),
             allow_parallel_subagents: true,
             require_verification_receipt: true,
@@ -252,6 +264,13 @@ async fn execute_stage_uses_harness_prompt_template_when_available() {
         .await
         .expect("run starts");
 
+    // Reach Gate A before approving it
+    let run = engine
+        .advance_stage(run.id)
+        .await
+        .expect("advance to Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Approve Gate A
     engine
         .approve_gate(run.id, Stage::GateA, DeviceId::new())
@@ -260,9 +279,9 @@ async fn execute_stage_uses_harness_prompt_template_when_available() {
 
     // Advance to Research stage (first executed stage after Gate A)
     let _run = engine
-        .advance_to_next_gate(run.id)
+        .advance_stage(run.id)
         .await
-        .expect("advance to Gate B (which executes Research)");
+        .expect("advance to Research stage");
 
     // Check that the captured prompt contains the custom harness template
     let prompt = captured_prompt
@@ -328,6 +347,13 @@ async fn execute_stage_prepends_enabled_skills_to_prompt() {
         .await
         .expect("run starts");
 
+    // Reach Gate A before approving it
+    let run = engine
+        .advance_stage(run.id)
+        .await
+        .expect("advance to Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Approve Gate A
     engine
         .approve_gate(run.id, Stage::GateA, DeviceId::new())
@@ -336,9 +362,9 @@ async fn execute_stage_prepends_enabled_skills_to_prompt() {
 
     // Advance to Research stage
     let _run = engine
-        .advance_to_next_gate(run.id)
+        .advance_stage(run.id)
         .await
-        .expect("advance to Gate B (which executes Research)");
+        .expect("advance to Research stage");
 
     // Check that the captured prompt contains the skill content
     let prompt = captured_prompt
@@ -395,6 +421,7 @@ async fn execute_stage_combines_harness_template_and_skills() {
         }],
         rules: warsha_core::HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(2000),
             allow_parallel_subagents: true,
             require_verification_receipt: true,
@@ -462,6 +489,13 @@ async fn execute_stage_combines_harness_template_and_skills() {
         .await
         .expect("run starts");
 
+    // Reach Gate A before approving it
+    let run = engine
+        .advance_stage(run.id)
+        .await
+        .expect("advance to Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Approve Gate A
     engine
         .approve_gate(run.id, Stage::GateA, DeviceId::new())
@@ -470,9 +504,9 @@ async fn execute_stage_combines_harness_template_and_skills() {
 
     // Advance to Research stage
     let _run = engine
-        .advance_to_next_gate(run.id)
+        .advance_stage(run.id)
         .await
-        .expect("advance to Gate B (which executes Research)");
+        .expect("advance to Research stage");
 
     // Check that the captured prompt contains BOTH the skill content AND the harness template
     let prompt = captured_prompt
@@ -535,6 +569,7 @@ async fn execute_stage_uses_default_prompt_when_no_harness_template() {
         }],
         rules: warsha_core::HarnessRules {
             max_repair_iterations: 3,
+            coding_cli_timeout_seconds: None,
             budget_cap_cents: Some(2000),
             allow_parallel_subagents: true,
             require_verification_receipt: true,
@@ -587,6 +622,13 @@ async fn execute_stage_uses_default_prompt_when_no_harness_template() {
         .await
         .expect("run starts");
 
+    // Reach Gate A before approving it
+    let run = engine
+        .advance_stage(run.id)
+        .await
+        .expect("advance to Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Approve Gate A
     engine
         .approve_gate(run.id, Stage::GateA, DeviceId::new())
@@ -595,9 +637,9 @@ async fn execute_stage_uses_default_prompt_when_no_harness_template() {
 
     // Advance to Research stage
     let _run = engine
-        .advance_to_next_gate(run.id)
+        .advance_stage(run.id)
         .await
-        .expect("advance to Gate B (which executes Research)");
+        .expect("advance to Research stage");
 
     // Check that the captured prompt contains the DEFAULT role prompt (from prompts.rs)
     let prompt = captured_prompt

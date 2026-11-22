@@ -6,7 +6,7 @@
 // failure that keeps the card exactly where the owner left it.
 import { fireEvent, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import type { RunSummary } from '@warsha/client';
+import type { DeviceId, RunSummary } from '@warsha/client';
 import { describe, expect, it } from 'vitest';
 
 
@@ -16,6 +16,7 @@ import {
   RUN_OLD,
   SESSION,
   answeredGates,
+  gate,
   refuseGates,
   renderRemote,
   runId,
@@ -31,34 +32,32 @@ import {
 const SETTLED_RUN: RunSummary = { ...RUN, id: runId('run_9e7d5c3b'), stage: 'code' };
 
 /**
- * The head of the card whose source chip the test names. `Chip tone="lit"` is the only `data-tone="lit"`
- * a gate card can carry, and it lives in that head, so the lookup asks the question the fix is about:
- * is *this* row — the one the daemon answered — the lit one?
+ * The gate card whose source chip the test names.
  */
-function cardHead(sourceWords: string): HTMLElement {
+function gateCard(sourceWords: string): HTMLElement {
   const chip = screen.getByText(sourceWords);
-  const head = chip.closest('header');
-  if (head === null) throw new Error(`no gate card head beside “${sourceWords}”`);
-  return head as HTMLElement;
+  const card = chip.closest('[data-testid^="remote-gate-"]');
+  if (card === null) throw new Error(`no gate card beside “${sourceWords}”`);
+  return card as HTMLElement;
 }
 
 describe('the queue under the owner’s thumb', () => {
   it('lights the gate the run is parked on when the daemon answers gates.list', async () => {
     // The normal path against a serving `warshad`: the row comes from `gates.list`, so `bench.tsx` tags it
-    // `daemon`, and the lit chip still belongs to it — being the stage the run is stopped at is a fact
+    // `daemon`, and the lit status pill belongs to it — being the stage the run is stopped at is a fact
     // about the two stages, not about which reading produced the row (§1, §6).
     renderRemote({ session: SESSION });
     await settle();
 
     expect(screen.getByRole('heading', { level: 1, name: 'بانتظارك' })).toBeInTheDocument();
-    const head = cardHead('قراءة من قائمة البوّابات');
-    expect(head.querySelector('[data-tone="lit"]')).not.toBeNull();
+    const card = gateCard('قراءة من قائمة البوّابات');
+    expect(card.querySelector('[data-status="waiting"]')).not.toBeNull();
     expect(screen.getByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeInTheDocument();
   });
 
   it('lights the same gate on the stage fallback, for a daemon that does not serve gates.list', async () => {
     // The older `warshad`: the queue is built from the run's own stage, and the card reads the same way it
-    // does on the daemon path — one lit chip, the parked-here words, and the source named.
+    // does on the daemon path — one waiting status pill, the parked-here words, and the source named.
     renderRemote({ session: SESSION, api: stubApi({ getGates: refuseGates() }) });
     await settle();
 
@@ -66,11 +65,13 @@ describe('the queue under the owner’s thumb', () => {
     // The gate's own id is machine data: mono, un-translated, isolated from the Arabic line (§11).
     expect(screen.getByText('gate_b', { selector: '[translate="no"]' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'موافقة' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'رفض' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'طلب تعديلات' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'موافقة' })).toHaveAttribute('data-variant', 'primary');
+    // §5.5-a: zero run-ending refusal controls exist before KEEL K1+K2 (approve-only).
+    expect(screen.queryByRole('button', { name: 'رفض' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'طلب تعديلات' })).toBeNull();
     expect(screen.getByText('البوّابة ب')).toBeInTheDocument();
-    const head = cardHead('قراءة من مرحلة التشغيل');
-    expect(head.querySelector('[data-tone="lit"]')).not.toBeNull();
+    const card = gateCard('قراءة من مرحلة التشغيل');
+    expect(card.querySelector('[data-status="waiting"]')).not.toBeNull();
     expect(screen.getByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeInTheDocument();
   });
 
@@ -86,24 +87,19 @@ describe('the queue under the owner’s thumb', () => {
 
     const detail = screen.getByTestId('remote-gate-detail');
     expect(within(detail).getByText('البوّابة ب')).toBeInTheDocument();
-    expect(cardHead('قراءة من قائمة البوّابات').querySelector('[data-tone="lit"]')).not.toBeNull();
+    expect(gateCard('قراءة من قائمة البوّابات').querySelector('[data-status="waiting"]')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /البوّابة ج/ }));
 
     expect(within(detail).getByText('البوّابة ج')).toBeInTheDocument();
     expect(within(detail).queryByText('التشغيل متوقف عند هذه المرحلة حتى يسجّل المالك قراراً.')).toBeNull();
-    // #70: a gate the run has not reached is a name on a quiet plate, not a raised card asking for a
-    // decision. It still tells the truth — the gate is pending (`gates.pending`) — and names where the run
-    // actually stands, but it says nothing that reads as "answer me" and offers nothing to press.
     expect(within(detail).getByText('في الانتظار')).toBeInTheDocument();
     expect(within(detail).getByText('المرحلة البوّابة ب')).toBeInTheDocument();
-    // The pre-#70 raised card must not come back for an un-reached gate: neither its waiting sentence nor
-    // any of the three decision affordances. This is the guard the semantics change demands.
     expect(within(detail).queryByText('يحتاج الفريق إلى قرارك للانتقال إلى المرحلة التالية.')).toBeNull();
     expect(within(detail).queryByRole('button', { name: 'موافقة' })).toBeNull();
     expect(within(detail).queryByRole('button', { name: 'رفض' })).toBeNull();
     expect(within(detail).queryByRole('button', { name: 'طلب تعديلات' })).toBeNull();
-    expect(cardHead('قراءة من قائمة البوّابات').querySelector('[data-tone="lit"]')).toBeNull();
+    expect(gateCard('قراءة من قائمة البوّابات').querySelector('[data-status="waiting"]')).toBeNull();
   });
 
   it('approves in one press, records it, and takes the actions away', async () => {
@@ -124,62 +120,59 @@ describe('the queue under the owner’s thumb', () => {
     expect(screen.getByText('لا بوّابات بانتظارك')).toBeInTheDocument();
   });
 
-  it('will not send a refusal without the reason the team reads', async () => {
-    const { calls } = renderRemote({ session: SESSION });
+  it('keeps reject and request-changes affordances absent before KEEL K1+K2 ship', async () => {
+    renderRemote({ session: SESSION });
     await settle();
 
-    fireEvent.click(screen.getByRole('button', { name: 'رفض' }));
-    const reason = screen.getByRole('textbox', { name: /سبب القرار/ });
-    expect(reason).toHaveFocus();
-    expect(reason).toHaveAttribute('aria-required', 'true');
-
-    fireEvent.click(screen.getByRole('button', { name: 'سجّل القرار' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('السبب مطلوب حتى يعرف الفريق ما يغيّره.');
-    expect(reason).toHaveAttribute('aria-invalid', 'true');
-    expect(calls).not.toContain('reject:gate_b');
-
-    fireEvent.change(reason, { target: { value: 'المخطط يترك باباً مفتوحاً' } });
-    expect(reason).toHaveAttribute('aria-invalid', 'false');
-    fireEvent.click(screen.getByRole('button', { name: 'سجّل القرار' }));
-    await settle();
-
-    expect(calls).toContain('reject:gate_b');
-    expect(screen.getByText('مرفوض')).toBeInTheDocument();
-    // The note the owner typed is what the team reads next, at the reading measure (§11).
-    expect(screen.getByText('المخطط يترك باباً مفتوحاً')).toBeInTheDocument();
-    expect(screen.getByText('سبب الرفض')).toBeInTheDocument();
+    // The single primary control is Approve; no run-ending refusal affordances exist.
+    expect(screen.getByRole('button', { name: 'موافقة' })).toHaveAttribute('data-variant', 'primary');
+    expect(screen.queryByRole('button', { name: 'رفض' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'طلب تعديلات' })).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 
-  it('sends requested changes with their notes', async () => {
-    const { calls } = renderRemote({ session: SESSION });
-    await settle();
-
-    fireEvent.click(screen.getByRole('button', { name: 'طلب تعديلات' }));
-    fireEvent.change(screen.getByRole('textbox', { name: /سبب القرار/ }), {
-      target: { value: 'أضف اختبار الاسترجاع' },
+  it('renders historical recorded rejection and requested-changes notes in read-only decided state', async () => {
+    const historicalRejected = gate('gate_b', {
+      state: 'rejected',
+      reason: 'المخطط يترك باباً مفتوحاً',
+      by: 'dev_test' as DeviceId,
+      at: '2026-11-09T10:00:00Z',
     });
-    fireEvent.click(screen.getByRole('button', { name: 'سجّل القرار' }));
+    renderRemote({
+      session: SESSION,
+      route: '/gates',
+      api: stubApi({ getGates: () => Promise.resolve([historicalRejected]) }),
+    });
     await settle();
 
-    expect(calls).toContain('changes:gate_b');
-    expect(screen.getByText('تغييرات مطلوبة')).toBeInTheDocument();
-    expect(screen.getByText('ملاحظات التعديلات')).toBeInTheDocument();
+    const detail = screen.getByTestId('remote-gate-detail');
+    expect(within(detail).getByText('مرفوض')).toBeInTheDocument();
+    expect(within(detail).getByText('سبب الرفض')).toBeInTheDocument();
+    expect(within(detail).getByText('المخطط يترك باباً مفتوحاً')).toBeInTheDocument();
+    expect(within(detail).queryByRole('button', { name: 'موافقة' })).toBeNull();
   });
 
-  it('takes Escape as "not yet", and hands the focus back to the button that asked', async () => {
-    const { calls } = renderRemote({ session: SESSION });
+  it('disables the approve button while the decision request is in flight', async () => {
+    let resolveApprove: () => void = () => {};
+    const pendingPromise = new Promise<void>((resolve) => {
+      resolveApprove = resolve;
+    });
+    renderRemote({
+      session: SESSION,
+      api: stubApi({ approveGate: () => pendingPromise }),
+    });
     await settle();
 
-    fireEvent.click(screen.getByRole('button', { name: 'رفض' }));
-    const reason = screen.getByRole('textbox', { name: /سبب القرار/ });
-    fireEvent.change(reason, { target: { value: 'مسودة' } });
-    fireEvent.keyDown(reason, { key: 'Escape' });
+    const approveBtn = screen.getByRole('button', { name: 'موافقة' });
+    fireEvent.click(approveBtn);
 
-    // The step closed, the draft went with it, and nothing left the phone.
-    expect(screen.queryByRole('textbox', { name: /سبب القرار/ })).toBeNull();
-    // Focus returns to the control that asked — the refusal, not the approval (§9's restore path).
-    expect(screen.getByRole('button', { name: 'رفض' })).toHaveFocus();
-    expect(calls).not.toContain('reject:gate_b');
+    expect(approveBtn).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('remote-decision-status')).toHaveTextContent('جارٍ تسجيل القرار');
+
+    resolveApprove();
+    await settle();
+
+    expect(screen.getByTestId('remote-decision-status')).toHaveTextContent('سُجّل القرار');
   });
 
   it('keeps the card, the actions and the daemon’s own words when the write is refused', async () => {

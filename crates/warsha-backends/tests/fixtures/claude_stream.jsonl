@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"claude-sess-123","model":"claude-3-5-sonnet-20241022"}
+{"type":"status","status":"thinking"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git status --porcelain CANARY_MODEL_SECRET_12345"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","is_error":false,"content":"CANARY_FILE_CONTENT_SECRET_67890"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs","old_string":"foo","new_string":"bar CANARY_EDIT_TEXT_54321"}}]}}
+{"type":"result","subtype":"success","duration_ms":1500,"usage":{"input_tokens":120,"output_tokens":80,"cost_cents":3},"result":"Completed with CANARY_MODEL_OUTPUT_99999"}

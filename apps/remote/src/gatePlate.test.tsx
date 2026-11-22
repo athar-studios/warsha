@@ -34,7 +34,9 @@ const ar = (key: string, values: Record<string, string | number> = {}): string =
 
 /** The card on the bench, whichever plate it is wearing. */
 function card(): HTMLElement {
-  const node = document.querySelector<HTMLElement>('.warsha-gate-card');
+  const node = document.querySelector<HTMLElement>(
+    '[data-testid="remote-gate-parked"], [data-testid="remote-gate-decided"], [data-testid="remote-gate-unreached"]'
+  );
   if (node === null) throw new Error('no gate card is on the bench');
   return node;
 }
@@ -87,11 +89,11 @@ describe('a pending gate the run has not reached', () => {
     expect(within(detail).getByText(ar('gates.label.gate_a'))).toBeInTheDocument();
     expect(within(detail).getByText(ar('gates.pending'))).toBeInTheDocument();
 
-    // What makes it a name rather than a request: no signal chip, no waiting lamp, no decision bar — and
+    // What makes it a name rather than a request: no waiting status pill, no decision bar — and
     // none anywhere on the screen, because a second approval affordance is how an owner decides the wrong
     // gate.
-    expect(detail.querySelector('[data-tone="lit"]')).toBeNull();
-    expect(detail.querySelector('[data-state="waiting"]')).toBeNull();
+    expect(detail.querySelector('[data-status="waiting"]')).toBeNull();
+    expect(detail.querySelector('[data-status="idle"]')).not.toBeNull();
     expect(within(detail).queryByRole('button', { name: ar('gates.approve') })).toBeNull();
     expect(decisionControls()).toHaveLength(0);
 
@@ -120,7 +122,7 @@ describe('a pending gate the run has not reached', () => {
     const detail = screen.getByTestId('remote-gate-detail');
     expect(within(detail).getByText(ar('gates.label.gate_c'))).toBeInTheDocument();
     expect(decisionControls()).toHaveLength(0);
-    expect(detail.querySelector('[data-tone="lit"]')).toBeNull();
+    expect(detail.querySelector('[data-status="waiting"]')).toBeNull();
   });
 
   it('puts the parked gate under the thumb, not the oldest row of the queue', async () => {
@@ -148,10 +150,11 @@ describe('the gate the run is parked on', () => {
 
     const detail = screen.getByTestId('remote-gate-detail');
     expect(within(detail).getByText(ar('gates.label.gate_b'))).toBeInTheDocument();
-    expect(detail.querySelector('[data-tone="lit"]')).not.toBeNull();
-    expect(detail.querySelector('[data-state="waiting"]')).not.toBeNull();
+    expect(detail.querySelector('[data-status="waiting"]')).not.toBeNull();
     expect(within(detail).getByText(ar('remote.stage_gate_waiting'))).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: ar('gates.approve') })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: ar('gates.reject') })).toBeNull();
+    expect(screen.queryByRole('button', { name: ar('gates.request_changes') })).toBeNull();
   });
 
   it('lights on the daemon reading and on the stage fallback alike', async () => {
@@ -163,8 +166,7 @@ describe('the gate the run is parked on', () => {
 
     expect(screen.getByText(ar('remote.queue_source_stage'))).toBeInTheDocument();
     expect(screen.getByText('gate_b', { selector: '[translate="no"]' })).toBeInTheDocument();
-    const head = card().querySelector('header');
-    expect(head?.querySelector('[data-tone="lit"]')).not.toBeNull();
+    expect(card().querySelector('[data-status="waiting"]')).not.toBeNull();
     expect(screen.getByText(ar('remote.stage_gate_waiting'))).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: ar('gates.approve') })).toHaveLength(1);
   });
@@ -183,7 +185,7 @@ describe('the gate the run is parked on', () => {
     await settle();
 
     expect(screen.getByText('gate_a', { selector: '[translate="no"]' })).toBeInTheDocument();
-    expect(card().querySelector('[data-tone="lit"]')).not.toBeNull();
+    expect(card().querySelector('[data-status="waiting"]')).not.toBeNull();
     expect(screen.getByRole('button', { name: ar('gates.approve') })).toBeInTheDocument();
     expect(screen.getByText(ar('run.state_awaiting_gate'))).toBeInTheDocument();
   });
@@ -202,14 +204,14 @@ describe('a decided gate', () => {
     fireEvent.click(gateRow('gate_a'));
 
     const band = card().style.borderInlineStart;
-    expect(band).toContain('--warsha-bench-edge');
-    expect(band).not.toContain('--warsha-signal-text');
+    expect(band).toContain('--w-line');
+    expect(band).not.toContain('--w-attention');
 
     // The record survives: the pressed stamp and the sentence it was pressed under, both inside the card.
     // (The ledger row beside it says the same word, so the assertion is scoped to the card.)
     expect(within(card()).getByText(ar('gates.approved'))).toBeInTheDocument();
     expect(screen.getByText(ar('gates.decisions_label'))).toBeInTheDocument();
-    expect(card().querySelector('[data-state="waiting"]')).toBeNull();
+    expect(card().querySelector('[data-status="waiting"]')).toBeNull();
     expect(decisionControls()).toHaveLength(0);
   });
 
@@ -224,14 +226,16 @@ describe('a decided gate', () => {
     // `RUN` is parked at `gate_b`, and `answeredGates()` has it pending: the one gate the run waits on.
     fireEvent.click(gateRow('gate_b'));
 
-    expect(card().style.borderInlineStart).toContain('--warsha-signal-text');
+    expect(card().style.borderInlineStart).toContain('--w-attention');
     expect(screen.getByRole('button', { name: ar('gates.approve') })).toBeInTheDocument();
   });
 });
 
 describe('the queue count', () => {
-  /** Four pending gates for a run standing at one of them — the count both screens have to say the same way. */
+  /** Four pending gates in the daemon list for a run standing at one of them. */
   const pendingFour = ar('remote.queue_pending', { count: servedGateQueue().length });
+  /** Current-stage waiting count is 1 when the run stands at `gate_b`. */
+  const pendingOne = ar('remote.queue_pending', { count: 1 });
 
   it('is a number on the home plate, not a signal', async () => {
     renderRemote({
@@ -240,16 +244,15 @@ describe('the queue count', () => {
     });
     await settle();
 
-    // Every place the home screen states the count (the queue panel and the glance row) states it as plain
-    // text. Lighting it would claim four hands were needed for one parked gate (§1).
+    // Every place the home screen states the count states it as plain text.
     const lines = screen.getAllByText(pendingFour);
     expect(lines.length).toBeGreaterThan(0);
-    for (const line of lines) expect(line.closest('[data-tone]')).toBeNull();
-    // The one lit chip left on the screen is the parked gate's own.
-    expect(document.querySelectorAll('[data-tone="lit"]')).toHaveLength(1);
+    for (const line of lines) expect(line.closest('[data-status]')).toBeNull();
+    // The gate card itself carries the waiting status pill.
+    expect(card().querySelectorAll('[data-status="waiting"]')).toHaveLength(1);
   });
 
-  it('says the same thing, in the same shape, on the gates ledger', async () => {
+  it('counts only the current-stage gate on the gates ledger', async () => {
     renderRemote({
       session: SESSION,
       route: '/gates',
@@ -257,8 +260,9 @@ describe('the queue count', () => {
     });
     await settle();
 
-    const lines = screen.getAllByText(pendingFour);
-    expect(lines.length).toBeGreaterThan(0);
-    for (const line of lines) expect(line.closest('[data-tone]')).toBeNull();
+    const line = screen.getByText(pendingOne);
+    expect(line).toBeInTheDocument();
+    expect(line.closest('[data-status]')).toBeNull();
+    expect(screen.queryByText(pendingFour)).toBeNull();
   });
 });

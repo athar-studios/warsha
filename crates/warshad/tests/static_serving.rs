@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Static serving of the remote UI on the daemon's HTTP listener (GAP 1).
 //!
 //! The measured break: the built `apps/remote` bundle had no server. Caddy routed
@@ -22,10 +29,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use reqwest::StatusCode;
+use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig, REMOTE_ASSETS_DIR_ENV};
+use warsha_providers::InMemorySecretStore;
+use warshad::{
+    start_daemon_with_secrets, DaemonConfig, DaemonHandle, RateLimitConfig, REMOTE_ASSETS_DIR_ENV,
+};
 
 /// The daemon's owner token. These tests send it nowhere on purpose: a browser
 /// loading a page has none, and serving the UI must not depend on one.
@@ -117,7 +128,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }
@@ -417,5 +430,18 @@ async fn without_a_bundle_configured_the_root_still_404s() {
     let asset = get(daemon.http(), "/assets/app-1234abcd.js").await;
     assert_eq!(asset.status(), StatusCode::NOT_FOUND);
 
+    daemon.shutdown().await;
+}
+
+/// Proving test for H3: `Daemon::start` uses injectable `InMemorySecretStore` and starts promptly (<15s).
+#[tokio::test]
+async fn daemon_start_completes_promptly_with_in_memory_secrets() {
+    let start = std::time::Instant::now();
+    let daemon = Daemon::start(None).await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "daemon startup should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
     daemon.shutdown().await;
 }

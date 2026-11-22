@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! The real-LLM failure path (GAP 3): a stage whose model call is refused ends the
 //! run *as failed*, with a scrubbed event on its log — and it never puts the API key
 //! anywhere the owner would have to hunt for it.
@@ -77,8 +84,7 @@ async fn create_project(store: &Arc<Store>) -> ProjectId {
         language: "ar".to_string(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
-        repo_path: None,
-        repo_url: None,
+        ..Default::default()
     };
     store.create_project(&project).await.expect("a project");
     project.id

@@ -1,0 +1,60 @@
+/* apps/desktop/src/v3/pages/code/code.css — Design System v3 read-only code viewer (DS v3 §2, §2.6) */
+
+.v3-code-page {
+  inline-size: 100%;
+  max-inline-size: var(--w-content-wide);
+  margin-inline: auto;
+  padding-block-start: var(--w-space-8);
+  padding-block-end: var(--w-space-10);
+  padding-inline: var(--w-space-5);
+  box-sizing: border-box;
+}
+
+.v3-code-viewer,
+.v3-code-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-3);
+}
+
+.v3-code-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--w-space-3);
+  flex-wrap: wrap;
+}
+
+.v3-code-viewer-path {
+  font-family: var(--w-font-mono);
+  font-size: var(--w-font-size-sm);
+  line-height: var(--w-line-height-sm);
+  letter-spacing: var(--w-tracking-code);
+  color: var(--w-text);
+  overflow-wrap: anywhere;
+}
+
+.v3-code-viewer-badge {
+  font-size: var(--w-font-size-xs);
+  line-height: var(--w-line-height-xs);
+  font-weight: var(--w-font-weight-medium);
+  color: var(--w-text-muted);
+  background: var(--w-sunken);
+  border-radius: var(--w-radius-full);
+  padding-block: var(--w-space-1);
+  padding-inline: var(--w-space-2);
+}
+
+.v3-code-viewer-editor {
+  direction: ltr;
+  background: var(--w-surface);
+  border: var(--w-border-width) solid var(--w-line);
+  border-radius: var(--w-radius-md);
+  overflow: hidden;
+  font-family: var(--w-font-mono);
+  font-size: var(--w-font-size-sm);
+}
+
+.v3-code-viewer-editor:empty {
+  display: none;
+}

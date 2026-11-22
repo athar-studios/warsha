@@ -4,6 +4,9 @@
 //! so the crate compiles on stable Rust without native bindings. GitHub
 //! operations are plain REST calls issued with `reqwest`.
 
+#[cfg(test)]
+use tokio as _;
+
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
@@ -250,6 +253,29 @@ impl std::fmt::Display for MergeMethod {
     }
 }
 
+/// Whether a new pull request opens as a draft.
+///
+/// Mirrors [`MergeMethod`]: a two-valued pull request option is a typed mode,
+/// not a `bool` argument the caller has to decode at the call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PrDraft {
+    /// The pull request opens review-ready.
+    #[default]
+    Ready,
+    /// The pull request opens as a draft, before it is review-ready.
+    Draft,
+}
+
+impl PrDraft {
+    /// Whether this mode asks GitHub for a draft pull request.
+    pub fn is_draft(self) -> bool {
+        match self {
+            Self::Ready => false,
+            Self::Draft => true,
+        }
+    }
+}
+
 /// Subset of the GitHub repository payload Warsha relies on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Repository {
@@ -320,6 +346,10 @@ pub struct PullRequest {
     /// Browser URL of the pull request.
     #[serde(default)]
     pub html_url: String,
+    /// Whether the pull request is a draft; defaults to `false` so payloads that
+    /// predate the field (older GitHub Enterprise, hand-written fixtures) still decode.
+    #[serde(default)]
+    pub draft: bool,
 }
 
 /// One check run attached to a commit.
@@ -396,6 +426,9 @@ struct CreatePrBody<'a> {
     body: &'a str,
     head: &'a str,
     base: &'a str,
+    /// Always serialized, so a ready pull request sends `"draft": false` — GitHub
+    /// treats that exactly like an absent field, and the caller's intent stays visible.
+    draft: bool,
 }
 
 /// Body of a `PUT /repos/{owner}/{repo}/pulls/{number}/merge` request.
@@ -471,6 +504,15 @@ impl GitHubClient {
     }
 
     /// Open a pull request from `head` into `base`.
+    ///
+    /// `draft` chooses whether GitHub opens it review-ready or as a draft.
+    ///
+    /// Seven arguments is one more than clippy allows. They stay positional
+    /// because they are the pull request's own identity — owner, repo, title,
+    /// body, head, base, draft — in the order the REST endpoint documents them,
+    /// and an options struct would be this crate's third body shape for one
+    /// endpoint; see `PrDraft` for why the mode is typed rather than a `bool`.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_pr(
         &self,
         owner: &str,
@@ -479,6 +521,7 @@ impl GitHubClient {
         body: &str,
         head: &str,
         base: &str,
+        draft: PrDraft,
     ) -> Result<PullRequest> {
         let url = self.repo_endpoint(owner, repo, "pulls");
         let payload = CreatePrBody {
@@ -486,6 +529,7 @@ impl GitHubClient {
             body,
             head,
             base,
+            draft: draft.is_draft(),
         };
         let request = self.authorized(self.client.post(url).json(&payload));
         self.execute(request).await
@@ -1049,6 +1093,7 @@ impl ProjectTemplate {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

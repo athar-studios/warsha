@@ -6,16 +6,20 @@ Git and GitHub integration: repositories, branches, commits, pushes, issues, pul
 checks, plus the embedded project templates a new project can be scaffolded from.
 
 **Only `warshad` depends on this crate** (`crates/warshad/Cargo.toml:14`). It imports `GitHubClient`
-(`crates/warshad/src/lib.rs:38`), keeps one as `DaemonState.github` (`:1031`) and constructs it at
-start-up from the keychain token (`:5415-5416`, stored at `:5500`) — **and never reads that field
-afterwards**. So no screen, command or pipeline stage creates a repository, opens an issue or opens
-a pull request today. `warsha-pipeline` has no dependency on this crate at all.
+(`crates/warshad/src/state.rs:381`, `crates/warshad/src/startup.rs:23`), keeps one as
+`DaemonState.github` (`crates/warshad/src/state.rs:402`) and constructs it at start-up from the
+keychain token (`crates/warshad/src/startup.rs:240`, handed to the state at `:361`, read by
+`get_github_token` at `:929`) — **and never reads that field afterwards**. So no screen, command or
+pipeline stage creates a repository, opens an issue or opens a pull request today.
+`warsha-pipeline` has no dependency on this crate at all.
 
 ## Interface
 
 - `src/lib.rs` — `GitRepo` (`open`, `init`, `status`, `create_branch`, `checkout`, `commit`,
   `push`), `GitHubClient` (`create_repo`, `create_issue`, `create_pr`, `get_pr`, `get_pr_checks`,
-  `merge_pr`), `slugify_branch_name` / `branch_name_for_run`, and `ProjectTemplate`.
+  `merge_pr`), `slugify_branch_name` / `branch_name_for_run`, and `ProjectTemplate`. `create_pr`
+  takes a draft mode (`PrDraft::Ready`, the default, or `PrDraft::Draft`) and sends it as the
+  endpoint's `draft` flag; `PullRequest.draft` reports the status the server returned.
 - `ProjectTemplate` (`src/lib.rs:629`, implemented at `:950-1049`) — the four embedded scaffolds:
   `web` (`:952`, React + TypeScript + Vite), `cli` (`:971`, Rust), `desktop` (`:986`, Tauri + React)
   and `android` (`:1004`, Kotlin + Jetpack Compose), with `all()` (`:1023`), `by_name()` (`:1028`)

@@ -177,12 +177,12 @@ JAVA_HOME="<Android Studio JBR>" ANDROID_HOME="<SDK>" \
   apps/mobile/android/gradlew -p apps/mobile/android assembleRelease
 # → apps/mobile/android/app/build/outputs/apk/release/warsha-remote-release.apk
 
-# 3) verify the signature and print the signing certificate:
-"$ANDROID_HOME/build-tools/36.0.0/apksigner.bat" verify --verbose --print-certs \
+# 3) verify the signature and print the signing certificate (Windows hosts: apksigner.bat):
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs \
   apps/mobile/android/app/build/outputs/apk/release/warsha-remote-release.apk
 
 # 4) verify the manifest truth as the platform sees it (package id, label, permissions, deep link):
-"$ANDROID_HOME/build-tools/36.0.0/aapt2.exe" dump badging \
+"$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging \
   apps/mobile/android/app/build/outputs/apk/release/warsha-remote-release.apk | head -40
 ```
 
@@ -232,6 +232,33 @@ debug builds only; release builds never include that block.
 
 On-device behaviour (connect to a loopback/LAN daemon over `http://`, and confirm a public
 `http://` host is refused) requires an emulator or phone — deferred, see §5.
+
+### 3.4 Emulator smoke (`scripts/android-smoke.sh`)
+
+The on-device half above is scripted. The script boots a headless AVD, installs the debug APK, pairs
+it against a throwaway daemon that stays on loopback (`adb reverse` carries 8765/8766 into the
+emulator, so neither the daemon bind nor the page CSP is widened), and asserts the page through the
+WebView DevTools socket (`webview_devtools_remote_<pid>` → `/json` → CDP `Runtime.evaluate`).
+Screenshots, `logcat.txt`, `daemon.log`, an emulator console capture and the per-step report JSON are
+written under `target/r-ui-5/` (gitignored).
+
+```bash
+bash scripts/android-smoke.sh --avd Pixel_7_API_35 --report target/r-ui-5/pixel7.json
+bash scripts/android-smoke.sh --avd Athar_GPlay    --report target/r-ui-5/athar.json
+node -e "for (const f of ['pixel7','athar']) { const r=require('./target/r-ui-5/'+f+'.json'); if (r.failed!==0||r.crashes!==0||r.tokenLeaks!==0) process.exit(1) }"
+```
+
+Measured 2026-11-15 on this host, both AVDs: **not green — the shell boots but the bundled page does
+not render.** `am start` answers `Status: ok`, the process stays alive and there is no crash or ANR,
+but the WebView console reports `Access to script at 'file:///assets/index-…js' from origin 'null'
+has been blocked by CORS policy` and `#root` stays empty: the Vite bundle's root-absolute asset URLs
+do not resolve under `file:///android_asset/public/`, and a `type="module"` script cannot load from
+`file://`. Pairing, the screens and the refusal plate are therefore unreachable, and §5.1 stays
+deferred until the shell serves its bundle from a WebView-safe origin — a product change outside
+that packet's allowed files. Full evidence: [`zadloop/packets/R-UI-5-report.md`](zadloop/packets/R-UI-5-report.md).
+**Updated 2026-11-15 (R-UI-6):** the asset-base half is fixed — the build is relative and classic, `S1`
+(plate on screen, no `blocked by CORS`) passes on both AVDs, and `S2` now stops on the daemon's
+`Origin: null` refusal instead: [`zadloop/packets/R-UI-6-report.md`](zadloop/packets/R-UI-6-report.md).
 
 ---
 

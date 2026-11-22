@@ -103,6 +103,7 @@ describe('wire contract — a live-shaped warshad answer decodes into the client
     status: 'awaiting_gate',
     startedAt: '2026-10-28T00:00:00Z',
     updatedAt: '2026-10-28T00:07:00Z',
+    runMode: 'agent' as const,
   };
 
   it('runs.list rows arrive as RunSummary with projectId/stage/startedAt', async () => {

@@ -1,0 +1,344 @@
+/**
+ * Warsha Design System v3 — «حِرفة»
+ * Semantic Design Tokens (DESIGN_SYSTEM_V3.md §2.1–2.4)
+ */
+
+:root {
+  /* Color Palette — Light Theme (default) */
+  --w-bg: #F6F4EF;
+  --w-surface: #FFFFFF;
+  --w-sunken: #EFECE5;
+  --w-line: #E2DDD3;
+  --w-line-strong: #8C877C;
+  --w-text: #1B1A17;
+  --w-text-muted: #5F5B53;
+  /* D-RN-RF2-4: light-theme faint text sat at 3.92:1 on --w-danger-soft
+     (remote run feed timestamps, axe wcag2aa color-contrast — RF2 run 4).
+     #6B665C keeps the faint role's step below muted (#5F5B53) and passes
+     4.5:1 on every light background it can land on (danger-soft 4.88,
+     sunken 4.84, bg 5.19, surface 5.71). Dark theme unchanged. */
+  --w-text-faint: #6B665C;
+  --w-primary: #FFD400;
+  --w-primary-hover: #F2C600;
+  --w-on-primary: #1B1A17;
+  --w-primary-soft: #FFF4C2;
+  --w-primary-text: #7A5C00;
+  --w-attention: #A8430A;
+  --w-attention-soft: #FFEEDF;
+  --w-success: #1B6B39;
+  --w-success-soft: #E4F3E8;
+  --w-danger: #A8261D;
+  --w-danger-soft: #FCE9E7;
+  --w-info: #1F55A0;
+  --w-info-soft: #E7EFFA;
+  --w-focus: #7A5C00;
+  --w-scrim: #1B1A1766;
+
+  /* Typography */
+  --w-font-sans: "IBM Plex Sans Arabic", "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif;
+  --w-font-mono: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+
+  /* rem sizes and unitless ratios (R-UI-3 D3-a): they mirror tokens/type.ts, and the px figures in
+     DESIGN_SYSTEM_V3 §2.2 are their 16px-root equivalents. */
+  --w-font-size-xs: 0.75rem;
+  --w-font-size-sm: 0.875rem;
+  --w-font-size-md: 1rem;
+  --w-font-size-lg: 1.125rem;
+  --w-font-size-xl: 1.375rem;
+  --w-font-size-2xl: 1.75rem;
+  --w-font-size-3xl: 2.25rem;
+
+  --w-line-height-xs: 1.6;
+  --w-line-height-sm: 1.65;
+  --w-line-height-md: 1.6;
+  --w-line-height-lg: 1.6;
+  --w-line-height-xl: 1.55;
+  --w-line-height-2xl: 1.5;
+  --w-line-height-3xl: 1.4;
+
+  --w-font-weight-regular: 400;
+  --w-font-weight-medium: 500;
+  --w-font-weight-semibold: 600;
+  --w-font-weight-bold: 700;
+
+  --w-tracking-code: 0.01em;
+
+  /* Borders */
+  --w-border-width: 1px;
+  --w-border-width-strong: 2px;
+
+  /* Spacing */
+  --w-space-1: 4px;
+  --w-space-2: 8px;
+  --w-space-3: 12px;
+  --w-space-4: 16px;
+  --w-space-5: 20px;
+  --w-space-6: 24px;
+  --w-space-7: 32px;
+  --w-space-8: 40px;
+  --w-space-9: 48px;
+  --w-space-10: 64px;
+
+  /* Radius */
+  --w-radius-sm: 6px;
+  --w-radius-md: 10px;
+  --w-radius-lg: 14px;
+  --w-radius-xl: 20px;
+  --w-radius-full: 9999px;
+
+  /* Elevation */
+  --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.20);
+
+  /* Layers */
+  --w-layer-base: 0;
+  --w-layer-sticky: 10;
+  --w-layer-dropdown: 100;
+  --w-layer-overlay: 900;
+  --w-layer-modal: 1000;
+  --w-layer-toast: 1100;
+
+  /* Motion */
+  --w-dur-fast: 120ms;
+  --w-dur: 200ms;
+  --w-dur-slow: 320ms;
+  --w-ease: cubic-bezier(.2, .8, .2, 1);
+
+  /* Layout & Density Defaults (Comfortable) */
+  --w-content-narrow: 720px;
+  --w-content: 1120px;
+  --w-content-wide: 1440px;
+  --w-nav-width: 264px;
+  --w-rail-width: 300px;
+  --w-control-height: 44px;
+  --w-table-text-size: var(--w-font-size-md);
+  --w-table-line-height: var(--w-line-height-md);
+}
+
+/* Explicit Dark Theme */
+:root[data-theme="dark"] {
+  --w-bg: #131210;
+  --w-surface: #1B1A17;
+  --w-sunken: #24221E;
+  --w-line: #33302A;
+  --w-line-strong: #7D776C;
+  --w-text: #F1EEE7;
+  --w-text-muted: #B3AEA3;
+  --w-text-faint: #948F84;
+  --w-primary: #FFD400;
+  --w-primary-hover: #FFE04A;
+  --w-on-primary: #1B1A17;
+  --w-primary-soft: #3A3008;
+  --w-primary-text: #FFD84D;
+  --w-attention: #FF9D5C;
+  --w-attention-soft: #3D2314;
+  --w-success: #5CC98A;
+  --w-success-soft: #15301F;
+  --w-danger: #F07A70;
+  --w-danger-soft: #3A1714;
+  --w-info: #7DB0F5;
+  --w-info-soft: #152842;
+  --w-focus: #FFD400;
+  --w-scrim: #000000A3;
+
+  --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.40);
+  --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.50);
+  --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.60);
+}
+
+/* OS Dark Preference (unless overridden by data-theme="light") */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --w-bg: #131210;
+    --w-surface: #1B1A17;
+    --w-sunken: #24221E;
+    --w-line: #33302A;
+    --w-line-strong: #7D776C;
+    --w-text: #F1EEE7;
+    --w-text-muted: #B3AEA3;
+    --w-text-faint: #948F84;
+    --w-primary: #FFD400;
+    --w-primary-hover: #FFE04A;
+    --w-on-primary: #1B1A17;
+    --w-primary-soft: #3A3008;
+    --w-primary-text: #FFD84D;
+    --w-attention: #FF9D5C;
+    --w-attention-soft: #3D2314;
+    --w-success: #5CC98A;
+    --w-success-soft: #15301F;
+    --w-danger: #F07A70;
+    --w-danger-soft: #3A1714;
+    --w-info: #7DB0F5;
+    --w-info-soft: #152842;
+    --w-focus: #FFD400;
+    --w-scrim: #000000A3;
+
+    --w-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.40);
+    --w-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.50);
+    --w-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.60);
+  }
+}
+
+/* Compact Density: switches control height 44 -> 32 and table text md -> sm */
+[data-density="compact"] {
+  --w-control-height: 32px;
+  --w-table-text-size: var(--w-font-size-sm);
+  --w-table-line-height: var(--w-line-height-sm);
+}
+
+/* ── Motion (R-UI-3 D1) ─────────────────────────────────────────────────────────────────────────────
+   The components carry their own `animation:` string inline; the keyframes they name, the press state
+   that inline styles cannot express, and the one-shot enter animations all live here. Every rule below
+   reads the --w-dur and --w-ease tokens and is neutralised again under prefers-reduced-motion (the block
+   after them).
+
+   Inline-axis motion is mirrored by --w-inline-sign, which [dir="rtl"] flips: no `left`/`right`, no
+   duplicated per-direction rules. */
+:root {
+  --w-inline-sign: 1;
+  --w-sheet-from: 100%;
+}
+
+[dir='rtl'] {
+  --w-inline-sign: -1;
+}
+
+/* D1-a: the three looping animations the components already reference by name. */
+@keyframes w-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes w-pulse {
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes w-progress-indeterminate {
+  from {
+    transform: translateX(calc(-100% * var(--w-inline-sign)));
+  }
+
+  to {
+    transform: translateX(calc(333% * var(--w-inline-sign)));
+  }
+}
+
+/* D1-d: the Sheet slides in from the inline edge it is pinned to, one shot, and the scrim fades with it.
+   No exit animation: the component unmounts on open=false (adding one means a state machine). */
+@keyframes w-sheet-in {
+  from {
+    opacity: 0.4;
+    transform: translateX(var(--w-sheet-from));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes w-scrim-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.w-sheet {
+  animation: w-sheet-in var(--w-dur-slow) var(--w-ease) both;
+}
+
+.w-sheet-scrim {
+  animation: w-scrim-in var(--w-dur-slow) var(--w-ease) both;
+}
+
+.w-sheet--end {
+  --w-sheet-from: 100%;
+}
+
+.w-sheet--start {
+  --w-sheet-from: -100%;
+}
+
+[dir='rtl'] .w-sheet--end {
+  --w-sheet-from: -100%;
+}
+
+[dir='rtl'] .w-sheet--start {
+  --w-sheet-from: 100%;
+}
+
+/* D1-e: a stage that becomes `done` scales its marker in once. Keyed on the marker's own data-state, so
+   there is no React state to keep in sync (see the report for the first-render note). */
+@keyframes w-step-done {
+  from {
+    transform: scale(0.85);
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
+.w-stepper__bar[data-state='done'] {
+  animation: w-step-done var(--w-dur) var(--w-ease);
+}
+
+/* D1-c: press state. `:active` cannot be written in a React inline style, so it is a class rule; the
+   `!important` is required only because Button sets `transition` inline and the stylesheet has to add
+   `transform` to that same list (the values are the inline ones plus transform). */
+.w-button {
+  transition:
+    background-color var(--w-dur-fast) var(--w-ease),
+    opacity var(--w-dur-fast) var(--w-ease),
+    transform var(--w-dur-fast) var(--w-ease) !important;
+}
+
+.w-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Reduced Motion: motion durations collapse to 0 and every animated selector above goes static (D1-b/D1-f).
+   The components' `animation:` strings are inline, so `!important` is the only way to win over them. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --w-dur-fast: 0ms;
+    --w-dur: 0ms;
+    --w-dur-slow: 0ms;
+  }
+
+  /* Static ring with its text label (the accessible name), not a frozen spinner. */
+  .w-spinner svg,
+  .w-skeleton,
+  .w-progress-bar__fill,
+  .w-sheet,
+  .w-sheet-scrim,
+  .w-stepper__bar[data-state='done'] {
+    animation: none !important;
+  }
+
+  .w-button {
+    transition: none !important;
+  }
+
+  .w-button:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* RTL Icon Mirroring */
+[dir="rtl"] .w-icon--mirror {
+  transform: scaleX(-1);
+}

@@ -1,0 +1,130 @@
+// apps/desktop/src/v3/pages/settings/index.tsx — Settings page shell (UI_V3_PLAN §3.7)
+import { useT } from '@warsha/i18n/v3';
+import React, { useEffect, useState } from 'react';
+
+import { useDensity } from '../../app/DensityContext';
+import { useNavigate, useRoute } from '../../router';
+import { useNarrowViewport } from '../bench/useNarrowViewport';
+
+import { SettingsNav, type SettingsLayer } from './SettingsNav';
+import { AboutSection } from './sections/AboutSection';
+import { BackendSection } from './sections/BackendSection';
+import { BudgetsSection } from './sections/BudgetsSection';
+import { ConnectionsSection } from './sections/ConnectionsSection';
+import { DevicesSection } from './sections/DevicesSection';
+import { GeneralSection } from './sections/GeneralSection';
+import { IntegrationsSection } from './sections/IntegrationsSection';
+import { McpPermissionsSection } from './sections/McpPermissionsSection';
+import { ModelsSection } from './sections/ModelsSection';
+import { PermissionsSection } from './sections/PermissionsSection';
+import { PluginsSection } from './sections/PluginsSection';
+import { PostLaunchSection } from './sections/PostLaunchSection';
+import { RoutinesSection } from './sections/RoutinesSection';
+import { SettingsExportSection } from './sections/SettingsExportSection';
+import { SkillsSection } from './sections/SkillsSection';
+import { SwarmSection } from './sections/SwarmSection';
+import { UsageSection } from './sections/UsageSection';
+import { WorkflowsSection } from './sections/WorkflowsSection';
+import {
+  isSettingsSectionId,
+  SETTINGS_SECTIONS,
+  type SettingsSectionId,
+} from './types';
+import './settings.css';
+
+export default function SettingsPage(): React.ReactElement {
+  const t = useT();
+  const { params } = useRoute();
+  const navigate = useNavigate();
+  const { mode } = useDensity();
+  // One column at phone width (planner decision 4). The hook decides it, and the root's `data-narrow`
+  // paints it, so a media query never has to hold a breakpoint literal (settings.css).
+  const narrow = useNarrowViewport();
+
+  const rawSection = params.section ?? 'general';
+  const activeSection: SettingsSectionId = isSettingsSectionId(rawSection)
+    ? rawSection
+    : 'general';
+
+  const activeMeta = SETTINGS_SECTIONS.find((s) => s.id === activeSection) ?? SETTINGS_SECTIONS[0];
+  const [layer, setLayer] = useState<SettingsLayer>('developers');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [advancedExpanded, setAdvancedExpanded] = useState<boolean>(
+    () => Boolean(activeMeta?.isAdvanced)
+  );
+
+  useEffect(() => {
+    if (activeMeta?.isAdvanced) {
+      setAdvancedExpanded(true);
+    }
+  }, [activeMeta]);
+
+  const handleSelectSection = (id: SettingsSectionId): void => {
+    navigate(`/settings/${id}`);
+  };
+
+  const renderSection = (): React.ReactElement => {
+    switch (activeSection) {
+      case 'general':
+        return <GeneralSection />;
+      case 'models':
+        return <ModelsSection />;
+      case 'devices':
+        return <DevicesSection />;
+      case 'workflows':
+        return <WorkflowsSection />;
+      case 'skills':
+        return <SkillsSection />;
+      case 'plugins':
+        return <PluginsSection />;
+      case 'connections':
+        return <ConnectionsSection />;
+      case 'mcp':
+        return <McpPermissionsSection />;
+      case 'integrations':
+        return <IntegrationsSection />;
+      case 'routines':
+        return <RoutinesSection />;
+      case 'budgets':
+        return <BudgetsSection />;
+      case 'usage':
+        return <UsageSection />;
+      case 'permissions':
+        return <PermissionsSection />;
+      case 'swarm':
+        return <SwarmSection />;
+      case 'postlaunch':
+        return <PostLaunchSection />;
+      case 'backend':
+        return <BackendSection />;
+      case 'export':
+        return <SettingsExportSection />;
+      case 'about':
+        return <AboutSection />;
+      default:
+        return <GeneralSection />;
+    }
+  };
+
+  return (
+    <div
+      className="v3-settings-root"
+      data-narrow={narrow ? 'true' : 'false'}
+      data-testid="settings-page"
+    >
+      <h1 className="v3-settings-title">{t('settings.title')}</h1>
+      <SettingsNav
+        activeSection={activeSection}
+        onSelectSection={handleSelectSection}
+        mode={mode}
+        layer={layer}
+        onLayerChange={setLayer}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        advancedExpanded={advancedExpanded}
+        onToggleAdvanced={() => setAdvancedExpanded((prev) => !prev)}
+      />
+      <div className="v3-settings-content">{renderSection()}</div>
+    </div>
+  );
+}

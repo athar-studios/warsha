@@ -89,6 +89,7 @@ export function BenchTopbar({
           mode={mode}
           onModeChange={onModeChange}
           simpleLabel={t('app.simpleMode', {}, locale)}
+          factoryLabel={t('app.factoryMode', {}, locale)}
           advancedLabel={t('app.advancedMode', {}, locale)}
           label={t('app.mode_label', {}, locale)}
         />

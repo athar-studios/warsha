@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! End-to-end deterministic pipeline runs driven by the pre-registered fake
 //! provider — with zero manual `RoleRouting` configured.
 //!
@@ -26,8 +33,7 @@ use warsha_core::{
 };
 use warsha_pipeline::{settings::SettingsStore, PipelineEngine};
 use warsha_providers::{
-    ChatProvider, EnvLlmConfig, FakeProvider, MockProvider, ProviderRouter, FAKE_MODEL_ID,
-    FAKE_PROVIDER_ID,
+    ChatProvider, FakeProvider, MockProvider, ProviderRouter, FAKE_MODEL_ID, FAKE_PROVIDER_ID,
 };
 use warsha_store::Store;
 
@@ -99,47 +105,27 @@ async fn create_project(store: &Arc<Store>) -> ProjectId {
         language: "ar".to_string(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
-        repo_path: None,
-        repo_url: None,
+        ..Default::default()
     };
     store.create_project(&project).await.expect("a project");
     project.id
 }
 
-/// Whether the *ambient* environment would steer unrouted stages to a real
-/// endpoint: a non-blank `WARSHA_LLM_API_KEY` and no explicit `WARSHA_LLM_PROVIDER=fake`.
-fn ambient_env_openai() -> bool {
-    let key = EnvLlmConfig::from_env().api_key;
-    let forced_fake = std::env::var("WARSHA_LLM_PROVIDER")
-        .ok()
-        .map(|value| value.trim() == "fake")
-        .unwrap_or(false);
-    key.is_some() && !forced_fake
-}
-
-/// The router under test: an empty [`ProviderRouter`] — no manual routing — so the
-/// walk exercises the zero-configuration fake fallthrough.
-///
-/// One offline guard: if the machine running the suite happens to export
-/// `WARSHA_LLM_API_KEY`, the unrouted path would legitimately try `env-openai`
-/// over the network, which repository rules forbid in tests. In that case (and
-/// only then) every stage role is explicitly routed to the pre-registered `"fake"`
-/// adapter, which keeps the assertions about artifact content identical.
+/// The router under test: every stage role explicitly routed to `"fake"`,
+/// verifying deterministic pipeline execution without silent fallback.
 fn walk_router() -> Arc<RwLock<ProviderRouter>> {
     let mut router = ProviderRouter::new();
-    if ambient_env_openai() {
-        for role in ALL_DISPATCH_ROLES {
-            router.set_role_routing(RoleRouting {
-                role,
-                targets: vec![RoutingTarget {
-                    provider_id: FAKE_PROVIDER_ID.to_string(),
-                    model_id: FAKE_MODEL_ID.to_string(),
-                    weight: 100,
-                }],
-                fallback_enabled: false,
-                budget_cents_per_run: None,
-            });
-        }
+    for role in ALL_DISPATCH_ROLES {
+        router.set_role_routing(RoleRouting {
+            role,
+            targets: vec![RoutingTarget {
+                provider_id: FAKE_PROVIDER_ID.to_string(),
+                model_id: FAKE_MODEL_ID.to_string(),
+                weight: 100,
+            }],
+            fallback_enabled: false,
+            budget_cents_per_run: None,
+        });
     }
     Arc::new(RwLock::new(router))
 }

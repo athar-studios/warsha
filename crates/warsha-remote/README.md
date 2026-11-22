@@ -7,14 +7,15 @@ and bounded inbound rate limiting. The desktop remains the owner; a paired phone
 with its **own pairing secret**, never the daemon token
 (`crates/warshad/src/auth.rs:171-184`).
 
-**Relay payloads are not end-to-end encrypted today.** The `EncryptedChannel` handshake is a
-stub (see below); the phone path that actually runs is authenticated JSON-RPC, not ciphertext.
+**Relay payloads are not end-to-end encrypted today.** There is no handshake channel in the tree
+(the dead Noise stub was deleted in R-EXT-6); the phone path that actually runs is authenticated
+JSON-RPC, not ciphertext.
 
 ## Interface
 
 - `src/lib.rs` — `DeviceIdentity`, `DeviceRegistry`, `PairingData`, `PairingOffer`,
-  `TrustedPairing`, `RelayTrust` and the `EncryptedFrame` wire type, plus the unfinished
-  `EncryptedChannel` and `RelayClient`.
+  `TrustedPairing`, `RelayTrust` and the `EncryptedFrame` wire type, plus the unimplemented
+  `RelayClient`.
 - `src/rate_limit.rs` — declared `pub mod rate_limit` at `src/lib.rs:3`. `Quota` (`burst`
   capacity plus `sustained` requests per `window`), `RateLimiter<K>`, `Decision`, `rate_key`,
   `RefusalMeter`, `RefusalSummary` and `caller_digest`. A token bucket keyed on an
@@ -45,21 +46,10 @@ stub (see below); the phone path that actually runs is authenticated JSON-RPC, n
 
 ### Encryption: what is and is not implemented
 
-- `EncryptedChannel::initiate` (`src/lib.rs:611`) and `EncryptedChannel::respond` (`:640`) build
-  a `snow` Noise XX handshake and bind it to `let _handshake`, discarding it. Both return
-  `transport: None`.
-- `process_handshake` (`src/lib.rs:656-659`) is a **stub** returning `Ok(false)`. It never
-  advances a handshake state machine.
-- `write_message` and `read_message` (`src/lib.rs:662-685`) therefore always fail with
-  `Handshake("Handshake not complete")`. The only way to set `transport` is to hand
-  `complete_handshake` (`:688`) a `HandshakeState` the caller built itself.
-- Nothing outside this crate uses `EncryptedChannel` or `RelayClient`. Both are
-  `#[allow(dead_code)]` and appear only in this file's own tests. `RelayClient::connect` (`:715`),
-  `send_frame` (`:742`) and `receive_frames` (`:747`) are stubs returning `Ok(())` and
-  `Ok(vec![])`.
-- `crates/warsha-relay` does forward `EncryptedFrame` values, but no production code constructs
-  one: outside tests the type appears only as the relay's channel payload and HTTP/WebSocket
-  body. "The relay only sees ciphertext" is a design goal, not today's behaviour.
+- **The crypto stubs were deleted** (OD-R6, KEEL K7): there is no handshake channel or relay client in
+  the tree today. Nothing derives session keys, so nothing is encrypted end-to-end.
+- `crates/warsha-relay` forwards `EncryptedFrame` values by size and `to` device id and has no key to
+  decrypt with; "the relay only sees ciphertext" is a design goal, not today's behaviour.
 
 ## Side Effects
 

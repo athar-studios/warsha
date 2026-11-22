@@ -1,5 +1,7 @@
 //! Test-only helpers shared by the `warsha-pipeline` test modules.
 
+#![allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
+
 use std::path::PathBuf;
 use tempfile::TempDir;
 

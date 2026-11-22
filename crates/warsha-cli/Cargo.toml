@@ -5,10 +5,14 @@ edition = { workspace = true }
 license = { workspace = true }
 description = "CLI binary: warsha command"
 
+[lints]
+workspace = true
+
 [dependencies]
 warsha-core = { path = "../warsha-core" }
 warsha-providers = { path = "../warsha-providers" }
 warsha-remote = { path = "../warsha-remote" }
+warsha-backends = { path = "../warsha-backends" }
 warshad = { path = "../warshad" }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
@@ -32,7 +36,6 @@ path = "src/main.rs"
 
 [dev-dependencies]
 tempfile = { workspace = true }
-pretty_assertions = "1.4"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.59", features = ["Win32_Security_Credentials", "Win32_Foundation", "Win32_System_Threading"] }

@@ -46,6 +46,10 @@ fn init_prompts() -> HashMap<Role, String> {
         Role::Feedback,
         include_str!("prompts/feedback.md").to_string(),
     );
+    map.insert(
+        Role::Secretary,
+        include_str!("prompts/secretary_interview.md").to_string(),
+    );
 
     map
 }
@@ -75,6 +79,7 @@ pub fn role_for_stage(stage: warsha_core::Stage) -> Option<Role> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 

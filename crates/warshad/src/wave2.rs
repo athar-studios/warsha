@@ -27,9 +27,9 @@ use std::path::{Component, Path, PathBuf};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use warsha_core::{
-    CustomModelRecord, FileContent, FileEntry, HarnessDefinition, HarnessRules, HarnessStage,
-    IntegrationConfig, IntegrationStatus, PluginDefinition, PluginToolDefinition, Role,
-    SkillDefinition,
+    CustomModelRecord, FileContent, FileDiff, FileEntry, HarnessDefinition, HarnessRules,
+    HarnessStage, IntegrationConfig, IntegrationStatus, PluginDefinition, PluginToolDefinition,
+    Role, SkillDefinition,
 };
 use warsha_store::{
     StoredCustomModel, StoredHarness, StoredIntegration, StoredPlugin, StoredSkill,
@@ -81,6 +81,168 @@ const MIME_TYPES: &[(&str, &str)] = &[
 /// The viewer pane is a text pane; a 400 MB log read into a JSON-RPC reply is a
 /// daemon that stalls, and the honest refusal is cheaper than the incident.
 const MAX_READ_BYTES: u64 = 1_048_576;
+
+/// Match one simple glob pattern (`*` wildcards) against a name (case-insensitive).
+pub fn matches_protected_glob(candidate: &str, pattern: &str) -> bool {
+    let candidate = candidate.to_lowercase();
+    let pattern = pattern.trim().to_lowercase();
+    if pattern.is_empty() {
+        return false;
+    }
+    if !pattern.contains('*') {
+        return candidate == pattern;
+    }
+    let parts: Vec<&str> = pattern.split('*').collect();
+    let mut rest = candidate.as_str();
+    for (idx, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        if idx == 0 {
+            if let Some(after) = rest.strip_prefix(part) {
+                rest = after;
+            } else {
+                return false;
+            }
+        } else if idx == parts.len() - 1 {
+            return rest.ends_with(part);
+        } else if let Some(pos) = rest.find(part) {
+            rest = &rest[pos + part.len()..];
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+/// Protected file detection using the built-in patterns and directories.
+pub fn is_protected(name: &str) -> bool {
+    let name = name.to_lowercase();
+    let protected_patterns = [
+        ".env",
+        ".env.*",
+        "*.pem",
+        "*.key",
+        "*.p12",
+        "*.pfx",
+        "id_rsa*",
+        "id_ed25519*",
+        "*.keystore",
+        "*.jks",
+        ".npmrc",
+        ".netrc",
+        "credentials*",
+        "secrets*",
+    ];
+    let protected_dirs = [".git", ".ssh", ".aws", ".gnupg"];
+
+    if protected_patterns
+        .iter()
+        .any(|&p| matches_protected_glob(&name, p))
+    {
+        return true;
+    }
+    protected_dirs.contains(&name.as_str())
+}
+
+/// Protected file detection merging built-in rules (never removable) with extra project globs.
+pub fn is_protected_with_extra(name: &str, extra_globs: &[String]) -> bool {
+    if is_protected(name) {
+        return true;
+    }
+    extra_globs
+        .iter()
+        .any(|glob| matches_protected_glob(name, glob))
+}
+
+/// True when any component of a relative path or the path itself matches built-in or extra globs.
+pub fn is_path_protected(rel_path: &str, extra_globs: &[String]) -> bool {
+    let normalized = rel_path.replace('\\', "/");
+    if is_protected_with_extra(&normalized, extra_globs) {
+        return true;
+    }
+    normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .any(|segment| is_protected_with_extra(segment, extra_globs))
+}
+
+/// Collect `git status --porcelain` entries for a repository root.
+///
+/// Returns an empty map when `root` is not a git repository or git is unavailable,
+/// keeping non-git project folders browsable without noise.
+pub fn git_porcelain_status(root: &Path) -> HashMap<String, String> {
+    let output = match std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(root)
+        .output()
+    {
+        Ok(out) if out.status.success() => out,
+        _ => return HashMap::new(),
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut map = HashMap::new();
+    for line in text.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+        let code = line[..2].trim().to_string();
+        if code.is_empty() {
+            continue;
+        }
+        let raw_path = line[3..].trim();
+        let target = raw_path
+            .rsplit_once(" -> ")
+            .map(|(_, rhs)| rhs)
+            .unwrap_or(raw_path);
+        let unquoted = target
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .unwrap_or(target);
+        let normalized = unquoted
+            .replace('\\', "/")
+            .trim_start_matches("./")
+            .trim_end_matches('/')
+            .to_string();
+        if !normalized.is_empty() {
+            map.insert(normalized, code);
+        }
+    }
+    map
+}
+
+/// Resolve the base commit SHA for a run worktree relative to the project repository.
+///
+/// Falls back to `"HEAD"` when the worktree has no distinct merge-base with the project repo.
+#[allow(dead_code)]
+pub fn resolve_run_base_ref(worktree_root: &Path, project_repo: Option<&Path>) -> String {
+    if let Some(repo) = project_repo {
+        if let Ok(head_out) = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(repo)
+            .output()
+        {
+            if head_out.status.success() {
+                let project_head = String::from_utf8_lossy(&head_out.stdout).trim().to_string();
+                if !project_head.is_empty() && !project_head.starts_with('-') {
+                    if let Ok(mb_out) = std::process::Command::new("git")
+                        .args(["merge-base", "HEAD", &project_head])
+                        .current_dir(worktree_root)
+                        .output()
+                    {
+                        if mb_out.status.success() {
+                            let sha = String::from_utf8_lossy(&mb_out.stdout).trim().to_string();
+                            if !sha.is_empty() {
+                                return sha;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    "HEAD".to_string()
+}
 
 /// The directory under the daemon's data directory that holds a project's browsable
 /// files when the project has no repository yet.
@@ -172,6 +334,8 @@ struct ImportRules {
     #[serde(default)]
     max_repair_iterations: Option<u32>,
     #[serde(default)]
+    coding_cli_timeout_seconds: Option<u64>,
+    #[serde(default)]
     budget_cap_cents: Option<u64>,
     #[serde(default)]
     allow_parallel_subagents: Option<bool>,
@@ -188,6 +352,7 @@ struct ImportRules {
 fn default_harness_rules() -> HarnessRules {
     HarnessRules {
         max_repair_iterations: 3,
+        coding_cli_timeout_seconds: None,
         budget_cap_cents: None,
         allow_parallel_subagents: false,
         require_verification_receipt: false,
@@ -201,6 +366,9 @@ impl From<ImportRules> for HarnessRules {
             max_repair_iterations: rules
                 .max_repair_iterations
                 .unwrap_or(defaults.max_repair_iterations),
+            coding_cli_timeout_seconds: rules
+                .coding_cli_timeout_seconds
+                .or(defaults.coding_cli_timeout_seconds),
             budget_cap_cents: rules.budget_cap_cents.or(defaults.budget_cap_cents),
             allow_parallel_subagents: rules
                 .allow_parallel_subagents
@@ -308,10 +476,11 @@ pub fn skill_row(definition: &SkillDefinition) -> Checked<StoredSkill> {
 
 /// The definition behind a row.
 ///
-/// The one damaged column is `tags_json`, and tags are metadata: an unparseable
-/// list reads as no tags rather than as no skill.
-pub fn skill_definition(row: &StoredSkill) -> SkillDefinition {
-    SkillDefinition {
+/// Returns an error naming the row if `tags_json` cannot be parsed.
+pub fn skill_definition(row: &StoredSkill) -> Checked<SkillDefinition> {
+    let tags = serde_json::from_str(&row.tags_json)
+        .map_err(|e| format!("corrupt skill row `{}`: invalid tags_json: {e}", row.id))?;
+    Ok(SkillDefinition {
         id: row.id.clone(),
         name: row.name.clone(),
         description: row.description.clone(),
@@ -319,8 +488,8 @@ pub fn skill_definition(row: &StoredSkill) -> SkillDefinition {
         license: row.license.clone(),
         content: row.content.clone(),
         enabled: row.enabled,
-        tags: serde_json::from_str(&row.tags_json).unwrap_or_default(),
-    }
+        tags,
+    })
 }
 
 /// What `skills.import` reads out of a markdown pack's front matter.
@@ -602,21 +771,29 @@ pub fn plugin_row(definition: &PluginDefinition) -> Checked<StoredPlugin> {
 
 /// The definition behind a row.
 ///
-/// A list column that does not parse reads as empty — the pack still launches with
-/// the arguments it did not lose — rather than dropping the row the owner installed.
-pub fn plugin_definition(row: &StoredPlugin) -> PluginDefinition {
-    PluginDefinition {
+/// The definition behind a plugin row.
+///
+/// Returns an error naming the row if any JSON column (`args_json`, `env_json`, `tools_json`)
+/// cannot be parsed.
+pub fn plugin_definition(row: &StoredPlugin) -> Checked<PluginDefinition> {
+    let args = serde_json::from_str(&row.args_json)
+        .map_err(|e| format!("corrupt plugin row `{}`: invalid args_json: {e}", row.id))?;
+    let env = serde_json::from_str(&row.env_json)
+        .map_err(|e| format!("corrupt plugin row `{}`: invalid env_json: {e}", row.id))?;
+    let tools = serde_json::from_str(&row.tools_json)
+        .map_err(|e| format!("corrupt plugin row `{}`: invalid tools_json: {e}", row.id))?;
+    Ok(PluginDefinition {
         id: row.id.clone(),
         name: row.name.clone(),
         description: row.description.clone(),
         transport: row.transport.clone(),
         command: row.command.clone(),
-        args: serde_json::from_str(&row.args_json).unwrap_or_default(),
-        env: serde_json::from_str(&row.env_json).unwrap_or_default(),
+        args,
+        env,
         enabled: row.enabled,
-        tools: serde_json::from_str(&row.tools_json).unwrap_or_default(),
+        tools,
         source: row.source.clone(),
-    }
+    })
 }
 
 /// What `plugins.install` reads, in one manifest per field.
@@ -695,6 +872,17 @@ pub fn parse_plugin_manifest(manifest_json_or_url: &str) -> Checked<PluginDefini
             "the pack `{name}` is a stdio pack with no command, so there is nothing to launch"
         ));
     }
+    if transport != "stdio"
+        && imported
+            .command
+            .as_deref()
+            .map(|command| !command.trim().is_empty())
+            .unwrap_or(false)
+    {
+        return Err(format!(
+            "the pack `{name}` names the `{transport}` transport but carries a `command`; a non-stdio pack must not name a program to launch (KEEL K5 review, finding 1)"
+        ));
+    }
 
     Ok(PluginDefinition {
         id: first_non_empty(&[&imported.id, &slug(name)]).unwrap_or_else(|| slug(name)),
@@ -723,6 +911,133 @@ pub fn parse_plugin_manifest(manifest_json_or_url: &str) -> Checked<PluginDefini
             .collect(),
         source: imported.source,
     })
+}
+
+/// The launchers whose remaining arguments name a remote package.
+///
+/// A pack launched through one of these names a *package*, and a bare package
+/// name is whatever the registry published most recently. Checking the launcher
+/// rather than every command keeps the rule where "pinned" has a meaning:
+/// `cargo` runs the local toolchain, `npx` fetches the internet.
+const PACKAGE_LAUNCHERS: &[&str] = &["npx", "pnpm", "yarn", "bun", "bunx", "npm", "uvx", "pipx"];
+
+/// Subcommands that stand between a launcher and the package it runs.
+const LAUNCHER_SUBCOMMANDS: &[&str] = &["dlx", "exec", "x", "run", "tool"];
+
+/// Refuse a pack that would fetch an unpinned release, or nothing at all.
+///
+/// `npx @scope/server` installs whatever `@scope/server` was a minute ago; the
+/// daemon's own bundled packs pin `pkg@x.y.z` and an installed manifest has to
+/// meet the same bar (KEEL K5b / OD-R3). Commands that name no package runner
+/// are not this function's business and pass through.
+pub fn require_pinned_launch(command: &str, args: &[String]) -> Checked<()> {
+    let base = command
+        .trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let program = base
+        .strip_suffix(".cmd")
+        .or_else(|| base.strip_suffix(".exe"))
+        .unwrap_or(base.as_str());
+    if !PACKAGE_LAUNCHERS.contains(&program) {
+        return Ok(());
+    }
+
+    // Read the launcher's own grammar instead of filtering tokens blindly: a
+    // launcher option (`-y`, `--yes`, `--registry=…`) is not a package, an option
+    // that names one (`--package=…`, `-p …`) is checked, and every token after the
+    // package is a server argument, not another package (KEEL K5 review, finding 3).
+    let mut tokens = args
+        .iter()
+        .map(|arg| arg.trim())
+        .filter(|arg| !arg.is_empty());
+    let mut package: Option<&str> = None;
+    while let Some(token) = tokens.next() {
+        if LAUNCHER_SUBCOMMANDS.contains(&token) {
+            // `npm|pnpm|yarn run <script>` runs a local script, not a fetched package.
+            if token == "run" && matches!(program, "npm" | "pnpm" | "yarn") {
+                return Ok(());
+            }
+            continue;
+        }
+        if let Some(value) = token.strip_prefix("--package=") {
+            package = Some(value);
+            break;
+        }
+        if token == "--package" || token == "-p" {
+            package = tokens.next();
+            break;
+        }
+        if token.starts_with('-') {
+            continue;
+        }
+        package = Some(token);
+        break;
+    }
+
+    match package {
+        Some(package) => {
+            if !is_pinned_package(package) {
+                return Err(format!(
+                    "the pack launches the unpinned package `{package}`; name the release it was tested with as `pkg@x.y.z`"
+                ));
+            }
+            Ok(())
+        }
+        None => Err(format!(
+            "the pack launches `{command}` but names no package; there is nothing pinned to run"
+        )),
+    }
+}
+
+/// True for a package argument that names an exact release (`pkg@x.y.z`).
+///
+/// A range (`1.2.x`, `1.x`, `*`, `^1.2.3`) is not a pin: it lets the registry
+/// choose the code the daemon runs. Only `MAJOR.MINOR.PATCH` with an optional
+/// prerelease/build suffix is accepted (KEEL K5 review, finding 3).
+fn is_pinned_package(package: &str) -> bool {
+    let Some((name, version)) = package.rsplit_once('@') else {
+        return false;
+    };
+    !name.trim().is_empty() && is_exact_semver(version)
+}
+
+/// True for a strict `MAJOR.MINOR.PATCH[-pre][+build]` version.
+fn is_exact_semver(version: &str) -> bool {
+    let (core_and_pre, build) = match version.split_once('+') {
+        Some((left, right)) => (left, Some(right)),
+        None => (version, None),
+    };
+    if let Some(build) = build {
+        if build.is_empty()
+            || !build
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
+        {
+            return false;
+        }
+    }
+    let (core, pre) = match core_and_pre.split_once('-') {
+        Some((left, right)) => (left, Some(right)),
+        None => (core_and_pre, None),
+    };
+    if let Some(pre) = pre {
+        if pre.is_empty()
+            || !pre
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-'))
+        {
+            return false;
+        }
+    }
+    let parts: Vec<&str> = core.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// The keychain account one plugin's environment variable is filed under.
@@ -857,8 +1172,15 @@ pub fn integration_row(
 }
 
 /// The redacted config a row carries.
-pub fn integration_config(row: &StoredIntegration) -> IntegrationConfig {
-    serde_json::from_str(&row.config_json).unwrap_or_default()
+///
+/// Returns an error naming the row if `config_json` cannot be parsed.
+pub fn integration_config(row: &StoredIntegration) -> Checked<IntegrationConfig> {
+    serde_json::from_str(&row.config_json).map_err(|e| {
+        format!(
+            "corrupt integration row `{}`: invalid config_json: {e}",
+            row.id
+        )
+    })
 }
 
 /// The status line `integrations.list` answers with.
@@ -871,9 +1193,9 @@ pub fn integration_status(
     row: &StoredIntegration,
     has_token: bool,
     has_bot_token: bool,
-) -> IntegrationStatus {
-    let config = integration_config(row);
-    IntegrationStatus {
+) -> Checked<IntegrationStatus> {
+    let config = integration_config(row)?;
+    Ok(IntegrationStatus {
         id: row.id.clone(),
         name: row.name.clone(),
         connected: row.connected,
@@ -885,7 +1207,7 @@ pub fn integration_status(
             "has_token": has_token,
             "has_bot_token": has_bot_token,
         })),
-    }
+    })
 }
 
 /// The default name of a well-known integration, so a first `connect` on an id the
@@ -984,19 +1306,16 @@ pub fn safe_join(root: &Path, relative: &str) -> Checked<PathBuf> {
 }
 
 /// The path, canonicalised, proven to still be inside `root`.
-///
-/// `root` itself is canonicalised first because a project path that arrives through
-/// a link would otherwise make every child look like an escape.
 pub fn resolve_inside(root: &Path, target: &Path) -> Checked<PathBuf> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "the project directory is not readable on this machine".to_string())?;
-    if target == root {
-        return Ok(canonical_root);
-    }
+
+    // Check for symlink escape using canonicalize.
     let canonical = target
         .canonicalize()
         .map_err(|_| format!("`{}` is not inside the project", target.display()))?;
+
     if canonical.starts_with(&canonical_root) {
         Ok(canonical)
     } else {
@@ -1016,6 +1335,15 @@ pub fn resolve_inside(root: &Path, target: &Path) -> Checked<PathBuf> {
 /// A directory that cannot be opened is an empty listing, not an error — the caller
 /// asked what is there, and nothing readable is there.
 pub fn list_tree(root: &Path, dir: &Path) -> Checked<Vec<FileEntry>> {
+    list_tree_with_extra(root, dir, &[])
+}
+
+/// One directory level with porcelain git status badges and merged extra protected globs.
+pub fn list_tree_with_extra(
+    root: &Path,
+    dir: &Path,
+    extra_globs: &[String],
+) -> Checked<Vec<FileEntry>> {
     let read = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -1026,6 +1354,7 @@ pub fn list_tree(root: &Path, dir: &Path) -> Checked<Vec<FileEntry>> {
             ))
         }
     };
+    let status_map = git_porcelain_status(root);
     let mut entries = Vec::new();
     for item in read.flatten() {
         let file_type = match item.file_type() {
@@ -1036,16 +1365,45 @@ pub fn list_tree(root: &Path, dir: &Path) -> Checked<Vec<FileEntry>> {
             continue;
         }
         let is_dir = file_type.is_dir();
-        let size_bytes = if is_dir {
+        let name = item.file_name().to_string_lossy().to_string();
+
+        // Ensure path resolves inside the project root, symlink protection.
+        if resolve_inside(root, &item.path()).is_err() {
+            continue;
+        }
+
+        let rel_path = relative_to(root, &item.path());
+        let protected = is_path_protected(&rel_path, extra_globs);
+        let size_bytes = if is_dir || protected {
             0
         } else {
             item.metadata().map(|meta| meta.len()).unwrap_or_default()
         };
+        let mtime = item
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .map(DateTime::<Utc>::from);
+        let git_status = if let Some(exact) = status_map.get(&rel_path) {
+            Some(exact.clone())
+        } else if is_dir {
+            let prefix = format!("{rel_path}/");
+            if status_map.keys().any(|k| k.starts_with(&prefix)) {
+                Some("M".to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         entries.push(FileEntry {
-            name: item.file_name().to_string_lossy().to_string(),
-            path: relative_to(root, &item.path()),
+            name,
+            path: rel_path,
             is_dir,
             size_bytes,
+            mtime,
+            protected,
+            git_status,
         });
     }
     entries.sort_by(|left, right| {
@@ -1063,8 +1421,23 @@ pub fn list_tree(root: &Path, dir: &Path) -> Checked<Vec<FileEntry>> {
 /// and a reply full of U+FFFD is an answer no one can read. The size ceiling is
 /// checked before the read, so a huge file is refused cheaply.
 pub fn read_text(root: &Path, file: &Path) -> Checked<FileContent> {
+    read_text_with_extra(root, file, &[])
+}
+
+/// Read one text file while enforcing built-in plus project-configured protected globs.
+pub fn read_text_with_extra(
+    root: &Path,
+    file: &Path,
+    extra_globs: &[String],
+) -> Checked<FileContent> {
     let metadata = std::fs::metadata(file)
         .map_err(|_| format!("`{}` is not a file in this project", file.display()))?;
+
+    let rel_path = relative_to(root, file);
+    if is_path_protected(&rel_path, extra_globs) {
+        return Err(format!("`{}` is protected", file.display()));
+    }
+
     if !metadata.is_file() {
         return Err(format!("`{}` is not a file", file.display()));
     }
@@ -1084,9 +1457,51 @@ pub fn read_text(root: &Path, file: &Path) -> Checked<FileContent> {
         )
     })?;
     Ok(FileContent {
-        path: relative_to(root, file),
+        path: rel_path,
         content,
         mime_type: guess_mime(file).to_string(),
+    })
+}
+
+/// Read the side-by-side diff payload for one text file against `base_ref` (default `"HEAD"`).
+///
+/// Enforces all protected-glob, binary, and size checks before running `git show`.
+pub fn read_diff_with_extra(
+    root: &Path,
+    file: &Path,
+    base_ref: Option<&str>,
+    extra_globs: &[String],
+) -> Checked<FileDiff> {
+    let current = read_text_with_extra(root, file, extra_globs)?;
+    let effective_ref = match base_ref.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(git_ref) => {
+            if git_ref.starts_with('-')
+                || git_ref.contains("..")
+                || git_ref.chars().any(char::is_control)
+            {
+                return Err(format!("`{git_ref}` is not a safe git reference"));
+            }
+            git_ref.to_string()
+        }
+        None => "HEAD".to_string(),
+    };
+    let spec = format!("{effective_ref}:{}", current.path);
+    let base_content = match std::process::Command::new("git")
+        .args(["show", &spec])
+        .current_dir(root)
+        .output()
+    {
+        Ok(out) if out.status.success() && (out.stdout.len() as u64) <= MAX_READ_BYTES => {
+            String::from_utf8(out.stdout).unwrap_or_default()
+        }
+        _ => String::new(),
+    };
+    Ok(FileDiff {
+        path: current.path,
+        base_ref: effective_ref,
+        base_content,
+        current_content: current.content,
+        mime_type: current.mime_type,
     })
 }
 
@@ -1141,7 +1556,11 @@ pub async fn seed_bundled_records(settings: &SettingsStore) -> Result<()> {
     }
     if settings.list_plugins().await?.is_empty() {
         for definition in warsha_core::bundled_plugins() {
-            let row = plugin_row(&definition).map_err(DaemonError::Other)?;
+            let mut row = plugin_row(&definition).map_err(DaemonError::Other)?;
+            // OD-R3: a shipped pack is *offered*, not installed. A first run that
+            // seeded an enabled pack would fetch its package and start it before
+            // the owner ever agreed to the pack, its publisher or its version.
+            row.enabled = false;
             settings.save_plugin(&row).await?;
         }
     }
@@ -1189,6 +1608,7 @@ fn role_label(role: Role) -> String {
         Role::Release => "Release",
         Role::Marketer => "Marketing",
         Role::Feedback => "Feedback",
+        Role::Secretary => "Secretary",
     }
     .to_string()
 }
@@ -1236,421 +1656,11 @@ fn is_url(value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "wave2_tests.rs"]
+mod tests;
 
-    #[test]
-    fn an_imported_harness_keeps_its_stages_and_becomes_user_authored() {
-        let document = r#"{
-            "name": "My Pipeline",
-            "description": "what it does",
-            "stages": [
-                { "role": "intake", "name": "Intake", "gate": "approval" },
-                { "role": "coder", "auto_advance": true }
-            ]
-        }"#;
-        let harness = parse_harness_import(document, None).expect("the document is read");
-
-        assert_eq!(harness.id, "my-pipeline");
-        assert_eq!(harness.name, "My Pipeline");
-        assert_eq!(harness.version, "1.0.0");
-        assert!(!harness.preset, "an import is never a preset");
-        assert_eq!(harness.stages.len(), 2);
-        assert_eq!(harness.stages[0].id, "stage-1");
-        assert_eq!(harness.stages[0].gate.as_deref(), Some("approval"));
-        assert_eq!(harness.stages[1].role, Role::Coder);
-        assert_eq!(harness.stages[1].name, "Implementation");
-        assert_eq!(harness.rules.max_repair_iterations, 3);
-        assert_eq!(harness.rules.budget_cap_cents, None);
-    }
-
-    #[test]
-    fn an_imported_harness_names_itself_when_the_file_gave_no_id() {
-        let document = r#"{"name": "Ticket to PR!!", "stages": [{"role": "pm"}]}"#;
-        let harness =
-            parse_harness_import(document, None).expect("a one-stage harness is a harness");
-        assert_eq!(harness.id, "ticket-to-pr");
-    }
-
-    #[test]
-    fn a_harness_import_refuses_nothing_at_all_and_a_format_it_cannot_read() {
-        parse_harness_import("   ", None).expect_err("empty content is not a harness");
-        parse_harness_import(r#"{"name": "x"}"#, None)
-            .expect_err("a harness with no stages is nothing");
-        let document = r#"{"name": "x", "stages": [{"role": "pm"}]}"#;
-        parse_harness_import(document, Some("toml")).expect_err("TOML is not read");
-        parse_harness_import(document, Some("")).expect("an empty format is no claim");
-    }
-
-    #[test]
-    fn a_harness_row_round_trips_and_a_broken_one_reads_from_the_columns() {
-        let definition = warsha_core::bundled_harnesses()
-            .into_iter()
-            .next()
-            .expect("the presets are shipped");
-        let row = harness_row(&definition).expect("a preset serialises");
-        assert_eq!(harness_definition(&row), definition);
-
-        let damaged = StoredHarness {
-            data_json: "{ not json".to_string(),
-            ..row.clone()
-        };
-        let rebuilt = harness_definition(&damaged);
-        assert_eq!(rebuilt.id, damaged.id);
-        assert_eq!(rebuilt.name, damaged.name);
-        assert!(rebuilt.stages.is_empty());
-    }
-
-    #[test]
-    fn a_skill_pack_reads_its_front_matter_and_keeps_its_body() {
-        let pack = "---\nname: TDD\ndescription: red green refactor\ntags: [testing, coding]\nlicense: MIT\n---\n# TDD\n\nWrite the failing test first.\n";
-        let skill = parse_skill_import(pack, None).expect("a pack is a skill");
-
-        assert_eq!(skill.id, "tdd");
-        assert_eq!(skill.name, "TDD");
-        assert_eq!(skill.description, "red green refactor");
-        assert_eq!(skill.tags, vec!["testing", "coding"]);
-        assert!(skill.content.contains("Write the failing test first."));
-        assert!(!skill.content.contains("name: TDD"));
-    }
-
-    #[test]
-    fn a_skill_without_front_matter_is_still_a_skill() {
-        let skill =
-            parse_skill_import("# Debugging\n\nStop guessing.\n", None).expect("a bare pack reads");
-        assert_eq!(skill.name, "Debugging");
-        assert_eq!(skill.description, "Stop guessing.");
-        assert!(skill.enabled);
-    }
-
-    #[test]
-    fn a_named_skill_import_adopts_the_name_the_owner_typed() {
-        let skill = parse_skill_import("# Debugging\n\nStop guessing.\n", Some("My Debugging"))
-            .expect("the caller's name wins");
-        assert_eq!(skill.name, "My Debugging");
-        assert_eq!(skill.id, "my-debugging");
-    }
-
-    #[test]
-    fn an_unclosed_front_matter_is_read_as_body_not_lost() {
-        let skill =
-            parse_skill_import("---\nname: x\n\nstill the body\n", None).expect("nothing is lost");
-        assert!(skill.content.contains("still the body"));
-    }
-
-    #[test]
-    fn a_skill_url_is_refused_and_a_json_row_is_read() {
-        parse_skill_import("https://example.test/x.md", None).expect_err("no fetch seam exists");
-        let row = r#"{"id":"mine","name":"Mine","content":"do the thing","tags":["a"]}"#;
-        let skill = parse_skill_import(row, None).expect("a JSON row is a skill");
-        assert_eq!(skill.id, "mine");
-        assert_eq!(skill.license, "MIT", "a row that named no license says MIT");
-    }
-
-    #[test]
-    fn a_plugin_manifest_is_read_and_its_transport_is_checked() {
-        let manifest = r#"{"name":"GitHub","transport":"stdio","command":"npx","args":["@mcp/github"],"tools":[{"name":"create_issue","description":"Open an issue"}]}"#;
-        let plugin = parse_plugin_manifest(manifest).expect("a manifest is read");
-        assert_eq!(plugin.id, "github");
-        assert!(
-            plugin.enabled,
-            "an installed pack is active until told otherwise"
-        );
-        assert_eq!(plugin.tools.len(), 1);
-
-        parse_plugin_manifest(r#"{"name":"x","transport":"grpc","command":"y"}"#)
-            .expect_err("a transport nothing connects is refused at install");
-        parse_plugin_manifest(r#"{"name":"x","transport":"stdio"}"#)
-            .expect_err("a stdio pack with no command launches nothing");
-        parse_plugin_manifest("https://example.test/mcp.json").expect_err("no fetch seam exists");
-    }
-
-    #[test]
-    fn a_plugin_row_round_trips_through_its_json_columns() {
-        let definition = warsha_core::bundled_plugins()
-            .into_iter()
-            .next()
-            .expect("the packs are shipped");
-        let row = plugin_row(&definition).expect("a pack serialises");
-        assert_eq!(plugin_definition(&row), definition);
-    }
-
-    #[test]
-    fn a_plain_env_value_becomes_a_keychain_write_and_a_reference_in_the_row() {
-        let mut env = HashMap::new();
-        env.insert("GITHUB_TOKEN".to_string(), "gh-secret-material".to_string());
-        env.insert("NODE_ENV".to_string(), "${env:NODE_ENV}".to_string());
-
-        let (stored, secrets) = split_plugin_env("github-mcp", &env);
-        assert_eq!(
-            stored.get("GITHUB_TOKEN").map(String::as_str),
-            Some("${secrets:plugin:github-mcp:GITHUB_TOKEN}")
-        );
-        assert_eq!(
-            stored.get("NODE_ENV").map(String::as_str),
-            Some("${env:NODE_ENV}")
-        );
-        assert_eq!(secrets.len(), 1);
-        assert_eq!(secrets[0].0, "plugin:github-mcp:GITHUB_TOKEN");
-        assert_eq!(secrets[0].1, "gh-secret-material");
-        assert_eq!(
-            filed_secret_accounts(&stored),
-            vec!["plugin:github-mcp:GITHUB_TOKEN"]
-        );
-    }
-
-    #[test]
-    fn a_model_record_round_trips() {
-        let record = CustomModelRecord {
-            provider: "open_router".to_string(),
-            model_id: "qwen/qwen3-coder".to_string(),
-            display_name: None,
-            context_window: Some(262_144),
-            enabled: true,
-        };
-        assert_eq!(custom_model_record(&custom_model_row(&record)), record);
-    }
-
-    #[test]
-    fn an_integration_row_carries_no_token_and_its_status_says_what_is_on_file() {
-        let config = IntegrationConfig {
-            token: Some("secret".to_string()),
-            bot_token: None,
-            webhook_url: Some("https://hooks.example.test".to_string()),
-            channel: Some("#releases".to_string()),
-            org: Some("warsha".to_string()),
-        };
-        let redacted = redact_config(&config);
-        assert_eq!(redacted.token, None);
-        assert_eq!(redacted.org.as_deref(), Some("warsha"));
-
-        let row = integration_row("github", "GitHub", true, &redacted, Some(1_700_000_000))
-            .expect("a redacted config is a row");
-        assert!(
-            !row.config_json.contains("secret"),
-            "the row must not hold the token"
-        );
-
-        let status = integration_status(&row, true, false);
-        assert_eq!(status.id, "github");
-        assert!(status.connected);
-        let details = status.details.expect("a status carries its details");
-        assert_eq!(details["org"], "warsha");
-        assert_eq!(details["has_token"], true);
-        assert_eq!(details["has_bot_token"], false);
-        assert!(integration_config(&row).token.is_none());
-    }
-
-    #[test]
-    fn a_path_that_climbs_or_starts_elsewhere_is_refused() {
-        let root = Path::new("/projects/shop");
-        assert_eq!(
-            safe_join(root, "src/main.rs").expect("a plain relative path"),
-            PathBuf::from("/projects/shop/src/main.rs")
-        );
-        assert_eq!(
-            safe_join(root, ".").expect("the root names itself"),
-            root.to_path_buf()
-        );
-        assert_eq!(
-            safe_join(root, "./a/./b").expect("a dot inside a path is nothing"),
-            PathBuf::from("/projects/shop/a/b")
-        );
-        safe_join(root, "../secrets").expect_err("`..` climbs out");
-        safe_join(root, "a/../../b").expect_err("`..` two levels is still a climb");
-        safe_join(root, "/etc/passwd").expect_err("an absolute path is outside the project");
-        safe_join(root, "a\0b").expect_err("a NUL is not a path");
-    }
-
-    #[test]
-    fn a_directory_key_cannot_name_a_parent() {
-        assert_eq!(
-            safe_directory_key("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
-            "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-        );
-        assert_eq!(safe_directory_key("../../etc"), "project");
-        assert_eq!(safe_directory_key(""), "project");
-        assert_eq!(safe_directory_key(".."), "project");
-        assert_eq!(safe_directory_key("./x"), "project");
-        assert!(!safe_directory_key("C:\\Windows").contains('\\'));
-    }
-
-    #[test]
-    fn the_files_root_is_the_repository_when_there_is_one_and_a_named_folder_when_there_is_not() {
-        let data = Path::new("/var/lib/warsha");
-        assert_eq!(
-            project_files_root(data, "p-1", Some("/repos/shop")),
-            PathBuf::from("/repos/shop")
-        );
-        assert_eq!(
-            project_files_root(data, "p-1", Some("   ")),
-            data.join("files").join("p-1")
-        );
-        assert_eq!(
-            project_files_root(data, "../../etc", None),
-            data.join("files").join("project")
-        );
-    }
-
-    #[test]
-    fn mime_types_come_from_the_extension_and_unknown_is_text() {
-        assert_eq!(guess_mime(Path::new("README.md")), "text/markdown");
-        assert_eq!(guess_mime(Path::new("app.MD")), "text/markdown");
-        assert_eq!(guess_mime(Path::new("daemon.rs")), "text/rust");
-        assert_eq!(guess_mime(Path::new("package.json")), "application/json");
-        assert_eq!(guess_mime(Path::new("mystery.bin")), "text/plain");
-        assert_eq!(guess_mime(Path::new("no-extension")), "text/plain");
-    }
-
-    #[test]
-    fn a_slug_folds_punctuation_and_never_comes_back_empty() {
-        assert_eq!(slug("Complex Workbench"), "complex-workbench");
-        assert_eq!(slug("  LOKI + HARD MODE  "), "loki-hard-mode");
-        assert_eq!(slug("!!!"), "imported");
-    }
-
-    #[tokio::test]
-    async fn seeding_fills_an_empty_catalog_and_leaves_an_edited_one_alone() {
-        let temp = crate::test_util::fresh_tempdir();
-        let settings = SettingsStore::open(&temp.path().join("warsha.db"))
-            .await
-            .expect("the settings open");
-
-        seed_bundled_records(&settings)
-            .await
-            .expect("the first seed runs");
-        assert_eq!(
-            settings.list_harnesses().await.expect("harnesses").len(),
-            warsha_core::bundled_harnesses().len()
-        );
-        assert_eq!(
-            settings.list_skills().await.expect("skills").len(),
-            warsha_core::bundled_skills().len()
-        );
-        assert_eq!(
-            settings.list_plugins().await.expect("plugins").len(),
-            warsha_core::bundled_plugins().len()
-        );
-
-        // The owner deleted one of each. A restart must not put them back.
-        settings
-            .delete_harness("complex-workbench")
-            .await
-            .expect("a preset deletes");
-        settings
-            .delete_skill("brainstorming")
-            .await
-            .expect("a skill deletes");
-        settings
-            .delete_plugin("github-mcp")
-            .await
-            .expect("a plugin deletes");
-        seed_bundled_records(&settings)
-            .await
-            .expect("the second seed runs");
-
-        assert_eq!(
-            settings.list_harnesses().await.expect("harnesses").len(),
-            warsha_core::bundled_harnesses().len() - 1,
-            "a seeding that resurrects a delete is a daemon that undoes its owner"
-        );
-        assert_eq!(
-            settings.list_skills().await.expect("skills").len(),
-            warsha_core::bundled_skills().len() - 1
-        );
-        assert_eq!(
-            settings.list_plugins().await.expect("plugins").len(),
-            warsha_core::bundled_plugins().len() - 1
-        );
-    }
-
-    #[tokio::test]
-    async fn a_directory_lists_and_a_file_reads_with_its_type() {
-        let temp = crate::test_util::fresh_tempdir();
-        let root = temp.path().join("repo");
-        std::fs::create_dir_all(root.join("src")).expect("the directory is made");
-        std::fs::write(root.join("README.md"), "# Warsha").expect("a file is written");
-        std::fs::write(root.join("src").join("main.rs"), "fn main() {}")
-            .expect("a file is written");
-        std::fs::write(root.join("blob.bin"), [0u8, 159, 146, 150]).expect("a binary is written");
-
-        let entries = list_tree(&root, &root).expect("the root lists");
-        let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
-        // Directories first, then names: the order a browser shows.
-        assert_eq!(names, vec!["src", "blob.bin", "README.md"]);
-        assert_eq!(entries[0].path, "src");
-        assert_eq!(entries[1].size_bytes, 4);
-        assert_eq!(entries[2].size_bytes, 8);
-
-        let read = read_text(&root, &root.join("README.md")).expect("the file reads");
-        assert_eq!(read.path, "README.md");
-        assert_eq!(read.content, "# Warsha");
-        assert_eq!(read.mime_type, "text/markdown");
-
-        read_text(&root, &root.join("blob.bin")).expect_err("binary is refused, not garbled");
-        read_text(&root, &root.join("missing.md")).expect_err("nothing is invented");
-        list_tree(&root, &root.join("nope")).expect("an absent directory is an empty one");
-    }
-
-    #[tokio::test]
-    async fn a_symlink_in_the_tree_is_not_offered() {
-        let temp = crate::test_util::fresh_tempdir();
-        let root = temp.path().join("repo");
-        std::fs::create_dir_all(&root).expect("the root is made");
-        std::fs::write(root.join("real.md"), "# real").expect("a file is written");
-        // Windows refuses unprivileged symlink creation, and a daemon must not need
-        // one to be testable: wherever the link cannot be made, the ordinary file it
-        // would have pointed at is written instead and the assertion below still holds.
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(root.join("real.md"), root.join("link.md"))
-            .expect("a link is made");
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_file(root.join("real.md"), root.join("link.md"))
-            .unwrap_or_else(|_| {
-                std::fs::write(root.join("link.md"), "# real")
-                    .expect("a file stands in for the link")
-            });
-
-        let entries = list_tree(&root, &root).expect("the root lists");
-        // Every row offered must be a real file inside the root: on unix the link is
-        // skipped entirely, on either platform nothing escapes is ever named.
-        assert!(
-            entries.iter().any(|entry| entry.name == "real.md"),
-            "the plain file is still a tree row: {entries:?}"
-        );
-        for entry in &entries {
-            let full = root.join(&entry.name);
-            assert!(
-                resolve_inside(&root, &full).is_ok(),
-                "`{}` was offered but does not resolve inside the project",
-                entry.name
-            );
-        }
-        #[cfg(unix)]
-        assert!(
-            !entries.iter().any(|entry| entry.name == "link.md"),
-            "a link that names nothing inside the project is not a tree row"
-        );
-    }
-
-    #[tokio::test]
-    async fn resolve_inside_follows_the_filesystem_and_refuses_a_link_that_escapes() {
-        let temp = crate::test_util::fresh_tempdir();
-        let root = temp.path().join("repo");
-        std::fs::create_dir_all(root.join("src")).expect("the directory is made");
-        std::fs::write(root.join("src").join("a.rs"), "fn a() {}").expect("a file is written");
-
-        let joined = safe_join(&root, "src/a.rs").expect("a plain path joins");
-        let canonical = resolve_inside(&root, &joined).expect("the file is inside the project");
-        assert!(canonical.exists());
-
-        // A link out of the project: its *name* is clean, so only the filesystem
-        // half of the check can see it.
-        #[cfg(unix)]
-        if std::os::unix::fs::symlink(temp.path(), root.join("out")).is_ok() {
-            let escaped = root.join("out/lib.rs");
-            resolve_inside(&root, &escaped)
-                .expect_err("a path that resolves outside the project is refused");
-        }
-    }
-}
+/// K5 repair gates: launcher pin grammar (finding 3) and the non-stdio command
+/// guard (finding 1).
+#[cfg(test)]
+#[path = "wave2_k5_tests.rs"]
+mod k5_repair;

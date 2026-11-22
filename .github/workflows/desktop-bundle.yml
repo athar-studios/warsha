@@ -16,11 +16,12 @@ name: Desktop Bundle (unsigned installers)
 #
 # Updater-artifact override (the part that would otherwise fail):
 # apps/desktop/src-tauri/tauri.conf.json:38 sets bundle.createUpdaterArtifacts
-# to true and that file must stay untouched (it is the owner's signed-release
-# configuration). With no TAURI_SIGNING_PRIVATE_KEY present (by design at this
-# stage) the bundle step would fail on updater-artifact generation, which looks
-# identical to a broken installer build. So the build passes a CI-only config
-# override that sets bundle.createUpdaterArtifacts to false.
+# to false (defensive override in tauri.ci.unsigned.json below guarantees updater
+# artifacts stay disabled even if tauri.conf.json is switched to true for signed releases).
+# With no TAURI_SIGNING_PRIVATE_KEY present (by design at this stage) the bundle
+# step would fail on updater-artifact generation, which looks identical to a broken
+# installer build. So the build passes a CI-only config override that sets
+# bundle.createUpdaterArtifacts to false.
 # Syntax verified, not guessed: pnpm-lock.yaml pins @tauri-apps/cli 2.12.4 and
 # that installed CLI's own `tauri build --help` documents -c/--config as
 # "JSON strings or paths to JSON, JSON5 or TOML files to merge with the default

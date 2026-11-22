@@ -479,8 +479,7 @@ export const messages: Record<Locale, Record<string, string>> = {
     'continue_on_server.dialog.remote_info': 'التشغيل البعيد',
     'continue_on_server.status.idle': 'المهمة تعمل على هذا الجهاز',
     'continue_on_server.status.preparing': 'جاري تجهيز الحزمة وتسليمها…',
-    'continue_on_server.status.handed_off':
-      'الخادم البعيد يدير المهمة الآن. يمكنك إغلاق الحاسوب',
+    'continue_on_server.status.handed_off': 'الخادم البعيد يدير المهمة الآن. يمكنك إغلاق الحاسوب',
     'continue_on_server.status.applying': 'جاري إرجاع التغييرات للمراجعة',
     'continue_on_server.status.applied': 'تم تطبيق التغييرات مع نسخة احتياطية',
     'continue_on_server.status.failed': 'توقف التسليم',
@@ -551,7 +550,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'live_preview.placeholder': 'لا توجد معاينة بعد',
     'live_preview.placeholder_hint': 'شغّل خادم التطوير ثم اضغط تشغيل لعرض التطبيق هنا',
     'live_preview.pick.hint': 'انقر على عنصر في المعاينة',
-    'live_preview.pick.note': 'المعاينة تعمل من أصل مختلف، لذلك الصق المحدّد الذي تريد الإشارة إليه',
+    'live_preview.pick.note':
+      'المعاينة تعمل من أصل مختلف، لذلك الصق المحدّد الذي تريد الإشارة إليه',
     'live_preview.pick.input': 'محدّد العنصر',
     'live_preview.pick.placeholder': '#submit أو .card > a',
     'live_preview.pick.submit': 'إرسال المحدّد',
@@ -716,6 +716,7 @@ export const messages: Record<Locale, Record<string, string>> = {
 
     // Top bar (§4). `app.simpleMode` / `app.advancedMode` / `app.settings` are the controls themselves.
     'app.simpleMode': 'بسيط',
+    'app.factoryMode': 'المصنع',
     'app.advancedMode': 'متقدّم',
     'app.settings': 'الإعدادات',
     'app.mode_label': 'نمط الواجهة',
@@ -810,7 +811,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'harnesses.import_submit': 'استيراد',
     'harnesses.import_done': 'استُورد المحرك: {name}',
     'harnesses.import_failed': 'رفض الخادم تعريف المحرك.',
-    'harnesses.import_hint': 'يقرأ الخادم المستند ويسمّي المحرك من عنوانه؛ لا شيء يُرسل إلى الشبكة.',
+    'harnesses.import_hint':
+      'يقرأ الخادم المستند ويسمّي المحرك من عنوانه؛ لا شيء يُرسل إلى الشبكة.',
     'harnesses.preset.complex-workbench': 'طاولة العمل المعقّدة',
     'harnesses.preset.autonomous-factory': 'المصنع المستقل',
     'harnesses.preset.ticket-to-pr': 'من تذكرة إلى طلب سحب',
@@ -868,7 +870,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'plugins.env_submit': 'احفظ المتغيرات',
     'plugins.env_done': 'حُفظت متغيرات البيئة.',
     'plugins.env_failed': 'لم يستجب الخادم لطلب التهيئة.',
-    'plugins.env_note': 'تُحفظ القيم مراجعَ أسرار في سلسلة مفاتيح النظام، ولا يعرضها الخادم مرة أخرى.',
+    'plugins.env_note':
+      'تُحفظ القيم مراجعَ أسرار في سلسلة مفاتيح النظام، ولا يعرضها الخادم مرة أخرى.',
     'plugins.install': 'تثبيت حزمة',
     'plugins.install_title': 'تثبيت حزمة MCP ببيان',
     'plugins.install_manifest_label': 'بيان JSON للحزمة',
@@ -928,7 +931,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'connectors.desc': 'الرموز تُسلَّم للخادم مرة واحدة وتبقى في سلسلة مفاتيح النظام.',
     'connectors.failed': 'لم يستجب الخادم لقائمة الموصلات.',
     'connectors.github_token': 'رمز GitHub الشخصي (PAT)',
-    'connectors.github_token_hint': 'استخدم رمز شخصية (PAT) أو الرمز الناتج عن تسجيل الدخول عبر OAuth.',
+    'connectors.github_token_hint':
+      'استخدم رمز شخصية (PAT) أو الرمز الناتج عن تسجيل الدخول عبر OAuth.',
     'connectors.slack_webhook': 'رابط Slack webhook',
     'connectors.slack_bot': 'رمز بوت Slack',
     'connectors.slack_either': 'زوّد أحدهما: رابط الـ webhook أو رمز البوت.',
@@ -945,7 +949,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'settings_providers.custom_title': 'مزوّدون مخصّصون',
     'settings_providers.open_full': 'إدارة المزوّدين والنماذج',
     'settings_providers.custom_add': 'أضف مزوّداً مخصّصاً',
-    'settings_providers.custom_note': 'أضف مزوّدك الخاص فوق واجهة API معروفة، ويبقى مفتاحك في الخادم.',
+    'settings_providers.custom_note':
+      'أضف مزوّدك الخاص فوق واجهة API معروفة، ويبقى مفتاحك في الخادم.',
     'settings_providers.custom_added': 'أُضيف المزوّد المخصّص: {name}',
     'settings_providers.custom_failed': 'لم يقبل الخادم المزوّد الجديد.',
     'settings_providers.key_note': 'لا يعرض الخادم المفاتيح؛ تبقى في سلسلة مفاتيح النظام.',
@@ -1098,23 +1103,35 @@ export const messages: Record<Locale, Record<string, string>> = {
     'work_protection.mode.ask_for_risky': 'اسأل عند الخطر',
     'work_protection.mode.auto_inside_project': 'تلقائي داخل المشروع',
     'work_protection.mode_hint.ask_always': 'يسأل قبل كل تعديل يكتبه الوكيل',
-    'work_protection.mode_hint.ask_for_risky': 'يسأل فقط عند الكتابة خارج المشروع، أو الشبكة، أو الإنفاق',
+    'work_protection.mode_hint.ask_for_risky':
+      'يسأل فقط عند الكتابة خارج المشروع، أو الشبكة، أو الإنفاق',
     'work_protection.mode_hint.auto_inside_project': 'لا يسأل ما دام الوكيل داخل مجلد المشروع',
     'work_protection.restore': 'استعادة اللقطة',
     'work_protection.snapshot_none': 'لا لقطة لهذا التشغيل',
+    'confinement.label': 'حماية الوصول',
+    'confinement.read_only': 'قراءة فقط',
+    'confinement.workspace_write': 'كتابة في مساحة العمل',
+    'confinement.full_access': 'وصول كامل',
+    'approval.label': 'سياسة الموافقة',
+    'approval.ask_always': 'اسأل دائماً',
+    'approval.ask_for_risky': 'اسأل عند الخطر',
+    'approval.never_ask': 'لا تسأل أبداً',
 
     // ------------------------------------------------------------- agent workflow, Plan/Agent (M18)
     'agent_workflow.mode.plan': 'تخطيط',
     'agent_workflow.mode.agent': 'تنفيذ',
-    'agent_workflow.mode_hint.plan': 'وضع التخطيط: الوكيل يقترح ولا يعدّل. التبديل إلى التنفيذ يحتاج موافقتك.',
-    'agent_workflow.mode_hint.agent': 'وضع التنفيذ: الوكيل يعدّل الملفات ويشغّل الأدوات. اضغط للعودة إلى التخطيط.',
+    'agent_workflow.mode_hint.plan':
+      'وضع التخطيط: الوكيل يقترح ولا يعدّل. التبديل إلى التنفيذ يحتاج موافقتك.',
+    'agent_workflow.mode_hint.agent':
+      'وضع التنفيذ: الوكيل يعدّل الملفات ويشغّل الأدوات. اضغط للعودة إلى التخطيط.',
 
     // ------------------------------------------------------------------------ run modes (M20)
     'run_modes.mode.local': 'محلي',
     'run_modes.mode.self_hosted': 'استضافة ذاتية',
     'run_modes.mode.hosted': 'مُستضاف',
     'run_modes.hint.local': 'الخادم يستمع على 127.0.0.1 فقط، ولا شيء في الشبكة يصل إليه.',
-    'run_modes.hint.self_hosted': 'الخادم يستمع على واجهة صريحة، ولا يرد إلا على قائمة المضيفين المسموح بها.',
+    'run_modes.hint.self_hosted':
+      'الخادم يستمع على واجهة صريحة، ولا يرد إلا على قائمة المضيفين المسموح بها.',
     'run_modes.hint.hosted': 'الواجهة تبقى على 127.0.0.1، والجهاز البعيد يصل عبر المرحّل المشفّر.',
 
     // ------------------------------------------------------------------- router target kinds
@@ -1125,7 +1142,8 @@ export const messages: Record<Locale, Record<string, string>> = {
 
     // ------------------------------------------------------------- review & apply (M6a handoff)
     'review_apply.title': 'مراجعة وتطبيق',
-    'review_apply.summary': '{count, plural, =0 {لا ملفات متغيرة} one {ملف واحد متغير} two {ملفان متغيران} few {# ملفات متغيرة} many {# ملفاً متغيراً} other {# ملف متغير}}',
+    'review_apply.summary':
+      '{count, plural, =0 {لا ملفات متغيرة} one {ملف واحد متغير} two {ملفان متغيران} few {# ملفات متغيرة} many {# ملفاً متغيراً} other {# ملف متغير}}',
     'review_apply.conflicts': '{count, plural, one {تعارض واحد} other {# تعارضات}}',
     'review_apply.new_file': 'جديد',
     'review_apply.conflict': 'تعارض',
@@ -1143,9 +1161,11 @@ export const messages: Record<Locale, Record<string, string>> = {
 
     // --------------------------------------------------------------- post-launch care (M17)
     'post_launch.crash.title': 'تقارير الأعطال',
-    'post_launch.crash.note': 'اختياري بالكامل — لا يخرج شيء من جهازك تلقائياً، والشارة تبيّن ما أرسله الجامع مسبقاً.',
+    'post_launch.crash.note':
+      'اختياري بالكامل — لا يخرج شيء من جهازك تلقائياً، والشارة تبيّن ما أرسله الجامع مسبقاً.',
     'post_launch.crash.empty': 'لا توجد أعطال مسجّلة. هذا خبر جيد.',
-    'post_launch.crash.count': '{count, plural, =0 {لا تقارير} one {تقرير واحد} two {تقريران} few {# تقارير} many {# تقريراً} other {# تقرير}}',
+    'post_launch.crash.count':
+      '{count, plural, =0 {لا تقارير} one {تقرير واحد} two {تقريران} few {# تقارير} many {# تقريراً} other {# تقرير}}',
     'post_launch.crash.sent': 'مُرسل',
     'post_launch.crash.unsent': 'لم يُرسل',
     'post_launch.crash.unsent_hint': 'لم يخرج من هذا الجهاز بعد؛ النشر قرار المالك.',
@@ -1165,7 +1185,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'post_launch.reviews.title': 'تقييمات المتاجر',
     'post_launch.reviews.note': 'كل تقييم بوسم متجره، جاهز لدخول حلقة الملاحظات.',
     'post_launch.reviews.empty': 'لا توجد تقييمات بعد.',
-    'post_launch.reviews.count': '{count, plural, =0 {لا تقييمات} one {تقييم واحد} two {تقييمان} few {# تقييمات} many {# تقييماً} other {# تقييم}}',
+    'post_launch.reviews.count':
+      '{count, plural, =0 {لا تقييمات} one {تقييم واحد} two {تقييمان} few {# تقييمات} many {# تقييماً} other {# تقييم}}',
     'post_launch.reviews.store': 'المتجر',
     'post_launch.reviews.author': 'الكاتب',
     'post_launch.reviews.received': 'ورد في',
@@ -1290,6 +1311,14 @@ export const messages: Record<Locale, Record<string, string>> = {
     'remote.project_create_submit': 'أنشئ المشروع',
     'remote.start_run_title': 'ابدأ تشغيلاً جديداً',
     'remote.run_start_submit': 'ابدأ التشغيل',
+    'remote.approvals_title': 'طلبات الموافقة',
+    'remote.approvals_failed': 'تعذّر قراءة طلبات الموافقة من الخادم.',
+    'remote.approvals_empty': 'لا طلبات موافقة معلّقة.',
+    'remote.approvals_waiting': 'بانتظار قرارك',
+    'remote.approvals_allow': 'اسمح مرة واحدة',
+    'remote.estimate_loading': 'جارٍ تقدير التكلفة…',
+    'remote.estimate_unavailable': 'التقدير غير متاح الآن.',
+    'remote.estimate_line': 'تقدير قبل البدء: من {min} إلى {max}',
     'remote.run_controls_title': 'تحكّمات التشغيل',
     'remote.run_cancel': 'ألغِ التشغيل',
     'remote.followup_label': 'تكملة للتشغيل',
@@ -1376,7 +1405,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'onboarding.project_create': 'Create the project',
     'onboarding.project_creating': 'Creating the project…',
     'onboarding.project_failed': 'The daemon could not create the project.',
-    'onboarding.steps_hint': 'Choose language → Add a provider → Paste API key → Test → Start project',
+    'onboarding.steps_hint':
+      'Choose language → Add a provider → Paste API key → Test → Start project',
     'onboarding.step_of': 'Step {current} of {total}',
     'onboarding.provider_recommended': 'Recommended',
     'onboarding.provider_hint.deep_seek': 'Fast and affordable — best for getting started',
@@ -1385,7 +1415,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'onboarding.provider_hint.anthropic': 'Claude — strong at analysis and code',
     'onboarding.provider_hint.kimi': 'Kimi by Moonshot — long context windows',
     'onboarding.provider_hint.qwen': 'Qwen by Alibaba — good Arabic support',
-    'onboarding.provider_hint.custom': 'Any OpenAI-compatible API — you supply the endpoint and the model',
+    'onboarding.provider_hint.custom':
+      'Any OpenAI-compatible API — you supply the endpoint and the model',
     // The custom-endpoint plate: a base URL, its key and one model, then the whole team routed to it.
     'onboarding.custom_title': 'Custom endpoint',
     'onboarding.custom_desc':
@@ -1411,7 +1442,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'simple.show_all_agents': 'Show all ({count})',
     'simple.hide_agents': 'Hide idle agents',
     'projects.empty_title': 'No projects yet',
-    'projects.empty_desc': 'Create your first project and describe your idea — the Warsha team will get to work.',
+    'projects.empty_desc':
+      'Create your first project and describe your idea — the Warsha team will get to work.',
     'projects.new_project': 'New project',
     'projects.title': 'Projects Board',
     'projects.new': 'New Project',
@@ -1575,7 +1607,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'simple.launching': 'launching the run…',
     'simple.launch_failed': 'The daemon could not start the run; your brief stayed here.',
     'simple.pipeline_title': 'Autonomous pipeline',
-    'simple.pipeline_hint': 'The stages follow the active harness; the lamp says where the run reached.',
+    'simple.pipeline_hint':
+      'The stages follow the active harness; the lamp says where the run reached.',
     'factory.stage.intake': 'Intake',
     'factory.stage.research': 'Research',
     'factory.stage.architecture': 'Architecture',
@@ -1585,7 +1618,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'factory.stage.security': 'Security',
     'factory.stage.release': 'Release',
     'factory.stage.feedback': 'Feedback',
-    'simple.gate_rationale': 'Decision rationale: the team waits for your approval of this diff before continuing.',
+    'simple.gate_rationale':
+      'Decision rationale: the team waits for your approval of this diff before continuing.',
     'simple.gate_safety': 'Automatic safety check: no secrets in the diff, isolation kept.',
     'simple.artifacts_title': 'Artifact shelf',
     'simple.artifacts_empty': 'The factory has not produced artifacts yet.',
@@ -1796,7 +1830,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'live_preview.pick.input': 'Element selector',
     'live_preview.pick.placeholder': '#submit or .card > a',
     'live_preview.pick.submit': 'Send selector',
-    'live_preview.error': 'The preview stopped with an error. Check the dev server log, then press Run',
+    'live_preview.error':
+      'The preview stopped with an error. Check the dev server log, then press Run',
     'live_preview.action.run': 'Run',
     'live_preview.action.stop': 'Stop',
     'live_preview.action.pop_out': 'Pop out',
@@ -1943,10 +1978,12 @@ export const messages: Record<Locale, Record<string, string>> = {
     // English twin of the Arabic block above; `index.test.ts` fails if the two key sets ever differ.
 
     'app.simpleMode': 'Simple',
+    'app.factoryMode': 'Factory',
     'app.advancedMode': 'Advanced',
     'app.settings': 'Settings',
     'app.mode_label': 'Interface mode',
-    'app.mode_hint': 'Simple is the primary bench; Advanced discloses the same detail and changes nothing.',
+    'app.mode_hint':
+      'Simple is the primary bench; Advanced discloses the same detail and changes nothing.',
     'app.skip_to_bench': 'Skip to the workbench',
     'app.bench_label': 'Workbench',
     'app.tagline_short': 'AI software factory',
@@ -1954,7 +1991,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'bench.status_label': 'Status strip',
     'bench.daemon_online': 'daemon online',
     'bench.daemon_offline': 'daemon offline',
-    'bench.daemon_unreachable': 'Nothing answers the daemon address; the bench runs without live data.',
+    'bench.daemon_unreachable':
+      'Nothing answers the daemon address; the bench runs without live data.',
     'bench.project_label': 'Project',
     'bench.run_label': 'Run',
     'bench.stage_label': 'Stage',
@@ -1991,9 +2029,11 @@ export const messages: Record<Locale, Record<string, string>> = {
 
     // Harnesses (`HarnessesSettings`): the preset picker, its details, and the import plate.
     'harnesses.title': 'Harnesses',
-    'harnesses.desc': 'A harness is the pipeline shape: its stages, its verification gates, its run rules.',
+    'harnesses.desc':
+      'A harness is the pipeline shape: its stages, its verification gates, its run rules.',
     'harnesses.loading': 'Reading harnesses',
-    'harnesses.failed': 'The daemon did not answer the harness list; the bundled presets are shown.',
+    'harnesses.failed':
+      'The daemon did not answer the harness list; the bundled presets are shown.',
     'harnesses.empty': 'No harnesses yet; import a definition and it appears here.',
     'harnesses.preset': 'Bundled preset',
     'harnesses.custom': 'Imported',
@@ -2028,7 +2068,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'harnesses.import_submit': 'Import',
     'harnesses.import_done': 'Harness imported: {name}',
     'harnesses.import_failed': 'The daemon refused the harness definition.',
-    'harnesses.import_hint': 'The daemon reads the document and names the harness from it; nothing is fetched over the network.',
+    'harnesses.import_hint':
+      'The daemon reads the document and names the harness from it; nothing is fetched over the network.',
     'harnesses.preset.complex-workbench': 'Complex Workbench',
     'harnesses.preset.autonomous-factory': 'Autonomous Factory',
     'harnesses.preset.ticket-to-pr': 'Ticket to PR',
@@ -2062,7 +2103,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'skills.import_submit': 'Import skill',
     'skills.import_done': 'Skill added: {name}',
     'skills.import_failed': 'The daemon refused the skill pack.',
-    'skills.import_hint': 'The daemon reads the front matter and body you write; URLs are not fetched.',
+    'skills.import_hint':
+      'The daemon reads the front matter and body you write; URLs are not fetched.',
 
     // Plugins (`PluginsSettings`): the MCP packs, their switches, environment, and the install plate.
     'plugins.title': 'Plugins',
@@ -2085,7 +2127,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'plugins.env_submit': 'Save variables',
     'plugins.env_done': 'Environment saved.',
     'plugins.env_failed': 'The daemon did not answer the configuration.',
-    'plugins.env_note': 'Values are kept as secret references in the OS keychain and never shown again.',
+    'plugins.env_note':
+      'Values are kept as secret references in the OS keychain and never shown again.',
     'plugins.install': 'Install pack',
     'plugins.install_title': 'Install an MCP pack from a manifest',
     'plugins.install_manifest_label': 'Plugin manifest (JSON)',
@@ -2095,7 +2138,8 @@ export const messages: Record<Locale, Record<string, string>> = {
 
     // Models (`ModelsSettings`): the custom catalog, its add/remove forms, and role assignment.
     'models.title': 'Models',
-    'models.desc': 'Register models you name by hand under a known provider, then route roles to them.',
+    'models.desc':
+      'Register models you name by hand under a known provider, then route roles to them.',
     'models.loading': 'Reading models',
     'models.failed': 'The daemon did not answer the model catalog.',
     'models.empty': 'No custom models yet.',
@@ -2145,7 +2189,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'connectors.desc': 'Tokens travel to the daemon once and stay in the OS keychain.',
     'connectors.failed': 'The daemon did not answer the integration list.',
     'connectors.github_token': 'GitHub personal access token (PAT)',
-    'connectors.github_token_hint': 'Use a personal access token (PAT), or the token produced by the OAuth sign-in.',
+    'connectors.github_token_hint':
+      'Use a personal access token (PAT), or the token produced by the OAuth sign-in.',
     'connectors.slack_webhook': 'Slack webhook URL',
     'connectors.slack_bot': 'Slack bot token',
     'connectors.slack_either': 'Provide either a webhook URL or a bot token.',
@@ -2156,13 +2201,15 @@ export const messages: Record<Locale, Record<string, string>> = {
     'connectors.test': 'Test connection',
     'connectors.test_result': 'Test result ({status}): {message}',
     'connectors.test_failed': 'The daemon did not answer the connector test.',
-    'connectors.secret_note': 'The token is never stored in the browser and never shown again after sending.',
+    'connectors.secret_note':
+      'The token is never stored in the browser and never shown again after sending.',
 
     // Settings → Providers: the custom API provider plate (`SettingsProviders`).
     'settings_providers.custom_title': 'Custom providers',
     'settings_providers.open_full': 'Manage providers and models',
     'settings_providers.custom_add': 'Add a custom provider',
-    'settings_providers.custom_note': 'Register your own provider on a known API surface; the key stays on the server.',
+    'settings_providers.custom_note':
+      'Register your own provider on a known API surface; the key stays on the server.',
     'settings_providers.custom_added': 'Custom provider added: {name}',
     'settings_providers.custom_failed': 'The daemon did not accept the new provider.',
     'settings_providers.key_note': 'The daemon never shows keys; they live in the OS keychain.',
@@ -2211,7 +2258,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'advanced.board_empty': 'No tasks recorded for this run.',
     'advanced.board_failed': 'The tasks did not come back from the daemon.',
     'advanced.files_label': 'Project files',
-    'advanced.files_empty': 'No file list from the daemon yet; files appear here when a run reports them.',
+    'advanced.files_empty':
+      'No file list from the daemon yet; files appear here when a run reports them.',
     'advanced.diff_label': 'File diffs',
     'advanced.diff_empty': 'Nothing to diff; pick a file from the file list.',
     'advanced.terminal_label': 'Terminal dock',
@@ -2254,7 +2302,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'advanced.code_lines': '{count, plural, =0 {no lines} one {# line} other {# lines}}',
     'advanced.code_language': 'Language',
     'advanced.plan_label': 'Run plan',
-    'advanced.plan_hint': 'The run stages as the daemon reports them, with the active stage marked.',
+    'advanced.plan_hint':
+      'The run stages as the daemon reports them, with the active stage marked.',
     'advanced.controls_label': 'Run controls',
     'advanced.run_advance': 'Advance run',
     'advanced.run_cancel': 'Cancel run',
@@ -2284,9 +2333,11 @@ export const messages: Record<Locale, Record<string, string>> = {
     'status_strip.deploy.deploying': 'Deploying…',
     'status_strip.deploy.done': 'Deployed',
     'status_strip.deploy.error': 'Deploy failed',
-    'status_strip.deploy.description.idle': 'Ready to deploy the built web artifact to the configured target',
+    'status_strip.deploy.description.idle':
+      'Ready to deploy the built web artifact to the configured target',
     'status_strip.deploy.description.deploying': 'Deploying now; do not close the window',
-    'status_strip.deploy.description.done': 'Deployed. Publish publicly from the release gate when you are ready',
+    'status_strip.deploy.description.done':
+      'Deployed. Publish publicly from the release gate when you are ready',
     'status_strip.deploy.description.error': 'Deploy failed. Check the credentials and the target',
     'status_strip.deploy.blocked': 'Deploy stays off until the release preflight is green',
     'status_strip.deploy.local_only': 'No daemon call yet; the press only records the intent.',
@@ -2311,22 +2362,37 @@ export const messages: Record<Locale, Record<string, string>> = {
     'work_protection.mode.ask_for_risky': 'Ask for risky',
     'work_protection.mode.auto_inside_project': 'Auto inside project',
     'work_protection.mode_hint.ask_always': 'Asks before every agent edit',
-    'work_protection.mode_hint.ask_for_risky': 'Asks only for writes outside the project, network access or spend',
-    'work_protection.mode_hint.auto_inside_project': 'Never asks while the agent stays inside the project',
+    'work_protection.mode_hint.ask_for_risky':
+      'Asks only for writes outside the project, network access or spend',
+    'work_protection.mode_hint.auto_inside_project':
+      'Never asks while the agent stays inside the project',
     'work_protection.restore': 'Restore snapshot',
     'work_protection.snapshot_none': 'This run has no snapshot',
+    'confinement.label': 'Confinement',
+    'confinement.read_only': 'Read-only',
+    'confinement.workspace_write': 'Workspace write',
+    'confinement.full_access': 'Full access',
+    'approval.label': 'Approval policy',
+    'approval.ask_always': 'Ask always',
+    'approval.ask_for_risky': 'Ask for risky',
+    'approval.never_ask': 'Never ask',
 
     'agent_workflow.mode.plan': 'Plan',
     'agent_workflow.mode.agent': 'Agent',
-    'agent_workflow.mode_hint.plan': 'Plan mode: the agent proposes, it does not edit. Switching to Agent needs your approval.',
-    'agent_workflow.mode_hint.agent': 'Agent mode: the agent edits files and runs tools. Press to switch back to Plan.',
+    'agent_workflow.mode_hint.plan':
+      'Plan mode: the agent proposes, it does not edit. Switching to Agent needs your approval.',
+    'agent_workflow.mode_hint.agent':
+      'Agent mode: the agent edits files and runs tools. Press to switch back to Plan.',
 
     'run_modes.mode.local': 'Local',
     'run_modes.mode.self_hosted': 'Self-hosted',
     'run_modes.mode.hosted': 'Hosted',
-    'run_modes.hint.local': 'The daemon listens on 127.0.0.1 only, so nothing on the network can reach it.',
-    'run_modes.hint.self_hosted': 'The daemon listens on an explicit interface and answers only the allowed-host list.',
-    'run_modes.hint.hosted': 'The API stays on 127.0.0.1; remote devices arrive through the encrypted relay.',
+    'run_modes.hint.local':
+      'The daemon listens on 127.0.0.1 only, so nothing on the network can reach it.',
+    'run_modes.hint.self_hosted':
+      'The daemon listens on an explicit interface and answers only the allowed-host list.',
+    'run_modes.hint.hosted':
+      'The API stays on 127.0.0.1; remote devices arrive through the encrypted relay.',
 
     'router.kind.local': 'Local',
     'router.kind.cloud': 'Cloud',
@@ -2334,7 +2400,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'router.kind_hint.cloud': 'Runs on the provider servers',
 
     'review_apply.title': 'Review & apply',
-    'review_apply.summary': '{count, plural, =0 {no files changed} one {# file changed} other {# files changed}}',
+    'review_apply.summary':
+      '{count, plural, =0 {no files changed} one {# file changed} other {# files changed}}',
     'review_apply.conflicts': '{count, plural, one {# conflict} other {# conflicts}}',
     'review_apply.new_file': 'new',
     'review_apply.conflict': 'conflict',
@@ -2343,19 +2410,24 @@ export const messages: Record<Locale, Record<string, string>> = {
     'review_apply.apply_selected': 'Apply selected',
     'review_apply.backup': 'A backup bundle is written before anything is overwritten',
     'review_apply.backup_name': 'backup: {name}',
-    'review_apply.owner_wins': 'On a conflict your local file wins and the remote change is recorded',
-    'review_apply.remote_wins': 'On a conflict the remote change wins after your local file is backed up',
-    'review_apply.truncated': '{count, plural, one {# more line not shown} other {# more lines not shown}}',
+    'review_apply.owner_wins':
+      'On a conflict your local file wins and the remote change is recorded',
+    'review_apply.remote_wins':
+      'On a conflict the remote change wins after your local file is backed up',
+    'review_apply.truncated':
+      '{count, plural, one {# more line not shown} other {# more lines not shown}}',
     'review_apply.empty': 'No changes to apply',
     'review_apply.selected_count': '{count, plural, one {# selected} other {# selected}}',
 
     'post_launch.crash.title': 'Crash reports',
-    'post_launch.crash.note': 'Opt-in only — nothing leaves your machine on its own; the badge shows what the collector already sent.',
+    'post_launch.crash.note':
+      'Opt-in only — nothing leaves your machine on its own; the badge shows what the collector already sent.',
     'post_launch.crash.empty': 'No crash reports. That is good news.',
     'post_launch.crash.count': '{count, plural, =0 {no reports} one {# report} other {# reports}}',
     'post_launch.crash.sent': 'Sent',
     'post_launch.crash.unsent': 'Not sent',
-    'post_launch.crash.unsent_hint': 'It has not left this machine; publishing is the owner’s call.',
+    'post_launch.crash.unsent_hint':
+      'It has not left this machine; publishing is the owner’s call.',
     'post_launch.crash.stack': 'Stack trace',
     'post_launch.crash.id_label': 'report id',
     'post_launch.crash.run_label': 'run',
@@ -2365,14 +2437,17 @@ export const messages: Record<Locale, Record<string, string>> = {
     'post_launch.crash.copy_failed': 'The browser could not copy the text.',
     'post_launch.crash.loading': 'loading crash reports',
     'post_launch.crash.failed': 'The daemon did not answer the crash list.',
-    'post_launch.crash.offline': 'The daemon is unreachable; the reports shown are from this session.',
+    'post_launch.crash.offline':
+      'The daemon is unreachable; the reports shown are from this session.',
     'post_launch.crash.open_run': 'Open the run',
-    'post_launch.crash.share_note': 'Nothing is sent automatically; copying is manual and you choose who sees it.',
+    'post_launch.crash.share_note':
+      'Nothing is sent automatically; copying is manual and you choose who sees it.',
 
     'post_launch.reviews.title': 'Store reviews',
     'post_launch.reviews.note': 'Every review keeps its store tag, ready for the feedback loop.',
     'post_launch.reviews.empty': 'No store reviews yet.',
-    'post_launch.reviews.count': '{count, plural, =0 {no reviews} one {# review} other {# reviews}}',
+    'post_launch.reviews.count':
+      '{count, plural, =0 {no reviews} one {# review} other {# reviews}}',
     'post_launch.reviews.store': 'Store',
     'post_launch.reviews.author': 'Author',
     'post_launch.reviews.received': 'Received',
@@ -2413,13 +2488,15 @@ export const messages: Record<Locale, Record<string, string>> = {
       'The access token lives in this tab only: it is never written to persistent storage, it is stripped from the address bar as soon as it is read, and it never appears in an error message.',
     'remote.session_end': 'End this device session',
     'remote.session_end_confirm': 'Yes, end the session',
-    'remote.session_end_hint': 'The token is dropped from this browser and the device must pair again to return.',
+    'remote.session_end_hint':
+      'The token is dropped from this browser and the device must pair again to return.',
     'remote.session_ended': 'the session ended on this device',
     'remote.pair_link_label': 'Pairing link',
     'remote.pair_link_hint': 'Paste the link the “Pair new device” dialog shows on the desktop.',
     'remote.pair_submit': 'Start the session',
     'remote.pair_reason.missing': 'Paste the pairing link first.',
-    'remote.pair_reason.url': 'The daemon address must start with http:// or https:// and name a host.',
+    'remote.pair_reason.url':
+      'The daemon address must start with http:// or https:// and name a host.',
     'remote.pair_reason.token': 'The link carries no pairing token.',
     'remote.pair_reason.userinfo':
       'That daemon address embeds a user name or a password; credentials never travel in the address.',
@@ -2433,7 +2510,8 @@ export const messages: Record<Locale, Record<string, string>> = {
     'remote.open_all_gates': 'Open all gates',
     'remote.decision_saving': 'recording the decision',
     'remote.decision_done': 'decision recorded',
-    'remote.decision_failed': 'The daemon did not answer the decision; the gate still waits on you.',
+    'remote.decision_failed':
+      'The daemon did not answer the decision; the gate still waits on you.',
 
     'remote.glance_title': 'At a glance',
     'remote.glance_no_project': 'no project selected yet',
@@ -2479,6 +2557,14 @@ export const messages: Record<Locale, Record<string, string>> = {
     'remote.project_create_submit': 'Create the project',
     'remote.start_run_title': 'Start a new run',
     'remote.run_start_submit': 'Start the run',
+    'remote.approvals_title': 'Approval asks',
+    'remote.approvals_failed': 'The approval queue could not be read from the daemon.',
+    'remote.approvals_empty': 'No approval asks are waiting.',
+    'remote.approvals_waiting': 'Waiting on you',
+    'remote.approvals_allow': 'Allow once',
+    'remote.estimate_loading': 'Estimating cost…',
+    'remote.estimate_unavailable': 'No estimate available right now.',
+    'remote.estimate_line': 'Pre-run estimate: from {min} to {max}',
     'remote.run_controls_title': 'Run controls',
     'remote.run_cancel': 'Cancel the run',
     'remote.followup_label': 'Follow-up for this run',

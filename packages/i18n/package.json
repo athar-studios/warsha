@@ -1,9 +1,19 @@
 {
   "name": "@warsha/i18n",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "private": true,
   "main": "./src/index.tsx",
   "types": "./src/index.tsx",
+  "exports": {
+    ".": {
+      "types": "./src/index.tsx",
+      "default": "./src/index.tsx"
+    },
+    "./v3": {
+      "types": "./src/v3/index.ts",
+      "default": "./src/v3/index.ts"
+    }
+  },
   "scripts": {
     "build": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx",

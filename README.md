@@ -21,7 +21,7 @@
 
 ## What is Warsha?
 
-Warsha ("workshop" in Arabic) is an app that works like a small software team. You describe an idea in plain words, in Arabic or English. A team of AI agents researches it, writes the spec, designs, plans, writes the code, tests and reviews it, and prepares a release, while you approve each important step.
+Warsha ("workshop" in Arabic) is an app that works like a small software team. You describe an idea in plain words, in Arabic or English. A team of AI agents researches it, writes the spec, designs, plans, proposes code changes, tests and reviews it, and prepares a release, while you approve each important step. The current build is `v0.3.0` (bumped 2026-11-15), an early preview: the planning, review and gate surfaces work; autonomous end-to-end code writing is not yet delivered — see `PLAN.md`.
 
 - **Arabic first.** Full Arabic interface (right to left) and English.
 - **You stay in control.** Nothing is merged, published or posted without your approval.
@@ -122,7 +122,7 @@ are not wired to their screens; and no Android APK is built in this tree.
 
 ## Roadmap
 
-The desktop app is versioned **0.2.0** (`apps/desktop/src-tauri/tauri.conf.json`) and the Rust crates **0.1.0**
+The desktop app is versioned **0.3.0** (`apps/desktop/src-tauri/tauri.conf.json`) and the Rust crates **0.3.0**
 (`Cargo.toml`); neither is tagged and no version has been released. No dates are set.
 
 | Milestone | What it delivers | Status |
@@ -168,7 +168,7 @@ What works today, from `crates/warsha-providers/src/` and the daemon's provider 
 
 - **Any OpenAI-compatible endpoint with an API key.** The adapter takes a base URL and posts to `{base}/chat/completions` with a bearer token. The setup wizard ships a default URL and model for **OpenRouter, DeepSeek, Kimi (Moonshot), GLM (Zhipu) and Qwen (DashScope)**, plus a `custom` row for any other URL — which is how OpenAI itself and any compatible gateway are reached.
 - **Anthropic (Claude)** through its own messages API, and **a local Ollama or LM Studio server**, which needs no real key — its adapter ignores the key field, though the add form still asks for one.
-- **The `WARSHA_LLM_*` environment path** for an OpenAI-compatible endpoint, used when a role has no routing. With no key, a deterministic fake provider runs the whole pipeline offline. This path reads its key from the environment, so it is the one connection whose key is not in the keychain; with no `WARSHA_LLM_BASE_URL` it defaults to `https://router.sayl.site/v1`, so set the base URL explicitly before exporting a key.
+- **The `WARSHA_LLM_*` environment path** for an OpenAI-compatible endpoint, used when a role has no routing. With no key, a deterministic fake provider runs the whole pipeline offline. This path reads its key from the environment, so it is the one connection whose key is not in the keychain; `WARSHA_LLM_BASE_URL` must be set to an OpenAI-compatible endpoint before exporting a key.
 - **Official coding tools as separate backends**, not chat providers: Claude Code, Codex CLI, Gemini CLI, Cursor CLI, opencode and OpenHands. The daemon detects each one on your PATH at start-up, but their adapters are still being built: an install is recorded, not yet handed coding work.
 
 What does not: **Google Gemini has no native adapter.** The live factory recognises three protocols — OpenAI-compatible, Anthropic and Ollama — so a `gemini` row is treated as a custom OpenAI-compatible endpoint and needs a URL that speaks that protocol; Gemini's own API is not implemented. **Azure OpenAI** has no native adapter either: it is reached the same way, so it works only where the endpoint accepts a bearer token at `{base}/chat/completions`, not through Azure's deployment-scoped `api-key` form. Warsha only uses official, permitted ways to connect, and every key you add in the app stays in your system keychain.

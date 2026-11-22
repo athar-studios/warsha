@@ -8,10 +8,11 @@ use reqwest::{
 };
 use serde_json::json;
 use std::time::Duration;
-use warsha_core::{CredentialsRef, ProviderKind};
+use warsha_core::{CredentialsRef, ProviderKind, ProviderQuota};
 
 /// OpenAI-compatible provider
 pub struct OpenAIProvider {
+    kind: ProviderKind,
     id: String,
     client: Client,
     api_base: String,
@@ -23,6 +24,7 @@ impl OpenAIProvider {
     /// Create a new OpenAI-compatible provider
     pub async fn new(
         id: String,
+        kind: ProviderKind,
         api_base: Option<String>,
         credentials: &CredentialsRef,
         keyring_service: &str,
@@ -46,6 +48,51 @@ impl OpenAIProvider {
 
         let provider = Self {
             id: id.clone(),
+            kind,
+            client,
+            api_base,
+            _api_key: api_key,
+            models: Vec::new(),
+        };
+
+        // Fetch models on creation
+        let models = provider.fetch_models().await.unwrap_or_else(|_| {
+            vec![
+                default_model_info(&id, "gpt-4o"),
+                default_model_info(&id, "gpt-4o-mini"),
+                default_model_info(&id, "gpt-4-turbo"),
+            ]
+        });
+
+        Ok(Self { models, ..provider })
+    }
+
+    /// Create a new OpenAI-compatible provider using an already-loaded API key
+    pub async fn with_api_key(
+        id: String,
+        kind: ProviderKind,
+        api_base: Option<String>,
+        api_key: String,
+    ) -> Result<Self> {
+        let api_base = api_base.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", api_key))
+                .map_err(|e| ProviderError::Auth(format!("Invalid API key: {}", e)))?,
+        );
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+        let client = Client::builder()
+            .default_headers(headers)
+            .timeout(Duration::from_secs(120))
+            .build()
+            .map_err(|e| ProviderError::Other(e.to_string()))?;
+
+        let provider = Self {
+            id: id.clone(),
+            kind,
             client,
             api_base,
             _api_key: api_key,
@@ -71,7 +118,7 @@ impl OpenAIProvider {
     /// A config with no key cannot serve a hosted endpoint, so this refuses with
     /// [`ProviderError::Auth`] rather than building a client that would fail at
     /// the first call. The key never appears in the error text.
-    pub fn from_env_config(id: String, config: &EnvLlmConfig) -> Result<Self> {
+    pub fn from_env_config(id: String, kind: ProviderKind, config: &EnvLlmConfig) -> Result<Self> {
         let api_key = config.api_key.as_ref().ok_or_else(|| {
             ProviderError::Auth(format!(
                 "no API key in the environment (WARSHA_LLM_API_KEY) for provider {id}"
@@ -95,6 +142,7 @@ impl OpenAIProvider {
         Ok(Self {
             models: vec![default_model_info(&id, &config.model)],
             id,
+            kind,
             client,
             api_base: config.base_url.clone(),
             _api_key: api_key.clone(),
@@ -111,7 +159,9 @@ impl OpenAIProvider {
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
         if !resp.status().is_success() {
-            return Err(ProviderError::Other(format!("HTTP {}", resp.status())));
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(map_openai_error(status, body, Some(&self._api_key)));
         }
 
         let data: serde_json::Value = resp
@@ -193,11 +243,14 @@ impl ChatProvider for OpenAIProvider {
         &self.id
     }
     fn kind(&self) -> ProviderKind {
-        ProviderKind::OpenAI
+        self.kind
     }
 
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
-        Ok(self.models.clone())
+        match self.fetch_models().await {
+            Ok(models) if !models.is_empty() => Ok(models),
+            _ => Ok(self.models.clone()),
+        }
     }
 
     async fn health(&self) -> Result<HealthCheck> {
@@ -284,6 +337,7 @@ impl ChatProvider for OpenAIProvider {
                 input,
                 output,
                 total: input + output,
+                cost_cents: None,
             },
         })
     }
@@ -343,6 +397,34 @@ impl ChatProvider for OpenAIProvider {
         let output_cost =
             (usage.output as f64 / 1_000_000.0) * pricing.output_per_million_cents as f64;
         Ok((input_cost + output_cost).ceil() as u64)
+    }
+
+    async fn get_quota(&self) -> Result<ProviderQuota> {
+        if self.kind == ProviderKind::OpenRouter {
+            // OpenRouter quota logic
+            let url = format!("{}/key", self.api_base.trim_end_matches('/'));
+            let resp = self
+                .client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| ProviderError::Other(e.to_string()))?;
+            if !resp.status().is_success() {
+                return Ok(ProviderQuota::Unknown);
+            }
+            let data: serde_json::Value = resp
+                .json()
+                .await
+                .map_err(|e| ProviderError::Other(e.to_string()))?;
+            // Based on OpenRouter docs, GET /api/v1/key returns:
+            // { "data": { "limit": ..., "limit_remaining": ..., "usage": ... } }
+            if let Some(data) = data["data"].as_object() {
+                let used = data.get("usage").and_then(|v| v.as_u64()).unwrap_or(0);
+                let limit = data.get("limit").and_then(|v| v.as_u64()).unwrap_or(0);
+                return Ok(ProviderQuota::Reported { used, limit });
+            }
+        }
+        Ok(ProviderQuota::Unknown)
     }
 }
 
@@ -416,18 +498,91 @@ fn parse_role(s: &str) -> MessageRole {
 }
 pub async fn load_key(
     credentials: &CredentialsRef,
+    service: &str,
+    account: &str,
+) -> Result<String> {
+    load_key_with_fallback(
+        credentials,
+        service,
+        account,
+        crate::secrets::fallback_store().as_deref(),
+    )
+    .await
+}
+
+/// Run a synchronous keyring operation on a detached OS thread with timeout rendezvous.
+///
+/// Spawning on a detached `std::thread` instead of `tokio::task::spawn_blocking`
+/// prevents hanging Tokio's runtime drop on shutdown (R5-M1) when the OS keyring
+/// is locked and blocks indefinitely on D-Bus.
+async fn run_detached_keyring<T, F>(f: F, timeout: Duration, op_name: &str) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> std::result::Result<T, keyring::Error> + Send + 'static,
+{
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let thread_spawn = std::thread::Builder::new()
+        .name(format!("warsha-keyring-{op_name}"))
+        .spawn(move || {
+            let res = f();
+            let _ = tx.send(res);
+        });
+
+    if let Err(e) = thread_spawn {
+        return Err(ProviderError::Auth(format!(
+            "failed to spawn thread for keychain {op_name}: {e}"
+        )));
+    }
+
+    match tokio::time::timeout(timeout, rx).await {
+        Ok(recv_res) => match recv_res {
+            Ok(Ok(val)) => Ok(val),
+            Ok(Err(keyring_err)) => Err(ProviderError::Auth(keyring_err.to_string())),
+            Err(_) => Err(ProviderError::Auth(format!(
+                "keychain {op_name} thread exited without sending result"
+            ))),
+        },
+        Err(_) => Err(ProviderError::Auth(format!(
+            "keychain timed out after {}s",
+            timeout.as_secs()
+        ))),
+    }
+}
+
+pub async fn load_key_with_fallback(
+    credentials: &CredentialsRef,
     _service: &str,
-    _account: &str,
+    account: &str,
+    fallback: Option<&dyn SecretStore>,
 ) -> Result<String> {
     match credentials {
         CredentialsRef::Keychain {
             service: svc,
             account: acc,
         } => {
-            let entry = keyring::Entry::new(svc, acc);
-            entry
-                .get_password()
-                .map_err(|e| ProviderError::Auth(e.to_string()))
+            let svc = svc.clone();
+            let acc_for_keyring = acc.clone();
+            let res = run_detached_keyring(
+                move || {
+                    let entry = keyring::Entry::new(&svc, &acc_for_keyring);
+                    entry.get_password()
+                },
+                crate::secrets::KEYCHAIN_TIMEOUT,
+                "get",
+            )
+            .await;
+
+            match res {
+                Ok(k) => Ok(k),
+                Err(primary_err) => {
+                    let fallback_account = if !acc.is_empty() { acc } else { account };
+                    if let Some(fb) = fallback {
+                        fb.load(fallback_account).await
+                    } else {
+                        Err(primary_err)
+                    }
+                }
+            }
         }
         CredentialsRef::EnvVar { var } => {
             std::env::var(var).map_err(|_| ProviderError::Auth(format!("Env var {} not set", var)))
@@ -436,22 +591,59 @@ pub async fn load_key(
     }
 }
 
-/// Store API key to keychain
+/// Store API key to keychain, falling back to registered fallback store if keychain fails or times out
 pub async fn store_key(
     credentials: &CredentialsRef,
-    _service: &str,
-    _account: &str,
+    service: &str,
+    account: &str,
     key: &str,
+) -> Result<()> {
+    store_key_with_fallback(
+        credentials,
+        service,
+        account,
+        key,
+        crate::secrets::fallback_store().as_deref(),
+    )
+    .await
+}
+
+pub async fn store_key_with_fallback(
+    credentials: &CredentialsRef,
+    _service: &str,
+    account: &str,
+    key: &str,
+    fallback: Option<&dyn SecretStore>,
 ) -> Result<()> {
     match credentials {
         CredentialsRef::Keychain {
             service: svc,
             account: acc,
         } => {
-            let entry = keyring::Entry::new(svc, acc);
-            entry
-                .set_password(key)
-                .map_err(|e| ProviderError::Auth(e.to_string()))
+            let svc = svc.clone();
+            let acc_for_keyring = acc.clone();
+            let secret = key.to_string();
+            let res = run_detached_keyring(
+                move || {
+                    let entry = keyring::Entry::new(&svc, &acc_for_keyring);
+                    entry.set_password(&secret)
+                },
+                crate::secrets::KEYCHAIN_TIMEOUT,
+                "set",
+            )
+            .await;
+
+            match res {
+                Ok(()) => Ok(()),
+                Err(primary_err) => {
+                    let fallback_account = if !acc.is_empty() { acc } else { account };
+                    if let Some(fb) = fallback {
+                        fb.store(fallback_account, key).await
+                    } else {
+                        Err(primary_err)
+                    }
+                }
+            }
         }
         CredentialsRef::EnvVar { .. } => {
             Err(ProviderError::Auth("Cannot store to env var".to_string()))
@@ -460,15 +652,34 @@ pub async fn store_key(
     }
 }
 
-/// Delete API key from keychain
+/// Delete API key from keychain and registered fallback store
 pub async fn delete_key(credentials: &CredentialsRef) -> Result<()> {
+    delete_key_with_fallback(credentials, crate::secrets::fallback_store().as_deref()).await
+}
+
+pub async fn delete_key_with_fallback(
+    credentials: &CredentialsRef,
+    fallback: Option<&dyn SecretStore>,
+) -> Result<()> {
     match credentials {
         CredentialsRef::Keychain {
             service: svc,
             account: acc,
         } => {
-            let entry = keyring::Entry::new(svc, acc);
-            let _ = entry.delete_password();
+            let svc = svc.clone();
+            let acc_str = acc.clone();
+            let _ = run_detached_keyring(
+                move || {
+                    let entry = keyring::Entry::new(&svc, &acc_str);
+                    entry.delete_password()
+                },
+                crate::secrets::KEYCHAIN_TIMEOUT,
+                "delete",
+            )
+            .await;
+            if let Some(fb) = fallback {
+                let _ = fb.delete(acc).await;
+            }
             Ok(())
         }
         _ => Ok(()),
@@ -476,6 +687,7 @@ pub async fn delete_key(credentials: &CredentialsRef) -> Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -492,9 +704,12 @@ mod tests {
         // Construction reads nothing but the config it is given: no keychain and
         // no model fetch. `list_models` answering from the stored catalog proves
         // the built client carries the config's model.
-        let provider =
-            OpenAIProvider::from_env_config("env-openai".to_string(), &config_with_key())
-                .expect("a config with a key builds");
+        let provider = OpenAIProvider::from_env_config(
+            "env-openai".to_string(),
+            ProviderKind::OpenAI,
+            &config_with_key(),
+        )
+        .expect("a config with a key builds");
         assert_eq!(provider.id(), "env-openai");
         let models = provider
             .list_models()
@@ -513,28 +728,33 @@ mod tests {
         };
         // `OpenAIProvider` carries live request headers, so it deliberately has no
         // `Debug`; the result is matched by hand instead of `expect_err`.
-        let error = match OpenAIProvider::from_env_config("env-openai".to_string(), &config) {
+        let result = OpenAIProvider::from_env_config(
+            "env-openai".to_string(),
+            ProviderKind::OpenAI,
+            &config,
+        );
+        match result {
             Ok(_) => panic!("a config without a key must not build a provider"),
-            Err(error) => error,
-        };
-        match &error {
-            ProviderError::Auth(message) => {
-                assert!(
-                    !message.contains("sk-"),
-                    "the error text names a key: {message}"
-                );
-            }
-            other => panic!("expected an auth error, got {other:?}"),
+            Err(error) => match error {
+                ProviderError::Auth(message) => {
+                    assert!(
+                        !message.contains("sk-"),
+                        "the error text names a key: {message}"
+                    );
+                }
+                other => panic!("expected an auth error, got {other:?}"),
+            },
         }
     }
 
     #[test]
     fn from_env_config_uses_the_env_defaults_when_the_lookup_is_empty() {
-        // The defaults a caller gets from `EnvLlmConfig::from_lookup` land in the
-        // provider unchanged — the base url and model wiring is the whole point.
+        // When no environment is set, `from_lookup` returns empty strings, but
+        // `OpenAIProvider` construction fails if no key is provided.
         match OpenAIProvider::from_env_config(
             "env-openai".to_string(),
-            &EnvLlmConfig::from_lookup(|_| None),
+            ProviderKind::OpenAI,
+            &EnvLlmConfig::from_lookup(|_| None).unwrap(),
         ) {
             Ok(_) => panic!("the default config has no key"),
             Err(ProviderError::Auth(_)) => {}
@@ -543,11 +763,34 @@ mod tests {
 
         let config = EnvLlmConfig {
             api_key: Some("sk-again-not-real".to_string()),
-            ..EnvLlmConfig::from_lookup(|_| None)
+            base_url: "https://router.test/v1".to_string(),
+            model: "some/model".to_string(),
         };
-        let provider = OpenAIProvider::from_env_config("env-openai".to_string(), &config)
-            .expect("a key completes the default config");
-        assert_eq!(provider.api_base, DEFAULT_LLM_BASE_URL);
-        assert_eq!(provider.models[0].id, DEFAULT_LLM_MODEL);
+        let provider = OpenAIProvider::from_env_config(
+            "env-openai".to_string(),
+            ProviderKind::OpenAI,
+            &config,
+        )
+        .expect("a key completes the config");
+        assert_eq!(provider.api_base, "https://router.test/v1");
+        assert_eq!(provider.models[0].id, "some/model");
+    }
+
+    /// Regression test for R5-M1: detached keyring calls must time out cleanly
+    /// without hanging Tokio runtime drop (as `spawn_blocking` did when parked on D-Bus).
+    #[tokio::test]
+    async fn detached_keyring_timeout_does_not_hang_runtime_drop() {
+        let start = std::time::Instant::now();
+        let res = run_detached_keyring(
+            || {
+                std::thread::sleep(Duration::from_secs(60));
+                Ok("password".to_string())
+            },
+            Duration::from_millis(50),
+            "test_hang",
+        )
+        .await;
+        assert!(res.is_err(), "hanging keyring call must time out");
+        assert!(start.elapsed() < Duration::from_secs(2));
     }
 }

@@ -152,6 +152,7 @@ const BENCH = (
       mode="simple"
       onModeChange={() => undefined}
       simpleLabel="simple"
+      factoryLabel="factory"
       advancedLabel="advanced"
     />
     <Segmented label="theme" value="dark" onChange={() => undefined} options={[{ value: 'dark', label: 'dark' }]} />
@@ -476,7 +477,7 @@ describe('StatusStrip', () => {
 });
 
 describe('ModeSwitch and Segmented', () => {
-  it('is a named group of two toggle buttons that report and change the mode', () => {
+  it('is a named group of three toggle buttons that report and change the mode', () => {
     const onModeChange = vi.fn();
     rtl(
       <ModeSwitch
@@ -484,26 +485,29 @@ describe('ModeSwitch and Segmented', () => {
         mode="simple"
         onModeChange={onModeChange}
         simpleLabel="Simple"
+        factoryLabel="Factory"
         advancedLabel="Advanced"
       />
     );
 
     const group = screen.getByRole('group', { name: 'interface mode' });
-    expect(within(group).getAllByRole('button')).toHaveLength(2);
+    expect(within(group).getAllByRole('button')).toHaveLength(3);
     expect(screen.getByRole('button', { name: 'Simple' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Factory' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: 'Advanced' })).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
-    expect(onModeChange).toHaveBeenCalledWith('advanced');
+    expect(onModeChange).toHaveBeenCalledWith('developers');
   });
 
   it('lifts the pressed rung with depth and weight, not only a tint', () => {
     rtl(
       <ModeSwitch
         label="interface mode"
-        mode="advanced"
+        mode="developers"
         onModeChange={() => undefined}
         simpleLabel="Simple"
+        factoryLabel="Factory"
         advancedLabel="Advanced"
       />
     );
@@ -1053,7 +1057,7 @@ describe('the inventory as a system', () => {
         <Ledger label="l">
           <Ledger.Row onSelect={() => undefined}>line</Ledger.Row>
         </Ledger>
-        <ModeSwitch label="mode" mode="simple" onModeChange={() => undefined} simpleLabel="a" advancedLabel="b" />
+        <ModeSwitch label="mode" mode="simple" onModeChange={() => undefined} simpleLabel="a" factoryLabel="f" advancedLabel="b" />
         <Segmented label="theme" value="x" onChange={() => undefined} options={[{ value: 'x', label: 'x' }]} />
         <Tabs label="tabs">
           <Tabs.Tab panelId="p" selected onSelect={() => undefined}>

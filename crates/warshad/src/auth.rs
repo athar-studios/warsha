@@ -24,10 +24,21 @@
 use serde::{Deserialize, Serialize};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
+use thiserror::Error;
 use warsha_core::DeviceId;
-use warsha_pipeline::PhonePairing;
+use warsha_pipeline::{is_workspace_relative_path, PhonePairing, SHELL_COMMANDS};
 use warsha_remote::constant_time_eq;
 use warsha_remote::rate_limit::{Quota, RateLimiter, RefusalMeter};
+
+use super::SettingsError;
+
+/// Validates that a token is at least 32 characters long.
+pub fn validate_token(token: &str) -> Result<(), String> {
+    if token.len() < 32 {
+        return Err("token too short (H-01)".to_string());
+    }
+    Ok(())
+}
 
 /// What a caller is allowed to ask for.
 ///
@@ -64,6 +75,10 @@ pub struct Actor {
     /// The pairing's own name for the caller, for a log line and an error message.
     /// Never a secret.
     label: String,
+    /// The pairing's `device_id` exactly as the record carried it, including an id
+    /// that is not a UUID. The live pairing check compares this string, so a session
+    /// that is valid for reads is not refused just because its id is not a uuid.
+    pairing_device_id: Option<String>,
     role: ActorRole,
 }
 
@@ -73,6 +88,7 @@ impl Actor {
         Self {
             device_id: Some(local_device),
             label: "owner".to_string(),
+            pairing_device_id: None,
             role: ActorRole::Owner,
         }
     }
@@ -84,6 +100,7 @@ impl Actor {
                 .ok()
                 .map(DeviceId),
             label: format!("device:{}", pairing.device_id.trim()),
+            pairing_device_id: Some(pairing.device_id.trim().to_string()),
             role: ActorRole::Paired,
         }
     }
@@ -112,6 +129,14 @@ impl Actor {
     /// a real device id instead of being logged as somebody.
     pub fn device_id(&self) -> Option<DeviceId> {
         self.device_id
+    }
+
+    /// The identifier the pairing itself carried, verbatim.
+    ///
+    /// Unlike [`Actor::device_id`], this keeps an id that is not a UUID: the live
+    /// pairing check compares the record's own string, not a parsed identity.
+    pub fn pairing_device_id(&self) -> Option<&str> {
+        self.pairing_device_id.as_deref()
     }
 
     /// The caller's name for itself, for logs and errors.
@@ -166,9 +191,23 @@ impl Sessions {
     ///
     /// `pairings` is what the daemon holds at the moment of the call, so revoking a
     /// phone takes effect on its next request rather than on the next restart. An
-    /// empty token, an unknown token and a revoked device all answer `None`: the
-    /// daemon does not explain which one a caller guessed.
+    /// empty token, an unknown token, a revoked device and a pairing past the
+    /// deadline its offer was minted with all answer `None`: the daemon does not
+    /// explain which one a caller guessed (audit H1).
     pub fn resolve(&self, presented: &str, pairings: &[PhonePairing]) -> Option<Actor> {
+        self.resolve_at(presented, pairings, crate::now_epoch_secs())
+    }
+
+    /// [`Sessions::resolve`] judged at `now` (Unix seconds).
+    ///
+    /// Time is a parameter so the expiry is tested at an exact instant rather than
+    /// by sleeping; `resolve` is the only caller in production.
+    pub(crate) fn resolve_at(
+        &self,
+        presented: &str,
+        pairings: &[PhonePairing],
+        now: u64,
+    ) -> Option<Actor> {
         let presented = presented.trim();
         if presented.is_empty() {
             return None;
@@ -178,7 +217,7 @@ impl Sessions {
         }
         pairings
             .iter()
-            .filter(|pairing| pairing.is_active())
+            .filter(|pairing| pairing.is_active_at(now))
             .find(|pairing| constant_time_eq(pairing.secret.as_bytes(), presented.as_bytes()))
             .map(Actor::paired)
     }
@@ -256,6 +295,42 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         tier: Standard,
     },
     M {
+        method: "permissions.defaults.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "permissions.defaults.set",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "permissions.project.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "permissions.project.set",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "swarm.project.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "swarm.project.set",
+        policy: Owner,
+        tier: Standard,
+    },
+    // Mutates a project's repository, like `projects.create`, so it is the owner's.
+    M {
+        method: "projects.attach",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
         method: "runs.list",
         policy: Session,
         tier: Standard,
@@ -266,7 +341,77 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         tier: Standard,
     },
     M {
+        method: "runs.subtasks",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
         method: "runs.events",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "sessions.list",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "sessions.tail",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "sessions.stop",
+        policy: Owner,
+        tier: Standard,
+    },
+    // Secretary interview: start and turn are Owner/Standard (take owner replies
+    // and guide brief creation), status is Session/Standard.
+    M {
+        method: "interview.start",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "interview.turn",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "interview.status",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "secretary.thread.list",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "secretary.thread.turns",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "secretary.chat",
+        policy: Owner,
+        tier: Spend,
+    },
+    // Ask mode (D4): a project-scoped secretary conversation, not a pipeline
+    // run. It starts model work for the owner, so start/turn are Owner/Standard
+    // and status is Session/Standard — the same shape as the interview family.
+    M {
+        method: "ask.start",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "ask.turn",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "ask.status",
         policy: Session,
         tier: Standard,
     },
@@ -276,12 +421,31 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    M {
+        method: "runs.estimate",
+        policy: Session,
+        tier: Standard,
+    },
+    // The worktree path is local information, not a credential; a verified session
+    // that can read the run may read where its own checkout lives.
+    M {
+        method: "runs.worktree",
+        policy: Session,
+        tier: Standard,
+    },
     // Gates: audit H-03. A verified session decides, and the approver recorded is
     // that session's device — never a `device_id` in the params.
     M {
         method: "gates.approve",
         policy: Session,
         tier: Auth,
+    },
+    // Gate C evidence runs one owner-chosen test command in the run's worktree,
+    // judged by the same command policy as RunCommand; it is a spend, not a read.
+    M {
+        method: "gates.evidence",
+        policy: Owner,
+        tier: Spend,
     },
     M {
         method: "gates.reject",
@@ -329,6 +493,51 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // Usage and quota: reading spend history is session-level (the same bar as
+    // `budget.show`); a quota probe calls the provider's endpoint, so it is an
+    // owner decision like the other provider actions that reach the network.
+    M {
+        method: "providers.quota",
+        policy: Owner,
+        tier: Spend,
+    },
+    M {
+        method: "usage.by_dimension",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "usage.by_time",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "usage.subscription_window",
+        policy: Session,
+        tier: Standard,
+    },
+    // Provider auth: reading status is session-level; starting/completing auth and
+    // disconnecting touch keychain secrets, so they are owner decisions.
+    M {
+        method: "providers.auth_status",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "providers.auth_start",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "providers.auth_complete",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "providers.disconnect",
+        policy: Owner,
+        tier: Standard,
+    },
     M {
         method: "roles.list",
         policy: Session,
@@ -359,7 +568,7 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
     },
     M {
         method: "devices.pair",
-        policy: Session,
+        policy: Owner,
         tier: Pairing,
     },
     // The method that *mints* a pairing, as opposed to `devices.pair`, which consumes one.
@@ -381,9 +590,13 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Pairing,
     },
+    // Owner, because the response carries every other device's plaintext secret;
+    // a paired device that could read it could impersonate the rest. No legitimate
+    // paired consumer exists (`devices.list` is the secret-free view), so this is
+    // the smallest fix (PAIR research finding 1).
     M {
         method: "pairing.list",
-        policy: Session,
+        policy: Owner,
         tier: Standard,
     },
     M {
@@ -461,7 +674,16 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         tier: Standard,
     },
     M {
+        // Retired by OD-E2: the row stays, because `authorize` running first is what
+        // makes the retirement answer a migration message instead of a policy error.
         method: "agent.turn",
+        policy: Owner,
+        tier: Spend,
+    },
+    // A turn in one run's own loop and workspace: the one turn a daemon runs. Owner,
+    // Spend: it is the same authority as the retired agent.turn, bound to a run.
+    M {
+        method: "agent.turn_run",
         policy: Owner,
         tier: Spend,
     },
@@ -533,6 +755,45 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // The permission table is the daemon's own security setting, so only the owner
+    // reads or writes it; a paired device must not be able to grant itself a tool.
+    M {
+        method: "mcp.permissions.list",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "mcp.permissions.set",
+        policy: Owner,
+        tier: Spend,
+    },
+    // A one-shot grant is a permission write with a shorter life, so it gets the
+    // same gate the table gets: Owner, and Spend for the write. A paired phone
+    // cannot approve its own tool.
+    M {
+        method: "mcp.approvals.list",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "mcp.approvals.allow_once",
+        policy: Owner,
+        tier: Spend,
+    },
+    // B2: the approval bridge's two calls. The run-scoped token that carries
+    // them authorises exactly these two — an ask is a question, not a write,
+    // and the decision poll reads one answer — so they run at Session tier,
+    // not Owner: the CLI's bridge never approves its own ask.
+    M {
+        method: "permissions.ask",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "permissions.decision",
+        policy: Session,
+        tier: Standard,
+    },
     // A preview is a dev server the daemon starts.
     M {
         method: "preview.start",
@@ -592,6 +853,11 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
     },
     M {
         method: "runs.cancel",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "runs.resume",
         policy: Session,
         tier: Standard,
     },
@@ -722,6 +988,31 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
     M {
         method: "files.read",
         policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "files.diff",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "rules.global.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "rules.global.set",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "rules.project.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "rules.project.set",
+        policy: Owner,
         tier: Standard,
     },
 ];
@@ -902,6 +1193,14 @@ impl Default for RateGovernor {
 /// allow-list that admits `sh` admits whatever `sh` is told to run, which is not a
 /// restriction but a rename. An owner who wants one adds it by name, and that is a
 /// visible change to a configuration file rather than a property of the RPC.
+///
+/// Absence from the list is not the only guard: [`ProcessPolicy::check_command`]
+/// refuses a [`SHELL_COMMANDS`] program **as a shell**, after the allow-list check,
+/// which is the order `warsha_pipeline::CommandPolicy` uses. The refusal names the
+/// shell rule instead of reading like a missing list entry, so an edit that widens
+/// `allowed_commands` has to be read as "admits a shell" rather than "admits one
+/// more tool" (KEEL checkpoint finding L12; the parity between the two policies is
+/// pinned by `process_policy_and_pipeline_policy_refuse_and_admit_the_same_programs`).
 #[derive(Debug, Clone)]
 pub struct ProcessPolicy {
     allowed: Vec<String>,
@@ -1011,7 +1310,11 @@ impl ProcessPolicy {
         }
 
         // A path inside the daemon's own data directory is the daemon's own scope:
-        // the agent workspace and anything it built there.
+        // the agent workspace, the binaries the daemon bundled under it, and anything
+        // it built there. This exemption is the daemon's own and has no counterpart in
+        // `warsha_pipeline::CommandPolicy` — a rooted path is in scope here because the
+        // daemon itself put the program there, not because the pipeline policy agrees
+        // — so the parity test below feeds both policies non-rooted inputs only.
         //
         // The test is made on *resolved* paths, and a `..` is refused before it is ever
         // compared (audit N-2). `std::path::Path::starts_with` walks the components as
@@ -1031,13 +1334,37 @@ impl ProcessPolicy {
             return Ok(());
         }
 
+        // Relative paths containing a path separator must never match bare allow-list entries by basename (R6-H2, R7-H1).
+        let is_relative = is_workspace_relative_path(command);
         let program = program_name(command);
-        let allowed = self
-            .allowed
-            .iter()
-            .any(|entry| entry == command || program_name(entry) == program);
+        let allowed = self.allowed.iter().any(|entry| {
+            if entry == command {
+                return true;
+            }
+            if is_relative {
+                return false;
+            }
+            program_name(entry) == program
+        });
         if allowed {
             return Ok(());
+        }
+        if is_relative {
+            return Err(format!(
+                "`{command}` is a relative path; allowed commands must be named by bare executable name or rooted path"
+            ));
+        }
+        // The shell branch the pipeline policy has and this one did not (KEEL
+        // checkpoint finding L12): a shell that is not allow-listed is refused for
+        // being a shell, not for being an unexplained name. The order is
+        // `CommandPolicy`'s — the allow-list is consulted first, so an owner who
+        // names a shell still gets it — and `SHELL_COMMANDS` is imported from the
+        // pipeline crate rather than copied, so the two policies cannot drift on
+        // which programs count as shells.
+        if SHELL_COMMANDS.contains(&program.as_str()) {
+            return Err(format!(
+                "shell `{program}` is refused: a process allow-list that admits a shell admits whatever the shell is told to run; the owner can name one in `allowed_commands` if they want it"
+            ));
         }
         Err(format!(
             "`{program}` is not in the daemon's allowed commands; add it to `allowed_commands` in the daemon configuration if the owner wants it run"
@@ -1077,8 +1404,22 @@ impl ProcessPolicy {
             .split('@')
             .next_back()
             .unwrap_or_default();
-        let host = host.split(':').next().unwrap_or_default();
-        if host == "localhost" || host.starts_with("127.") || host.starts_with("[::1") {
+        // An IPv6 literal is bracketed; strip the brackets before the port split,
+        // otherwise the first `:` inside the address truncates it.
+        let host = if let Some(rest) = host.strip_prefix('[') {
+            rest.split(']').next().unwrap_or_default()
+        } else {
+            host.split(':').next().unwrap_or_default()
+        };
+        // `127.example.com` starts with "127." but is not loopback: parse the host
+        // and require a real loopback address (or the literal `localhost`).
+        if host == "localhost" {
+            return Ok(());
+        }
+        if host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+        {
             return Ok(());
         }
         Err(format!(
@@ -1302,838 +1643,459 @@ pub mod rpc_codes {
     pub const POLICY_REFUSED: i32 = -32005;
 }
 
+// ================================ the session extensions and the daemon's error type
+
+/// The `&Extensions` a `with_extensions` RPC method is handed by jsonrpsee.
+///
+/// A verified [`Actor`] travels in it, put there by the transport after it checked
+/// the caller's credential.
+pub type RpcExtensions = jsonrpsee::server::Extensions;
+
+/// The request extensions a verified session carries, for a caller that drives the
+/// RPC surface in-process rather than over the wire.
+///
+/// Over HTTP and WebSocket an actor is *only* ever produced by the transport, after it
+/// has compared the bearer credential to the daemon's token and the live pairings;
+/// nothing a client sends can put one in a request. Building the extensions by hand is
+/// therefore an act of trust available to in-process code — the daemon's own tests, and
+/// an embedded host that already holds the state — and to nobody else.
+pub fn session_extensions(actor: Actor) -> RpcExtensions {
+    let mut ext = RpcExtensions::new();
+    ext.insert(actor);
+    ext
+}
+
+/// The extensions of the owner session for a daemon whose local device is
+/// `local_device` — the same actor the transport produces when the daemon's own token
+/// presents itself.
+pub fn owner_session(local_device: DeviceId) -> RpcExtensions {
+    session_extensions(Actor::owner(local_device))
+}
+
+/// The extensions of no session at all: what a request that never authenticated
+/// carries, and what every authorized method must refuse.
+pub fn anonymous_session() -> RpcExtensions {
+    RpcExtensions::new()
+}
+
+#[derive(Error, Debug)]
+pub enum DaemonError {
+    #[error("Store error: {0}")]
+    Store(#[from] warsha_store::StoreError),
+    #[error("Settings error: {0}")]
+    Settings(#[from] SettingsError),
+    #[error("Provider error: {0}")]
+    Provider(#[from] warsha_providers::ProviderError),
+    #[error("Pipeline error: {0}")]
+    Pipeline(#[from] warsha_pipeline::PipelineError),
+    #[error("Git error: {0}")]
+    Git(#[from] warsha_git::GitError),
+    #[error("Remote error: {0}")]
+    Remote(#[from] warsha_remote::RemoteError),
+    #[error("Config error: {0}")]
+    Config(String),
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("TOML decode error: {0}")]
+    TomlDecode(#[from] toml::de::Error),
+    #[error("TOML encode error: {0}")]
+    TomlEncode(#[from] toml::ser::Error),
+    #[error("Authentication failed")]
+    AuthFailed,
+    #[error("Keyring error: {0}")]
+    Keyring(#[from] keyring::Error),
+    #[error("Lock error: {0}")]
+    Lock(String),
+    #[error("Other: {0}")]
+    Other(String),
+}
+
+// ============================================ the RPC auth layer (P-H1 step A3)
+
+// Moved out of `lib.rs` unchanged: the tower layer, the origin check it refuses on,
+// and the two credential readers the `/events` subprotocol path needs. `lib.rs`
+// still names them, so they are `pub(crate)` here and imported at the crate root.
+
+use axum::http::header::AUTHORIZATION;
+use jsonrpsee::core::BoxError;
+use jsonrpsee::server::{HttpRequest, HttpResponse};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use tower::Layer;
+use warsha_remote::rate_limit::rate_key;
+
+use super::state::DaemonState;
+
+/// Tower layer for RPC authentication and the ceiling in front of it.
+///
+/// Two jobs, in this order (security audit H-01, H-03, H-04):
+///
+/// - **Bound the transport first**, on the key the transport actually has: the
+///   authenticated identity when the credential resolved, and one shared bounded
+///   bucket when it did not. Measuring before the credential is judged is the point —
+///   a caller spraying tokens is spending its own budget, not the daemon's CPU.
+/// - **Say who is calling**, and put that in the request for the RPC methods to read.
+///   A method never learns the caller's identity from its own params; that is the
+///   whole of H-03 and half of H-04.
+///
+/// There is no per-peer-address key here: jsonrpsee's HTTP service does not put the
+/// accepted socket's address in the request it hands a middleware, and inventing one
+/// from a header would be trusting a value the caller writes. The address-keyed
+/// ceiling is on the daemon's own HTTP listener, where axum does supply it.
+#[derive(Clone)]
+pub(crate) struct RpcAuthLayer {
+    pub(crate) state: Arc<DaemonState>,
+}
+
+impl<S> Layer<S> for RpcAuthLayer {
+    type Service = RpcAuthService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        RpcAuthService {
+            inner,
+            state: self.state.clone(),
+        }
+    }
+}
+
+/// The app's own origins: the desktop webview on Unix and on Windows, and the
+/// Android shell's asset host. They are always allowed whatever a `config.toml`
+/// lists, because an existing config that predates one of them must not lock its
+/// own app out of the daemon.
+///
+/// The Android entry is the shell's real origin (`OD-UI7`, R-UI-7): `MainActivity`
+/// serves the bundled page from `https://appassets.androidplatform.net/` through a
+/// framework `shouldInterceptRequest` handler, so the page presents that one fixed
+/// string. The alternative — admitting `null` — is what a `file:` document can only
+/// present, and any web page can force a browser to send `null` (a sandboxed iframe,
+/// a `data:` document), so admitting it would delete the origin check while leaving
+/// it in the code. Exact match only: scheme, host and no port, at no trailing slash.
+pub(crate) const APP_ORIGINS: &[&str] = &[
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://appassets.androidplatform.net",
+];
+
+/// Whether a present `Origin` is one the RPC listener accepts.
+pub(crate) fn origin_allowed(configured: &[String], origin: &str) -> bool {
+    APP_ORIGINS.contains(&origin) || configured.iter().any(|allowed| allowed == origin)
+}
+
+/// The origins both CORS layers admit: [`APP_ORIGINS`] first, then the configured list.
+///
+/// The layers used to read `config.allowed_origins` alone — exactly the list `APP_ORIGINS` exists
+/// to outrank. The consequence was measured (R-UI-7 Step 2): the Android shell's page passed the
+/// WebSocket origin gate (401, the credential check) and then the browser refused to *read* any
+/// answer, because the preflight for its `POST /rpc` came back with no
+/// `Access-Control-Allow-Origin`. One union, written here once, so a CORS layer cannot drift from
+/// the gate that admits the same strings. A value that is not a valid header is dropped rather than
+/// failing the daemon's start — the configured half keeps the behaviour it always had.
+pub(crate) fn cors_origins(configured: &[String]) -> Vec<axum::http::HeaderValue> {
+    APP_ORIGINS
+        .iter()
+        .copied()
+        .chain(configured.iter().map(String::as_str))
+        .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+        .collect()
+}
+
+/// Tower service for RPC authentication.
+/// Mirrors the pattern used by jsonrpsee's own `HostFilter` middleware layer.
+#[derive(Clone)]
+pub(crate) struct RpcAuthService<S> {
+    pub(crate) inner: S,
+    pub(crate) state: Arc<DaemonState>,
+}
+
+/// The bearer token in a request's `Authorization` header, or an empty string.
+///
+/// An empty string is not a session: [`Sessions::resolve`] refuses it, and no caller
+/// that sends no header is answerable for the traffic of one that does.
+pub(crate) fn bearer_token(headers: &axum::http::HeaderMap) -> String {
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|header| header.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The one route that also reads a credential from the WebSocket subprotocol list.
+///
+/// A browser — and the desktop's webview — cannot set `Authorization` on a WebSocket
+/// handshake: the constructor takes a URL and a subprotocol list and nothing else.
+/// `/events` is the only place that has to know this, so it is the only place that does.
+pub(crate) const EVENTS_PATH: &str = "/events";
+
+/// The subprotocol prefix a `/events` caller carries its credential in.
+///
+/// The client's half of this string is `TOKEN_SUBPROTOCOL_PREFIX` in
+/// `packages/client/src/index.ts`; the two ends have to agree, and a live-daemon test
+/// (`crates/warshad/tests/events_ws_auth.rs`) is what pins that they do.
+pub(crate) const TOKEN_SUBPROTOCOL_PREFIX: &str = "warsha.token.";
+
+/// The `/events` data-plane subprotocol, and the only one the daemon ever *selects*.
+///
+/// It carries no secret, which is the whole reason it exists: RFC 6455 §1.9 has the
+/// server answer the handshake with one of the protocols the client offered, and the
+/// only other thing the client offers is its credential. Echoing that back would put
+/// the token on the response headers of every hop that reads them.
+pub(crate) const EVENTS_SUBPROTOCOL: &str = "warsha.events.v1";
+
+/// The credential in a `/events` caller's `Sec-WebSocket-Protocol` list, or an empty
+/// string when the list carries none.
+///
+/// One entry of the list is treated exactly as the `Authorization` header is: its
+/// remainder goes to [`Sessions::resolve`] and nothing else happens with it. Every
+/// offered protocol is a candidate, not just the first, because a client is free to
+/// offer the data-plane name before its credential. Multiple header lines are joined
+/// the way the transport joins them (`get_all`), and a value that is not UTF-8 simply
+/// carries no credential. An empty result is not a session —
+/// [`Sessions::resolve`] refuses it — so a caller that offers `warsha.token.` with
+/// nothing after the prefix is refused like a caller that offers nothing.
+///
+/// Nothing here reads the request URI: a token in the query string is not a credential
+/// this daemon will ever accept, because a URL is logged by every proxy, browser history
+/// and `Referer` between the caller and this listener.
+pub(crate) fn subprotocol_token(headers: &axum::http::HeaderMap) -> String {
+    headers
+        .get_all(axum::http::header::SEC_WEBSOCKET_PROTOCOL)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .find_map(|offered| offered.trim().strip_prefix(TOKEN_SUBPROTOCOL_PREFIX))
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// A refusal with a status and a body, on jsonrpsee's own response type.
+pub(crate) fn rpc_refusal(
+    status: axum::http::StatusCode,
+    body: serde_json::Value,
+    retry_after_secs: Option<u64>,
+) -> HttpResponse {
+    let mut response = jsonrpsee::server::http::response::ok_response(body.to_string());
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
+    if let Some(secs) = retry_after_secs {
+        response
+            .headers_mut()
+            .insert(axum::http::header::RETRY_AFTER, retry_after_header(secs));
+    }
+    response
+}
+
+/// The `Retry-After` value a bounded caller is answered with.
+///
+/// A number of seconds is always a representable header value, and a refusal that
+/// could not name its wait would be an invitation to retry at once — so the
+/// unreachable case says `1` rather than dropping the header.
+pub(crate) fn retry_after_header(secs: u64) -> axum::http::HeaderValue {
+    axum::http::HeaderValue::from_str(&secs.max(1).to_string())
+        .unwrap_or_else(|_| axum::http::HeaderValue::from_static("1"))
+}
+
+impl<S, B> tower::Service<HttpRequest<B>> for RpcAuthService<S>
+where
+    S: tower::Service<HttpRequest<B>, Response = HttpResponse> + Clone + Send + 'static,
+    S::Response: 'static,
+    S::Future: Send + 'static,
+    S::Error: Into<BoxError> + Send + 'static,
+    B: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = BoxError;
+    type Future = Pin<
+        Box<dyn Future<Output = std::result::Result<Self::Response, Self::Error>> + Send + 'static>,
+    >;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<std::result::Result<(), Self::Error>> {
+        self.inner.poll_ready(cx).map_err(Into::into)
+    }
+
+    fn call(&mut self, req: HttpRequest<B>) -> Self::Future {
+        let state = self.state.clone();
+        let mut inner = self.inner.clone();
+        let token = bearer_token(req.headers());
+
+        Box::pin(async move {
+            // A browser sends `Origin` on cross-origin requests, including the
+            // WebSocket upgrade a CORS layer cannot gate: jsonrpsee would accept the
+            // handshake before CORS ever saw it. A present-but-unlisted Origin is
+            // refused before the credential is read; an absent Origin (CLI, tests,
+            // same-origin) is allowed exactly as before (security audit LOW: no Origin
+            // check on the RPC WS).
+            if let Some(origin) = req.headers().get(axum::http::header::ORIGIN) {
+                let allowed = origin
+                    .to_str()
+                    .ok()
+                    .is_some_and(|value| origin_allowed(&state.config.allowed_origins, value));
+                if !allowed {
+                    return Ok(rpc_refusal(
+                        axum::http::StatusCode::FORBIDDEN,
+                        serde_json::json!({ "error": "origin not allowed" }),
+                        None,
+                    ));
+                }
+            }
+
+            // The pairing store is read at the moment of the call, so revoking a
+            // device takes effect on its next request rather than at the next start.
+            let actor = state
+                .sessions
+                .resolve(&token, &state.active_pairings().await);
+            // No peer address is available on this transport, so an unauthenticated
+            // caller falls back to one shared bounded bucket rather than to none.
+            let key = rate_key(actor.as_ref().map(|actor| actor.key()), None);
+
+            let ceiling = state.rates.transport().check(&key);
+            if !ceiling.is_allowed() {
+                state.report_refusal("transport", &key);
+                return Ok(rpc_refusal(
+                    axum::http::StatusCode::TOO_MANY_REQUESTS,
+                    serde_json::json!({ "error": "rate limited" }),
+                    Some(ceiling.retry_after_secs()),
+                ));
+            }
+
+            let Some(actor) = actor else {
+                let mut response = rpc_refusal(
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    serde_json::json!({ "error": "unauthorized" }),
+                    None,
+                );
+                response.headers_mut().insert(
+                    axum::http::header::WWW_AUTHENTICATE,
+                    axum::http::HeaderValue::from_static("Bearer"),
+                );
+                return Ok(response);
+            };
+
+            // The verified caller travels in the request's extensions, which is a
+            // value only this service can write: nothing on the wire reaches it.
+            let mut req = req;
+            req.extensions_mut().insert(actor);
+            inner.call(req).await.map_err(Into::into)
+        })
+    }
+}
+
 #[cfg(test)]
-mod tests {
+#[allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
+#[path = "auth_tests.rs"]
+mod tests;
+
+/// Parity between the daemon's process policy and the pipeline's command policy
+/// (KEEL checkpoint finding L12).
+///
+/// The two lists are two implementations of one rule — which programs the agent's
+/// work may start — and the K4 test named
+/// `agent_command_execution_obeys_daemon_allowed_commands_policy` exercises the
+/// *pipeline* policy, not [`ProcessPolicy`]. Merging them is out of scope, so this
+/// feeds the SAME inputs to both and asserts they agree: the daemon cannot start
+/// what the agent's own tool layer would refuse, and cannot refuse what the tool
+/// layer would run.
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+mod policy_parity_tests {
     use super::*;
-    use chrono::Utc;
-
-    /// A pairing the daemon holds.
-    fn pairing(device_id: &str, secret: &str) -> PhonePairing {
-        PhonePairing::new(device_id, secret, 1_700_000_000)
-    }
-
-    /// A device id string a paired phone can be named by.
-    fn uuid() -> String {
-        DeviceId::new().to_string()
-    }
-
-    fn sessions() -> Sessions {
-        Sessions::new("owner-token", DeviceId::new())
-    }
+    use warsha_pipeline::{CommandPolicy, CommandPolicyError};
 
     #[test]
-    fn the_owner_token_authenticates_the_owner_and_nothing_else_does() {
-        let sessions = sessions();
-        let local = sessions.local_device();
-
-        let owner = sessions
-            .resolve("owner-token", &[])
-            .expect("the daemon's own token is the owner");
-        assert_eq!(owner.role(), ActorRole::Owner);
-        assert_eq!(owner.device_id(), Some(local));
-
-        assert!(sessions.resolve("wrong", &[]).is_none());
-        assert!(sessions.resolve("", &[]).is_none());
-        assert!(sessions.resolve("   ", &[]).is_none());
-        // A near miss is refused, and refused the same way as a stranger.
-        assert!(sessions.resolve("owner-toke", &[]).is_none());
-    }
-
-    #[test]
-    fn a_pairing_secret_authenticates_its_device_and_a_revoked_one_does_not() {
-        let phone = uuid();
-        let sessions = sessions();
-        let pairings = vec![pairing(&phone, "s3cr3t")];
-
-        let actor = sessions
-            .resolve("s3cr3t", &pairings)
-            .expect("the pairing's secret authenticates");
-        assert_eq!(actor.role(), ActorRole::Paired);
-        assert_eq!(
-            actor.device_id().map(|id| id.to_string()),
-            Some(phone.clone()),
-            "the device id bound the actor is the pairing's, not a caller's"
-        );
-
-        let mut revoked = pairing(&phone, "s3cr3t");
-        revoked.revoked = true;
-        assert!(
-            sessions.resolve("s3cr3t", &[revoked]).is_none(),
-            "a revoked pairing still opened a session"
-        );
-        assert!(sessions.resolve("nope", &pairings).is_none());
-    }
-
-    #[test]
-    fn the_owner_credential_wins_over_a_pairing_holding_the_same_secret() {
-        // A pairing created with the daemon's own token must not downgrade the owner
-        // to a phone: the owner check comes first and is the higher authority.
-        let sessions = Sessions::new("shared", DeviceId::new());
-        let pairings = vec![pairing(&uuid(), "shared")];
-        let actor = sessions.resolve("shared", &pairings).expect("a session");
-        assert_eq!(actor.role(), ActorRole::Owner);
-    }
-
-    #[test]
-    fn a_paired_device_with_a_non_device_id_has_no_approver_to_record() {
-        let actor = Actor::paired(&pairing("not-a-uuid", "secret"));
-        assert_eq!(actor.role(), ActorRole::Paired);
-        assert_eq!(
-            actor.device_id(),
-            None,
-            "a pairing id that is not a device id was treated as one"
-        );
-    }
-
-    #[test]
-    fn a_role_covers_only_what_it_carries() {
-        assert!(ActorRole::Owner.covers(ActorRole::Owner));
-        assert!(ActorRole::Owner.covers(ActorRole::Paired));
-        assert!(ActorRole::Paired.covers(ActorRole::Paired));
-        assert!(
-            !ActorRole::Paired.covers(ActorRole::Owner),
-            "a paired device could claim the owner's authority"
-        );
-    }
-
-    #[test]
-    fn every_privileged_mutation_names_the_owner_and_a_session_does_not_reach_it() {
-        // The audit's H-04 list, read straight off the table.
-        for method in [
-            "providers.add",
-            "providers.remove",
-            "budget.set",
-            "devices.pair-start",
-            "devices.revoke",
-            "pairing.create",
-            "pairing.revoke",
-            "runmode.set",
-            "backend.set",
-            "roles.set",
-            "process.spawn",
-            "mcp.connect",
-            "mcp.call",
-            "preview.start",
-            "routines.run_now",
-            "handoff.apply",
-        ] {
-            let entry = policy_of(method).unwrap_or_else(|| panic!("{method} has no policy"));
-            assert_eq!(entry.policy, Owner, "{method} is not owner-gated");
-        }
-
-        // A gate decision needs a verified session and is measured in the strictest
-        // tier after pairing: it is how a phone acts, and it records who acted.
-        for method in ["gates.approve", "gates.reject", "gates.changes"] {
-            let entry = policy_of(method).expect("a gate policy");
-            assert_eq!(entry.policy, Session);
-            assert_eq!(entry.tier, Auth);
-        }
-
-        // The gates queue read (#25) goes both ways on the same table: a paired
-        // device and the owner may both read the queue a phone is asked to decide
-        // (`Session` is the role that covers both), and an unauthenticated caller
-        // reaches nothing because `authorize` refuses before any role is compared
-        // (asserted as behaviour in the daemon's tests). It is deliberately not on
-        // the `Auth` tier the three decisions above spend — `SimpleMode` polls this
-        // path, and a credential-path ceiling would starve the inbox it feeds.
-        let queue = policy_of("gates.list").expect("the gates queue read has a policy");
-        assert_eq!(queue.policy, Session);
-        assert_eq!(queue.tier, Standard);
-        assert_ne!(
-            queue.tier,
-            policy_of("gates.approve").expect("a gate policy").tier,
-            "the queue read was pulled onto the decision path's ceiling"
-        );
-
-        // Pairing and spend are the strictest ceilings, as the audit requires.
-        assert_eq!(policy_of("pairing.create").expect("policy").tier, Pairing);
-        assert_eq!(policy_of("devices.pair").expect("policy").tier, Pairing);
-        assert_eq!(policy_of("devices.pair").expect("policy").policy, Session);
-        // The minting half of the pairing path is measured on the same ceiling as the
-        // redeeming half — and the brief's own hazard, a paired phone creating its own
-        // credential, is what the `Owner` policy above (asserted in the list walk) refuses.
-        assert_eq!(
-            policy_of("devices.pair-start")
-                .expect("the pairing minter has a policy")
-                .tier,
-            Pairing
-        );
-        assert_eq!(policy_of("agent.turn").expect("policy").tier, Spend);
-        assert_eq!(policy_of("runs.start").expect("policy").tier, Spend);
-        assert_eq!(policy_of("process.spawn").expect("policy").tier, Spend);
-        assert!(
-            policy_of("nowhere").is_none(),
-            "an unknown method was policy'd"
-        );
-    }
-
-    #[test]
-    fn the_strictest_ceilings_are_on_credentials_and_spend() {
-        let config = RateLimitConfig::default();
-        let auth = config.auth.quota();
-        let pairing = config.pairing.quota();
-        let spend = config.spend.quota();
-        let standard = config.standard.quota();
-
-        // Per authenticated caller, the strictest limits sit on pairing, then spend
-        // and authentication, and only then on ordinary traffic.
-        assert!(
-            pairing.sustained < auth.sustained,
-            "pairing is not the strictest"
-        );
-        assert!(
-            auth.sustained < standard.sustained,
-            "auth is looser than standard"
-        );
-        assert!(
-            spend.sustained < standard.sustained,
-            "spend is looser than standard"
-        );
-        assert!(pairing.burst < standard.burst);
-        assert!(auth.burst < standard.burst);
-    }
-
-    #[test]
-    fn a_caller_past_a_ceiling_is_measured_per_identity_and_per_tier() {
-        let config = RateLimitConfig {
-            pairing: QuotaConfig::per_minute(2, 2),
-            ..RateLimitConfig::default()
-        };
-        let governor = RateGovernor::new(&config);
-        let phone = uuid();
-
-        assert!(governor.check(Tier::Pairing, &phone).is_allowed());
-        assert!(governor.check(Tier::Pairing, &phone).is_allowed());
-        let refused = governor.check(Tier::Pairing, &phone);
-        assert!(
-            !refused.is_allowed(),
-            "a device past its pairing ceiling was served"
-        );
-        assert!(refused.retry_after_secs() >= 1);
-
-        // Another device is not refused for this one's attempts, and the same device
-        // is not refused in another tier for this tier's traffic.
-        assert!(governor.check(Tier::Pairing, &uuid()).is_allowed());
-        assert!(governor.check(Tier::Standard, &phone).is_allowed());
-    }
-
-    #[test]
-    fn the_transport_ceiling_is_the_widest_and_is_measured_before_a_credential() {
-        let config = RateLimitConfig::default();
-        let governor = RateGovernor::new(&config);
-        assert!(config.transport.sustained > config.standard.sustained);
-        assert!(governor
-            .transport()
-            .check(&"anonymous".to_string())
-            .is_allowed());
-    }
-
-    #[test]
-    fn a_command_is_allowed_only_by_the_policy_and_no_shell_syntax_passes() {
-        let policy = ProcessPolicy::from_config(&[], Path::new("/var/lib/warsha"));
-
-        // The default list admits build tools and refuses the shells that would make
-        // the list a formality.
-        assert!(policy.check_command("npm").is_ok());
-        assert!(policy.check_command("./npm").is_ok());
-        assert!(
-            policy.check_command("NPM.CMD").is_ok(),
-            "a case-insensitive program name was not matched"
-        );
-        assert!(
-            policy.check_command("sh").is_err(),
-            "a shell was admitted by default"
-        );
-        assert!(
-            policy.check_command("cmd").is_err(),
-            "a shell was admitted by default"
-        );
-        assert!(policy.check_command("bash").is_err());
-        assert!(policy.check_command("rm").is_err());
-        assert!(policy.check_command("").is_err());
-        assert!(policy.check_command("   ").is_err());
-
-        // Shell syntax in a program name is refused whatever the list says.
-        let with_shell =
-            ProcessPolicy::from_config(&["sh".to_string()], Path::new("/var/lib/warsha"));
-        assert!(
-            with_shell.check_command("sh").is_ok(),
-            "an owner-added command was not honoured"
-        );
-        assert!(
-            with_shell.check_command("sh; rm -rf /").is_err(),
-            "shell syntax passed as a program"
-        );
-        assert!(with_shell.check_command("sh|whoami").is_err());
-        assert!(with_shell.check_command("`sh`").is_err());
-
-        // Nothing on the wire can widen the list: only the configuration names it.
-        let narrow =
-            ProcessPolicy::from_config(&["cargo".to_string()], Path::new("/var/lib/warsha"));
-        assert!(narrow.check_command("cargo").is_ok());
-        assert!(
-            narrow.check_command("npm").is_err(),
-            "the default list leaked into a configured one"
-        );
-    }
-
-    #[test]
-    fn a_path_inside_the_daemon_s_own_data_dir_is_in_scope() {
-        let policy = ProcessPolicy::from_config(&["npm".to_string()], Path::new("/var/lib/warsha"));
-
-        assert!(policy
-            .check_command("/var/lib/warsha/workspace/tools/migrate")
-            .is_ok());
-        assert!(
-            policy.check_command("/usr/local/bin/migrate").is_err(),
-            "an arbitrary absolute path was read as project scope"
-        );
-        assert!(policy.check_command("../../../usr/bin/migrate").is_err());
-    }
-
-    /// Audit N-2: the scope test is made on resolved paths, so neither a `..` nor a
-    /// symlink inside the data directory can hand a program outside it the exemption.
-    ///
-    /// Everything here runs against a real, existing directory tree: the finding's case
-    /// is the one where the *written* path still starts with the data directory, and an
-    /// `expect` that only passes because the filesystem was never consulted would not
-    /// have caught it.
-    #[test]
-    fn an_absolute_path_that_climbs_out_of_the_data_dir_is_not_in_scope() {
+    fn process_policy_and_pipeline_policy_refuse_and_admit_the_same_programs() {
         let dir = crate::test_util::fresh_tempdir();
         let data_dir = dir.path().join("warsha");
-        std::fs::create_dir_all(data_dir.join("workspace")).expect("the data directory is made");
-        let inside = data_dir.join("workspace").join("migrate");
-        std::fs::write(&inside, b"tool").expect("the tool is written");
-
-        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
-
-        // The exemption the finding does not change: a program the daemon built in its
-        // own workspace, named by an absolute path, is still in scope.
-        assert!(policy.check_command(&inside.to_string_lossy()).is_ok());
-
-        // The regression itself, spelled exactly as the re-audit spells it:
-        // `<data_dir>/../../program` starts with `<data_dir>` component for component
-        // and lands two directories up.
-        let escaped = format!("{}/../../program", data_dir.display());
-        let error = policy
-            .check_command(&escaped)
-            .expect_err("a traversal path was read as project scope");
-        assert!(
-            error.contains("`..`"),
-            "the traversal was refused for some other reason: {error}"
-        );
-
-        // One level is enough to leave, and it is refused for the same reason rather
-        // than by luck: `<data_dir>/../<sibling>/tool` is not the daemon's.
-        let sibling = format!("{}/../sibling/tool", data_dir.display());
-        assert!(policy.check_command(&sibling).is_err());
-
-        // A `..` that stays inside after collapsing is still a traversal, and is
-        // refused rather than reasoned about: the daemon's scope is a directory the
-        // caller names, not a path expression it gets to resolve.
-        let round_trip = format!("{}/workspace/../workspace/migrate", data_dir.display());
-        assert!(policy.check_command(&round_trip).is_err());
-
-        // Relative forms climb too, and are refused on the same rule rather than by the
-        // accident of a program name: `../npm` is a path out of the workspace, and the
-        // list admitting `npm` is not a licence to reach it from anywhere.
-        assert!(policy.check_command("../npm").is_err());
-        assert!(policy
-            .check_command("node_modules/.bin/../evilmock")
-            .is_err());
-
-        // An absolute path to a program the *list* admits is admitted by the list, not
-        // by the scope test — which is the difference between the two checks, and the
-        // reason a caller outside the data directory still cannot name an unlisted
-        // program.
-        let elsewhere = data_dir.parent().expect("the parent exists").join("npm");
-        assert!(
-            policy.check_command(&elsewhere.to_string_lossy()).is_ok(),
-            "an allowed program named by an absolute path outside the data directory was refused by the list"
-        );
-        let elsewhere_unlisted = data_dir
-            .parent()
-            .expect("the parent exists")
-            .join("migrate");
-        assert!(policy
-            .check_command(&elsewhere_unlisted.to_string_lossy())
-            .is_err());
-    }
-
-    /// A symlink placed inside the data directory is what its target is, not what its
-    /// name says — so the target's location decides, and a target outside is out of
-    /// scope (audit N-2, the same hole reached without writing `..`).
-    #[cfg(unix)]
-    #[test]
-    fn a_symlink_inside_the_data_dir_reaches_only_what_is_inside_it() {
-        use std::os::unix::fs::symlink;
-
-        let dir = crate::test_util::fresh_tempdir();
-        let data_dir = dir.path().join("warsha");
-        let outside = dir.path().join("elsewhere");
         std::fs::create_dir_all(&data_dir).expect("the data directory is made");
-        std::fs::create_dir_all(&outside).expect("the other directory is made");
+        let daemon = ProcessPolicy::from_config(&[], &data_dir);
+        let pipeline = CommandPolicy::from_config(&[]);
 
-        let outside_tool = outside.join("evil");
-        std::fs::write(&outside_tool, b"tool").expect("the outside tool is written");
-        symlink(&outside_tool, data_dir.join("link")).expect("the symlink is made");
-
-        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
-        let through_link = data_dir.join("link");
-        let error = policy
-            .check_command(&through_link.to_string_lossy())
-            .expect_err("a symlink out of the data directory was read as project scope");
-        assert!(
-            error.contains("link"),
-            "the refusal did not name the program: {error}"
-        );
-
-        // And the honest case still works: a link to something the daemon really does
-        // own inside its data directory is in scope.
-        let inside_tool = data_dir.join("migrate");
-        std::fs::write(&inside_tool, b"tool").expect("the inside tool is written");
-        let inside_link = data_dir.join("good-link");
-        symlink(&inside_tool, &inside_link).expect("the inside symlink is made");
-        assert!(policy.check_command(&inside_link.to_string_lossy()).is_ok());
-    }
-
-    /// The scope test is a comparison of directories, not of strings: a sibling whose
-    /// name happens to begin with the data directory's name is a different directory.
-    ///
-    /// Pinned at the key level because this is the rule a future refactor to
-    /// `str::starts_with` would break silently on every platform at once, and the
-    /// version of it that was measured on Windows (CI run 41752421903) was the *other*
-    /// failure: a path spelled without a drive prefix never reached the comparison at
-    /// all.
-    #[test]
-    fn the_scope_test_compares_components_and_never_a_string_prefix() {
-        let data_dir = Path::new("/var/lib/warsha");
-
-        // In scope: the directory itself, anything under it at any depth, and the
-        // spellings of those that differ only in separators the parser collapses.
-        for candidate in [
-            "/var/lib/warsha",
-            "/var/lib/warsha/",
-            "/var/lib/warsha/workspace/tools/migrate",
-            "/var/lib/warsha//workspace//migrate",
-            "/var/lib/warsha/./workspace/migrate",
-        ] {
+        // Shells: refused by both, and the daemon's refusal names the shell rule —
+        // that message is the observable the added shell branch exists for.
+        for shell in ["sh", "bash", "cmd", "powershell", "pwsh"] {
+            let refused = daemon
+                .check_command(shell)
+                .expect_err("the daemon admitted a shell");
             assert!(
-                scope_contains(data_dir, Path::new(candidate)),
-                "`{candidate}` is inside the data directory"
-            );
-        }
-
-        // Out of scope: a sibling that shares the name's prefix, a shorter path, a
-        // different root, and a component that merely begins with the same letters.
-        for candidate in [
-            "/var/lib/warsha-evil/tool",
-            "/var/lib/warsh/tool",
-            "/var/lib",
-            "/usr/local/bin/migrate",
-            "warsha/workspace/migrate",
-        ] {
-            assert!(
-                !scope_contains(data_dir, Path::new(candidate)),
-                "`{candidate}` was read as inside the data directory"
-            );
-        }
-    }
-
-    /// A program the daemon built in its own workspace is in scope whether or not the
-    /// file exists yet, and a sibling directory of the data directory never is — the
-    /// same rules as above, run against a real tree so the resolved branch of
-    /// [`resolves_inside`] is the one under test.
-    #[test]
-    fn a_sibling_of_the_data_dir_is_out_of_scope_in_a_real_tree() {
-        let dir = crate::test_util::fresh_tempdir();
-        let data_dir = dir.path().join("warsha");
-        std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
-
-        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
-        let spelled = |path: &str| format!("{}/{}", data_dir.display(), path);
-
-        // The data directory itself, and a nested path that does not exist yet: a run
-        // that has not built its tool still owns the place it would build it in.
-        assert!(policy.check_command(&data_dir.to_string_lossy()).is_ok());
-        assert!(policy
-            .check_command(&spelled("workspace/tools/build-not-built-yet"))
-            .is_ok());
-        assert!(
-            policy
-                .check_command(&format!("{}/", data_dir.display()))
-                .is_ok(),
-            "a trailing separator moved the boundary"
-        );
-
-        // The sibling a string prefix admits: `<data_dir>-evil/tool`.
-        let sibling = format!("{}-evil/tool", data_dir.display());
-        let error = policy
-            .check_command(&sibling)
-            .expect_err("a sibling of the data directory was read as project scope");
-        assert!(
-            error.contains("tool"),
-            "the refusal did not name the program: {error}"
-        );
-
-        // And a `..` traversal, refused before the comparison rather than resolved by it.
-        let escaped = format!("{}/../sibling/tool", data_dir.display());
-        assert!(policy.check_command(&escaped).is_err());
-    }
-
-    /// A data directory that names no root grants no scope at all.
-    ///
-    /// Reduced to components, `""` is a prefix of every path on the machine, and a
-    /// relative one is a prefix of whatever the current directory happens to be: reading
-    /// either as the daemon's scope would make the whole filesystem in scope. The
-    /// daemon's own data directory is always rooted, so this is a misconfiguration, and
-    /// a misconfiguration is refused rather than honoured.
-    #[test]
-    fn an_unrooted_data_dir_grants_no_scope() {
-        for data_dir in ["", "warsha", "target/debug", "."] {
-            let policy = ProcessPolicy::from_config(&["npm".to_string()], Path::new(data_dir));
-            assert!(
-                policy.check_command("/usr/local/bin/migrate").is_err(),
-                "a data directory spelled `{data_dir}` let an absolute path outside it into scope"
+                refused.contains("shell"),
+                "the daemon refused `{shell}` as something other than a shell: {refused}"
             );
             assert!(
-                policy.check_command("npm").is_ok(),
-                "the allow-list stopped working for a data directory spelled `{data_dir}`"
-            );
-        }
-    }
-
-    /// The two Windows spellings that would otherwise answer "outside" about a directory
-    /// the daemon does own are folded onto one key: the `\\?\` verbatim marker
-    /// `std::fs::canonicalize` returns, and ASCII case.
-    ///
-    /// Run on every host, from UTF-16 units, so the arithmetic that only Windows calls
-    /// is still measured here rather than trusted.
-    #[test]
-    fn the_windows_spelling_of_a_component_reduces_to_the_plain_form() {
-        fn a_component(text: &str) -> Component<'_> {
-            Component::Normal(std::ffi::OsStr::new(text))
-        }
-        fn fold(component: Component<'_>, text: &str) -> String {
-            let wide: Vec<u16> = text.encode_utf16().collect();
-            String::from_utf16(&fold_verbatim_and_case(component, &wide))
-                .expect("the fold keeps valid UTF-16")
-        }
-
-        // The text a prefix component carries, in each of the two forms the same drive
-        // or share is spelled in.
-        assert_eq!(fold(a_component(r"\\?\C:"), r"\\?\C:"), "c:");
-        assert_eq!(fold(a_component("C:"), "C:"), "c:");
-        assert_eq!(
-            fold(
-                a_component(r"\\?\UNC\SERVER\share"),
-                r"\\?\UNC\SERVER\share"
-            ),
-            r"\\server\share"
-        );
-        assert_eq!(
-            fold(a_component(r"\\SERVER\share"), r"\\SERVER\share"),
-            r"\\server\share"
-        );
-
-        // Only ASCII case, and only the verbatim marker: nothing else is invented,
-        // because a comparison wider than the filesystem is the error this cannot make.
-        assert_eq!(fold(a_component("PROGRA~1"), "PROGRA~1"), "progra~1");
-        assert_eq!(fold(a_component("DATA-evil"), "DATA-evil"), "data-evil");
-        assert_eq!(fold(a_component("warsha."), "warsha."), "warsha.");
-        assert_ne!(
-            fold(a_component("ÄÖÜ"), "ÄÖÜ"),
-            fold(a_component("äöü"), "äöü"),
-            "non-ASCII case was folded"
-        );
-
-        // The root is one key whichever separator typed it, and a name that merely
-        // begins with a separator is still a name and not a root.
-        assert_eq!(fold(Component::RootDir, r"\"), r"\");
-        assert_eq!(fold(Component::RootDir, "/"), r"\");
-        assert_ne!(
-            fold(a_component(r"\warsha"), r"\warsha"),
-            fold(a_component("warsha"), "warsha")
-        );
-    }
-
-    /// Off Windows, the case of a component is part of the directory's name, and a `\`
-    /// is an ordinary character rather than a separator. Case only decides anything at
-    /// the boundary and above it: what a path descends *into* below the data directory
-    /// is the daemon's scope whatever it is spelled like, because the boundary component
-    /// is still the data directory.
-    #[cfg(not(windows))]
-    #[test]
-    fn case_is_part_of_a_directory_name_off_windows() {
-        let dir = crate::test_util::fresh_tempdir();
-        let data_dir = dir.path().join("warsha");
-        std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
-        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
-
-        assert!(policy
-            .check_command(&format!("{}/workspace/migrate", data_dir.display()))
-            .is_ok());
-        assert!(
-            policy
-                .check_command(&format!("{}/WORKSPACE/MIGRATE", data_dir.display()))
-                .is_ok(),
-            "a name below the boundary was treated as a different directory"
-        );
-
-        // The boundary component itself, spelled another way, is another directory: the
-        // sibling `/tmp/x/WARSHA/workspace/migrate` is not `/tmp/x/warsha`.
-        assert!(policy
-            .check_command(&format!(
-                "{}/WARSHA/workspace/migrate",
-                dir.path().display()
-            ))
-            .is_err());
-        // A `\` is an ordinary character in a Unix name, never a separator.
-        assert!(policy
-            .check_command(&format!(r"{}\workspace", data_dir.display()))
-            .is_err());
-    }
-
-    /// On Windows, the boundary component is read case-insensitively, and both
-    /// separators mean the same thing: the same directory is one directory however the
-    /// caller spells it, and a sibling is still a sibling in every spelling.
-    #[cfg(windows)]
-    #[test]
-    fn case_is_not_part_of_a_directory_name_on_windows() {
-        let dir = crate::test_util::fresh_tempdir();
-        let data_dir = dir.path().join("warsha");
-        std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
-        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
-        let parent = dir.path().display().to_string();
-
-        assert!(
-            policy
-                .check_command(&format!(r"{}\WARSHA\workspace\migrate", parent))
-                .is_ok(),
-            "the same directory, shouted, was read as another one"
-        );
-        assert!(
-            policy
-                .check_command(&format!(
-                    r"{}/warsha/tools/not-built-yet",
-                    parent.replace('\\', "/")
-                ))
-                .is_ok(),
-            "a `/`-rooted spelling of an unbuilt tool was read as another directory"
-        );
-        // A sibling that differs by more than case stays outside.
-        assert!(policy
-            .check_command(&format!(r"{}\WARSHA-EVIL\workspace\migrate", parent))
-            .is_err());
-    }
-
-    /// On Windows, the scope test is reached by the spellings `is_absolute` used to
-    /// refuse: a rooted path with no drive prefix, in either separator, in either case,
-    /// and in the verbatim form a resolved path arrives in.
-    #[cfg(windows)]
-    #[test]
-    fn a_rooted_path_without_a_drive_prefix_is_in_scope_on_windows() {
-        // The exact shape CI run 41752421903 measured: a POSIX-spelled data directory
-        // and a program under it. `Path::is_absolute` calls it relative — no drive
-        // prefix — and the exemption used to stop there.
-        let policy = ProcessPolicy::from_config(&["npm".to_string()], Path::new("/var/lib/warsha"));
-        assert!(
-            policy
-                .check_command("/var/lib/warsha/workspace/tools/migrate")
-                .is_ok(),
-            "a rooted path with no drive prefix was refused the scope exemption"
-        );
-        assert!(policy.check_command("/var/lib/warsha-evil/tool").is_err());
-
-        let backslash =
-            ProcessPolicy::from_config(&["npm".to_string()], Path::new(r"\warsha-scope-boundary"));
-        assert!(backslash
-            .check_command(r"\warsha-scope-boundary\workspace\migrate")
-            .is_ok());
-        assert!(backslash
-            .check_command(r"\warsha-scope-boundary-evil\migrate")
-            .is_err());
-
-        // A drive-relative path (`C:foo`) is rooted nowhere: it names a directory under
-        // the current directory on drive C, so it is not the daemon's scope and only the
-        // allow-list decides it.
-        assert!(backslash
-            .check_command(r"C:warsha-scope-boundary\migrate")
-            .is_err());
-        // A relative path is refused the exemption for the same reason.
-        assert!(backslash
-            .check_command(r"warsha-scope-boundary\migrate")
-            .is_err());
-    }
-
-    /// On Windows, the boundary is the same directory under every spelling the OS
-    /// accepts for it — and still refuses the sibling under all of them.
-    #[cfg(windows)]
-    #[test]
-    fn a_verbatim_or_mixed_case_form_of_the_data_dir_is_in_scope_on_windows() {
-        let dir = crate::test_util::fresh_tempdir();
-        let data_dir = dir.path().join("warsha");
-        std::fs::create_dir_all(data_dir.join("workspace")).expect("the workspace is made");
-        let inside = data_dir.join("workspace").join("migrate");
-        std::fs::write(&inside, b"tool").expect("the tool is written");
-        let policy = ProcessPolicy::from_config(&["npm".to_string()], &data_dir);
-        let plain = inside.to_string_lossy().into_owned();
-
-        for (shape, candidate) in [
-            // What std::fs::canonicalize hands back for this very file.
-            ("verbatim", format!(r"\\?\{plain}")),
-            // NTFS names are case-insensitive: the same directory, shouted.
-            ("shouted", plain.to_uppercase()),
-            // `/` is a separator for the Windows parser too.
-            ("forward", plain.replace('\\', "/")),
-            // Both at once, the way a path copied out of a build log looks.
-            ("mixed", plain.replace('\\', "/").to_uppercase()),
-            // The same tool named by a directory that does not exist yet: the branch
-            // that never reaches the filesystem, so it never gets a resolved case or a
-            // resolved prefix to lean on either.
-            (
-                "unbuilt",
-                format!(r"{}\TOOLS\NOT-BUILT-YET", data_dir.display()).to_uppercase(),
-            ),
-        ] {
-            assert!(
-                policy.check_command(&candidate).is_ok(),
-                "a {shape} spelling of a program inside the data directory was refused: {candidate}"
-            );
-        }
-
-        for (shape, candidate) in [
-            (
-                "verbatim sibling",
-                format!(r"\\?\{}-evil\tool", data_dir.display()),
-            ),
-            (
-                "shouted sibling",
-                format!(r"{}-EVIL\tool", data_dir.display()),
-            ),
-            (
-                "forward sibling",
-                format!(
-                    r"{}/tool",
-                    format!(r"{}-evil", data_dir.display()).replace('\\', "/")
+                matches!(
+                    pipeline.check_command(shell),
+                    Err(CommandPolicyError::ShellRefused { .. })
                 ),
-            ),
-            // A sibling that shares only the beginning of a component's letters.
-            (
-                "shorter-name sibling",
-                format!(r"{}sh/tool", data_dir.display()),
-            ),
-        ] {
-            assert!(
-                policy.check_command(&candidate).is_err(),
-                "a {shape} of a path outside the data directory was read as in scope: {candidate}"
+                "the pipeline admitted or mis-classified the shell `{shell}`"
             );
         }
-    }
 
-    #[test]
-    fn an_environment_variable_that_hijacks_execution_is_refused() {
-        let policy = ProcessPolicy::from_config(&[], Path::new("/var/lib/warsha"));
-
-        for key in [
-            "PATH",
-            "LD_PRELOAD",
-            "DYLD_INSERT_LIBRARIES",
-            "NODE_OPTIONS",
-            "RUSTC_WRAPPER",
-            "path",
-        ] {
+        // An unlisted program: refused by both.
+        for unlisted in ["rm", "curl", "wget", "python"] {
             assert!(
-                policy.check_env(key).is_err(),
-                "`{key}` was handed to a child process"
+                daemon.check_command(unlisted).is_err(),
+                "the daemon admitted the unlisted `{unlisted}`"
+            );
+            assert!(
+                matches!(
+                    pipeline.check_command(unlisted),
+                    Err(CommandPolicyError::NotAllowed { .. })
+                ),
+                "the pipeline admitted the unlisted `{unlisted}`"
             );
         }
-        for key in ["PORT", "NODE_ENV", "WARSHA_PROJECT", "RUST_LOG"] {
-            assert!(policy.check_env(key).is_ok(), "`{key}` was refused");
-        }
-    }
 
-    #[test]
-    fn a_transport_is_restricted_to_tls_or_loopback() {
-        let policy = ProcessPolicy::from_config(&[], Path::new("/var/lib/warsha"));
-
-        assert!(policy
-            .check_transport_url("https://mcp.example/mcp")
-            .is_ok());
-        assert!(policy.check_transport_url("wss://mcp.example/mcp").is_ok());
-        assert!(policy
-            .check_transport_url("http://127.0.0.1:9000/mcp")
-            .is_ok());
-        assert!(policy
-            .check_transport_url("http://localhost:9000/mcp")
-            .is_ok());
-        assert!(policy
-            .check_transport_url("ws://localhost:9000/mcp")
-            .is_ok());
-
-        assert!(policy
-            .check_transport_url("http://169.254.169.254/latest")
-            .is_err());
-        assert!(policy
-            .check_transport_url("http://evil.example/mcp")
-            .is_err());
-        assert!(policy.check_transport_url("file:///etc/passwd").is_err());
-        assert!(policy.check_transport_url("/etc/passwd").is_err());
-        // The host that is dialled is what comes after the last `@`, so a URL that
-        // puts a loopback address in its credentials is not a loopback endpoint.
-        assert!(policy
-            .check_transport_url("http://127.0.0.1@evil.example/mcp")
-            .is_err());
-        assert!(policy
-            .check_transport_url("http://user@127.0.0.1:9/mcp")
-            .is_ok());
-    }
-
-    #[test]
-    fn a_program_name_is_the_last_segment_without_an_extension() {
-        assert_eq!(program_name("npm"), "npm");
-        assert_eq!(program_name("./npm"), "npm");
-        assert_eq!(program_name("/usr/local/bin/vite"), "vite");
-        assert_eq!(program_name("C:\\Program Files\\nodejs\\npm.cmd"), "npm");
-        assert_eq!(program_name("node.EXE"), "node");
-        assert_eq!(program_name("  git  "), "git");
-    }
-
-    #[test]
-    fn an_expired_pairing_is_not_a_session() {
-        // The store's own liveness rule is what the session check uses, so a phone the
-        // owner revoked stops being an approver on its next request.
-        let phone = uuid();
-        let mut revoked = pairing(&phone, "secret");
-        revoked.revoked = true;
-        assert!(!revoked.is_active());
-        assert_eq!(revoked.device_id, phone);
-        let active = pairing(&phone, "secret");
-        assert!(active.is_active());
-        assert!(active.created_at <= Utc::now().timestamp() as u64);
-    }
-
-    #[test]
-    fn the_rpc_refusal_codes_are_distinct_from_the_servers_generic_error() {
-        use rpc_codes::*;
-        let codes = [
-            UNAUTHENTICATED,
-            FORBIDDEN,
-            IDENTITY_MISMATCH,
-            RATE_LIMITED,
-            POLICY_REFUSED,
-        ];
-        for code in codes {
+        // A listed program with shell syntax in the program token: refused by both.
+        // Every character used here is in both metacharacter sets, so the pair fails
+        // on the same rule rather than on one list being narrower.
+        for injection in ["npm;id", "cargo|cat", "git&whoami", "`git`", "npm>out"] {
             assert!(
-                (-32099..-32000).contains(&code),
-                "{code} is not in the JSON-RPC server-error range"
+                daemon.check_command(injection).is_err(),
+                "the daemon admitted the program token `{injection}`"
             );
-            assert_ne!(code, -32000, "a refusal reused the generic server error");
+            assert!(
+                matches!(
+                    pipeline.check_command(injection),
+                    Err(CommandPolicyError::ShellSyntax { .. })
+                ),
+                "the pipeline admitted the program token `{injection}`"
+            );
         }
-        assert_eq!(
-            codes.iter().collect::<std::collections::HashSet<_>>().len(),
-            5
-        );
+
+        // The allow-listed program both admit — bare and rooted path-spelled outside data dir
+        // (the basename rule of R-KEEL row 10 lives on both sides for non-relative paths).
+        for admitted in ["npm", "/tmp/whatever/npm"] {
+            assert!(
+                daemon.check_command(admitted).is_ok(),
+                "the daemon refused the allowed `{admitted}`"
+            );
+            assert!(
+                pipeline.check_command(admitted).is_ok(),
+                "the pipeline refused the allowed `{admitted}`"
+            );
+        }
+
+        // Relative paths containing a path separator are refused by both:
+        // they must never match bare allow-list entries by basename (R6-H2, R7-H1).
+        for relative in ["./npm", "bin/npm"] {
+            assert!(
+                daemon.check_command(relative).is_err(),
+                "the daemon admitted the relative path `{relative}`"
+            );
+            assert!(
+                pipeline.check_command(relative).is_err(),
+                "the pipeline admitted the relative path `{relative}`"
+            );
+        }
+
+        // And the ordering both share: an owner who names a shell gets it, because
+        // the allow-list is consulted before the shell branch.
+        let owner_daemon = ProcessPolicy::from_config(&["sh".to_string()], &data_dir);
+        let owner_pipeline = CommandPolicy::from_config(&["sh".to_string()]);
+        assert!(owner_daemon.check_command("sh").is_ok());
+        assert!(owner_pipeline.check_command("sh").is_ok());
     }
 }

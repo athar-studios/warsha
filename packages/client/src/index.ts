@@ -8,6 +8,35 @@
 export type ProjectId = string & { readonly __brand: unique symbol };
 export type RunId = string & { readonly __brand: unique symbol };
 export type DeviceId = string & { readonly __brand: unique symbol };
+export interface AuthStatus {
+  kind: 'authenticated' | 'unauthenticated' | 'pending';
+  user_code?: string;
+  verification_uri?: string;
+}
+
+export interface AuthStartResponse {
+  kind: 'pkce' | 'device';
+  url?: string;
+  user_code?: string;
+  verification_uri?: string;
+}
+
+export interface AuthCompleteResponse {
+  message: string;
+}
+
+function decodeAuthStatus(value: unknown): AuthStatus {
+  // Simple decoder for now
+  return value as AuthStatus;
+}
+
+function decodeAuthStartResponse(value: unknown): AuthStartResponse {
+  return value as AuthStartResponse;
+}
+
+function decodeAuthCompleteResponse(value: unknown): AuthCompleteResponse {
+  return value as AuthCompleteResponse;
+}
 
 export type Stage =
   | 'idea'
@@ -43,7 +72,8 @@ export type Role =
   | 'security'
   | 'release'
   | 'marketer'
-  | 'feedback';
+  | 'feedback'
+  | 'secretary';
 
 export interface RpcRequest<T = unknown> {
   jsonrpc: '2.0';
@@ -65,11 +95,20 @@ export interface RpcError {
   data?: unknown;
 }
 
+export interface ProjectPermissions {
+  confinement: 'read-only' | 'workspace-write' | 'full-access';
+  approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask';
+  isOverride: boolean;
+}
+
 export interface ProjectSummary {
   id: ProjectId;
   name: string;
   createdAt: string;
   updatedAt: string;
+  confinement?: 'read-only' | 'workspace-write' | 'full-access';
+  approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask';
+  permissions?: ProjectPermissions;
 }
 
 export interface RunSummary {
@@ -79,6 +118,8 @@ export interface RunSummary {
   status: string;
   startedAt: string;
   updatedAt: string;
+  /** D4: how the run was started — absent on older daemons decodes to `agent`. */
+  runMode: 'agent' | 'plan' | 'spec-file' | 'ask';
 }
 
 export interface GateSummary {
@@ -92,6 +133,237 @@ export interface DeviceSummary {
   pairedAt: string;
   lastSeen?: string;
   revoked?: boolean;
+}
+
+export type SessionId = string & { readonly __brand: unique symbol };
+export type SessionStatus = 'starting' | 'working' | 'waiting_on_owner' | 'idle' | 'done' | 'failed' | 'stopped';
+
+export interface Session {
+  id: SessionId;
+  runId: RunId | null;
+  projectId: ProjectId;
+  role: Role;
+  backend: string;
+  provider: string;
+  model: string;
+  status: SessionStatus;
+  startedAt: string;
+  endedAt: string | null;
+  parentSessionId: SessionId | null;
+  cliSessionId: string | null;
+}
+
+const SECRETARY_ERROR = 'Malformed secretary thread';
+
+/** One secretary chat thread. `projectId` null is the one global thread. */
+export interface SecretaryThread {
+  id: string;
+  projectId: ProjectId | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * What the secretary may propose. The daemon keeps a proposal only when an owner turn
+ * of the same thread asked for the action AND the proposal references that turn; the
+ * shape mirrors `crates/warshad/src/secretary_chat.rs` `ProposalAction` (serde
+ * snake_case, one key present).
+ */
+export type ProposalAction =
+  | { type: 'gate_approve'; runId: string; stage: string }
+  | { type: 'gate_reject'; runId: string; stage: string; reason: string }
+  | { type: 'queue_decide'; questionId: string; allow: boolean }
+  | { type: 'run_start'; projectId: ProjectId; idea: string }
+  | { type: 'run_cancel'; runId: string };
+
+export interface SecretaryProposal {
+  label: string;
+  action: ProposalAction;
+}
+
+export interface SecretaryTurn {
+  id: string;
+  conversationId: string;
+  role: 'owner' | 'secretary';
+  content: string;
+  proposal: SecretaryProposal | null;
+  /** The owner turn this proposal answers — the UI's render-refusal check. */
+  refsOwnerMessage: string | null;
+  createdAt: string;
+}
+
+export interface SecretaryChatReply {
+  reply: string;
+  proposal: SecretaryProposal | null;
+  conversationId: string;
+  turnId: string;
+  /** The owner turn the proposal answers; `null` when the daemon names none. */
+  refsOwnerMessage: string | null;
+}
+
+/** The object half of a secretary decode. */
+function secretaryObject(value: unknown, name: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${SECRETARY_ERROR}: "${name}" is not a JSON object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function secretaryString(record: Record<string, unknown>, ...names: string[]): string {
+  const value = field(record, ...names);
+  if (typeof value !== 'string') {
+    throw new Error(`${SECRETARY_ERROR}: missing ${names[0]}`);
+  }
+  return value;
+}
+
+function secretaryOptionalString(
+  record: Record<string, unknown>,
+  ...names: string[]
+): string | null {
+  const value = field(record, ...names);
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') {
+    throw new Error(`${SECRETARY_ERROR}: invalid ${names[0]}`);
+  }
+  return value;
+}
+
+/** Decodes the single-key proposal action (`{ gate_approve: {…} }` → tagged union). */
+function decodeProposalAction(source: unknown): ProposalAction {
+  const record = secretaryObject(source, 'proposal action');
+  if (!('type' in record)) {
+    // Wire shape: one key whose value carries the fields.
+    const keys = Object.keys(record);
+    if (keys.length !== 1) {
+      throw new Error(`${SECRETARY_ERROR}: "proposal action" must have exactly one key`);
+    }
+    const key = keys[0];
+    const body = secretaryObject(record[key], `proposal action "${key}"`);
+    const str = (name: string): string => secretaryString(body, name);
+    const optStr = (name: string): string | null => secretaryOptionalString(body, name);
+    switch (key) {
+      case 'gate_approve':
+        return { type: 'gate_approve', runId: str('run_id'), stage: str('stage') };
+      case 'gate_reject':
+        return { type: 'gate_reject', runId: str('run_id'), stage: str('stage'), reason: optStr('reason') ?? '' };
+      case 'queue_decide':
+        return {
+          type: 'queue_decide',
+          questionId: str('question_id'),
+          allow: body['allow'] === true,
+        };
+      case 'run_start':
+        return {
+          type: 'run_start',
+          projectId: str('project_id') as ProjectId,
+          idea: str('idea'),
+        };
+      case 'run_cancel':
+        return { type: 'run_cancel', runId: str('run_id') };
+      default:
+        throw new Error(`${SECRETARY_ERROR}: unknown proposal action "${key}"`);
+    }
+  }
+  // Already-tagged shape (`{ type: 'gate_approve', run_id, stage }`).
+  const type = secretaryString(record, 'type');
+  const str = (name: string): string => secretaryString(record, name);
+  switch (type) {
+    case 'gate_approve':
+      return { type, runId: str('run_id'), stage: str('stage') };
+    case 'gate_reject':
+      return {
+        type,
+        runId: str('run_id'),
+        stage: str('stage'),
+        reason: secretaryOptionalString(record, 'reason') ?? '',
+      };
+    case 'queue_decide':
+      return {
+        type,
+        questionId: str('question_id'),
+        allow: record['allow'] === true,
+      };
+    case 'run_start':
+      return { type, projectId: str('project_id') as ProjectId, idea: str('idea') };
+    case 'run_cancel':
+      return { type, runId: str('run_id') };
+    default:
+      throw new Error(`${SECRETARY_ERROR}: unknown proposal action "${type}"`);
+  }
+}
+
+/** `proposal_json` is a JSON-encoded string on the turn wire; junk drops the proposal. */
+function decodeProposalJson(source: unknown): SecretaryProposal | null {
+  if (source === null || source === undefined) return null;
+  if (typeof source !== 'string') return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const record = parsed as Record<string, unknown>;
+  const label = field(record, 'label');
+  const action = field(record, 'action');
+  if (typeof label !== 'string' || action === undefined) return null;
+  try {
+    return { label, action: decodeProposalAction(action) };
+  } catch {
+    return null;
+  }
+}
+
+export function decodeSecretaryThread(source: unknown): SecretaryThread {
+  const record = secretaryObject(source, 'thread');
+  return {
+    id: secretaryString(record, 'id'),
+    projectId: (secretaryOptionalString(record, 'project_id', 'projectId') ?? null) as
+      | ProjectId
+      | null,
+    createdAt: secretaryString(record, 'created_at', 'createdAt'),
+    updatedAt: secretaryString(record, 'updated_at', 'updatedAt'),
+  };
+}
+
+export function decodeSecretaryTurn(source: unknown): SecretaryTurn {
+  const record = secretaryObject(source, 'turn');
+  const roleValue = field(record, 'role');
+  const role = roleValue === 'owner' || roleValue === 'secretary' ? roleValue : null;
+  if (role === null) {
+    throw new Error(`${SECRETARY_ERROR}: "turn" has an invalid "role"`);
+  }
+  const id = secretaryString(record, 'id');
+  return {
+    id,
+    conversationId: secretaryString(record, 'conversation_id', 'conversationId'),
+    role,
+    content: secretaryString(record, 'content'),
+    proposal: decodeProposalJson(field(record, 'proposal_json', 'proposalJson')),
+    refsOwnerMessage: secretaryOptionalString(record, 'refs_owner_message', 'refsOwnerMessage'),
+    createdAt: secretaryString(record, 'created_at', 'createdAt'),
+  };
+}
+
+export function decodeSecretaryChatReply(source: unknown): SecretaryChatReply {
+  const record = secretaryObject(source, 'chat reply');
+  const proposalValue = field(record, 'proposal');
+  let proposal: SecretaryProposal | null = null;
+  if (proposalValue !== null && proposalValue !== undefined) {
+    const inner = secretaryObject(proposalValue, 'proposal');
+    const label = field(inner, 'label');
+    if (typeof label === 'string' && field(inner, 'action') !== undefined) {
+      proposal = { label, action: decodeProposalAction(field(inner, 'action')) };
+    }
+  }
+  return {
+    reply: secretaryString(record, 'reply'),
+    proposal,
+    conversationId: secretaryString(record, 'conversation_id', 'conversationId'),
+    turnId: secretaryString(record, 'turn_id', 'turnId'),
+    refsOwnerMessage: secretaryOptionalString(record, 'refs_owner_message', 'refsOwnerMessage'),
+  };
 }
 
 const SUMMARY_ERROR = 'Malformed summary';
@@ -130,11 +402,41 @@ function summaryId(value: unknown, name: string): string {
 export function decodeProjectSummary(source: unknown): ProjectSummary {
   const record = summaryObject(source, 'project');
   const createdAt = summaryString(field(record, 'created_at', 'createdAt')) ?? '';
+  const confinement = summaryString(field(record, 'confinement')) as
+    | 'read-only'
+    | 'workspace-write'
+    | 'full-access'
+    | undefined;
+  const approvalMode = summaryString(field(record, 'approval_mode', 'approvalMode')) as
+    | 'ask-always'
+    | 'ask-for-risky'
+    | 'never-ask'
+    | undefined;
+
+  // A daemon without the B1 columns omits `permissions` entirely; an absent or non-object
+  // value decodes to the workspace-write x ask-for-risky default (B1's new-project default),
+  // so old payloads stay readable and a garbage payload never reaches a screen.
+  const permissionsRaw = field(record, 'permissions');
+  const permissionsRecord =
+    permissionsRaw === undefined || permissionsRaw === null
+      ? {}
+      : summaryObject(permissionsRaw, 'project permissions');
+  const permissions = {
+    confinement: (summaryString(field(permissionsRecord, 'confinement')) ??
+      'workspace-write') as 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode: (summaryString(field(permissionsRecord, 'approval_mode', 'approvalMode')) ??
+      'ask-for-risky') as 'ask-always' | 'ask-for-risky' | 'never-ask',
+    isOverride: !!field(permissionsRecord, 'is_override', 'isOverride'),
+  };
+
   return {
     id: summaryId(field(record, 'id'), 'project') as ProjectId,
     name: summaryString(field(record, 'name')) ?? '',
     createdAt,
     updatedAt: summaryString(field(record, 'updated_at', 'updatedAt')) ?? createdAt,
+    confinement,
+    approvalMode,
+    permissions,
   };
 }
 
@@ -148,6 +450,52 @@ export function decodeProjectSummary(source: unknown): ProjectSummary {
  * a screen never calls `.startsWith` on an object. A missing stage decodes to `''` — never
  * `undefined`, which is what made `InstrumentStrip` throw and black the desktop.
  */
+export interface RunSubtask {
+  id: string;
+  runId: string;
+  sessionId: string | null;
+  title: string;
+  files: string[];
+  status: 'queued' | 'dispatched' | 'succeeded' | 'failed' | 'conflicted' | 'unmerged';
+}
+
+const SUBTASK_ERROR = 'Malformed subtask';
+
+export function decodeRunSubtask(source: unknown): RunSubtask {
+  if (typeof source !== 'object' || source === null) {
+    throw new Error(`${SUBTASK_ERROR}: "subtask" is not a JSON object`);
+  }
+  const record = source as Record<string, unknown>;
+  const statusValue = field(record, 'status');
+  const status =
+    statusValue === 'queued' ||
+    statusValue === 'dispatched' ||
+    statusValue === 'succeeded' ||
+    statusValue === 'failed' ||
+    statusValue === 'conflicted' ||
+    statusValue === 'unmerged'
+      ? statusValue
+      : null;
+  if (status === null) {
+    throw new Error(`${SUBTASK_ERROR}: "subtask" has an invalid "status"`);
+  }
+  const filesValue = field(record, 'files');
+  const files = Array.isArray(filesValue) ? filesValue.filter((f): f is string => typeof f === 'string') : null;
+  if (files === null) {
+    throw new Error(`${SUBTASK_ERROR}: "subtask" has an invalid "files" list`);
+  }
+  const sessionValue = field(record, 'session_id', 'sessionId');
+  const sessionId = typeof sessionValue === 'string' ? sessionValue : null;
+  return {
+    id: String(field(record, 'id')),
+    runId: String(field(record, 'run_id', 'runId')),
+    sessionId,
+    title: String(field(record, 'title')),
+    files,
+    status,
+  };
+}
+
 export function decodeRunSummary(source: unknown): RunSummary {
   const record = summaryObject(source, 'run');
   const stage = summaryString(field(record, 'current_stage', 'currentStage', 'stage')) ?? '';
@@ -164,6 +512,22 @@ export function decodeRunSummary(source: unknown): RunSummary {
   }
   const startedAt =
     summaryString(field(record, 'created_at', 'createdAt', 'started_at', 'startedAt')) ?? '';
+  // D4: optional run mode. Older daemons omit the field -> default 'agent'.
+  // If present (not undefined/null), it must be a valid RunMode string or throw a strict decode error.
+  const runModeField = field(record, 'run_mode', 'runMode');
+  let runMode: 'agent' | 'plan' | 'spec-file' | 'ask' = 'agent';
+  if (runModeField !== undefined && runModeField !== null) {
+    if (
+      runModeField === 'agent' ||
+      runModeField === 'plan' ||
+      runModeField === 'spec-file' ||
+      runModeField === 'ask'
+    ) {
+      runMode = runModeField;
+    } else {
+      throw new Error(`${SUMMARY_ERROR}: "run" has an invalid "run_mode"`);
+    }
+  }
   return {
     id: summaryId(field(record, 'id'), 'run') as RunId,
     projectId: (summaryString(field(record, 'project_id', 'projectId')) ?? '') as ProjectId,
@@ -171,6 +535,7 @@ export function decodeRunSummary(source: unknown): RunSummary {
     status,
     startedAt,
     updatedAt: summaryString(field(record, 'updated_at', 'updatedAt')) ?? startedAt,
+    runMode,
   };
 }
 
@@ -273,11 +638,59 @@ export interface RoutingTargetConfig {
   weight: number;
 }
 
+/** One fixed interview topic (D1). The topic list is fixed in code, never model-chosen. */
+export type InterviewTopic =
+  | 'audience'
+  | 'problem'
+  | 'alternative'
+  | 'direction'
+  | 'constraints'
+  | 'success_criteria'
+  | 'non_goals';
+
+/** The secretary interview's live state, as `interview.start/turn/status` carry it. */
+export interface InterviewState {
+  project_id: string;
+  brief: {
+    problem_statement?: string;
+    target_users?: string;
+    key_features?: string[];
+    technical_constraints?: string;
+    success_criteria?: string[];
+    language?: string;
+  };
+  covered_topics: InterviewTopic[];
+  open_topics: InterviewTopic[];
+  current_topic?: InterviewTopic;
+  next_question?: string;
+  transcript: { question: string; answer: string }[];
+  is_done: boolean;
+  updated_at: string;
+}
+
+/** What one interview turn answers with (D1). */
+export type InterviewTurnOutcome =
+  | { kind: 'next_question'; question: string; topic: InterviewTopic; state: InterviewState }
+  | {
+      kind: 'done';
+      state: InterviewState;
+      idea_text: string;
+      direction_card: { covered_topics: InterviewTopic[]; open_topics: InterviewTopic[] };
+    }
+  | {
+      kind: 'daily_limit_reached';
+      message: string;
+      spent_cents: number;
+      cap_cents: number;
+      state: InterviewState;
+    };
+
 export interface RoleRoutingConfig {
   role: Role;
   targets: RoutingTargetConfig[];
   fallback_enabled: boolean;
   budget_cents_per_run: number;
+  daily_spend_cap_cents: number | null;
 }
 
 /**
@@ -292,6 +705,7 @@ export interface RoleRouting {
   targets: RoutingTargetConfig[];
   fallback_enabled: boolean;
   budget_cents_per_run: number | null;
+  daily_spend_cap_cents: number | null;
 }
 
 /** The agent loop's mode, as the daemon serialises `AgentMode`. */
@@ -371,6 +785,73 @@ export interface BudgetStatus {
   remainingUsd: number;
 }
 
+/** One usage aggregate row, as `usage.by_dimension` answers it (A3). */
+export interface UsageRow {
+  dimension: string;
+  key: string;
+  costCents: number;
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  requests: number;
+}
+
+/** One day's or month's usage, as `usage.by_time` answers it (A3). */
+export interface UsageTimeRow {
+  /** `YYYY-MM-DD` for a day, `YYYY-MM` for a month. */
+  period: string;
+  costCents: number;
+  promptTokens: number;
+  completionTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  requests: number;
+}
+
+/** One rolling window's estimated usage (A3). */
+export interface WindowUsage {
+  /** Estimated spend inside the window, in cents. */
+  costCents: number;
+  /** Request count inside the window. */
+  requests: number;
+}
+
+/** A CLI-managed provider's rolling subscription windows (A3). */
+export interface SubscriptionWindow {
+  /** Rolling 5-hour window (the CLI's short subscription bucket). */
+  fiveHour: WindowUsage;
+  /** Rolling 7-day window (the CLI's weekly bucket). */
+  sevenDay: WindowUsage;
+}
+
+/** The pre-run cost estimate `runs.estimate` answers with (A4). */
+export interface CostEstimate {
+  /** Cheapest plausible cost for the run, in cents. */
+  minCents: number;
+  /** Heavier plausible cost for the run, in cents. */
+  maxCents: number;
+  /** Always true today — every number here is an estimate. */
+  estimated: boolean;
+  /** Models with no price ("unknown for <model>") and empty routings. */
+  warnings: string[];
+}
+
+/** The three quota states, in the wire shape the desktop renders (A3). */
+export type QuotaState =
+  | { state: 'reported'; used: number; limit: number }
+  | { state: 'estimated'; usagePercentage: number }
+  | { state: 'unknown' };
+
+/** One provider's quota, as `providers.quota` answers it (A3). */
+export interface ProviderQuotaStatus {
+  provider: string;
+  kind: string;
+  quota: QuotaState;
+  /** RFC 3339 timestamp of the last successful check, when there was one. */
+  checkedAt?: string;
+}
+
 /** Event kinds the daemon emits (`warsha_core::EventKind`, snake_case on the wire). */
 export type EventKind = string;
 
@@ -383,6 +864,11 @@ export interface WarshaEvent {
   kind: EventKind;
   payload: unknown;
   costCents: number | null;
+  /**
+   * E4: the event's token usage when the stage carried one (`warsha_core::Event.tokens`,
+   * `TokenUsage{input,output,total,cost_cents}`); absent when the row had none.
+   */
+  tokens?: { input: number | null; output: number | null; total: number | null; costCents: number | null } | null;
   createdAt: string;
   deviceId: DeviceId | null;
   /**
@@ -423,6 +909,91 @@ export interface RunStreamSync {
   dropped_count: number;
   run: unknown | null;
   events: WarshaEvent[];
+}
+
+/**
+ * The `EventKind` a run's end is recorded under (`warsha_core::EventKind::RunFinished`).
+ *
+ * A run ends once, by `Completed`, `Failed` or `Cancelled`; the daemon appends exactly
+ * one `run_finished` event for that transition, so a stream watcher learns the run is
+ * over without re-polling `runs.list`.
+ */
+export const RUN_FINISHED_KIND = 'run_finished';
+
+/** The three ways a run can end, as the `run_finished` payload spells them. */
+export type RunFinishedStatus = 'completed' | 'failed' | 'cancelled';
+
+/**
+ * The status a finished run ended with, or `null` when this event is not a run's end.
+ *
+ * `null` for any other kind (the common case — a stream carries every kind), and `null`
+ * for a `run_finished` whose payload names a status this client does not know: an
+ * unknown ending is not a default one, and guessing `completed` would report success
+ * for a run that failed.
+ */
+export function decodeRunFinished(event: WarshaEvent): RunFinishedStatus | null {
+  if (event.kind !== RUN_FINISHED_KIND) return null;
+  const payload = event.payload;
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
+  const status = (payload as Record<string, unknown>)['status'];
+  if (status === 'completed' || status === 'failed' || status === 'cancelled') return status;
+  return null;
+}
+
+/** Where an agent MCP tool call is, as `tool_call` events report it. */
+export type McpCallPhase = 'requested' | 'approval_required' | 'denied' | 'succeeded' | 'failed';
+
+/**
+ * One agent MCP tool call moment, decoded from a `tool_call` event.
+ *
+ * `server` and `tool` are what the daemon recorded; the arguments never travel in the
+ * event at all (privacy is the packet's binding rule), so there is nothing here to
+ * render from them. `questionId` is present only on `approval_required` — it names the
+ * Inbox item the owner answers.
+ */
+export interface McpCallEvent {
+  phase: McpCallPhase;
+  server: string;
+  tool: string;
+  questionId: string | null;
+}
+
+const MCP_CALL_PHASES: readonly McpCallPhase[] = [
+  'requested',
+  'approval_required',
+  'denied',
+  'succeeded',
+  'failed',
+];
+
+/**
+ * The agent MCP call a `tool_call` event records, or `null` when it records something
+ * else.
+ *
+ * A `tool_call` that is an owner's `allow_once` answer carries `action: mcp_allow_once`
+ * and no phase; this returns `null` for it rather than inventing one. A phase that is
+ * not one of the five the daemon writes also returns `null`.
+ */
+export function decodeMcpCall(event: WarshaEvent): McpCallEvent | null {
+  if (event.kind !== 'tool_call') return null;
+  const payload = event.payload;
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
+  const source = payload as Record<string, unknown>;
+  if (source['action'] !== 'mcp_call') return null;
+  const phase = source['phase'];
+  if (typeof phase !== 'string' || !MCP_CALL_PHASES.includes(phase as McpCallPhase)) {
+    return null;
+  }
+  const server = source['server'];
+  const tool = source['tool'];
+  if (typeof server !== 'string' || typeof tool !== 'string') return null;
+  const questionId = source['question_id'];
+  return {
+    phase: phase as McpCallPhase,
+    server,
+    tool,
+    questionId: typeof questionId === 'string' ? questionId : null,
+  };
 }
 
 /**
@@ -595,6 +1166,20 @@ function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
 
   const kind = requiredString(field(source, 'kind'), 'kind');
   const costCents = optionalNumber(field(source, 'cost_cents', 'costCents'), 'cost_cents');
+  const tokensWire = field(source, 'tokens');
+  let tokens: WarshaEvent['tokens'] = null;
+  if (tokensWire !== null && tokensWire !== undefined) {
+    if (typeof tokensWire !== 'object' || Array.isArray(tokensWire)) {
+      throw new Error(`${EVENT_FRAME_ERROR}: malformed "tokens"`);
+    }
+    const tokenRecord = tokensWire as Record<string, unknown>;
+    tokens = {
+      input: optionalNumber(field(tokenRecord, 'input'), 'tokens.input'),
+      output: optionalNumber(field(tokenRecord, 'output'), 'tokens.output'),
+      total: optionalNumber(field(tokenRecord, 'total'), 'tokens.total'),
+      costCents: optionalNumber(field(tokenRecord, 'cost_cents', 'costCents'), 'tokens.cost_cents'),
+    };
+  }
   const createdAt = requiredString(field(source, 'created_at', 'createdAt'), 'created_at');
   const deviceId = optionalString(field(source, 'device_id', 'deviceId'), 'device_id');
 
@@ -622,6 +1207,7 @@ function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
     kind,
     payload: field(source, 'payload') ?? null,
     costCents,
+    tokens,
     createdAt,
     deviceId: deviceId === null ? null : (deviceId as DeviceId),
   };
@@ -909,6 +1495,24 @@ function wave2Boolean(
   return typeof value === 'boolean' ? value : fallback;
 }
 
+/**
+ * `capabilities.run_controls` of a `health` reply.
+ *
+ * Absent (an older daemon, or a test stub that answers only `status`/`version`) reads as
+ * `false`; a present-but-wrong value is a named decode error, because a run-ending control
+ * must never be rendered on a guess.
+ */
+function healthRunControls(capabilities: unknown): boolean {
+  if (capabilities === undefined || capabilities === null) return false;
+  const record = wave2Object(capabilities, 'health.capabilities');
+  const value = field(record, 'run_controls', 'runControls');
+  if (value === undefined || value === null) return false;
+  if (typeof value !== 'boolean') {
+    throw new Error(`${WAVE2_ERROR}: "health.capabilities.run_controls" is not a boolean`);
+  }
+  return value;
+}
+
 /** A Wave 2 list of strings; a missing or malformed list decodes to the empty list. */
 function wave2StringList(source: Record<string, unknown>, ...names: string[]): string[] {
   const value = field(source, ...names);
@@ -1061,6 +1665,12 @@ export interface CustomModelRecord {
   /** Context window in tokens; null when undeclared. */
   contextWindow: number | null;
   enabled: boolean;
+}
+
+export interface CatalogDiff {
+  added: [string, string][];
+  removed: [string, string][];
+  price_changed: [string, string][];
 }
 
 /** What one model costs, in cents per million tokens (`warsha_core::ModelPricing`). */
@@ -1386,6 +1996,331 @@ export function decodeFileContent(source: unknown): FileContent {
   };
 }
 
+/** Decodes a `warsha_core::Session` snake_case wire object to `Session`. */
+export function decodeSession(source: unknown): Session {
+  const record = wave2Object(source, 'session');
+  return {
+    id: wave2Id(record, 'id') as SessionId,
+    runId: wave2NullableString(record, 'run_id') as RunId | null,
+    projectId: wave2Id(record, 'project_id') as ProjectId,
+    role: wave2String(record, 'role') as Role,
+    backend: wave2String(record, 'backend'),
+    provider: wave2String(record, 'provider'),
+    model: wave2String(record, 'model'),
+    status: wave2String(record, 'status') as SessionStatus,
+    startedAt: wave2String(record, 'started_at'),
+    endedAt: wave2NullableString(record, 'ended_at'),
+    parentSessionId: wave2NullableString(record, 'parent_session_id') as SessionId | null,
+    cliSessionId: wave2NullableString(record, 'cli_session_id'),
+  };
+}
+
+export interface McpPermissionRow {
+  server: string;
+  tool: string;
+  role: string;
+  permission: McpPermission;
+}
+
+/** What an unseen `server::tool` gets for the agent role (`ToolPermission`, `crates/warsha-pipeline/src/mcp_permission.rs:52-63`). */
+export type McpPermission = 'allow' | 'ask' | 'deny';
+
+/**
+ * One MCP tool call waiting for the owner's answer (`warshad::mcp_approvals::McpApproval`,
+ * `crates/warshad/src/mcp_approvals.rs:48-63`).
+ *
+ * `summary` is the daemon's bounded, redacted rendering of the call's arguments — never the raw
+ * values. It is a *preview*: B3a's O8 limit travels with it, because a value whose key is not a
+ * secret name, whose schema does not mark it secret and whose text is not token-shaped cannot be
+ * recognised by any redactor. A screen renders it as a "redacted preview", never as an exhaustive
+ * account of what the call will send.
+ */
+export interface McpApproval {
+  id: string;
+  runId: string;
+  server: string;
+  tool: string;
+  role: string;
+  summary: string;
+  requestedAt: string;
+}
+
+/** What `mcp.approvals.allow_once` granted (`warshad::McpApprovalAnswer`, `crates/warshad/src/mcp_approvals.rs:67-84`). */
+export interface McpApprovalAnswer {
+  id: string;
+  runId: string;
+  server: string;
+  tool: string;
+  role: string;
+  grantedBy: string;
+  expiresAt: string;
+}
+
+/** The permission table plus the agent role's fail-closed default (`warshad::McpPermissionsReply`, `crates/warshad/src/lib.rs:594-603`). */
+export interface McpPermissionsReply {
+  rows: McpPermissionRow[];
+  agentRole: string;
+  defaultPermission: McpPermission;
+}
+
+function decodeMcpPermission(value: unknown, method: string, name: string): McpPermission {
+  if (value === 'allow' || value === 'ask' || value === 'deny') return value;
+  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not allow, ask or deny`);
+}
+
+/**
+ * How the daemon reaches an MCP server (`McpTransport`,
+ * `crates/warsha-pipeline/src/mcp_transport.rs:84-97`).
+ *
+ * The daemon's enum is tagged on `kind` with the url inside the variant, so a transport that
+ * names no endpoint cannot be built here either. `stdio` is always dialled, and R-EXT-4 makes
+ * `http` dialled too — over Streamable HTTP — so a connected `http` row has a `null`
+ * `process_id` and may carry tools. `websocket` stays *recorded, not dialled*, which is why
+ * `mcp.list` reports it `disconnected` with no tools (`McpServerConfig::is_wired` remains the
+ * static stdio-only predicate; the manager's own `dials` takes the injected client into account).
+ */
+export type McpTransport =
+  { kind: 'stdio' } | { kind: 'http'; url: string } | { kind: 'websocket'; url: string };
+
+/** What `mcp.connect` takes and `mcp.list` echoes (`McpServerConfig`, `…/mcp_transport.rs:120-136`). */
+export interface McpServerConfig {
+  name: string;
+  transport: McpTransport;
+  /** The program to spawn, for the stdio transport; `null` for a recorded url transport. */
+  command: string | null;
+  args: string[];
+}
+
+/**
+ * Where a server's connection is (`McpStatus`, `crates/warsha-pipeline/src/mcp_transport.rs:220-232`).
+ *
+ * The daemon's enum is externally tagged, so the three unit variants arrive as bare strings
+ * (`"connected" | "connecting" | "disconnected"`) and `Error(String)` arrives as
+ * `{ "error": "<message>" }`. `decodeMcpStatus` normalises both into this one shape; a decoder
+ * that only read strings would turn every failed server into a decode error, and a failed
+ * server's own message is what the screen has to show.
+ */
+export type McpStatus =
+  | { kind: 'connected' }
+  | { kind: 'connecting' }
+  | { kind: 'disconnected' }
+  | { kind: 'error'; message: string };
+
+/** One tool a server said it can run (`warsha_pipeline::mcp::McpTool`, `…/mcp.rs:124-137`). */
+export interface McpToolInfo {
+  name: string;
+  description: string;
+  /** `annotations.read_only`, when the server sent annotations at all. */
+  readOnly?: boolean;
+  /** `annotations.destructive`, when the server sent annotations at all. */
+  destructive?: boolean;
+}
+
+/** One configured MCP server and what it is doing (`McpConnection`, `…/mcp_transport.rs:247-268`). */
+export interface McpConnection {
+  config: McpServerConfig;
+  status: McpStatus;
+  /** The managed process behind a stdio connection. A pid is not a setting, so no screen shows it. */
+  processId: string | null;
+  /**
+   * The server's tools: `tool_definitions` when it sent them, else the bare `tools` names with no
+   * description. Both empty means the handshake never ran — an `http`/`websocket` config, or a
+   * server that failed — never "this server has no tools".
+   */
+  tools: McpToolInfo[];
+}
+
+/** Decode one `McpApproval` (snake_case) into the screen's camelCase row. */
+export function decodeMcpApproval(value: unknown, method: string): McpApproval {
+  const source = wiringObject(value, method);
+  return {
+    id: wiringString(source['id'], method, 'id'),
+    runId: wiringString(source['run_id'], method, 'run_id'),
+    server: wiringString(source['server'], method, 'server'),
+    tool: wiringString(source['tool'], method, 'tool'),
+    role: wiringString(source['role'], method, 'role'),
+    summary: wiringString(source['summary'], method, 'summary'),
+    requestedAt: wiringString(source['requested_at'], method, 'requested_at'),
+  };
+}
+
+/** Decode one `McpApprovalAnswer` (snake_case) into the screen's camelCase row. */
+export function decodeMcpApprovalAnswer(value: unknown, method: string): McpApprovalAnswer {
+  const source = wiringObject(value, method);
+  return {
+    id: wiringString(source['id'], method, 'id'),
+    runId: wiringString(source['run_id'], method, 'run_id'),
+    server: wiringString(source['server'], method, 'server'),
+    tool: wiringString(source['tool'], method, 'tool'),
+    role: wiringString(source['role'], method, 'role'),
+    grantedBy: wiringString(source['granted_by'], method, 'granted_by'),
+    expiresAt: wiringString(source['expires_at'], method, 'expires_at'),
+  };
+}
+
+/** Decode one `McpPermissionRow` (snake_case) into the screen's camelCase row. */
+export function decodeMcpPermissionRow(value: unknown, method: string): McpPermissionRow {
+  const source = wiringObject(value, method);
+  return {
+    server: wiringString(source['server'], method, 'server'),
+    tool: wiringString(source['tool'], method, 'tool'),
+    role: wiringString(source['role'], method, 'role'),
+    permission: decodeMcpPermission(source['permission'], method, 'permission'),
+  };
+}
+
+/** Decode one `McpPermissionsReply` (snake_case) into the screen's camelCase reply. */
+export function decodeMcpPermissionsReply(value: unknown, method: string): McpPermissionsReply {
+  const source = wiringObject(value, method);
+  return {
+    rows: wiringArray(source['rows'], method, 'rows').map((row) =>
+      decodeMcpPermissionRow(row, method)
+    ),
+    agentRole: wiringString(source['agent_role'], method, 'agent_role'),
+    defaultPermission: decodeMcpPermission(source['default_permission'], method, 'default_permission'),
+  };
+}
+
+/** A boolean serde may omit or null (`annotations.read_only`): both read as "not declared". */
+function wiringOptionalBoolean(value: unknown, method: string, name: string): boolean | undefined {
+  if (value === null || value === undefined) return undefined;
+  return wiringBoolean(value, method, name);
+}
+
+/** Decode one `McpTransport` (`{kind: 'stdio'} | {kind: 'http', url} | {kind: 'websocket', url}`). */
+export function decodeMcpTransport(value: unknown, method: string): McpTransport {
+  const source = wiringObject(value, method);
+  const kind = wiringString(source['kind'], method, 'kind');
+  if (kind === 'stdio') return { kind: 'stdio' };
+  if (kind === 'http' || kind === 'websocket') {
+    return { kind, url: wiringString(source['url'], method, 'url') };
+  }
+  // The daemon has three transports; a fourth would be a wire change this decoder must not
+  // swallow as "some url transport".
+  throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "kind" is not stdio, http or websocket`);
+}
+
+/**
+ * Decode one `McpStatus`.
+ *
+ * Externally tagged serde sends a unit variant as a bare string and `Error(String)` as
+ * `{ "error": "<message>" }`; both forms are read here, and anything else — a status the daemon
+ * does not define — is a named refusal rather than a default. Guessing `disconnected` for an
+ * unknown status would paint a broken server as merely idle.
+ */
+export function decodeMcpStatus(value: unknown, method: string): McpStatus {
+  const refusal = new Error(
+    `${WIRING_RESULT_ERROR} from ${method}: "status" is not connected, connecting, disconnected or {error}`
+  );
+  if (typeof value === 'string') {
+    if (value === 'connected' || value === 'connecting' || value === 'disconnected') {
+      return { kind: value };
+    }
+    throw refusal;
+  }
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const message = (value as Record<string, unknown>)['error'];
+    if (typeof message === 'string') return { kind: 'error', message };
+  }
+  throw refusal;
+}
+
+/** Decode one `McpServerConfig`; a server with no name is refused, because nothing can address it. */
+export function decodeMcpServerConfig(value: unknown, method: string): McpServerConfig {
+  const source = wiringObject(value, method);
+  const name = wiringString(source['name'], method, 'name');
+  if (name.length === 0) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "name" is blank`);
+  }
+  return {
+    name,
+    transport: decodeMcpTransport(source['transport'], method),
+    command: wiringNullableString(source['command'], method, 'command'),
+    args: wiringStringList(source['args'], method, 'args'),
+  };
+}
+
+/** Decode one `McpTool` (`tool_definitions`' row) into the screen's tool row. */
+export function decodeMcpToolInfo(value: unknown, method: string): McpToolInfo {
+  const source = wiringObject(value, method);
+  const tool: McpToolInfo = {
+    name: wiringString(source['name'], method, 'name'),
+    description: wiringString(source['description'], method, 'description'),
+  };
+  const annotations = source['annotations'];
+  if (typeof annotations === 'object' && annotations !== null && !Array.isArray(annotations)) {
+    const declared = annotations as Record<string, unknown>;
+    const readOnly = wiringOptionalBoolean(declared['read_only'], method, 'read_only');
+    const destructive = wiringOptionalBoolean(declared['destructive'], method, 'destructive');
+    if (readOnly !== undefined) tool.readOnly = readOnly;
+    if (destructive !== undefined) tool.destructive = destructive;
+  }
+  return tool;
+}
+
+/** Decode one `McpConnection`, taking the tools from `tool_definitions` or the bare names. */
+export function decodeMcpConnection(value: unknown, method: string): McpConnection {
+  const source = wiringObject(value, method);
+  const definitions = wiringDefaultArray(source['tool_definitions'], method, 'tool_definitions');
+  const tools =
+    definitions.length > 0
+      ? definitions.map((row) => decodeMcpToolInfo(row, method))
+      : wiringStringList(source['tools'], method, 'tools').map((name) => ({
+          name,
+          description: '',
+        }));
+  return {
+    config: decodeMcpServerConfig(source['config'], method),
+    status: decodeMcpStatus(source['status'], method),
+    processId: wiringNullableString(source['process_id'], method, 'process_id'),
+    tools,
+  };
+}
+
+/**
+ * The MCP approval and permission surface (R-BRIDGE-B3b): the two B3a answer methods plus the
+ * permission table. `WarshaClient` implements this interface so the Inbox and Settings screens
+ * call a named method instead of assembling `mcp.*` params themselves.
+ */
+export interface WarshaMcpApi {
+  /** `mcp.approvals.list` — every MCP call waiting for the owner's answer, across runs. */
+  mcpApprovalsList(): Promise<McpApproval[]>;
+  /** `mcp.approvals.allow_once` — answer one pending call with a single-use grant. */
+  mcpAllowOnce(id: string): Promise<McpApprovalAnswer>;
+  /** `mcp.permissions.list` — the stored `server::tool::role` rows and the fail-closed default. */
+  mcpPermissionsList(): Promise<McpPermissionsReply>;
+  /** `mcp.permissions.set` — write one row and resolve to the stored row. */
+  mcpPermissionsSet(
+    server: string,
+    tool: string,
+    role: string,
+    permission: McpPermission
+  ): Promise<McpPermissionRow>;
+}
+
+/**
+ * The MCP connection surface (R-EXT-1): the three methods the daemon already serves — `mcp.list`,
+ * `mcp.connect` and `mcp.disconnect`. No new wire method and no changed shape; `WarshaClient`
+ * implements this interface so the Connections screen calls a named method instead of assembling
+ * `mcp.*` params itself, exactly as `WarshaMcpApi` does for the B3b batch.
+ *
+ * There is deliberately no `mcp.send`/`mcp.call` wrapper here: both are the raw seam and the
+ * permission-governed call path (out of scope for this packet).
+ */
+export interface WarshaMcpConnectionsApi {
+  /** `mcp.list` — every configured server with its status, tools and (stdio) process. */
+  mcpList(): Promise<McpConnection[]>;
+  /**
+   * `mcp.connect` — record a server and, for stdio, start it and run the MCP handshake.
+   *
+   * `config` is the daemon's own struct, field for field: the daemon binds the whole
+   * `McpServerConfig` under `config`, so this is the one body it accepts.
+   */
+  mcpConnect(config: McpServerConfig): Promise<void>;
+  /** `mcp.disconnect` — stop a stdio server (and its child) by name, or drop a recorded one. */
+  mcpDisconnect(name: string): Promise<void>;
+}
+
 /**
  * The Wave 2 surface: harnesses, skills, plugins, custom models, integrations and
  * the project file browser. `WarshaClient` implements this interface so a screen
@@ -1419,6 +2354,9 @@ export interface WarshaWave2Api {
   ): Promise<CustomModelRecord>;
   removeCustomModel(provider: string, modelId: string): Promise<void>;
 
+  refreshCatalog(): Promise<CatalogDiff | null>;
+  applyCatalogUpdate(): Promise<void>;
+
   listIntegrations(): Promise<IntegrationStatus[]>;
   connectIntegration(id: string, config: IntegrationConfig): Promise<IntegrationStatus>;
   disconnectIntegration(id: string): Promise<IntegrationStatus>;
@@ -1426,9 +2364,40 @@ export interface WarshaWave2Api {
 
   getFilesTree(projectId: string, path?: string): Promise<FileEntry[]>;
   readFileContent(projectId: string, path: string): Promise<FileContent>;
+  /**
+   * `gates.evidence` — collect the diff, changed paths and test result for a
+   * Gate C decision.
+   */
+  gateEvidence(runId: RunId, program: string, args: string[]): Promise<GateEvidence>;
 }
 
-export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
+/**
+ * The daemon's probed capabilities in a `health` reply (`warshad::HealthCapabilities`,
+ * `crates/warshad/src/api.rs`).
+ */
+export interface HealthCapabilities {
+  /**
+   * Whether the daemon can honour the run-ending controls (`gates.changes`,
+   * `gates.reject`, `runs.cancel`): the daemon is up **and** its store carries the K2
+   * run-version column the run-state CAS loop needs. The field is additive on the wire, so
+   * a daemon that predates it — and a payload written before it existed — reads as `false`,
+   * which is why the UI keeps the controls hidden rather than offering a call the daemon
+   * cannot serve (R-UI-2).
+   */
+  runControls: boolean;
+}
+
+/** A decoded `health` reply. */
+export interface HealthReport {
+  status: string;
+  version: string;
+  capabilities: HealthCapabilities;
+  uptimeSeconds?: number;
+}
+
+export class WarshaClient
+  implements WarshaWiringApi, WarshaWave2Api, WarshaMcpApi, WarshaMcpConnectionsApi
+{
   private baseUrl: string;
   private token: string;
   private requestId = 0;
@@ -1481,6 +2450,95 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
     return redactToken(message, this.token);
   }
 
+  async gateEvidence(runId: RunId, program: string, args: string[]): Promise<GateEvidence> {
+    const row = await this.rpc<unknown>('gates.evidence', {
+      run_id: runId,
+      program,
+      args,
+    });
+    return decodeGateEvidence(row, 'gates.evidence');
+  }
+
+  async stopSession(sessionId: SessionId): Promise<void> {
+    await this.rpc('sessions.stop', { session_id: sessionId });
+  }
+
+  async listRunSessions(runId: RunId): Promise<Session[]> {
+    const rows = await this.rpc<unknown[]>('sessions.list', { run_id: runId });
+    return wiringList(rows, 'sessions.list', decodeSession);
+  }
+
+  async getRunEvents(runId: RunId): Promise<WarshaEvent[]> {
+    const rows = await this.rpc<unknown[]>('runs.events', { run_id: runId });
+    return wiringList(rows, 'runs.events', (row, method) =>
+      decodeWarshaEvent(wiringObject(row, method))
+    );
+  }
+
+  async getSessionTail(sessionId: SessionId): Promise<string[]> {
+    return await this.rpc<string[]>('sessions.tail', { session_id: sessionId });
+  }
+
+  // MCP approvals and permissions (R-BRIDGE-B3b).
+  //
+  // B3a registered the four daemon methods (`crates/warshad/src/lib.rs:882-904`); these are the
+  // client's names for them. Every parameter is the daemon's own bound argument name, because
+  // jsonrpsee binds by name and anything else answers `-32602`, and every answer is decoded here
+  // so a snake_case row never reaches a screen as `undefined`.
+  async mcpApprovalsList(): Promise<McpApproval[]> {
+    const rows = await this.rpc<unknown>('mcp.approvals.list');
+    return wiringArray(rows, 'mcp.approvals.list', 'approvals').map((row) =>
+      decodeMcpApproval(row, 'mcp.approvals.list')
+    );
+  }
+
+  async mcpAllowOnce(id: string): Promise<McpApprovalAnswer> {
+    const row = await this.rpc<unknown>('mcp.approvals.allow_once', { id });
+    return decodeMcpApprovalAnswer(row, 'mcp.approvals.allow_once');
+  }
+
+  async mcpPermissionsList(): Promise<McpPermissionsReply> {
+    const row = await this.rpc<unknown>('mcp.permissions.list');
+    return decodeMcpPermissionsReply(row, 'mcp.permissions.list');
+  }
+
+  async mcpPermissionsSet(
+    server: string,
+    tool: string,
+    role: string,
+    permission: McpPermission
+  ): Promise<McpPermissionRow> {
+    const row = await this.rpc<unknown>('mcp.permissions.set', {
+      server,
+      tool,
+      role,
+      permission,
+    });
+    return decodeMcpPermissionRow(row, 'mcp.permissions.set');
+  }
+
+  // MCP connections (R-EXT-1).
+  //
+  // The daemon served these three before this client wrapped them (`crates/warshad/src/api.rs:275`,
+  // `:281`, `:284`): `mcp.connect` binds `config`, `mcp.disconnect` binds `name`, and `mcp.list`
+  // takes nothing. The params objects below are exactly those keys, because jsonrpsee binds by
+  // name and anything else answers `-32602`. Nothing here probes a server: the daemon has no probe
+  // method, so a refresh is `mcp.list` again and the screen's label says "refresh", never "tested".
+  async mcpList(): Promise<McpConnection[]> {
+    const rows = await this.rpc<unknown>('mcp.list');
+    return wiringArray(rows, 'mcp.list', 'servers').map((row) =>
+      decodeMcpConnection(row, 'mcp.list')
+    );
+  }
+
+  async mcpConnect(config: McpServerConfig): Promise<void> {
+    await this.rpc<unknown>('mcp.connect', { config });
+  }
+
+  async mcpDisconnect(name: string): Promise<void> {
+    await this.rpc<unknown>('mcp.disconnect', { name });
+  }
+
   // Projects
   //
   // Every `projects.*`/`runs.*`/`devices.*` result is decoded here, at the client edge: the daemon
@@ -1510,9 +2568,17 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
   async createProject(
     name: string,
     description: string,
-    language: string
+    language: string,
+    confinement?: 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask'
   ): Promise<ProjectSummary> {
-    const row = await this.rpc<unknown>('projects.create', { name, description, language });
+    const row = await this.rpc<unknown>('projects.create', {
+      name,
+      description,
+      language,
+      confinement,
+      approval_mode: approvalMode,
+    });
     return decodeProjectSummary(row);
   }
 
@@ -1521,14 +2587,98 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
     return decodeProjectSummary(row);
   }
 
+  async getDefaultPermissions(): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.defaults.get', {});
+  }
+
+  async setDefaultPermissions(
+    confinement: 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask'
+  ): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.defaults.set', {
+      confinement,
+      approval_mode: approvalMode,
+    });
+  }
+
+  async getProjectPermissions(projectId: ProjectId): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.project.get', {
+      project_id: projectId,
+    });
+  }
+
+  async setProjectPermissions(
+    projectId: ProjectId,
+    confinement?: 'read-only' | 'workspace-write' | 'full-access',
+    approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask'
+  ): Promise<ProjectPermissions> {
+    return this.rpc<ProjectPermissions>('permissions.project.set', {
+      project_id: projectId,
+      confinement,
+      approval_mode: approvalMode,
+    });
+  }
+
   // Runs
   async listRuns(projectId: ProjectId): Promise<RunSummary[]> {
     const rows = await this.rpc<unknown>('runs.list', { projectId });
     return summaryList(rows, 'runs.list', decodeRunSummary);
   }
 
-  async startRun(projectId: ProjectId, idea: string): Promise<RunSummary> {
-    const row = await this.rpc<unknown>('runs.start', { projectId, idea });
+  async getSwarmSettings(projectId: ProjectId): Promise<{ enableSwarm: boolean; maxParallelAgents: number }> {
+    const row = await this.rpc<unknown>('swarm.project.get', { project_id: projectId });
+    if (typeof row !== 'object' || row === null) {
+      throw new Error('Malformed swarm settings: not a JSON object');
+    }
+    const record = row as Record<string, unknown>;
+    return {
+      enableSwarm: record['enable_swarm'] === true,
+      maxParallelAgents: nonNegativeInt(field(record, 'max_parallel_agents'), 'swarm.project', 'max_parallel_agents'),
+    };
+  }
+
+  async setSwarmSettings(
+    projectId: ProjectId,
+    enableSwarm: boolean,
+    maxParallelAgents?: number,
+  ): Promise<{ enableSwarm: boolean; maxParallelAgents: number }> {
+    // Literal object (no spread, no variable): the wire parser checks param
+    // names on the call-site literal. `undefined` serialises as absent — the
+    // daemon binds `Option<u32>`.
+    const row = await this.rpc<unknown>('swarm.project.set', {
+      project_id: projectId,
+      enable_swarm: enableSwarm,
+      max_parallel_agents: maxParallelAgents,
+    });
+    if (typeof row !== 'object' || row === null) {
+      throw new Error('Malformed swarm settings: not a JSON object');
+    }
+    const record = row as Record<string, unknown>;
+    return {
+      enableSwarm: record['enable_swarm'] === true,
+      maxParallelAgents: nonNegativeInt(field(record, 'max_parallel_agents'), 'swarm.project', 'max_parallel_agents'),
+    };
+  }
+
+  async listRunSubtasks(runId: RunId): Promise<RunSubtask[]> {
+    const rows = await this.rpc<unknown>('runs.subtasks', { run_id: runId });
+    return summaryList(rows, 'runs.subtasks', decodeRunSubtask);
+  }
+
+  async startRun(
+    projectId: ProjectId,
+    idea: string,
+    runMode?: 'agent' | 'plan' | 'spec-file' | 'ask',
+    specFilePath?: string,
+  ): Promise<RunSummary> {
+    // D4: the wire keeps the daemon's positional shape — trailing optional
+    // params serialise as absent fields, never as a params object.
+    const row = await this.rpc<unknown>('runs.start', {
+      projectId,
+      idea,
+      runMode,
+      specFilePath,
+    });
     return decodeRunSummary(row);
   }
 
@@ -1709,8 +2859,16 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
    * of, or one whose endpoint refuses the key, is the daemon's error and arrives here as
    * one — the screens show it on the row it belongs to.
    */
-  async checkProviderModels(name: string): Promise<ModelCatalogDiff> {
-    const row = await this.rpc<unknown>('providers.check_models', { name });
+  async checkProviderModels(
+    name: string,
+    options?: { api_base?: string; key?: string; kind?: string }
+  ): Promise<ModelCatalogDiff> {
+    const row = await this.rpc<unknown>('providers.check_models', {
+      name,
+      api_base: options?.api_base ?? null,
+      key: options?.key ?? null,
+      kind: options?.kind ?? null,
+    });
     return decodeModelCatalogDiff(row);
   }
 
@@ -1723,7 +2881,64 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
   // and no per-provider budget exists (DECISIONS.md 2026-11-03). Both client methods were
   // deleted rather than aliased, so no screen can present a number the daemon never kept.
 
-  // Project Budgets
+    // ------------------------------------------------------------------
+  // E2 — the secretary chat (per-project threads + one global thread)
+  // ------------------------------------------------------------------
+
+  /**
+   * `secretary.thread.list` — the caller's conversation threads. With a project id
+   * that project's threads plus the one global thread; without it, only the global
+   * thread. Newest activity first (the daemon orders by `updated_at`).
+   */
+  async listSecretaryThreads(projectId?: ProjectId): Promise<SecretaryThread[]> {
+    const rows = await this.rpc<unknown[]>('secretary.thread.list', {
+      project_id: projectId ?? null,
+    });
+    return rows.map((row) => decodeSecretaryThread(row));
+  }
+
+  /** `secretary.thread.turns` — one thread's turns, oldest first. */
+  async getSecretaryTurns(conversationId: string, projectId?: ProjectId): Promise<SecretaryTurn[]> {
+    const rows =
+      projectId !== undefined
+        ? await this.rpc<unknown[]>('secretary.thread.turns', {
+            conversation_id: conversationId,
+            project_id: projectId,
+          })
+        : await this.rpc<unknown[]>('secretary.thread.turns', {
+            conversation_id: conversationId,
+          });
+    return rows.map((row) => decodeSecretaryTurn(row));
+  }
+
+  /**
+   * `secretary.chat` — one chat turn. A model call (Owner/Spend on the daemon), so the
+   * daily secretary cap applies server-side and a cap error arrives here as one. The
+   * reply may carry a proposal; only a proposal the daemon validated against an owner
+   * turn of the SAME thread is returned — the UI still re-checks before rendering.
+   */
+  async secretaryChat(
+    projectId: string | null,
+    conversationId: string | null,
+    message: string,
+    language?: 'ar' | 'en'
+  ): Promise<SecretaryChatReply> {
+    const row = language
+      ? await this.rpc<unknown>('secretary.chat', {
+          project_id: projectId,
+          conversation_id: conversationId,
+          message,
+          language,
+        })
+      : await this.rpc<unknown>('secretary.chat', {
+          project_id: projectId,
+          conversation_id: conversationId,
+          message,
+        });
+    return decodeSecretaryChatReply(row);
+  }
+
+// Project Budgets
   /**
    * `budget.show`, converted from the daemon's cents to the USD the screens present.
    *
@@ -1752,6 +2967,164 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
 
   async setProjectBudget(projectId: ProjectId, cents: number): Promise<void> {
     return this.rpc('budget.set', { projectId, cents });
+  }
+
+  // Pre-run cost estimate (A4): what the run the owner is about to start would
+  // cost, as a range over the models the project's role routings name. Every
+  // number is an estimate; `warnings` names models with no price ("unknown for
+  // <model>") and empty routings.
+  async estimateRun(projectId: ProjectId, idea: string): Promise<CostEstimate> {
+    const wire = await this.rpc<unknown>('runs.estimate', { projectId, idea });
+    const source = wiringObject(wire, 'runs.estimate');
+    return {
+      minCents: nonNegativeInt(source['min_cents'], 'runs.estimate', 'min_cents'),
+      maxCents: nonNegativeInt(source['max_cents'], 'runs.estimate', 'max_cents'),
+      estimated: source['estimated'] === true,
+      warnings: wiringStringArray(source['warnings'], 'runs.estimate', 'warnings'),
+    };
+  }
+
+  // Usage and quota (A3).
+  //
+  // `usage.by_dimension` groups the cost ledger by one whitelisted dimension; the
+  // daemon refuses any other name. `usage.by_time` buckets the same ledger by day
+  // or month. `providers.quota` asks one provider's quota: what the provider
+  // reports, what the daemon estimated from its own records, or unknown — never an
+  // invented limit.
+  async usageByDimension(
+    dimension: 'provider_id' | 'model_id' | 'agent_role' | 'project_id',
+    projectId?: ProjectId,
+  ): Promise<UsageRow[]> {
+    const wire = await this.rpc<unknown>('usage.by_dimension', {
+      dimension,
+      projectId: projectId ?? null,
+    });
+    if (!Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from usage.by_dimension: expected an array`);
+    }
+    return wire.map((row) => {
+      const source = row as Record<string, unknown>;
+      return {
+        dimension: String(source['dimension'] ?? ''),
+        key: String(source['key'] ?? ''),
+        costCents: nonNegativeInt(source['cost_cents'], 'usage.by_dimension', 'cost_cents'),
+        promptTokens: nonNegativeInt(source['prompt_tokens'], 'usage.by_dimension', 'prompt_tokens'),
+        completionTokens: nonNegativeInt(
+          source['completion_tokens'],
+          'usage.by_dimension',
+          'completion_tokens',
+        ),
+        cacheReadTokens: nonNegativeInt(
+          source['cache_read_tokens'],
+          'usage.by_dimension',
+          'cache_read_tokens',
+        ),
+        cacheWriteTokens: nonNegativeInt(
+          source['cache_write_tokens'],
+          'usage.by_dimension',
+          'cache_write_tokens',
+        ),
+        requests: nonNegativeInt(source['requests'], 'usage.by_dimension', 'requests'),
+      };
+    });
+  }
+
+  async usageByTime(
+    granularity: 'day' | 'month',
+    projectId?: ProjectId,
+  ): Promise<UsageTimeRow[]> {
+    const wire = await this.rpc<unknown>('usage.by_time', {
+      granularity,
+      projectId: projectId ?? null,
+    });
+    if (!Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from usage.by_time: expected an array`);
+    }
+    return wire.map((row) => {
+      const source = row as Record<string, unknown>;
+      return {
+        period: String(source['period'] ?? ''),
+        costCents: nonNegativeInt(source['cost_cents'], 'usage.by_time', 'cost_cents'),
+        promptTokens: nonNegativeInt(source['prompt_tokens'], 'usage.by_time', 'prompt_tokens'),
+        completionTokens: nonNegativeInt(
+          source['completion_tokens'],
+          'usage.by_time',
+          'completion_tokens',
+        ),
+        cacheReadTokens: nonNegativeInt(
+          source['cache_read_tokens'],
+          'usage.by_time',
+          'cache_read_tokens',
+        ),
+        cacheWriteTokens: nonNegativeInt(
+          source['cache_write_tokens'],
+          'usage.by_time',
+          'cache_write_tokens',
+        ),
+        requests: nonNegativeInt(source['requests'], 'usage.by_time', 'requests'),
+      };
+    });
+  }
+
+  async providerQuota(name: string): Promise<ProviderQuotaStatus> {
+    const wire = await this.rpc<unknown>('providers.quota', { name });
+    if (typeof wire !== 'object' || wire === null || Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from providers.quota: expected an object`);
+    }
+    const source = wire as Record<string, unknown>;
+    const quotaWire = source['quota'];
+    if (typeof quotaWire !== 'object' || quotaWire === null) {
+      throw new Error(`${WIRING_RESULT_ERROR} from providers.quota: "quota" is not an object`);
+    }
+    const quota = quotaWire as Record<string, unknown>;
+    const state = quota['state'];
+    let decoded: QuotaState;
+    if (state === 'reported') {
+      decoded = {
+        state: 'reported',
+        used: nonNegativeInt(quota['used'], 'providers.quota', 'used'),
+        limit: nonNegativeInt(quota['limit'], 'providers.quota', 'limit'),
+      };
+    } else if (state === 'estimated') {
+      decoded = {
+        state: 'estimated',
+        usagePercentage: nonNegativeInt(
+          quota['usage_percentage'],
+          'providers.quota',
+          'usage_percentage',
+        ),
+      };
+    } else if (state === 'unknown') {
+      decoded = { state: 'unknown' };
+    } else {
+      throw new Error(
+        `${WIRING_RESULT_ERROR} from providers.quota: "state" is not reported, estimated or unknown`,
+      );
+    }
+    const checkedAt = source['checked_at'];
+    return {
+      provider: String(source['provider'] ?? ''),
+      kind: String(source['kind'] ?? ''),
+      quota: decoded,
+      ...(typeof checkedAt === 'string' ? { checkedAt } : {}),
+    };
+  }
+
+  /**
+   * A CLI-managed provider's rolling subscription windows (`usage.subscription_window`):
+   * spend and request counts over the last 5 hours and the last 7 days, estimated from
+   * the daemon's own cost records — the provider exposes no limit, so none is invented.
+   */
+  async usageSubscriptionWindow(): Promise<SubscriptionWindow> {
+    const wire = await this.rpc<unknown>('usage.subscription_window', {});
+    if (typeof wire !== 'object' || wire === null || Array.isArray(wire)) {
+      throw new Error(`${WIRING_RESULT_ERROR} from usage.subscription_window: expected an object`);
+    }
+    const source = wire as Record<string, unknown>;
+    return {
+      fiveHour: decodeWindowUsage(source['five_hour'], 'usage.subscription_window', 'five_hour'),
+      sevenDay: decodeWindowUsage(source['seven_day'], 'usage.subscription_window', 'seven_day'),
+    };
   }
 
   // Roles.
@@ -1796,6 +3169,7 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
         targets: config.targets,
         fallback_enabled: config.fallback_enabled,
         budget_cents_per_run: config.budget_cents_per_run,
+        daily_spend_cap_cents: config.daily_spend_cap_cents,
       },
     });
   }
@@ -1811,20 +3185,29 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
   // from a screen: ask a turn, approve the mode that edits, and go back to the mode that
   // does not. There is no approver parameter on any of them, by the same rule the gates
   // follow: the daemon records the device its session authenticated as.
-  async agentTurn(input: string): Promise<AgentTurn> {
-    return this.rpc<AgentTurn>('agent.turn', { input });
+  async agentTurn(runId: string, input: string): Promise<AgentTurn> {
+    return this.rpc<AgentTurn>('agent.turn_run', { run_id: runId, input });
   }
 
-  async approveAgentMode(): Promise<AgentModeTransition> {
+  async approveAgentMode(runId?: string): Promise<AgentModeTransition> {
+    if (runId) {
+      return this.rpc<AgentModeTransition>('agent.approve_mode', { run_id: runId });
+    }
     return this.rpc<AgentModeTransition>('agent.approve_mode');
   }
 
-  async returnAgentToPlanMode(): Promise<AgentModeTransition> {
+  async returnAgentToPlanMode(runId?: string): Promise<AgentModeTransition> {
+    if (runId) {
+      return this.rpc<AgentModeTransition>('agent.plan_mode', { run_id: runId });
+    }
     return this.rpc<AgentModeTransition>('agent.plan_mode');
   }
 
   /** The mode, the approval history and the todos — including after a restart. */
-  async agentState(): Promise<AgentState> {
+  async agentState(runId?: string): Promise<AgentState> {
+    if (runId) {
+      return this.rpc<AgentState>('agent.state', { run_id: runId });
+    }
     return this.rpc<AgentState>('agent.state');
   }
 
@@ -1873,9 +3256,25 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
     await this.rpc<unknown>('devices.revoke', { deviceId });
   }
 
-  // Health
-  async health(): Promise<{ status: string; version: string }> {
-    return this.rpc('health');
+  /**
+   * `health` — the daemon's probed capabilities, decoded.
+   *
+   * `capabilities.run_controls` is the daemon's own answer to "can you honour
+   * `gates.changes` / `gates.reject` / `runs.cancel`", so it is read here once and the
+   * screens ask `canEndRuns` rather than probing the wire themselves (R-UI-2 D1/D3).
+   */
+  async health(): Promise<HealthReport> {
+    const result = await this.rpc<unknown>('health');
+    const record = wave2Object(result, 'health');
+    const uptime = field(record, 'uptime_seconds');
+    const uptimeSeconds =
+      typeof uptime === 'number' && Number.isFinite(uptime) && uptime >= 0 ? uptime : undefined;
+    return {
+      status: wave2String(record, 'status'),
+      version: wave2String(record, 'version'),
+      capabilities: { runControls: healthRunControls(field(record, 'capabilities')) },
+      ...(uptimeSeconds !== undefined ? { uptimeSeconds } : {}),
+    };
   }
 
   // Wiring (PLAN.md M20): backend kit export, continue-on-server handoff, and the
@@ -2026,8 +3425,38 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
     return decodeCustomModelRecord(row);
   }
 
+  async providerAuthStatus(name: string): Promise<AuthStatus> {
+    const row = await this.rpc<unknown>('providers.auth_status', { name });
+    return decodeAuthStatus(row);
+  }
+
+  async providerAuthStart(name: string): Promise<AuthStartResponse> {
+    const row = await this.rpc<unknown>('providers.auth_start', { name });
+    return decodeAuthStartResponse(row);
+  }
+
+  async providerAuthComplete(name: string, code: string): Promise<AuthCompleteResponse> {
+    const row = await this.rpc<unknown>('providers.auth_complete', { name, code });
+    return decodeAuthCompleteResponse(row);
+  }
+
+  async providerDisconnect(name: string): Promise<void> {
+    await this.rpc<unknown>('providers.disconnect', { name });
+  }
+
   async removeCustomModel(provider: string, modelId: string): Promise<void> {
     await this.rpc<unknown>('models.remove', { provider, model_id: modelId });
+  }
+
+  // Wire RPC methods catalog.refresh and catalog.apply removed (P2):
+  // the daemon registers no such RPCs. Returning null / resolving void
+  // keeps the methods off the wire while satisfying desktop type contracts.
+  async refreshCatalog(): Promise<CatalogDiff | null> {
+    return null;
+  }
+
+  async applyCatalogUpdate(): Promise<void> {
+    // No-op: daemon registers no catalog.apply RPC.
   }
 
   // Wave 2 — integrations. The token material rides the write once, like
@@ -2061,6 +3490,28 @@ export class WarshaClient implements WarshaWiringApi, WarshaWave2Api {
   async testIntegration(id: string): Promise<IntegrationTestResult> {
     const row = await this.rpc<unknown>('integrations.test', { id });
     return decodeIntegrationTestResult(row);
+  }
+
+  // Action: home.interview_start — creation-flow interview (packet D1). The
+  // owner's rough idea goes in; the engine asks one question per fixed topic
+  // until "enough", then finalizes a schema-checked Brief + Direction Card.
+  async interviewStart(projectId: ProjectId, seedIdea?: string): Promise<InterviewTurnOutcome> {
+    return this.rpc<unknown>('interview.start', {
+      project_id: projectId,
+      seed_idea: seedIdea ?? null,
+    }) as Promise<InterviewTurnOutcome>;
+  }
+
+  async interviewTurn(projectId: ProjectId, reply: string): Promise<InterviewTurnOutcome> {
+    return this.rpc<unknown>('interview.turn', {
+      project_id: projectId,
+      reply,
+    }) as Promise<InterviewTurnOutcome>;
+  }
+
+  async interviewStatus(projectId: ProjectId): Promise<InterviewState | null> {
+    const row = await this.rpc<unknown>('interview.status', { project_id: projectId });
+    return row === null || row === undefined ? null : (row as InterviewState);
   }
 
   // Wave 2 — the project file browser.
@@ -2212,6 +3663,31 @@ export interface Routine {
   schedule: RoutineSchedule;
   state: RoutineState;
   lastRunUnix: number | null;
+}
+
+export interface TestRun {
+  program: string;
+  args: string[];
+  success: boolean;
+  exit_code: number | null;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+  truncated: boolean;
+}
+
+export interface PreviewEvidence {
+  project_id: string;
+  process_id: string;
+  url: string | null;
+  status: ProcessStatus;
+}
+
+export interface GateEvidence {
+  diff: string;
+  files_changed: string[];
+  tests: TestRun;
+  preview: PreviewEvidence | null;
 }
 
 /** The open-source backend a project points at (`warsha_pipeline::BackendKind`). */
@@ -2417,11 +3893,42 @@ function wiringString(value: unknown, method: string, name: string): string {
   return value;
 }
 
+/** A string array the wire should carry as such; absent reads as an empty list. */
+function wiringStringArray(value: unknown, method: string, name: string): string[] {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not an array`);
+  }
+  return value.map((item, i) => wiringString(item, method, `${name}[${i}]`));
+}
+
 function wiringNumber(value: unknown, method: string, name: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a number`);
   }
   return value;
+}
+
+/** A count the wire should carry as a non-negative integer; `null`/absent read as `0`. */
+function nonNegativeInt(value: unknown, method: string, name: string): number {
+  if (value === null || value === undefined) return 0;
+  const n = wiringNumber(value, method, name);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not a non-negative integer`);
+  }
+  return n;
+}
+
+/** One rolling window (`five_hour`/`seven_day`) of `usage.subscription_window`. */
+function decodeWindowUsage(value: unknown, method: string, name: string): WindowUsage {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is not an object`);
+  }
+  const source = value as Record<string, unknown>;
+  return {
+    costCents: nonNegativeInt(source['cost_cents'], method, `${name}.cost_cents`),
+    requests: nonNegativeInt(source['requests'], method, `${name}.requests`),
+  };
 }
 
 function wiringBoolean(value: unknown, method: string, name: string): boolean {
@@ -2574,6 +4081,89 @@ function decodeRoutineState(value: unknown, method: string): RoutineState {
     if (typeof failed === 'string') return { failed };
   }
   throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "state" is not a known routine state`);
+}
+
+/**
+ * One key of a `GateEvidence` row, which must be present even when its value is `null`.
+ *
+ * A Rust `Option<T>` serialises as an explicit `null`, never as an omitted key, so an
+ * absent one is a wire change rather than "no value" — and decoding it as the empty
+ * form would show the reviewer a blank where the daemon said something.
+ */
+function evidenceField(
+  source: Record<string, unknown>,
+  name: string,
+  method: string
+): unknown {
+  if (!Object.prototype.hasOwnProperty.call(source, name)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${name}" is missing`);
+  }
+  return source[name];
+}
+
+/** A nested `GateEvidence` object (`tests` or a present `preview`), refused by its field name. */
+function evidenceObject(
+  value: unknown,
+  field: string,
+  method: string
+): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`${WIRING_RESULT_ERROR} from ${method}: "${field}" is not an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function decodeTestRun(value: unknown, method: string): TestRun {
+  const source = evidenceObject(value, 'tests', method);
+  return {
+    program: wiringString(evidenceField(source, 'program', method), method, 'program'),
+    args: wiringStringList(evidenceField(source, 'args', method), method, 'args'),
+    success: wiringBoolean(evidenceField(source, 'success', method), method, 'success'),
+    exit_code: wiringNullableNumber(evidenceField(source, 'exit_code', method), method, 'exit_code'),
+    stdout: wiringString(evidenceField(source, 'stdout', method), method, 'stdout'),
+    stderr: wiringString(evidenceField(source, 'stderr', method), method, 'stderr'),
+    duration_ms: wiringNumber(evidenceField(source, 'duration_ms', method), method, 'duration_ms'),
+    truncated: wiringBoolean(evidenceField(source, 'truncated', method), method, 'truncated'),
+  };
+}
+
+function decodePreviewEvidence(value: unknown, method: string): PreviewEvidence {
+  const source = evidenceObject(value, 'preview', method);
+  return {
+    project_id: wiringString(evidenceField(source, 'project_id', method), method, 'project_id'),
+    process_id: wiringString(evidenceField(source, 'process_id', method), method, 'process_id'),
+    url: wiringNullableString(evidenceField(source, 'url', method), method, 'url'),
+    // A present preview's status is the same `ProcessStatus` `preview.status` reports, so
+    // it is read by the one decoder: a status neither knows is refused with the same words.
+    status: decodeProcessStatus(evidenceField(source, 'status', method), method),
+  };
+}
+
+/**
+ * `warsha_pipeline::GateEvidence` (`crates/warsha-pipeline/src/gate_evidence.rs:108`),
+ * decoded field by field — the shape `gates.evidence` answers.
+ *
+ * `tests.truncated` and the in-band `TRUNCATION_MARKER` are carried exactly as the
+ * daemon reported them: nothing here re-derives either from a string length, so the
+ * reviewer sees truncation only where there was truncation. `preview` is the run's
+ * *project* preview (the preview manager is keyed by project), and `null` is the
+ * daemon saying no server is up — never something this client fills in.
+ */
+export function decodeGateEvidence(value: unknown, method: string): GateEvidence {
+  const source = wiringObject(value, method);
+  const preview = evidenceField(source, 'preview', method);
+  return {
+    diff: wiringString(evidenceField(source, 'diff', method), method, 'diff'),
+    files_changed: wiringStringList(
+      evidenceField(source, 'files_changed', method),
+      method,
+      'files_changed'
+    ),
+    tests: decodeTestRun(evidenceField(source, 'tests', method), method),
+    // Collection leaves the preview unset; the daemon's `Option<PreviewEvidence>` is an
+    // explicit `null` when no server is up, and anything else must decode as a preview.
+    preview: preview === null ? null : decodePreviewEvidence(preview, method),
+  };
 }
 
 /** Decode one `warsha_pipeline::Routine` (snake_case) into the screen's camelCase row. */

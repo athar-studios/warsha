@@ -1,5 +1,10 @@
 //! Warsha CLI — `warsha` binary
 
+use tracing_subscriber as _;
+
+pub mod mcp_serve;
+pub mod permission_bridge;
+
 use clap::{Parser, Subcommand};
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HeaderMap, HeaderValue, HttpClient, HttpClientBuilder};
@@ -72,6 +77,10 @@ pub struct Cli {
     /// Daemon auth token (overrides config.toml)
     #[arg(long, global = true)]
     pub token: Option<String>,
+
+    /// Device id this CLI acts as for gate decisions (overrides config.toml)
+    #[arg(long, global = true)]
+    pub device_id: Option<String>,
 
     /// Config file path
     #[arg(short, long, global = true)]
@@ -181,6 +190,12 @@ pub enum Commands {
         action: DeviceAction,
     },
 
+    /// Model Context Protocol (MCP) server
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+
     /// Start the daemon (internal)
     #[command(hide = true)]
     Daemon(DaemonArgs),
@@ -250,6 +265,18 @@ pub enum DeviceAction {
     Revoke {
         /// Device ID
         id: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum McpAction {
+    /// Start a stdio MCP server exposing read tools and run creation
+    Serve,
+
+    /// Serve the claude-code permission bridge for one run (internal)
+    PermissionBridge {
+        /// The run the bridge submits asks for
+        run_id: String,
     },
 }
 
@@ -336,6 +363,9 @@ enum AddPlan {
 pub struct CliApp {
     client: HttpClient,
     json_output: bool,
+    /// The device gate decisions are recorded against, from `--device-id` or
+    /// `config.toml`. `None` until [`CliApp::with_device_id`] attaches it.
+    device_id: Option<DeviceId>,
 }
 
 impl CliApp {
@@ -364,7 +394,24 @@ impl CliApp {
         Ok(Self {
             client,
             json_output,
+            device_id: None,
         })
+    }
+
+    /// Attach the device id gate decisions act as (`--device-id` or `config.toml`).
+    ///
+    /// Refused here rather than at the gate: a decision that names no device, or a
+    /// malformed one, must not be sent and then fail somewhere less clear. The
+    /// daemon still checks the id against the authenticated session.
+    pub fn with_device_id(mut self, device_id: Option<String>) -> Result<Self> {
+        self.device_id = device_id.as_deref().map(parse_device_id).transpose()?;
+        Ok(self)
+    }
+
+    /// The device id a gate command must send, or a message that says how to set it.
+    fn require_device_id(&self, lang: CliLang) -> Result<DeviceId> {
+        self.device_id
+            .ok_or_else(|| CliError::Config(device_id_missing_message(lang)))
     }
 
     pub async fn run(&self, cli: Cli) -> Result<()> {
@@ -387,6 +434,7 @@ impl CliApp {
             Commands::Doctor => self.cmd_doctor().await,
             Commands::Pair { qr_code } => self.cmd_pair(qr_code).await,
             Commands::Devices { action } => self.cmd_devices(action).await,
+            Commands::Mcp { action } => self.cmd_mcp(action).await,
             Commands::Daemon(args) => self.cmd_daemon(args).await,
         }
     }
@@ -404,7 +452,7 @@ impl CliApp {
         };
 
         let content = toml::to_string_pretty(&config)?;
-        std::fs::write(config_dir.join("config.toml"), content)?;
+        write_private_config(&config_dir.join("config.toml"), &content)?;
 
         self.output(init_done_message(lang))?;
         Ok(())
@@ -511,26 +559,44 @@ impl CliApp {
     async fn cmd_logs(&self, run: String, follow: bool) -> Result<()> {
         self.ensure_daemon().await?;
 
+        let lang = self.message_lang();
         let run_id = RunId(Ulid::from_string(&run).map_err(|e| CliError::Other(e.to_string()))?);
         let events = self
             .client
             .request::<Vec<warsha_core::Event>, _>("runs.events", (run_id,))
             .await?;
-
-        for event in events {
-            self.output(format!(
-                "[{}] {:?} {:?}",
-                event.created_at.format("%H:%M:%S"),
-                event.stage,
-                event.kind
-            ))?;
+        let mut seen = events.len();
+        for event in &events {
+            self.print_event(event)?;
         }
 
         if follow {
-            // In real implementation, subscribe to WebSocket
-            self.output(following_message(self.message_lang()))?;
+            // The daemon's RPC is HTTP, so follow polls `runs.events`. That is a real
+            // event stream with a stated interval, not a claim of a WebSocket.
+            self.output(following_message(lang))?;
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let latest = self
+                    .client
+                    .request::<Vec<warsha_core::Event>, _>("runs.events", (run_id,))
+                    .await?;
+                for event in new_events_since(seen, &latest) {
+                    self.print_event(event)?;
+                }
+                seen = latest.len();
+            }
         }
         Ok(())
+    }
+
+    /// Print one run event in the CLI's log shape.
+    fn print_event(&self, event: &warsha_core::Event) -> Result<()> {
+        self.output(format!(
+            "[{}] {:?} {:?}",
+            event.created_at.format("%H:%M:%S"),
+            event.stage,
+            event.kind
+        ))
     }
 
     async fn cmd_gates(&self, run: String) -> Result<()> {
@@ -552,7 +618,7 @@ impl CliApp {
         let lang = self.message_lang();
         let run_id = RunId(Ulid::from_string(&run).map_err(|e| CliError::Other(e.to_string()))?);
         let stage = parse_gate_stage(&gate, lang)?;
-        let device_id = DeviceId::new(); // In real implementation, get from config
+        let device_id = self.require_device_id(lang)?;
 
         self.client
             .request::<warsha_core::Run, _>("gates.approve", (run_id, stage, device_id))
@@ -565,7 +631,7 @@ impl CliApp {
         let lang = self.message_lang();
         let run_id = RunId(Ulid::from_string(&run).map_err(|e| CliError::Other(e.to_string()))?);
         let stage = parse_gate_stage(&gate, lang)?;
-        let device_id = DeviceId::new();
+        let device_id = self.require_device_id(lang)?;
 
         self.client
             .request::<warsha_core::Run, _>("gates.reject", (run_id, stage, reason, device_id))
@@ -670,6 +736,7 @@ impl CliApp {
                     targets: target_vec,
                     fallback_enabled: true,
                     budget_cents_per_run: None,
+                    daily_spend_cap_cents: None,
                 };
                 self.client.request::<(), _>("roles.set", (config,)).await?;
                 self.output(role_routing_set_message(lang, &role))?;
@@ -691,11 +758,7 @@ impl CliApp {
                     lang,
                     budget.spent_cents,
                     budget.budget_cents.unwrap_or(0),
-                    if budget.budget_cents.unwrap_or(0) > 0 {
-                        (budget.spent_cents * 100) / budget.budget_cents.unwrap()
-                    } else {
-                        0
-                    },
+                    budget_percent(budget.spent_cents, budget.budget_cents),
                 ))?;
                 if let Some(remaining) = budget.remaining_cents {
                     self.output(budget_remaining_message(lang, remaining))?;
@@ -752,21 +815,14 @@ impl CliApp {
 
         // Check providers
         self.output(providers_section_message(lang))?;
-        // Check CLIs
-        let clis = [
-            ("Claude Code", "claude"),
-            ("Codex CLI", "codex"),
-            ("Gemini CLI", "gemini"),
-            ("Cursor CLI", "cursor"),
-            ("OpenHands", "openhands"),
-            ("Opencode", "opencode"),
-        ];
-
-        for (name, cmd) in clis {
-            if which::which(cmd).is_ok() {
-                self.output(format!("  ✓ {}", name))?;
+        // Check coding CLIs catalogued in Warsha (R-NEXT N2)
+        let catalog = warsha_backends::catalog::EngineCatalog::builtin();
+        for entry in catalog.entries() {
+            let label = format!("{} [{}]", entry.display_name, entry.tier);
+            if entry.is_installed() {
+                self.output(format!("  ✓ {}", label))?;
             } else {
-                self.output(agent_cli_missing_message(lang, name))?;
+                self.output(agent_cli_missing_message(lang, &label))?;
             }
         }
 
@@ -811,6 +867,27 @@ impl CliApp {
             }
         }
         Ok(())
+    }
+
+    async fn cmd_mcp(&self, action: McpAction) -> Result<()> {
+        match action {
+            McpAction::Serve => mcp_serve::serve_stdio(&self.client).await,
+            McpAction::PermissionBridge { run_id } => {
+                crate::permission_bridge::serve(&self.client, &run_id)
+                    .await
+                    .map_err(|error| CliError::Other(error.to_string()))
+            }
+        }
+    }
+
+    /// Serve the MCP stdio protocol over arbitrary streams using this CLI's
+    /// authenticated daemon RPC client.
+    pub async fn serve_mcp<R, W>(&self, reader: R, writer: W) -> Result<()>
+    where
+        R: tokio::io::AsyncBufRead + Unpin + Send,
+        W: tokio::io::AsyncWrite + Unpin + Send,
+    {
+        mcp_serve::serve(reader, writer, &self.client).await
     }
 
     async fn cmd_daemon(&self, args: DaemonArgs) -> Result<()> {
@@ -1033,10 +1110,99 @@ fn run_status_line_message(lang: CliLang, run: &str, stage: &str, status: &str) 
     }
 }
 
+/// Percentage of the budget spent, safe when the budget is zero or absent.
+fn budget_percent(spent_cents: u64, budget_cents: Option<u64>) -> u64 {
+    match budget_cents {
+        Some(limit) if limit > 0 => spent_cents.saturating_mul(100) / limit,
+        _ => 0,
+    }
+}
+
+/// Write the CLI's configuration and make it owner-only on Unix (0600).
+///
+/// The file later carries the daemon auth token, so its mode matters even when
+/// the token is still empty: a world-readable file is an invitation to write a
+/// token into it. Windows ACLs remain a separately tracked hardening item.
+fn write_private_config(path: &std::path::Path, content: &str) -> Result<()> {
+    use std::io::Write;
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.toml");
+    let temporary = parent.join(format!(".{name}.tmp-{}", std::process::id()));
+    let write = || -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&temporary)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(content.as_bytes())?;
+        file.sync_all()
+    };
+    if let Err(error) = write() {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+/// Parse a device id from `--device-id` or `config.toml`.
+fn parse_device_id(raw: &str) -> Result<DeviceId> {
+    Uuid::parse_str(raw.trim())
+        .map(DeviceId)
+        .map_err(|error| CliError::Other(format!("invalid device id `{raw}`: {error}")))
+}
+
+/// The device id from an explicit flag, else the config file's `device_id` key.
+///
+/// The key is read from the same `config.toml` the daemon uses, through a
+/// CLI-only struct: unknown keys are ignored, so the daemon schema is untouched.
+pub fn resolve_device_id(explicit: Option<&str>, config_path: &std::path::Path) -> Option<String> {
+    if let Some(device_id) = explicit {
+        return Some(device_id.trim().to_string());
+    }
+    let content = std::fs::read_to_string(config_path).ok()?;
+    #[derive(serde::Deserialize, Default)]
+    struct CliConfig {
+        device_id: Option<String>,
+    }
+    let config: CliConfig = toml::from_str(&content).ok()?;
+    config
+        .device_id
+        .map(|device_id| device_id.trim().to_string())
+        .filter(|device_id| !device_id.is_empty())
+}
+
+/// The events that arrived after the last poll.
+///
+/// A shorter list than `seen` means the transcript was reset or replaced; the
+/// caller reprints from the start rather than dropping events it never showed.
+fn new_events_since<T>(seen: usize, events: &[T]) -> &[T] {
+    if events.len() < seen {
+        events
+    } else {
+        &events[seen..]
+    }
+}
+
 fn following_message(lang: CliLang) -> String {
     match lang {
-        CliLang::English => "Following... (WebSocket not implemented)".to_string(),
-        CliLang::Arabic => "متابعة مستمرة... (WebSocket غير متوفر بعد)".to_string(),
+        CliLang::English => "Following (polling every 2s; Ctrl-C to stop)".to_string(),
+        CliLang::Arabic => "متابعة مستمرة (استطلاع كل ثانيتين؛ أوقف بـCtrl-C)".to_string(),
+    }
+}
+
+/// A gate decision must name this device: say where the id comes from.
+fn device_id_missing_message(lang: CliLang) -> String {
+    match lang {
+        CliLang::English => "No device id configured. Set `device_id` in config.toml or pass --device-id <uuid>: a gate decision must name this device.".to_string(),
+        CliLang::Arabic => "لا يوجد معرّف جهاز. اضبط `device_id` في config.toml أو مرر --device-id <uuid>: قرار البوابة يجب أن يسمّي هذا الجهاز.".to_string(),
     }
 }
 
@@ -1250,6 +1416,7 @@ pub fn no_token_message(lang: CliLang, config_path: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -1795,5 +1962,103 @@ mod tests {
              route them through a `_message` function:\n{}",
             offenders.join("\n")
         );
+    }
+}
+
+/// K9 gates: zero-budget safety, a configured device id, and honest follow.
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+mod k9 {
+    use super::*;
+
+    #[test]
+    fn zero_budget_does_not_panic() {
+        assert_eq!(budget_percent(0, Some(0)), 0);
+        assert_eq!(budget_percent(500, None), 0);
+        assert_eq!(budget_percent(250, Some(1_000)), 25);
+        // A huge spend and a large budget saturate instead of overflowing.
+        let _ = budget_percent(u64::MAX, Some(1));
+    }
+
+    #[test]
+    fn device_id_comes_from_config() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        assert_eq!(
+            parse_device_id(id).expect("a uuid parses").0.to_string(),
+            id
+        );
+        assert!(parse_device_id("not-a-uuid").is_err());
+
+        let temp = tempfile::NamedTempFile::new().expect("a temp config");
+        std::fs::write(
+            temp.path(),
+            format!("auth_token = \"t\"\ndevice_id = \"{id}\"\n"),
+        )
+        .expect("the config is written");
+        assert_eq!(
+            resolve_device_id(None, temp.path()).as_deref(),
+            Some(id),
+            "the config file's device_id was not read"
+        );
+        assert_eq!(
+            resolve_device_id(Some("explicit-id"), temp.path()).as_deref(),
+            Some("explicit-id"),
+            "the explicit flag must win"
+        );
+
+        let app = CliApp::new("http://127.0.0.1:8766".to_string(), String::new(), false)
+            .expect("the client builds");
+        assert!(app.require_device_id(CliLang::English).is_err());
+        let app = app
+            .with_device_id(Some(id.to_string()))
+            .expect("a valid device id attaches");
+        assert_eq!(
+            app.require_device_id(CliLang::English)
+                .expect("the id is set")
+                .0
+                .to_string(),
+            id
+        );
+    }
+
+    #[test]
+    fn follow_streams_real_events() {
+        assert_eq!(new_events_since(1, &[1, 2, 3]), &[2, 3]);
+        assert_eq!(new_events_since(5, &[1, 2]), &[1, 2]);
+        let en = following_message(CliLang::English);
+        assert!(!en.to_lowercase().contains("not implemented"), "{en}");
+        assert!(en.to_lowercase().contains("polling"), "{en}");
+        let ar = following_message(CliLang::Arabic);
+        assert!(!ar.contains("غير متوفر"), "{ar}");
+    }
+}
+
+/// The CLI's configuration is owner-only on Unix: the file later carries the
+/// daemon auth token, and a world-readable token file is a token leak waiting
+/// for a token.
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+mod config_permissions {
+    use super::*;
+
+    #[test]
+    fn the_cli_config_is_owner_only() {
+        let temp = tempfile::tempdir().expect("a temp dir");
+        let path = temp.path().join("config.toml");
+        write_private_config(&path, "auth_token = \"\"\n").expect("the config is written");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the file reads"),
+            "auth_token = \"\"\n"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path)
+                .expect("the file exists")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "the config is readable by other users");
+        }
     }
 }

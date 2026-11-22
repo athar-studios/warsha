@@ -1,0 +1,552 @@
+import { expect, test } from '@playwright/test';
+
+import {
+  auditFocusWalk,
+  describeAxe,
+  describeFocus,
+  focusIsClean,
+  runAxe,
+} from '../harness';
+
+import { act, expectRpc, openV3, rpcCalls, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
+
+/**
+ * `health` answering what `warshad` answers once its store carries the K2 run-version column.
+ *
+ * This is the daemon-true path to the run-ending controls (R-UI-2 D4): the screen reads one
+ * capability out of `health`, so a case that wants the controls turns them on by having the
+ * daemon say so — there is no `window` flag left to flip.
+ */
+const RUN_CONTROLS_HEALTH = {
+  result: {
+    status: 'ok',
+    version: '0.2.0',
+    capabilities: { daemon: true, providers: true, keychain: true, run_controls: true },
+  },
+};
+
+/** The same daemon with `run_controls: false`, for the cases that assert the controls are absent. */
+const NO_RUN_CONTROLS_HEALTH = {
+  result: {
+    status: 'ok',
+    version: '0.2.0',
+    capabilities: { daemon: true, providers: true, keychain: true, run_controls: false },
+  },
+};
+
+const LOCALES = ['ar', 'en'] as const;
+const THEMES = ['light', 'dark'] as const;
+const VIEWPORTS = [
+  { width: 1280, height: 800, name: '1280x800' },
+  { width: 390, height: 844, name: '390x844' },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Journeys
+// ---------------------------------------------------------------------------
+
+test.describe('Inbox journeys', () => {
+  test('renders list of gates needing the owner, limited strictly to current-stage gate with no request-changes or reject visible', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+
+    await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+
+    // Default fixtures: proj-store has run-gate-a at gate_a; proj-ui has run-code at code.
+    // Only run-gate-a has a gate matching its current stage (gate_a).
+    const rows = page.locator('[data-testid^="inbox-row-"]');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('Warsha Store');
+    await expect(rows.first()).toContainText('Do we approve the idea and brief?');
+
+    // Amendment §5.5-a: request-changes and reject controls remain hidden in DOM
+    await expect(page.locator('[data-action="inbox.gate.changes.send"]')).toHaveCount(0);
+    await expect(page.locator('[data-action="inbox.gate.reject.confirm"]')).toHaveCount(0);
+  });
+
+  test('ignores all-pending future gates for runs at other stages per Amendment §5.5-b', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', {
+      lang: 'en',
+      mode: 'simple',
+      fixtures: {
+        'gates.list': {
+          result: [
+            { stage: 'gate_a', state: { state: 'pending' } },
+            { stage: 'gate_b', state: { state: 'pending' } },
+            { stage: 'gate_c', state: { state: 'pending' } },
+            { stage: 'gate_d', state: { state: 'pending' } },
+          ],
+        },
+      },
+    });
+
+    await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+
+    // Four pending rows in the table are four facts, not four requests. Only a run standing on a
+    // gate stage turns its pending row into an ask: run-gate-a (gate_a) and run-gate-c (gate_c)
+    // each own exactly one. The non-gate stages (code, research, review_qa_security) match none,
+    // however many gates `gates.list` reports, so run-code, run-research and run-review never
+    // appear — run-gate-c is the case a count-only assertion used to miss.
+    await expect(
+      page.locator('[data-testid="inbox-row-proj-store-run-gate-a-gate_a"]')
+    ).toContainText('Warsha Store');
+    await expect(page.locator('[data-testid="inbox-row-proj-ui-run-gate-c-gate_c"]')).toContainText(
+      'متجر ورشة للأثاث المكتبي'
+    );
+    await expect(page.locator('[data-testid^="inbox-row-"]')).toHaveCount(2);
+
+    for (const runId of ['run-code', 'run-research', 'run-review']) {
+      await expect(page.locator(`[data-testid*="${runId}"]`)).toHaveCount(0);
+    }
+  });
+
+  test('approves gate via inbox.gate.approve (gates.approve then runs.advance in that order)', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+
+    await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+    await act(page, 'inbox.gate.approve');
+
+    await expectRpc(page, 'gates.approve', { run_id: 'run-gate-a', stage: 'gate_a' });
+    await expectRpc(page, 'runs.advance', { run_id: 'run-gate-a' });
+
+    const calls = await rpcCalls(page);
+    const approveIdx = calls.findIndex((c) => c.method === 'gates.approve');
+    const advanceIdx = calls.findIndex((c) => c.method === 'runs.advance');
+    expect(approveIdx).toBeGreaterThanOrEqual(0);
+    expect(advanceIdx).toBeGreaterThan(approveIdx);
+
+    // After approval, the decided decision is cleared from view
+    await expect(page.locator('[data-testid="inbox-empty"]')).toBeVisible();
+  });
+
+  test('each row opens its project via inbox.project.open', async ({ page }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+
+    await act(page, 'inbox.project.open');
+    await expect(page).toHaveURL(/#\/p\/proj-store$/);
+  });
+
+  test('back button navigates home via inbox.back', async ({ page }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+    await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+
+    await act(page, 'inbox.back');
+    await expect(page).toHaveURL(/#\/$/);
+  });
+
+  test('Escape key navigates home from /inbox when no decision sheet is open (G2b)', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+    await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/#\/$/);
+  });
+
+  test('Escape key closes decision Sheet first then navigates home on second Escape (G2b)', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+    await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+
+    await act(page, 'inbox.decision.open');
+    const sheet = page.locator('[data-testid="inbox-decision-sheet"]');
+    await expect(sheet).toBeVisible();
+
+    // First Escape closes Sheet but stays on /inbox
+    await page.keyboard.press('Escape');
+    await expect(sheet).toBeHidden();
+    await expect(page).toHaveURL(/#\/inbox$/);
+
+    // Second Escape navigates home
+    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/#\/$/);
+  });
+
+  test('opens decision Sheet via inbox.decision.open and approves from within Sheet', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+
+    await act(page, 'inbox.decision.open');
+    const sheet = page.locator('[data-testid="inbox-decision-sheet"]');
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toContainText('Do we approve the idea and brief?');
+    await expect(sheet).toContainText('Warsha Store');
+
+    // Approve inside Sheet
+    await act(page, 'inbox.gate.approve');
+    await expectRpc(page, 'gates.approve', { run_id: 'run-gate-a', stage: 'gate_a' });
+    await expectRpc(page, 'runs.advance', { run_id: 'run-gate-a' });
+  });
+
+  test('renders honest empty and error states with retry', async ({ page }) => {
+    await openV3(page, '/inbox', {
+      lang: 'en',
+      fixtures: {
+        'projects.list': { result: [] },
+      },
+    });
+    await expect(page.locator('[data-testid="inbox-empty"]')).toBeVisible();
+
+    await openV3(page, '/inbox', {
+      lang: 'en',
+      fixtures: {
+        'projects.list': { error: 'Network failure' },
+      },
+    });
+    await expect(page.locator('[data-testid="inbox-error"]')).toBeVisible();
+    await expect(page.locator('[data-action="inbox.retry"]')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Action IDs (6/6)
+// ---------------------------------------------------------------------------
+
+test.describe('Inbox action ids', () => {
+  test('inbox.decision.open opens decision Sheet', async ({ page }) => {
+    await openV3(page, '/inbox', { lang: 'en' });
+    await act(page, 'inbox.decision.open');
+    await expect(page.locator('[data-testid="inbox-decision-sheet"]')).toBeVisible();
+  });
+
+  test('inbox.gate.approve dials gates.approve then runs.advance', async ({ page }) => {
+    await openV3(page, '/inbox', { lang: 'en' });
+    await act(page, 'inbox.gate.approve');
+    await expectRpc(page, 'gates.approve', { run_id: 'run-gate-a', stage: 'gate_a' });
+    await expectRpc(page, 'runs.advance', { run_id: 'run-gate-a' });
+  });
+
+  test('inbox.project.open navigates to /p/:id', async ({ page }) => {
+    await openV3(page, '/inbox', { lang: 'en' });
+    await act(page, 'inbox.project.open');
+    await expect(page).toHaveURL(/#\/p\/proj-store$/);
+  });
+
+  test('inbox.gate.changes.send sends requested changes when the daemon advertises run controls', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', fixtures: { health: RUN_CONTROLS_HEALTH } });
+    await act(page, 'inbox.decision.open');
+    await page.locator('[data-testid="inbox-changes-textarea"] textarea').fill('Revise brief');
+    await act(page, 'inbox.gate.changes.send');
+    await expectRpc(page, 'gates.changes', {
+      run_id: 'run-gate-a',
+      stage: 'gate_a',
+      notes: 'Revise brief',
+    });
+  });
+
+  test('inbox.gate.reject.confirm rejects gate when the daemon advertises run controls', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', fixtures: { health: RUN_CONTROLS_HEALTH } });
+    await act(page, 'inbox.decision.open');
+    await page.locator('[data-testid="inbox-reject-reason"] textarea').fill('Rejected scope');
+    await act(page, 'inbox.gate.reject.confirm');
+    await expectRpc(page, 'gates.reject', {
+      run_id: 'run-gate-a',
+      stage: 'gate_a',
+      reason: 'Rejected scope',
+    });
+  });
+
+  test('hides the run-ending controls when the daemon answers run_controls: false', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', fixtures: { health: NO_RUN_CONTROLS_HEALTH } });
+    await act(page, 'inbox.decision.open');
+
+    await expect(page.locator('[data-testid="inbox-decision-sheet"]')).toBeVisible();
+    await expect(page.locator('[data-action="inbox.gate.approve"]').first()).toBeVisible();
+    await expect(page.locator('[data-action="inbox.gate.changes.send"]')).toHaveCount(0);
+    await expect(page.locator('[data-action="inbox.gate.reject.confirm"]')).toHaveCount(0);
+  });
+
+  test('inbox.retry re-dials projects.list', async ({ page }) => {
+    await openV3(page, '/inbox', {
+      fixtures: {
+        'projects.list': { error: 'Temporary error' },
+      },
+    });
+    await act(page, 'inbox.retry');
+    const call = await expectRpc(page, 'projects.list');
+    expect(call.method).toBe('projects.list');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MCP approvals and permissions (R-BRIDGE-B3b)
+// ---------------------------------------------------------------------------
+
+const MCP_APPROVAL_FIXTURE = {
+  id: 'mcp-approval-1',
+  run_id: 'run-gate-a',
+  server: 'github',
+  tool: 'create_issue',
+  role: 'agent',
+  summary: '{title: "Bug", body: [120 chars]}',
+  requested_at: '2026-10-05T07:05:00.000Z',
+} as const;
+
+/**
+ * A stub that remembers the one question it was asked.
+ *
+ * The reads answer from the closure, and `allow_once` empties it: that is what the daemon does
+ * (B3a resolves the pending entry when the owner answers), and it is the only way the case can
+ * assert the row *left* instead of a fixture that keeps re-serving the question.
+ */
+function mcpApprovalCase(): {
+  fixtures: {
+    'gates.list': { result: unknown[] };
+    'mcp.approvals.list': { result: () => unknown };
+    'mcp.approvals.allow_once': { result: (params: unknown) => unknown };
+  };
+} {
+  let pending: readonly unknown[] = [MCP_APPROVAL_FIXTURE];
+  return {
+    fixtures: {
+      // No waiting gate either: the MCP ask is the whole queue, so the end state is the empty
+      // state and it is reached only by answering the question.
+      'gates.list': { result: [] },
+      'mcp.approvals.list': { result: () => pending },
+      'mcp.approvals.allow_once': {
+        result: (params: unknown) => {
+          pending = [];
+          const id = (params as { id?: string } | undefined)?.id ?? '';
+          return {
+            id,
+            run_id: 'run-gate-a',
+            server: 'github',
+            tool: 'create_issue',
+            role: 'agent',
+            granted_by: 'dev-laptop',
+            expires_at: '2026-10-05T07:25:00.000Z',
+          };
+        },
+      },
+    },
+  };
+}
+
+test.describe('Inbox MCP approvals', () => {
+  test('renders a pending MCP ask and collects it through mcp.approvals.allow_once', async ({
+    page,
+  }) => {
+    const { fixtures } = mcpApprovalCase();
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple', fixtures });
+
+    const row = page.locator('[data-testid="inbox-row-mcp-approval-1"]');
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('github');
+    await expect(row).toContainText('create_issue');
+    await expect(row).toContainText('Role: agent');
+    // The summary is shown under the literal label, never as the call's arguments.
+    await expect(row).toContainText('redacted preview');
+    await expect(page.locator('[data-testid="inbox-mcp-summary-mcp-approval-1"]')).toContainText(
+      'body: [120 chars]'
+    );
+
+    await act(page, 'inbox.mcp.allow-once');
+    await expectRpc(page, 'mcp.approvals.allow_once', { id: 'mcp-approval-1' });
+
+    // Answered questions leave the list because the daemon answered, not because the screen hid it.
+    await expect(page.locator('[data-testid="inbox-row-mcp-approval-1"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="inbox-empty"]')).toBeVisible();
+  });
+
+  test('MCP ask row is axe AA clean and keyboard complete in en light @a11y', async ({ page }) => {
+    const { fixtures } = mcpApprovalCase();
+    await openV3(page, '/inbox', { lang: 'en', theme: 'light', mode: 'simple', fixtures });
+
+    const axe = await runAxe(page);
+    expect(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+
+    const seenActions = new Set<string>();
+    for (let i = 0; i < 20; i += 1) {
+      await page.keyboard.press('Tab');
+      const action = await page.evaluate(
+        () => document.activeElement?.getAttribute('data-action') ?? ''
+      );
+      if (action) seenActions.add(action);
+    }
+    expect(seenActions.has('inbox.mcp.allow-once')).toBe(true);
+    expect(seenActions.has('inbox.mcp.allow-always')).toBe(true);
+    expect(seenActions.has('inbox.mcp.deny')).toBe(true);
+
+    const focus = await auditFocusWalk(page);
+    expect(focusIsClean(focus), `focus walk issues:\n${describeFocus(focus)}`).toBe(true);
+  });
+});
+
+test.describe('Settings MCP permissions', () => {
+  test('revoking a stored permission writes the fail-closed default and changes the table', async ({
+    page,
+  }) => {
+    let permission: 'allow' | 'ask' = 'allow';
+    await openV3(page, '/settings/mcp', {
+      lang: 'en',
+      mode: 'advanced',
+      fixtures: {
+        'mcp.permissions.list': {
+          result: () => ({
+            rows: [{ server: 'github', tool: 'create_issue', role: 'agent', permission }],
+            agent_role: 'agent',
+            default_permission: 'ask',
+          }),
+        },
+        'mcp.permissions.set': {
+          result: (params: unknown) => {
+            const next = params as Record<string, string>;
+            permission = next['permission'] === 'allow' ? 'allow' : 'ask';
+            return {
+              server: next['server'],
+              tool: next['tool'],
+              role: next['role'],
+              permission: next['permission'],
+            };
+          },
+        },
+      },
+    });
+
+    const tableRow = page.locator(
+      '[data-testid="mcp-permission-row-github::create_issue::agent"]'
+    );
+    await expect(tableRow).toBeVisible();
+    await expect(tableRow).toContainText('Allowed');
+
+    await act(page, 'settings.mcp.revoke');
+    await expectRpc(page, 'mcp.permissions.set', {
+      server: 'github',
+      tool: 'create_issue',
+      role: 'agent',
+      permission: 'ask',
+    });
+
+    // The table changed: the pill now reads the fail-closed default, and nothing is left to revoke.
+    await expect(tableRow).toContainText('Asks first');
+    await expect(page.locator('[data-action="settings.mcp.revoke"]')).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Accessibility and Keyboard (@a11y)
+// ---------------------------------------------------------------------------
+
+test.describe('Inbox accessibility (@a11y)', () => {
+  for (const locale of LOCALES) {
+    for (const theme of THEMES) {
+      test(`ready inbox axe AA clean and keyboard complete in ${locale} ${theme} @a11y`, async ({
+        page,
+      }) => {
+        await openV3(page, '/inbox', { lang: locale, theme, mode: 'simple' });
+
+        const axe = await runAxe(page);
+        expect(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+
+        const focus = await auditFocusWalk(page);
+        expect(focusIsClean(focus), `focus walk issues:\n${describeFocus(focus)}`).toBe(true);
+        expect(focus.stops.length).toBeGreaterThan(0);
+      });
+
+      test(`empty inbox axe AA clean and keyboard complete in ${locale} ${theme} @a11y`, async ({
+        page,
+      }) => {
+        await openV3(page, '/inbox', {
+          lang: locale,
+          theme,
+          mode: 'simple',
+          fixtures: {
+            'projects.list': { result: [] },
+          },
+        });
+
+        const axe = await runAxe(page);
+        expect(axe.violations, `axe found WCAG AA violations:\n${describeAxe(axe)}`).toEqual([]);
+
+        const focus = await auditFocusWalk(page);
+        expect(focusIsClean(focus), `focus walk issues:\n${describeFocus(focus)}`).toBe(true);
+        expect(focus.stops.length).toBeGreaterThan(0);
+      });
+    }
+  }
+
+  test('keyboard traversal reaches open project, review decision, and approve actions @a11y', async ({
+    page,
+  }) => {
+    await openV3(page, '/inbox', { lang: 'en', mode: 'simple' });
+
+    const seenActions = new Set<string>();
+    for (let i = 0; i < 15; i += 1) {
+      await page.keyboard.press('Tab');
+      const action = await page.evaluate(
+        () => document.activeElement?.getAttribute('data-action') ?? ''
+      );
+      if (action) seenActions.add(action);
+    }
+
+    expect(seenActions.has('inbox.project.open')).toBe(true);
+    expect(seenActions.has('inbox.decision.open')).toBe(true);
+    expect(seenActions.has('inbox.gate.approve')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visual baselines (@visual)
+// ---------------------------------------------------------------------------
+
+test.describe('Inbox visual baselines (@visual)', () => {
+  const STATES = ['ready', 'sheet', 'empty', 'error'] as const;
+
+  for (const state of STATES) {
+    for (const vp of VIEWPORTS) {
+      for (const locale of LOCALES) {
+        for (const theme of THEMES) {
+          test(`visual screenshot: inbox ${state} ${vp.name} ${locale} ${theme} @visual`, async ({
+            page,
+          }) => {
+            const isError = state === 'error';
+            const isEmpty = state === 'empty';
+
+            await openV3(page, '/inbox', {
+              lang: locale,
+              theme,
+              mode: 'simple',
+              viewport: { width: vp.width, height: vp.height },
+              fixtures: isError
+                ? { 'projects.list': { error: 'Daemon offline' } }
+                : isEmpty
+                  ? { 'projects.list': { result: [] } }
+                  : {},
+            });
+
+            if (isError) {
+              await expect(page.locator('[data-testid="inbox-error"]')).toBeVisible();
+            } else if (isEmpty) {
+              await expect(page.locator('[data-testid="inbox-empty"]')).toBeVisible();
+            } else if (state === 'sheet') {
+              await act(page, 'inbox.decision.open');
+              await expect(page.locator('[data-testid="inbox-decision-sheet"]')).toBeVisible();
+            } else {
+              await expect(page.locator('[data-testid="inbox-ready"]')).toBeVisible();
+            }
+
+            const fit = await auditViewportFit(page);
+            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+            await expect(page).toHaveScreenshot(
+              `inbox-${state}-${vp.name}-${locale}-${theme}.png`
+            );
+          });
+        }
+      }
+    }
+  }
+});

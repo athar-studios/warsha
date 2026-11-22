@@ -1,11 +1,10 @@
-import { LocaleProvider, applyLocale, readStoredLocale } from '@warsha/i18n';
+import { applyLocale, readStoredLocale } from '@warsha/i18n';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
 
-import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { applyStoredTheme } from './theme';
+import { V3App } from './v3/app/V3App';
 import './index.css';
 
 // Write `data-theme` before the first paint: the provider below keeps it in step afterwards, but
@@ -19,16 +18,23 @@ applyStoredTheme();
 const storedLocale = readStoredLocale();
 applyLocale(storedLocale);
 
+
+export function Root(): React.ReactElement {
+  return <V3App />;
+}
+
 // The boundary sits outermost on purpose: a throw anywhere inside — locale provider, router, a
 // screen — lands on the recovery card instead of blacking the window with nothing to click.
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <LocaleProvider initialLocale={storedLocale}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </LocaleProvider>
-    </ErrorBoundary>
-  </React.StrictMode>
-);
+//
+// The mount is skipped when the document has no `#root`: that is the test document, where
+// `main.test.tsx` mounts `<Root />` itself to prove the start conditions.
+const rootElement = document.getElementById('root');
+if (rootElement !== null) {
+  ReactDOM.createRoot(rootElement).render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <Root />
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+}

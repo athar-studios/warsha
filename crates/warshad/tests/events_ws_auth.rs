@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! The `/events` WebSocket handshake, against a real daemon (task #49).
 //!
 //! The measured break: `auth_handler_inner` read the credential out of the
@@ -29,7 +36,8 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
+use warsha_providers::InMemorySecretStore;
+use warshad::{start_daemon_with_secrets, DaemonConfig, DaemonHandle, RateLimitConfig};
 
 /// The daemon's own bearer token: the owner credential the desktop holds.
 const OWNER: &str = "events-ws-owner-token-7c1f";
@@ -100,7 +108,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }
@@ -636,9 +646,127 @@ async fn a_paired_phone_secret_opens_the_events_socket_through_the_subprotocol()
     daemon.shutdown().await;
 }
 
-// --------------------------------------------------------------------------------
-// The refusals.
-// --------------------------------------------------------------------------------
+/// A revoked device loses the stream even though its credential opened it: the
+/// authority tick re-reads the pairing store and closes the socket (PAIR research
+/// finding 3).
+#[tokio::test]
+async fn a_revoked_phone_loses_the_events_stream() {
+    let daemon = Daemon::start().await;
+    pair_a_phone(daemon.rpc(), "events-ws-phone", PHONE_SECRET).await;
+
+    let reply = open(
+        daemon.http(),
+        &Connect::to("/events").with_client_offering(PHONE_SECRET),
+    )
+    .await;
+    assert_eq!(
+        reply.status,
+        101,
+        "the pairing did not open the socket: {}",
+        reply.wire_text()
+    );
+    let mut socket = reply.into_socket();
+    socket.until_first_ping().await;
+
+    let status = rpc(
+        daemon.rpc(),
+        &[("Authorization", format!("Bearer {OWNER}"))],
+        "pairing.revoke",
+        json!(["events-ws-phone"]),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::OK,
+        "the owner could not revoke the pairing this test needs"
+    );
+
+    // The authority tick runs every two seconds; a revoked device must lose the
+    // socket within BEAT, allowing for frames already in flight.
+    let deadline = tokio::time::Instant::now() + BEAT;
+    let mut closed = false;
+    while tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(500), socket.next()).await {
+            Ok(None) => {
+                closed = true;
+                break;
+            }
+            Ok(Some(_)) => continue,
+            Err(_) => continue,
+        }
+    }
+    assert!(closed, "a revoked device kept the event stream open");
+
+    daemon.shutdown().await;
+}
+
+/// A revoked device cannot replay history via `/events?since_seq=0`, and a second active
+/// device continues working normally across both HTTP RPC and `/events` (PAIR-3 / PAIR-7).
+#[tokio::test]
+async fn a_revoked_phone_cannot_replay_events_while_other_phone_continues() {
+    let daemon = Daemon::start().await;
+    pair_a_phone(daemon.rpc(), "events-phone-a", PHONE_SECRET).await;
+    let phone_b_secret = "events-ws-phone-b-secret-2b55";
+    pair_a_phone(daemon.rpc(), "events-phone-b", phone_b_secret).await;
+
+    // Phone A works before revocation.
+    let status_before = rpc(
+        daemon.rpc(),
+        &[("Authorization", format!("Bearer {PHONE_SECRET}"))],
+        "health",
+        json!({}),
+    )
+    .await;
+    assert_eq!(status_before, reqwest::StatusCode::OK);
+
+    // Revoke Phone A.
+    let status_revoke = rpc(
+        daemon.rpc(),
+        &[("Authorization", format!("Bearer {OWNER}"))],
+        "pairing.revoke",
+        json!(["events-phone-a"]),
+    )
+    .await;
+    assert_eq!(status_revoke, reqwest::StatusCode::OK);
+
+    // Phone A is rejected on RPC and on `/events?since_seq=0` replay.
+    let status_after = rpc(
+        daemon.rpc(),
+        &[("Authorization", format!("Bearer {PHONE_SECRET}"))],
+        "health",
+        json!({}),
+    )
+    .await;
+    assert_eq!(status_after, reqwest::StatusCode::UNAUTHORIZED);
+
+    open(
+        daemon.http(),
+        &Connect::to("/events?since_seq=0").with_client_offering(PHONE_SECRET),
+    )
+    .await
+    .expect_refused();
+
+    // Phone B continues operating over both RPC and `/events`.
+    let status_b = rpc(
+        daemon.rpc(),
+        &[("Authorization", format!("Bearer {phone_b_secret}"))],
+        "health",
+        json!({}),
+    )
+    .await;
+    assert_eq!(status_b, reqwest::StatusCode::OK);
+
+    let reply_b = open(
+        daemon.http(),
+        &Connect::to("/events?since_seq=0").with_client_offering(phone_b_secret),
+    )
+    .await;
+    assert_eq!(reply_b.status, 101);
+    let mut socket_b = reply_b.into_socket();
+    socket_b.until_first_ping().await;
+
+    daemon.shutdown().await;
+}
 
 impl Reply {
     /// The refusal `/events` gives a caller the middleware did not recognise: the status
@@ -1089,5 +1217,99 @@ async fn the_credential_never_reaches_the_wire_or_the_logs() {
         }
     }
 
+    daemon.shutdown().await;
+}
+
+/// An established RPC WebSocket re-authorizes on every message: after the owner revokes
+/// device A, A's next call on the already-open socket is rejected with `-32001`, while
+/// device B's already-open socket keeps working (PAIR-2 / PAIR-7).
+#[tokio::test]
+async fn an_established_rpc_websocket_rejects_a_revoked_device_on_next_message() {
+    use jsonrpsee::core::client::ClientT;
+    use jsonrpsee::http_client::HeaderMap;
+    use jsonrpsee::ws_client::WsClientBuilder;
+
+    let daemon = Daemon::start().await;
+    pair_a_phone(daemon.rpc(), "ws-rpc-phone-a", PHONE_SECRET).await;
+    let phone_b_secret = "events-ws-phone-b-secret-9988";
+    pair_a_phone(daemon.rpc(), "ws-rpc-phone-b", phone_b_secret).await;
+
+    let mut headers_a = HeaderMap::new();
+    headers_a.insert(
+        "Authorization",
+        format!("Bearer {PHONE_SECRET}")
+            .parse()
+            .expect("valid header"),
+    );
+    let client_a = WsClientBuilder::default()
+        .set_headers(headers_a)
+        .build(format!("ws://127.0.0.1:{}", daemon.rpc()))
+        .await
+        .expect("phone A establishes RPC WebSocket");
+
+    let mut headers_b = HeaderMap::new();
+    headers_b.insert(
+        "Authorization",
+        format!("Bearer {phone_b_secret}")
+            .parse()
+            .expect("valid header"),
+    );
+    let client_b = WsClientBuilder::default()
+        .set_headers(headers_b)
+        .build(format!("ws://127.0.0.1:{}", daemon.rpc()))
+        .await
+        .expect("phone B establishes RPC WebSocket");
+
+    // Both established sockets succeed before revocation.
+    let _: Value = client_a
+        .request("health", jsonrpsee::rpc_params![])
+        .await
+        .expect("phone A health succeeds before revocation");
+    let _: Value = client_b
+        .request("health", jsonrpsee::rpc_params![])
+        .await
+        .expect("phone B health succeeds before revocation");
+
+    // Owner revokes phone A.
+    let status = rpc(
+        daemon.rpc(),
+        &[("Authorization", format!("Bearer {OWNER}"))],
+        "pairing.revoke",
+        json!(["ws-rpc-phone-a"]),
+    )
+    .await;
+    assert_eq!(status, reqwest::StatusCode::OK);
+
+    // Phone A's next call on the *same established WebSocket* is rejected.
+    let err_a = client_a
+        .request::<Value, _>("health", jsonrpsee::rpc_params![])
+        .await
+        .expect_err("phone A must be rejected on next message over established WS");
+    assert!(
+        err_a.to_string().contains("-32001") || err_a.to_string().contains("still-active pairing"),
+        "unexpected error on revoked WS: {err_a}"
+    );
+
+    // Phone B's established socket still succeeds.
+    let _: Value = client_b
+        .request("health", jsonrpsee::rpc_params![])
+        .await
+        .expect("phone B continues succeeding on established WS");
+
+    drop(client_a);
+    drop(client_b);
+    daemon.shutdown().await;
+}
+
+/// Proving test for H3: `Daemon::start` uses injectable `InMemorySecretStore` and starts promptly (<15s).
+#[tokio::test]
+async fn daemon_start_completes_promptly_with_in_memory_secrets() {
+    let start = std::time::Instant::now();
+    let daemon = Daemon::start().await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "daemon startup should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
     daemon.shutdown().await;
 }

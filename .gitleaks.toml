@@ -84,6 +84,9 @@ tags = ["secret"]
   [[rules.allowlists]]
   description = "Redaction-test canary literals (asserted to never leak into output)"
   regexes = [
+    # crates/warshad/src/tests/mod.rs + lib.rs history + R-BRIDGE-B3a/R-UI-RUN-PLAN
+    # quotes: the B3b redaction fixtures' obviously fake `"password":"SECRET-3"`.
+    '''^SECRET-3$''',
     # crates/warsha-remote/src/rate_limit.rs: filler key (40 identical
     # chars) for the OpenRouter-style rate-limit redaction test.
     '''^sk-or-v1-a{40}$''',
@@ -164,4 +167,23 @@ regexes = [
   # "RFC1918/Tailscale" is a networking term (private IPv4 + CGNAT range),
   # not a credential.
   '''^RFC1918/Tailscale$''',
+  # crates/warsha-pipeline/src/command_policy.rs (K4, commit 6fe59e2) — the
+  # env-clearing test plants WARSHA_DAEMON_SECRET_CANARY with this exact
+  # fictional value and asserts a child process sees none of the daemon's
+  # variables. The shipped default generic-api-key rule matches the
+  # "<NAME_WITH_SECRET>", "<value>" shape; the literal is 19 filler
+  # characters, not a key. Exempted by its exact value only: any other
+  # value in that position still fires.
+  '''^canary-secret-12345$''',
+  # crates/warsha-pipeline/src/process_spawn.rs (KEEL K5 repair, commit decccde)
+  # — the stderr-masking test's synthetic sentinel. It exists to be printed by a
+  # fake child and then asserted ABSENT from the ring; it is not a credential for
+  # any service. Exempted by its exact literal only.
+  '''^k5-sentinel-secret-value-123$''',
+  # crates/warsha-store/src/persistence.rs (H1H2, commit b0805b2) — the pairing
+  # persistence tests' two synthetic secrets, used to prove an expired record
+  # stays expired and a legacy record stays active across save/load. Exact
+  # literals only; any other value still fires.
+  '''^expiring-secret$''',
+  '''^legacy-secret$''',
 ]

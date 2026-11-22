@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! C2 — Agent mode reaches the provider the owner configured, through the daemon,
 //! and the routing, the approval history and the todos are still there after a
 //! restart.
@@ -11,6 +18,16 @@
 //! - neither survived a restart, because neither was written anywhere;
 //! - the agent loop's mode, approval history and todos lived in memory, so a restart
 //!   forgot who approved what.
+//!
+//! # The daemon-wide turn is retired (OD-E2)
+//!
+//! `agent.turn` — one conversation per daemon — refuses now, and the one turn a
+//! daemon runs is a run's own loop (`agent.turn_run`). So the tests below assert the
+//! routing, the approval record and the restart against the state the daemon serves,
+//! and a turn against a run. A run's loop starts read-only and the wire has no
+//! per-run approval yet, so the Agent-mode answer these tests were opened for is the
+//! follow-up packet's; each assertion that moved says where its router-level twin
+//! lives.
 //!
 //! # Offline by construction
 //!
@@ -175,9 +192,36 @@ impl Rpc {
         .await
     }
 
-    /// One turn of the owner's conversation.
+    /// One turn in a run's own loop: a fresh project and run, then `agent.turn_run`.
+    ///
+    /// The daemon-wide `agent.turn` is retired (OD-E2) and refuses, so this is what a
+    /// turn is now. A run's loop starts in Plan mode and the wire has no per-run
+    /// approval yet, so a turn here plans; binding the mode to a run is the follow-up
+    /// packet that puts Agent-mode spend back on this surface.
     async fn turn(&self, input: &str) -> Value {
-        self.call("agent.turn", json!({ "input": input })).await
+        let project = self
+            .call(
+                "projects.create",
+                json!({ "name": "Agent Turn", "description": "one turn", "language": "en" }),
+            )
+            .await;
+        let run = self
+            .call(
+                "runs.start",
+                json!({ "project_id": project["id"], "idea": input }),
+            )
+            .await;
+        self.call(
+            "agent.turn_run",
+            json!({ "run_id": run["id"], "input": input }),
+        )
+        .await
+    }
+
+    /// The retired daemon-wide turn: `agent.turn`, which must refuse.
+    async fn retired_turn(&self, input: &str) -> Value {
+        self.call_refused("agent.turn", json!({ "input": input }))
+            .await
     }
 
     /// What the agent loop is right now: mode, approvals, todos.
@@ -227,9 +271,11 @@ async fn daemon(data_dir: &Path) -> (warshad::DaemonHandle, Rpc) {
     (handle, rpc)
 }
 
-/// The whole C2 story on one daemon: configure, route, approve, and the model answers.
+/// The whole C2 story on one daemon: configure, route, approve — and the turns that
+/// are left. The daemon-wide turn is retired (OD-E2), so the answered turn here is a
+/// run's own loop, which plans until the mode is bound to a run (the follow-up).
 #[tokio::test]
-async fn agent_mode_reaches_the_provider_the_owner_configured_and_routed() {
+async fn the_configured_provider_is_routed_and_only_a_runs_turn_runs() {
     let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
 
@@ -266,25 +312,40 @@ async fn agent_mode_reaches_the_provider_the_owner_configured_and_routed() {
         "the approval names a device"
     );
 
-    // And the turn reaches a model: the provider the owner configured, under the name
-    // the owner gave it. This single assertion is the gap C2 was opened for.
-    let answered = rpc.turn("now write the booking page").await;
-    let response = answered["response"].as_str().expect("a response");
+    // The daemon-wide turn is retired, and the refusal names the method that replaced
+    // it: this is the OD-E2 decision reaching the wire.
+    let retired = rpc.retired_turn("now write the booking page").await;
     assert!(
-        response.starts_with("Summary (model completion):"),
-        "an Agent-mode turn with a routed provider is answered by the model: {response}"
+        retired["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("agent.turn_run"),
+        "the retired turn names its replacement: {retired}"
+    );
+
+    // What still answers is a run's own loop, and it plans: the wire has no per-run
+    // approval yet, so an Agent-mode turn is the follow-up packet's work. The routing
+    // above is already the table that turn will be answered from.
+    let answered = rpc.turn("now write the booking page").await;
+    assert_eq!(
+        answered["mode"],
+        json!("plan"),
+        "a run's turn plans until the mode is bound to it: {answered}"
     );
     assert!(
-        response.contains("Mock response"),
-        "the routed provider is the one that answered: {response}"
+        answered["response"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("Plan (nothing executed):"),
+        "a run's loop starts read-only: {answered}"
     );
 
     handle.shutdown().await;
 }
 
-/// The routing and the conversation are what the *next* daemon runs and continues.
+/// The routing and the approval record are what the *next* daemon runs and continues.
 #[tokio::test]
-async fn a_restart_keeps_the_routing_the_approval_history_and_the_todos() {
+async fn a_restart_keeps_the_routing_and_the_approval_history() {
     let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
 
@@ -301,13 +362,13 @@ async fn a_restart_keeps_the_routing_the_approval_history_and_the_todos() {
         1,
         "the approval history is the audit trail"
     );
-    let todos_before = before["todos"]
-        .as_array()
-        .expect("the turn recorded todos")
-        .len();
-    assert!(
-        todos_before >= 2,
-        "each turn records a todo, and two turns did: {before}"
+    // A run's turn keeps its todos in the run's own loop, so the daemon-wide record
+    // stays empty — one loop story is the point of the retirement, and the per-run
+    // record is the follow-up packet's read.
+    let todos_before = before["todos"].as_array().expect("the todos").len();
+    assert_eq!(
+        todos_before, 0,
+        "a run's turn writes the run, not the daemon's record: {before}"
     );
 
     handle.shutdown().await;
@@ -323,7 +384,7 @@ async fn a_restart_keeps_the_routing_the_approval_history_and_the_todos() {
         "the owner's routing survived the restart: {roles}"
     );
 
-    // 2. The mode, the approval and the todos.
+    // 2. The mode, the approval and the todo record.
     let after = second.state().await;
     assert_eq!(
         after["mode"],
@@ -337,22 +398,27 @@ async fn a_restart_keeps_the_routing_the_approval_history_and_the_todos() {
     assert_eq!(
         after["todos"].as_array().expect("the todos").len(),
         todos_before,
-        "the todo list came back whole"
+        "the record came back whole"
     );
 
-    // 3. And the routing is not a report but a wiring: a turn on the second daemon
-    //    reaches the configured provider, which means the row was registered as a
-    //    callable adapter by the start itself.
-    let answered = second.turn("after the restart").await;
-    let response = answered["response"].as_str().expect("a response");
-    assert_eq!(answered["mode"], json!("agent"));
+    // 3. A turn on the second daemon answers, in a run started there: the retired
+    //    daemon-wide turn refuses, and a run's own loop is the one that runs.
+    let retired = second.retired_turn("after the restart").await;
     assert!(
-        response.starts_with("Summary (model completion):"),
-        "the restarted daemon's Agent mode is still routed to a provider: {response}"
+        retired["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("is retired"),
+        "the retired turn refuses after a restart too: {retired}"
     );
+    let answered = second.turn("after the restart").await;
+    assert_eq!(answered["mode"], json!("plan"), "{answered}");
     assert!(
-        response.contains("Mock response"),
-        "the provider came back with the routing: {response}"
+        answered["response"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("Plan (nothing executed):"),
+        "the restarted daemon answers a run's turn: {answered}"
     );
 
     second_handle.shutdown().await;
@@ -469,14 +535,22 @@ async fn removing_a_provider_removes_the_routings_that_named_it() {
         "a routing to a removed provider is not kept"
     );
 
-    // The loop is still in Agent mode — a removal is not a mode decision — but the next
-    // turn says honestly that nothing is routed, which is the fail-closed answer. It
-    // does not silently fall back to the mock.
+    // The loop is still in Agent mode — a removal is not a mode decision — and the
+    // daemon-wide turn is retired, so the turn that is left is a run's, which plans
+    // without asking any provider. The fail-closed answer for an unrouted role is
+    // proven where the router is: the "model unavailable" turns in
+    // `warsha-pipeline`'s `agent_loop` tests.
+    let state = rpc.state().await;
+    assert_eq!(
+        state["mode"],
+        json!("agent"),
+        "a removal is not a mode decision"
+    );
     let answered = rpc.turn("still there?").await;
-    let response = answered["response"].as_str().expect("a response");
-    assert!(
-        response.starts_with("Summary (model unavailable):"),
-        "an unrouted role refuses rather than answering from a provider nobody chose: {response}"
+    assert_eq!(
+        answered["mode"],
+        json!("plan"),
+        "a run's turn does not reach a provider nobody chose: {answered}"
     );
 
     // A restart agrees: the empty table is the stored table.
@@ -489,8 +563,13 @@ async fn removing_a_provider_removes_the_routings_that_named_it() {
 /// The per-run ceiling an owner puts on the agent routing is the ceiling the router
 /// enforces before it spends — the paid-call control, wired to the routing — and it is
 /// the ceiling the *next* daemon enforces too.
+///
+/// The daemon-wide turn is retired (OD-E2), so what this file can show is the wiring:
+/// the ceiling stored in the routing, and read back by the next daemon. The guard
+/// itself is proven where the router is
+/// (`warsha-providers::budget_guard_blocks_before_any_spend`).
 #[tokio::test]
-async fn the_budget_in_the_routing_caps_the_agents_spend_and_comes_back_after_a_restart() {
+async fn the_budget_in_the_routing_is_stored_and_comes_back_after_a_restart() {
     let dir = fresh_tempdir();
     let (handle, rpc) = daemon(dir.path()).await;
 
@@ -499,17 +578,29 @@ async fn the_budget_in_the_routing_caps_the_agents_spend_and_comes_back_after_a_
     rpc.route(AGENT_ROLE_NAME, PROVIDER, json!(0)).await;
     rpc.approve_agent_mode().await;
 
-    let answered = rpc.turn("spend nothing").await;
-    let response = answered["response"].as_str().expect("a response");
+    // The retired turn refuses, so this daemon spends nothing on it, and a run's turn
+    // plans — no provider is asked either way.
+    let retired = rpc.retired_turn("spend nothing").await;
     assert!(
-        response.starts_with("Summary (model unavailable):"),
-        "a capped agent does not spend: {response}"
+        retired["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("is retired"),
+        "the retired turn refuses: {retired}"
     );
+    let answered = rpc.turn("spend nothing").await;
+    assert_eq!(answered["mode"], json!("plan"), "{answered}");
 
     // The refusal is not a crash and not a silent mock answer: the loop is still in
-    // Agent mode, and the spend that was refused is recorded against the cap.
+    // Agent mode, and the ceiling is part of the routing.
     let state = rpc.state().await;
     assert_eq!(state["mode"], json!("agent"));
+    let roles = rpc.roles().await;
+    assert_eq!(
+        roles[0]["budget_cents_per_run"],
+        json!(0),
+        "the ceiling is part of the stored routing: {roles}"
+    );
 
     handle.shutdown().await;
 
@@ -523,24 +614,14 @@ async fn the_budget_in_the_routing_caps_the_agents_spend_and_comes_back_after_a_
         json!(0),
         "the ceiling is part of the stored routing: {roles}"
     );
-    let still_capped = second.turn("spend nothing now").await;
-    assert!(
-        still_capped["response"]
-            .as_str()
-            .expect("a response")
-            .starts_with("Summary (model unavailable):"),
-        "the restarted daemon enforces the same cap: {still_capped}"
-    );
 
     // And an owner who re-routes with no ceiling gets the ceiling lifted: the router
     // cannot forget a budget, so the daemon replaces it with one nothing can reach.
     second.route(AGENT_ROLE_NAME, PROVIDER, Value::Null).await;
-    let uncapped = second.turn("now you may answer").await;
-    assert!(
-        uncapped["response"]
-            .as_str()
-            .expect("a response")
-            .starts_with("Summary (model completion):"),
+    let uncapped = second.roles().await;
+    assert_eq!(
+        uncapped[0]["budget_cents_per_run"],
+        Value::Null,
         "a routing with no ceiling is not a silent cap: {uncapped}"
     );
 

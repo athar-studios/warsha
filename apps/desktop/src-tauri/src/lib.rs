@@ -31,9 +31,17 @@ pub const CONFIG_DAEMON_WS_URL: &str = "daemon_ws_url";
 /// Config key reporting the bearer token the daemon expects on every request.
 pub const CONFIG_DAEMON_TOKEN: &str = "daemon_token";
 
-/// The three keys above are the shell's to answer: `set_config` refuses them, so a stray write
-/// from the webview cannot point the app at an endpoint that is not there.
-const SHELL_OWNED_KEYS: [&str; 3] = [CONFIG_DAEMON_URL, CONFIG_DAEMON_WS_URL, CONFIG_DAEMON_TOKEN];
+/// Config key reporting the data directory the daemon and desktop settings live in.
+pub const CONFIG_DATA_DIR: &str = "data_dir";
+
+/// The keys above are the shell's to answer: `set_config` refuses them, so a stray write
+/// from the webview cannot point the app at an endpoint that is not there or alter the data directory.
+const SHELL_OWNED_KEYS: [&str; 4] = [
+    CONFIG_DAEMON_URL,
+    CONFIG_DAEMON_WS_URL,
+    CONFIG_DAEMON_TOKEN,
+    CONFIG_DATA_DIR,
+];
 
 /// Name of the settings file the non-daemon preferences live in, inside the daemon's data dir.
 ///
@@ -72,6 +80,7 @@ pub struct ShellState {
     settings: Mutex<BTreeMap<String, String>>,
     settings_path: PathBuf,
     log_path: PathBuf,
+    data_dir: PathBuf,
 }
 
 impl ShellState {
@@ -91,15 +100,17 @@ impl ShellState {
 
     /// The value `get_config` answers for `key`.
     ///
-    /// The three daemon keys are answered from the endpoint the shell started, never from the
-    /// file: a stale `desktop.json` must not be able to redirect the frontend. Every other key is
-    /// the webview's own, and an unknown key is the empty string — which is what the frontend's
-    /// `checkOnboarding` already expects for "not set yet".
+    /// The daemon keys and `data_dir` are answered from the endpoint and environment the shell
+    /// started, never from the file: a stale `desktop.json` must not be able to redirect the
+    /// frontend or report a wrong data folder. Every other key is the webview's own, and an unknown
+    /// key is the empty string — which is what the frontend's `checkOnboarding` already expects
+    /// for "not set yet".
     fn get(&self, key: &str) -> String {
         match key {
             CONFIG_DAEMON_URL => self.endpoint.base_url.clone(),
             CONFIG_DAEMON_WS_URL => self.endpoint.ws_url.clone(),
             CONFIG_DAEMON_TOKEN => self.endpoint.token.clone(),
+            CONFIG_DATA_DIR => self.data_dir.display().to_string(),
             _ => self.preferences().get(key).cloned().unwrap_or_default(),
         }
     }
@@ -225,15 +236,17 @@ fn write_settings(path: &Path, settings: &BTreeMap<String, String>) -> Result<()
 /// `http://tauri.localhost` (Tauri 2's webview origin), macOS and Linux from `tauri://localhost`,
 /// and `http://localhost:5173` is `pnpm tauri dev`'s Vite server.
 fn webview_origins() -> Vec<String> {
-    [
-        "http://tauri.localhost",
-        "https://tauri.localhost",
-        "tauri://localhost",
-        "http://localhost:5173",
-    ]
-    .iter()
-    .map(|origin| (*origin).to_string())
-    .collect()
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))]
+    let mut origins = vec![
+        "http://tauri.localhost".to_string(),
+        "https://tauri.localhost".to_string(),
+        "tauri://localhost".to_string(),
+    ];
+    #[cfg(debug_assertions)]
+    {
+        origins.push("http://localhost:5173".to_string());
+    }
+    origins
 }
 
 /// A copy of `config` with the webview's origins added to whatever it already allowed.
@@ -493,12 +506,15 @@ fn check_health(failures: &mut Vec<String>, ws_url: &str) {
 ///
 /// This is the zero-configuration path a fresh install takes its first steps on, proved
 /// end-to-end rather than by a unit test in one crate: `projects.create` → `runs.start` →
-/// `gates.approve` (Gate A) → `runs.advance` (which walks Idea → GateA → Research → PrdSpec
-/// and stops at the pending Gate B) → `runs.artifacts`. The stage calls are answered by the
-/// pipeline's deterministic `FakeProvider` (`crates/warsha-pipeline` dispatch case 3), which
-/// makes no network call; `WARSHA_LLM_PROVIDER=fake` is set here so a `WARSHA_LLM_API_KEY`
-/// inherited from this machine's environment cannot quietly turn the smoke run into a real,
-/// paid model call — the same guarantee the repository's rules make for every test.
+/// `runs.advance` (which walks Idea → GateA and stops at the pending Gate A — the
+/// gate-integrity rules require a gate to be the run's *current* stage before it can be
+/// decided) → `gates.approve` (Gate A) → `runs.advance` again (which passes the approved
+/// Gate A, walks Research → PrdSpec and stops at the pending Gate B) → `runs.artifacts`.
+/// The stage calls are answered by the pipeline's deterministic `FakeProvider`
+/// (`crates/warsha-pipeline` dispatch case 3), which makes no network call;
+/// `WARSHA_LLM_PROVIDER=fake` is set here so a `WARSHA_LLM_API_KEY` inherited from this
+/// machine's environment cannot quietly turn the smoke run into a real, paid model call —
+/// the same guarantee the repository's rules make for every test.
 ///
 /// The checks this appends are only run when the daemon answered with a result; a refusal at
 /// any step stops the walk early, because a `runs.advance` over a run that was never created
@@ -557,6 +573,31 @@ fn check_fake_provider_pipeline(
         return;
     };
 
+    let to_gate_a = raw_request(
+        host,
+        &rpc_post_request(
+            host,
+            token,
+            "runs.advance",
+            serde_json::json!({ "run_id": run_id }),
+        ),
+    );
+    let at_gate_a = rpc_result(&to_gate_a);
+    check(
+        failures,
+        at_gate_a
+            .as_ref()
+            .and_then(|run| run.get("current_stage"))
+            .and_then(|stage| stage.as_str())
+            == Some("gate_a"),
+        "runs.advance walks Idea → GateA and stops at the pending gate",
+        &response_detail(&to_gate_a),
+    );
+    if at_gate_a.is_none() {
+        failures.push("the zero-key FakeProvider run needs to reach Gate A".to_string());
+        return;
+    }
+
     let approve = raw_request(
         host,
         &rpc_post_request(
@@ -591,7 +632,7 @@ fn check_fake_provider_pipeline(
     check(
         failures,
         advanced.is_some(),
-        "runs.advance walks Idea → GateA → Research → PrdSpec on the zero-key FakeProvider",
+        "runs.advance passes the approved Gate A, walks Research → PrdSpec, stops at Gate B",
         &response_detail(&advance),
     );
     if let Some(run) = &advanced {
@@ -900,6 +941,7 @@ pub fn run() -> anyhow::Result<()> {
         settings: Mutex::new(read_settings(&settings_path)),
         settings_path,
         log_path,
+        data_dir,
     };
     if let Some(error) = startup_error {
         shell.note(&error);
@@ -910,6 +952,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(shell)
         .invoke_handler(tauri::generate_handler![get_config, set_config])
         .build(tauri::generate_context!())?;
@@ -984,6 +1027,7 @@ mod tests {
             settings: Mutex::new(read_settings(&directory.join(SETTINGS_FILE))),
             settings_path: directory.join(SETTINGS_FILE),
             log_path: directory.join(LOG_FILE),
+            data_dir: directory.to_path_buf(),
         }
     }
 
@@ -1011,7 +1055,7 @@ mod tests {
     }
 
     #[test]
-    fn the_three_daemon_keys_are_answered_by_the_shell_and_cannot_be_written() {
+    fn the_shell_owned_keys_are_answered_by_the_shell_and_cannot_be_written() {
         let directory = scratch("shell-owned-keys");
         let state = shell(&directory);
 
@@ -1025,11 +1069,16 @@ mod tests {
 
         // A stale `desktop.json` that names those keys anyway cannot redirect the frontend,
         // because they are read from the endpoint, not the file.
-        let stale = r#"{"daemon_url":"http://127.0.0.1:9","daemon_token":"not-it"}"#;
+        let stale =
+            r#"{"daemon_url":"http://127.0.0.1:9","daemon_token":"not-it","data_dir":"/fake"}"#;
         std::fs::write(directory.join(SETTINGS_FILE), stale).expect("the stale file is placed");
         let reloaded = shell(&directory);
         assert_eq!(reloaded.get(CONFIG_DAEMON_URL), "http://127.0.0.1:1234");
         assert_eq!(reloaded.get(CONFIG_DAEMON_TOKEN), "a-token");
+        assert_eq!(
+            reloaded.get(CONFIG_DATA_DIR),
+            directory.display().to_string()
+        );
     }
 
     #[test]

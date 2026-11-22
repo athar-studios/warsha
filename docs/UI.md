@@ -1,5 +1,14 @@
 # docs/UI.md — Warsha Desktop UI (M13)
 
+> **Cutover (R-BRIDGE-B4a).** The desktop window now starts on **UI v3**
+> (`docs/designs/UI_V3_PLAN.md`; source in `apps/desktop/src/v3/`). The M13 shell this page
+> documents — the Simple/Advanced toggle below — is still built and still covered by its own e2e
+> suites, but it is no longer the default: it opens with `?ui=v2`, or on a machine whose stored
+> `ui_version` is `v2`. A clean start and a `get_config` that fails both land on v3, and `?ui=v3`
+> still resolves to v3 for old bookmarks; `apps/desktop/src/main.test.tsx` pins those four start
+> conditions. Deleting v2 is B4b, the owner's stop — until then this page is the reference for the
+> shell behind the escape.
+
 Warsha's desktop app is a **Tauri 2 application window**, not a web page. It has two modes
 switched by a single toggle in the top bar. Both modes read the same daemon state over JSON-RPC;
 they differ only in how much of that state is surfaced at once. Both screens also open the

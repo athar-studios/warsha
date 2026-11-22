@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Integration tests for the daemon's inbound ceilings (security audit H-01).
 //!
 //! The audit's finding was that no endpoint had a 429 path at all: the JSON-RPC
@@ -15,8 +22,12 @@
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, QuotaConfig, RateLimitConfig};
+use warsha_providers::InMemorySecretStore;
+use warshad::{
+    start_daemon_with_secrets, DaemonConfig, DaemonHandle, QuotaConfig, RateLimitConfig,
+};
 
 /// The daemon's bearer token: the owner credential.
 const OWNER: &str = "s1a-rate-token";
@@ -57,6 +68,7 @@ struct Daemon {
 
 impl Daemon {
     async fn start(rate_limits: RateLimitConfig) -> Self {
+        std::env::set_var("WARSHA_LLM_PROVIDER", "fake");
         let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
@@ -73,7 +85,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }
@@ -274,23 +288,46 @@ async fn pairing_is_bounded_before_anything_else() {
 #[tokio::test]
 async fn paid_work_is_bounded_before_it_can_spend() {
     let mut limits = tiers();
-    limits.spend = tight(2);
+    // `runs.start` is spend-tier too, so the burst holds it plus the two turns this
+    // test gets: the call after them is the one the ceiling has to refuse.
+    limits.spend = tight(3);
     let daemon = Daemon::start(limits).await;
     let port = daemon.rpc();
+    // The paid turn is a run's own loop: `agent.turn`, the daemon-wide one, is retired
+    // (OD-E2) and refuses — so the spend tier is measured where a turn still spends.
+    let run = owned_run(port).await;
 
     for _ in 0..2 {
         // A plan-mode turn parses and plans; it is the daemon's spend-tier method, and
         // the mock provider behind it means no key, no network, no bill.
-        rpc_ok(port, OWNER, "agent.turn", json!(["/review the diff"])).await;
+        rpc_ok(
+            port,
+            OWNER,
+            "agent.turn_run",
+            json!([run, "/review the diff"]),
+        )
+        .await;
     }
 
-    let code = rpc_code(port, OWNER, "agent.turn", json!(["/review the diff"])).await;
+    let code = rpc_code(
+        port,
+        OWNER,
+        "agent.turn_run",
+        json!([run, "/review the diff"]),
+    )
+    .await;
     assert_eq!(
         code, -32004,
         "a caller past the spend ceiling reached the model path"
     );
     let message = {
-        let (_status, body) = rpc(port, OWNER, "agent.turn", json!(["/review the diff"])).await;
+        let (_status, body) = rpc(
+            port,
+            OWNER,
+            "agent.turn_run",
+            json!([run, "/review the diff"]),
+        )
+        .await;
         body["error"]["message"]
             .as_str()
             .unwrap_or_default()
@@ -315,6 +352,8 @@ async fn a_ceiling_belongs_to_the_identity_that_earned_it() {
     let port = daemon.rpc();
     let first_run = owned_run(port).await;
     let second_run = owned_run(port).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([first_run.clone()])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([second_run.clone()])).await;
 
     // Two phones, so the gate tier can be measured per device.
     let phone_a = uuid::Uuid::new_v4().to_string();
@@ -337,6 +376,8 @@ async fn a_ceiling_belongs_to_the_identity_that_earned_it() {
         json!([second_run, "gate_a"]),
     )
     .await;
+    rpc_ok(port, OWNER, "runs.advance", json!([first_run.clone()])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([second_run.clone()])).await;
     let code = rpc_code(
         port,
         "secret-a",
@@ -508,9 +549,23 @@ async fn the_default_ceilings_do_not_interrupt_a_working_session() {
         )
         .await;
         let id = run["id"].as_str().expect("a run id").to_string();
+        rpc_ok(port, OWNER, "runs.advance", json!([id.clone()])).await;
         rpc_ok(port, OWNER, "gates.approve", json!([id, "gate_a"])).await;
         rpc_ok(port, OWNER, "runs.get", json!([id])).await;
     }
 
+    daemon.shutdown().await;
+}
+
+/// Proving test for H3: `Daemon::start` uses injectable `InMemorySecretStore` and starts promptly (<15s).
+#[tokio::test]
+async fn daemon_start_completes_promptly_with_in_memory_secrets() {
+    let start = std::time::Instant::now();
+    let daemon = Daemon::start(RateLimitConfig::default()).await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "daemon startup should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
     daemon.shutdown().await;
 }

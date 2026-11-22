@@ -1,0 +1,5 @@
+{"type":"session_start","session_id":"codex-sess-456","model":"o3-mini"}
+{"type":"tool_start","tool":"exec","command":"cargo test --lib CANARY_ARGS_SECRET_7777"}
+{"type":"file_touched","path":"src/lib.rs","action":"modify"}
+{"type":"tool_result","tool":"exec","duration_ms":350,"status":"success"}
+{"type":"session_end","status":"done","duration_ms":1200,"usage":{"input_tokens":200,"output_tokens":90,"cost_cents":6}}

@@ -14,7 +14,7 @@ use crate::{
     MessageRole, ModelInfo, ModelPricing, Result, StreamChoice,
 };
 use async_trait::async_trait;
-use warsha_core::{ProviderKind, TokenUsage};
+use warsha_core::{ProviderKind, ProviderQuota, TokenUsage};
 
 /// The provider id every [`crate::ProviderRouter`] pre-registers this provider
 /// under, so `"fake"` is always available for a deterministic end-to-end run.
@@ -281,6 +281,7 @@ impl FakeProvider {
                 input,
                 output,
                 total: input + output,
+                cost_cents: None,
             },
         }
     }
@@ -352,9 +353,14 @@ impl ChatProvider for FakeProvider {
         // spend is still visible to the budget machinery.
         Ok(1)
     }
+
+    async fn get_quota(&self) -> Result<ProviderQuota> {
+        Ok(ProviderQuota::Unknown)
+    }
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{MockProvider, ProviderRouter};
@@ -480,6 +486,7 @@ mod tests {
             input: 999_999,
             output: 999_999,
             total: 1_999_998,
+            cost_cents: None,
         };
         assert_eq!(provider.cost_of(FAKE_MODEL_ID, &usage).unwrap(), 1);
     }

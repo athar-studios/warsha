@@ -88,22 +88,30 @@ Rules:
 ### 2.2 Typography
 
 - **UI family: IBM Plex Sans Arabic** (OFL-1.1; covers Arabic and Latin) — weights 400, 500, 600, 700.
-  **Code/IDs: IBM Plex Mono** 400, 500. Both are vendored as `woff2` in `packages/ui/src/v3/fonts/` with `@font-face`
-  (`local()` first, `font-display: swap`); the Google Fonts links leave both `index.html` files (offline Tauri app;
+  **Code/IDs: IBM Plex Mono** 400, 500. Both are bundled via `@fontsource` packages in `@warsha/ui/v3/fonts.css`
+  (OD-U2 = A); Google Fonts links leave both `index.html` files (offline Tauri app;
   matches the Linux capture host's pinned Plex). `THIRD_PARTY_NOTICES.md` gets the OFL row.
-- Scale (size / line-height, px):
+- Scale (rem size / unitless line-height; the px column is the equivalent at the default 16px root):
 
-| Token | Size / LH | Weight | Use |
-| --- | --- | --- | --- |
-| `text-xs` | 12 / 18 | 500 | meta, badges |
-| `text-sm` | 14 / 22 | 400 | secondary text, dense tables (Advanced) |
-| `text-md` | 16 / 26 | 400 | body (Simple default) |
-| `text-lg` | 18 / 28 | 500 | card titles, composer input |
-| `text-xl` | 22 / 32 | 600 | page section titles |
-| `text-2xl` | 28 / 40 | 700 | page titles |
-| `text-3xl` | 36 / 48 | 700 | Home greeting only |
+| Token      | Size / LH       | At 16px root | Weight | Use                                     |
+| ---------- | --------------- | ------------ | ------ | --------------------------------------- |
+| `text-xs`  | 0.75rem / 1.6   | 12 / 19.2    | 500    | meta, badges                            |
+| `text-sm`  | 0.875rem / 1.65 | 14 / 23.1    | 400    | secondary text, dense tables (Advanced) |
+| `text-md`  | 1rem / 1.6      | 16 / 25.6    | 400    | body (Simple default)                   |
+| `text-lg`  | 1.125rem / 1.6  | 18 / 28.8    | 500    | card titles, composer input             |
+| `text-xl`  | 1.375rem / 1.55 | 22 / 34.1    | 600    | page section titles                     |
+| `text-2xl` | 1.75rem / 1.5   | 28 / 42      | 700    | page titles                             |
+| `text-3xl` | 2.25rem / 1.4   | 36 / 50.4    | 700    | page titles, Home greeting              |
 
-- Arabic body line-height is never below 1.6. No letter-spacing on Arabic. Mono gets `tracking-code` 0.01em only.
+- Sizes are rem so they follow the user's root font size; line heights are unitless so the ratio inherits
+  (`--w-font-size-*`/`--w-line-height-*` carry no px). `tokens/type.ts` is the source of truth and
+  `tokens.test.ts` proves the CSS mirrors it. Advanced density still defaults to `text-sm`
+  (`--w-table-text-size/--w-table-line-height`).
+- Arabic body line-height is never below 1.6 — every body step (xs–lg) is ≥ 1.6, and the titles (xl 1.55 ·
+  2xl 1.5 · 3xl 1.4) leave room for a two-line fully vocalised sample, proven by the D3-d unit test
+  (`DecisionCard.test.tsx`) and the screenshot in `docs/zadloop/packets/R-UI-3-report.md`. No letter-spacing on
+  Arabic. Mono gets `tracking-code` 0.01em only.
+
 - **Digits:** Western digits (0–9) for money, counts, versions and IDs in both languages (matches code, logs and
   provider dashboards). Dates via `Intl.DateTimeFormat(locale, { numberingSystem: 'latn' })`.
 
@@ -124,8 +132,15 @@ Rules:
   default: cards use `line`, not shadow.
 - Layers (z-index tokens): `base` 0 · `sticky` 10 · `dropdown` 100 · `overlay` 900 · `modal` 1000 · `toast` 1100.
 - Motion: `dur-fast` 120ms (hover, press) · `dur` 200ms (open/close) · `dur-slow` 320ms (sheet) ·
-  `ease` `cubic-bezier(.2,.8,.2,1)`. `prefers-reduced-motion: reduce` sets every duration to 0. Progress uses a
-  determinate bar or a static stepper — no infinite spinners longer than 10 s without text.
+  `ease` `cubic-bezier(.2,.8,.2,1)`. `prefers-reduced-motion: reduce` sets every duration to 0 **and** turns
+  every animation off (`animation: none`). Progress uses a determinate bar or a static stepper — no infinite
+  spinners longer than 10 s without text.
+- The three loops (`w-spin` 0.8s, `w-pulse` 1.5s, `w-progress-indeterminate` 1.5s) and the two one-shot
+  entrances (`w-sheet-in` on `--w-dur-slow`, `w-step-done` on `--w-dur`) are declared once in
+  `tokens.css`. Inline-axis motion is mirrored by `--w-inline-sign` (`-1` under `[dir="rtl"]`), never by
+  `left`/`right`. Press is `scale(0.98)` on `.w-button:active:not(:disabled)` — disabled and loading buttons do
+  not move; the Sheet has no exit animation (it unmounts), and the stepper marker's `data-state` carries
+  `w-step-done` without React state.
 
 ### 2.5 Icons
 

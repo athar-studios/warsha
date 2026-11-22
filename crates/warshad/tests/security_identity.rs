@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Integration tests for the daemon's identity, authorization and process policy
 //! (security audit H-03, H-04, H-05) — driven through the real transport.
 //!
@@ -16,8 +23,10 @@
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
-use warshad::{start_daemon, DaemonConfig, DaemonHandle, RateLimitConfig};
+use warsha_providers::InMemorySecretStore;
+use warshad::{start_daemon_with_secrets, DaemonConfig, DaemonHandle, RateLimitConfig};
 
 /// The daemon's own bearer token: the owner credential the desktop holds.
 const OWNER: &str = "s1a-owner-token";
@@ -61,6 +70,7 @@ struct Daemon {
 
 impl Daemon {
     async fn start(allowed_commands: Vec<String>) -> Self {
+        std::env::set_var("WARSHA_LLM_PROVIDER", "fake");
         let dir = fresh_tempdir();
         let config = DaemonConfig {
             data_dir: dir.path().to_path_buf(),
@@ -74,7 +84,9 @@ impl Daemon {
             ..DaemonConfig::default()
         };
         Daemon {
-            handle: start_daemon(config).await.expect("the daemon starts"),
+            handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+                .await
+                .expect("the daemon starts"),
             _dir: dir,
         }
     }
@@ -196,6 +208,9 @@ async fn a_gate_decision_records_the_session_and_refuses_a_claimed_device() {
     let local = owner_device(port).await;
     let (_project, run) = owned_run(port).await;
 
+    // Advance to Gate A before deciding it.
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
+
     // The workflow the desktop uses today: no device id at all. The daemon still has
     // to know who approved, and it does — from the credential.
     rpc_ok(port, OWNER, "gates.approve", json!([run, "gate_a"])).await;
@@ -206,6 +221,9 @@ async fn a_gate_decision_records_the_session_and_refuses_a_claimed_device() {
         Some(local.as_str()),
         "the approver recorded is not the authenticated owner device"
     );
+
+    // Advance to Gate B before deciding it.
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
 
     // The same decision, claiming a different device: refused, and the gate is
     // untouched. This is the request the audit described as working.
@@ -231,6 +249,9 @@ async fn a_gate_decision_records_the_session_and_refuses_a_claimed_device() {
     // checked, not removed from the wire shape.
     rpc_ok(port, OWNER, "gates.approve", json!([run, "gate_b", local])).await;
     assert_eq!(gate_state(port, &run, "gate_b").await["state"], "approved");
+
+    // Advance to Gate C before deciding it.
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
 
     // And the other two decisions behave the same way.
     let code = rpc_error_code(
@@ -280,6 +301,7 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
     // recorded against the phone.
     let (_project, run) = owned_run(port).await;
     rpc_ok(port, PHONE_SECRET, "projects.list", json!([])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
     rpc_ok(port, PHONE_SECRET, "gates.approve", json!([run, "gate_a"])).await;
     let approved = gate_state(port, &run, "gate_a").await;
     assert_eq!(
@@ -289,6 +311,7 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
     );
 
     // A phone cannot sign as the desktop.
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
     let local = owner_device(port).await;
     let code = rpc_error_code(
         port,
@@ -321,6 +344,11 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
             json!([{"name": "x", "transport": {"kind": "stdio"}, "command": "npm", "args": []}]),
         ),
         ("mcp.call", json!(["x", "tool", {}])),
+        // R-BRIDGE-B3a: a one-shot grant is a permission write, so a phone cannot
+        // approve a tool for the owner — and cannot even read the queue it would
+        // approve from.
+        ("mcp.approvals.list", json!([])),
+        ("mcp.approvals.allow_once", json!(["mcp-approval-1"])),
         ("runmode.set", json!([local_run_mode()])),
         ("roles.set", json!([role_config()])),
         ("devices.revoke", json!([project_id])),
@@ -347,10 +375,23 @@ async fn a_paired_device_is_a_session_but_not_the_owner() {
         assert_eq!(code, -32002, "{method} was reachable by a paired device");
     }
 
-    // `devices.pair` is a Session-policy method: a paired device CAN redeem / register a pairing.
-    rpc_ok(
+    // `devices.pair` is the owner's (security audit H2): a paired device cannot enrol
+    // another device, and the well-formed data is refused by authorization, not parsing.
+    let code = rpc_error_code(
         port,
         PHONE_SECRET,
+        "devices.pair",
+        json!([pairing_data(&project_id)]),
+    )
+    .await;
+    assert_eq!(
+        code, -32002,
+        "a paired device was allowed to enrol another device"
+    );
+    // The owner's enrolment path — and the CLI's, which holds this token — still works.
+    rpc_ok(
+        port,
+        OWNER,
         "devices.pair",
         json!([pairing_data(&project_id)]),
     )
@@ -441,11 +482,14 @@ async fn process_and_mcp_control_are_owner_only_and_bounded_by_configuration() {
     )
     .await;
     assert_eq!(code, -32005, "a plain remote MCP endpoint was recorded");
+    // A secure endpoint passes the same url policy. Proved on the transport nothing
+    // dials (R-EXT-4 made `http` real): the policy is shared, and a `wss` config is
+    // still only *recorded*, so this asserts the url rule without a network call.
     rpc_ok(
         port,
         OWNER,
         "mcp.connect",
-        json!([{"name": "secure", "transport": {"kind": "http", "url": "https://mcp.example/mcp"}, "command": null, "args": []}]),
+        json!([{"name": "secure", "transport": {"kind": "web_socket", "url": "wss://mcp.example/ws"}, "command": null, "args": []}]),
     )
     .await;
 
@@ -536,6 +580,7 @@ async fn a_pairing_that_names_no_device_id_cannot_decide_a_gate() {
 
     // The session is real — it can read — but a decision has no device to record.
     rpc_ok(port, "legacy-secret", "projects.list", json!([])).await;
+    rpc_ok(port, OWNER, "runs.advance", json!([run.clone()])).await;
     let code = rpc_error_code(
         port,
         "legacy-secret",
@@ -581,4 +626,17 @@ fn pairing_data(device_id: &str) -> Value {
         "pairing_secret": thirty_two(7),
         "expires_at": "2100-01-01T00:00:00Z",
     })
+}
+
+/// Proving test for H3: `Daemon::start` uses injectable `InMemorySecretStore` and starts promptly (<15s).
+#[tokio::test]
+async fn daemon_start_completes_promptly_with_in_memory_secrets() {
+    let start = std::time::Instant::now();
+    let daemon = Daemon::start(Vec::new()).await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "daemon startup should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
+    daemon.shutdown().await;
 }

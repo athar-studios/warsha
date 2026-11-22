@@ -7,11 +7,15 @@
 import { applyLocale, LocaleProvider, readStoredLocale } from '@warsha/i18n';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
+import ShellRouter from './ShellRouter';
 import { registerShellWorker } from './offline';
 import { applyStoredTheme } from './theme';
+// eslint-disable-next-line import/no-unresolved
+import '@warsha/ui/v3/fonts.css';
+// eslint-disable-next-line import/no-unresolved
+import '@warsha/ui/v3/tokens/tokens.css';
 import './index.css';
 
 // The owner's theme, then the document's language and direction: `data-theme` is what every token reads,
@@ -30,9 +34,9 @@ if (root === null) {
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
     <LocaleProvider initialLocale={storedLocale}>
-      <BrowserRouter>
+      <ShellRouter>
         <App />
-      </BrowserRouter>
+      </ShellRouter>
     </LocaleProvider>
   </React.StrictMode>
 );

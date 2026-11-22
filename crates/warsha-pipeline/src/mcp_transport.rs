@@ -1,15 +1,12 @@
 //! MCP transports — the connection layer behind `mcp.*` (PLAN.md M20).
 //!
-//! [`crate::mcp`] (M12) records *what* an MCP server is: its name, its transport,
-//! its command, its per-project permissions. This module is the other half — it
-//! opens the connection. The two are separate types on purpose, because the
-//! M12 record is a registry row and this one is a live session:
-//!
-//! ```text
-//! mcp::McpServerConfig        mcp_transport::McpServerConfig
-//!   transport: unit enum         transport: carries its url
-//!   permissions, project, env    exactly what a spawn needs
-//! ```
+//! [`crate::mcp`] (M12) records *what* an MCP server is — its name, its
+//! transport, its per-project permissions — in [`crate::mcp::McpServerRecord`].
+//! This module is the other half: it opens the connection. The launch type is
+//! the one [`McpServerConfig`] the whole pipeline shares; what a caller may not
+//! put on the wire (the environment a child is given, the bound on its reply)
+//! travels beside it in [`McpLaunchOptions`], because those are launch inputs,
+//! not part of a server's identity.
 //!
 //! What is real and what is not:
 //!
@@ -20,41 +17,70 @@
 //!   that reply carried travel on the connection, so `mcp.list` reports what the
 //!   server said it can do instead of an empty promise, and a server that is not
 //!   an MCP server is reported rather than recorded as connected.
+//! - **The child gets a named environment, never the daemon's.** The environment
+//!   in [`McpLaunchOptions`] is the only one the server sees, on top of the
+//!   process manager's fixed floor; the daemon resolves a pack's keychain
+//!   references and hands the result to [`McpManager::connect_with`], so a
+//!   variable nobody named never reaches the server (KEEL K5a).
 //! - **An answer is waited for, and only so long.** Each connection keeps a
 //!   cursor into its process's stdout ([`ProcessManager::read_stdout`]), and the
-//!   handshake reads one reply per request within [`RESPONSE_TIMEOUT`]. A server
-//!   that never answers fails `connect` with [`McpTransportError::Timeout`] and
-//!   is stopped with the connection it did not earn. Lines that are not JSON (a
-//!   server may log to stdout) and replies carrying another id are skipped, so a
-//!   chatty server is not mistaken for a silent one.
+//!   handshake reads one reply per request within the server's
+//!   [`McpLaunchOptions::response_timeout`] (30 s by default). A server that
+//!   never answers fails `connect` with [`McpTransportError::Timeout`], a server
+//!   that exits first fails with [`McpTransportError::Exited`], and a failed
+//!   connection is stopped with the child it did not earn. Lines that are not
+//!   JSON (a server may log to stdout) and replies carrying another id are
+//!   skipped, so a chatty server is not mistaken for a silent one.
 //!   [`McpManager::send`] stays the raw seam it was: one framed line out, the
 //!   frame back, and no waiting — a caller driving a method this client does not
 //!   is the caller's own protocol.
-//! - **Http and WebSocket are recorded, not connected.** The configuration is
-//!   stored and reported as [`McpStatus::Disconnected`] with no process id, so
-//!   `mcp.list` tells the truth about a transport that was never dialled.
-//!   [`McpServerConfig::is_wired`] is the one predicate that says so.
+//! - **Streamable HTTP is real once a client is injected, and recorded until
+//!   then.** `mcp.connect` for an `http` config runs the same three-step handshake
+//!   over [`McpHttpClient`](crate::mcp_http::McpHttpClient) — `initialize`,
+//!   `notifications/initialized`, `tools/list` — and reports `connected` with no
+//!   process id, because an HTTP connection has no child to observe. A manager
+//!   with **no** client injected keeps the old behaviour for `http`: the config is
+//!   stored and reported as [`McpStatus::Disconnected`], so the pipeline still has
+//!   no network default and `mcp.list` never claims a dial that did not happen.
+//! - **WebSocket is recorded, not connected.** Nothing dials a WebSocket MCP
+//!   server: the revision defines stdio and Streamable HTTP, and the daemon
+//!   publishes no such transport client. The configuration is stored and reported
+//!   as [`McpStatus::Disconnected`] with no process id.
+//! - [`McpServerConfig::is_wired`] stays the *static* transport predicate (stdio
+//!   only) that the panel and `docs/DAEMON.md` name; whether *this manager* dials a
+//!   config is [`InMemoryMcpManager::dials`], which is the same question with the
+//!   injected client taken into account.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
+use crate::mcp_http::{McpHttpClient, McpHttpError, McpHttpRequest, HTTP_PROTOCOL_VERSION};
 use crate::process_spawn::{ProcessError, ProcessManager, ProcessStatus};
 
-/// The MCP revision this client speaks, sent as `protocolVersion`.
+/// The MCP revision the stdio transport speaks, sent as `protocolVersion`.
+///
+/// Streamable HTTP negotiates its own; see
+/// [`HTTP_PROTOCOL_VERSION`](crate::mcp_http::HTTP_PROTOCOL_VERSION).
 pub const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
 
-/// How long a stdio server is given to answer one request.
+/// How long a stdio server is given to answer one request by default.
 ///
 /// The handshake is two requests, so a server that never answers costs the caller
 /// this once per request rather than hanging the daemon on a pipe that stays open.
-pub const RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+/// A per-server launch may name its own bound in [`McpLaunchOptions`]; this is
+/// what a connection that names none uses (KEEL K5a).
+pub const DEFAULT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The historical name of [`DEFAULT_RESPONSE_TIMEOUT`], kept for callers that
+/// spelled the bound out.
+pub const RESPONSE_TIMEOUT: Duration = DEFAULT_RESPONSE_TIMEOUT;
 
 /// How often the reply reader asks its process what it has printed.
 const RESPONSE_POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -77,7 +103,7 @@ const CLIENT_NAME: &str = "warsha-daemon";
 pub enum McpTransport {
     /// A child process spoken to over stdin/stdout.
     Stdio,
-    /// An HTTP endpoint (recorded only).
+    /// An HTTP endpoint, spoken to over Streamable HTTP when a client is injected.
     Http {
         /// The endpoint the transport was configured for.
         url: String,
@@ -110,9 +136,9 @@ impl McpTransport {
 
 /// Everything a connection needs from its caller.
 ///
-/// `command` and `args` are only read for [`McpTransport::Stdio`]; an `Http` or
-/// `WebSocket` config with them still connects nothing, because nothing dials a
-/// url here yet.
+/// `command` and `args` are only read for [`McpTransport::Stdio`]; an `Http` config
+/// with them still reads its `url` and nothing else, and a `WebSocket` config is
+/// recorded without being dialled at all.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpServerConfig {
     /// The name `mcp.disconnect`/`mcp.send` address the server by.
@@ -160,9 +186,58 @@ impl McpServerConfig {
         }
     }
 
-    /// True only for the transport that actually connects.
+    /// True only for the transport that always connects: stdio.
+    ///
+    /// This is the *static* predicate, and it stays stdio-only on purpose. Whether
+    /// an `Http` config is dialled depends on the manager, not on the config: a
+    /// manager with no [`McpHttpClient`] injected records it and nothing more, and
+    /// a config type that claimed `http` was wired would lie on that manager's
+    /// behalf. [`InMemoryMcpManager::dials`] is the question with the injected
+    /// client taken into account; the panel and `docs/DAEMON.md` still read this
+    /// one, so its name and its answer for stdio do not change.
     pub fn is_wired(&self) -> bool {
         matches!(self.transport, McpTransport::Stdio)
+    }
+}
+
+/// What a launch adds to a [`McpServerConfig`]: the environment and the bound.
+///
+/// These are launch inputs rather than part of a server's identity: `mcp.connect`
+/// is a wire method and a wire caller has no business dictating a child's
+/// environment, while the daemon's plugin path resolves a pack's keychain
+/// references and passes exactly those variables here. The process manager's
+/// fixed floor still applies underneath, and it never inherits the daemon's own
+/// environment (KEEL K5a).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpLaunchOptions {
+    /// The variables the child is given, on top of the process manager's floor.
+    pub env: HashMap<String, String>,
+    /// How long one request may wait for its reply.
+    pub response_timeout: Duration,
+}
+
+impl Default for McpLaunchOptions {
+    fn default() -> Self {
+        McpLaunchOptions {
+            env: HashMap::new(),
+            response_timeout: DEFAULT_RESPONSE_TIMEOUT,
+        }
+    }
+}
+
+impl McpLaunchOptions {
+    /// Options that hand the child exactly `env` and keep the default bound.
+    pub fn with_env(env: HashMap<String, String>) -> Self {
+        McpLaunchOptions {
+            env,
+            response_timeout: DEFAULT_RESPONSE_TIMEOUT,
+        }
+    }
+
+    /// The same options under a different per-server bound.
+    pub fn with_response_timeout(mut self, timeout: Duration) -> Self {
+        self.response_timeout = timeout;
+        self
     }
 }
 
@@ -208,10 +283,11 @@ pub struct McpConnection {
     pub process_id: Option<String>,
     /// The tool names the server's `tools/list` reply carried, in its own order.
     ///
-    /// Empty until the handshake has run: an `Http`/`WebSocket` config is recorded
-    /// without one, and a server whose handshake failed has no list to report.
-    /// Only the names travel: a description is the server's to show, and nothing
-    /// here has a screen to show it on.
+    /// Empty until the handshake has run: an `http` config is recorded without one
+    /// when the manager has no HTTP client, a `websocket` config is never dialled,
+    /// and a server whose handshake failed has no list to report. Only the names
+    /// travel: a description is the server's to show, and nothing here has a screen
+    /// to show it on.
     pub tools: Vec<String>,
     /// Full tool definitions parsed from the server's `tools/list` reply.
     #[serde(default)]
@@ -244,6 +320,33 @@ pub enum McpTransportError {
     /// The transport is recorded but nothing dials it yet.
     #[error("MCP server `{0}` uses a transport that is recorded but not wired yet")]
     NotWired(String),
+    /// The raw frame seam is a stdio feature.
+    ///
+    /// `send` writes one unframed line to a child's stdin, which is a caller driving
+    /// a method this client does not speak. Over HTTP every message is a `POST` this
+    /// module builds, so there is no such seam to hand over — and inventing one
+    /// would be a second, unchecked way onto the wire.
+    #[error("MCP server `{0}` is reached over HTTP, where raw frames are stdio-only")]
+    RawFramesStdio(String),
+    /// The HTTP transport failed: no socket, a non-2xx status, an oversize body, or
+    /// a reply this client could not use.
+    #[error("MCP server `{name}` failed over HTTP: {problem}")]
+    Http {
+        /// The server that failed.
+        name: String,
+        /// A short reason, as the client reported it.
+        problem: String,
+    },
+    /// The HTTP session this request named is gone (a `404` on a sessioned request).
+    ///
+    /// Reported rather than repaired: the spec treats it as expiry, and a silent
+    /// re-initialize would re-run a handshake the owner did not ask for and could
+    /// not see.
+    #[error("MCP server `{name}` session expired; reconnect it to start a new one")]
+    SessionExpired {
+        /// The server whose session expired.
+        name: String,
+    },
     /// The server process could not be started.
     #[error("could not start MCP server `{name}`: {source}")]
     Spawn {
@@ -281,6 +384,20 @@ pub enum McpTransportError {
         /// How long it was given, in seconds.
         seconds: u64,
     },
+    /// The server process exited before answering.
+    ///
+    /// Reported as soon as the exit is observed rather than waiting out the
+    /// timeout: a process that is gone will never answer, and a refused pack
+    /// should fail while the owner is still looking at it (KEEL K5a/K5b).
+    #[error("MCP server `{name}` exited ({status}) before answering `{method}`")]
+    Exited {
+        /// The server that exited.
+        name: String,
+        /// The method that went unanswered.
+        method: String,
+        /// The terminal status the process reached.
+        status: String,
+    },
     /// The server answered, but not with something this client can use.
     #[error("MCP server `{name}` answered `{method}` with {problem}")]
     Protocol {
@@ -300,6 +417,233 @@ pub enum McpTransportError {
         #[source]
         source: ProcessError,
     },
+    /// A failed handshake whose child also survived the cleanup stop.
+    ///
+    /// The handshake failure stays the primary cause and the source; the stop
+    /// failure is named in the message because a child that outlives its failed
+    /// launch is a process nothing will address again, and a caller that reads
+    /// only the error text would otherwise never see it.
+    #[error("{handshake}; the child also failed to stop: {stop}")]
+    HandshakeCleanup {
+        /// Why the handshake failed.
+        #[source]
+        handshake: Box<McpTransportError>,
+        /// Why the cleanup stop failed.
+        stop: ProcessError,
+    },
+}
+
+/// Fold a cleanup stop failure into the handshake error that caused it.
+///
+/// With a clean stop the handshake error is returned unchanged, and so is a stop
+/// that reports the child already gone — `NotRunning`/`NotFound` are what the
+/// cleanup wanted, the same way [`McpManager::disconnect`] reads them. Only a
+/// child that is still there is named, so the text never claims a survivor that
+/// is not one.
+fn with_cleanup_failure(
+    error: McpTransportError,
+    stopped: std::result::Result<(), ProcessError>,
+) -> McpTransportError {
+    match stopped {
+        Ok(()) | Err(ProcessError::NotRunning(_)) | Err(ProcessError::NotFound(_)) => error,
+        Err(stop) => McpTransportError::HandshakeCleanup {
+            handshake: Box::new(error),
+            stop,
+        },
+    }
+}
+
+/// The tools a `tools/list` reply carried, parsed once for both transports.
+///
+/// Shared by the stdio handshake and the HTTP one, so the shape a caller sees does
+/// not depend on how the server was reached: names in the server's order, and the
+/// definitions `mcp.list` reports beside them.
+fn parse_tools_list(
+    name: &str,
+    reply: &Value,
+) -> Result<(Vec<String>, Vec<crate::mcp::McpTool>), McpTransportError> {
+    let tools = reply
+        .get("result")
+        .and_then(|result| result.get("tools"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| McpTransportError::Protocol {
+            name: name.to_string(),
+            method: "tools/list".to_string(),
+            problem: "a reply with no `tools` array".to_string(),
+        })?;
+
+    let mut tool_names = Vec::new();
+    let mut tool_definitions = Vec::new();
+
+    for tool_val in tools {
+        let tool_name = tool_val
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if !tool_name.is_empty() {
+            tool_names.push(tool_name.clone());
+        }
+        let description = tool_val
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let input_schema = tool_val
+            .get("inputSchema")
+            .or_else(|| tool_val.get("input_schema"))
+            .cloned()
+            .unwrap_or_else(|| json!({ "type": "object" }));
+        let annotations = tool_val
+            .get("annotations")
+            .and_then(|a| serde_json::from_value(a.clone()).ok());
+
+        tool_definitions.push(crate::mcp::McpTool {
+            name: tool_name,
+            description,
+            input_schema,
+            annotations,
+        });
+    }
+
+    Ok((tool_names, tool_definitions))
+}
+
+/// The result of one `tools/call`, parsed once for both transports.
+fn parse_tool_result(result_val: &Value) -> crate::mcp::McpToolResult {
+    let is_error = result_val
+        .get("isError")
+        .or_else(|| result_val.get("is_error"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let mut content = Vec::new();
+    if let Some(items) = result_val.get("content").and_then(Value::as_array) {
+        for item in items {
+            let item_type = item.get("type").and_then(Value::as_str).unwrap_or("text");
+            match item_type {
+                "text" => {
+                    let text = item
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    content.push(crate::mcp::McpContent::Text { text });
+                }
+                "image" => {
+                    let data = item
+                        .get("data")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let mime_type = item
+                        .get("mimeType")
+                        .or_else(|| item.get("mime_type"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("image/png")
+                        .to_string();
+                    content.push(crate::mcp::McpContent::Image { data, mime_type });
+                }
+                "resource" => {
+                    if let Some(resource_val) = item.get("resource") {
+                        let uri = resource_val
+                            .get("uri")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let mime_type = resource_val
+                            .get("mimeType")
+                            .or_else(|| resource_val.get("mime_type"))
+                            .and_then(Value::as_str)
+                            .map(str::to_string);
+                        let text = resource_val
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .map(str::to_string);
+                        content.push(crate::mcp::McpContent::Resource {
+                            resource: crate::mcp::McpResource {
+                                uri,
+                                mime_type,
+                                text,
+                            },
+                        });
+                    }
+                }
+                _ => {
+                    if let Some(text) = item.get("text").and_then(Value::as_str) {
+                        content.push(crate::mcp::McpContent::Text {
+                            text: text.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    } else if let Some(text) = result_val.as_str() {
+        content.push(crate::mcp::McpContent::Text {
+            text: text.to_string(),
+        });
+    } else if let Some(text) = result_val.get("text").and_then(Value::as_str) {
+        content.push(crate::mcp::McpContent::Text {
+            text: text.to_string(),
+        });
+    } else if !result_val.is_null() && !result_val.as_object().is_some_and(|o| o.is_empty()) {
+        content.push(crate::mcp::McpContent::Text {
+            text: result_val.to_string(),
+        });
+    }
+
+    crate::mcp::McpToolResult { content, is_error }
+}
+
+/// The transport error an HTTP client failure becomes.
+///
+/// The mapping keeps the distinctions a caller acts on: a session expiry is its own
+/// variant (reconnect, never re-initialize silently), a timeout is
+/// [`McpTransportError::Timeout`] with the method and the bound it overran, and a
+/// reply this client could not read is a protocol error naming the method. Everything
+/// else — a refused policy, a DNS failure, a non-2xx status, an oversize body — is
+/// [`McpTransportError::Http`] carrying the client's own short reason.
+fn http_transport_error(
+    name: &str,
+    method: &str,
+    timeout: Duration,
+    error: McpHttpError,
+) -> McpTransportError {
+    match error {
+        McpHttpError::SessionExpired => McpTransportError::SessionExpired {
+            name: name.to_string(),
+        },
+        McpHttpError::Timeout => McpTransportError::Timeout {
+            name: name.to_string(),
+            method: method.to_string(),
+            seconds: timeout.as_secs(),
+        },
+        McpHttpError::Protocol(problem) => McpTransportError::Protocol {
+            name: name.to_string(),
+            method: method.to_string(),
+            problem,
+        },
+        other => McpTransportError::Http {
+            name: name.to_string(),
+            problem: other.to_string(),
+        },
+    }
+}
+
+/// The session an HTTP server issued on `initialize`, and what it negotiated.
+///
+/// Kept beside `launches` rather than on [`McpConnection`] for the same reason the
+/// stdout cursor is: this is a client's bookkeeping, not a fact `mcp.list` reports.
+/// A session id is a credential-ish value in that a server may bind it to a caller,
+/// so it is never logged — only the host is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HttpSession {
+    /// The endpoint the session was opened on.
+    url: String,
+    /// The `Mcp-Session-Id` the server sent on `initialize`, if it sent one.
+    session_id: Option<String>,
+    /// The `protocolVersion` the `initialize` reply negotiated.
+    protocol_version: String,
 }
 
 /// Connect, list, address and close MCP servers.
@@ -307,6 +651,21 @@ pub enum McpTransportError {
 pub trait McpManager: Send + Sync {
     /// Connect `config`'s server, or record it when its transport is not wired.
     async fn connect(&self, config: McpServerConfig) -> Result<(), McpTransportError>;
+
+    /// Connect the same server with the environment and bound it was launched
+    /// with.
+    ///
+    /// The default exists so implementations that record rather than launch keep
+    /// compiling: a transport with nothing to spawn has no environment to apply.
+    /// [`InMemoryMcpManager`] overrides it, and it is the only implementation that
+    /// starts a child.
+    async fn connect_with(
+        &self,
+        config: McpServerConfig,
+        _options: McpLaunchOptions,
+    ) -> Result<(), McpTransportError> {
+        self.connect(config).await
+    }
 
     /// Close the connection and stop the process behind it.
     async fn disconnect(&self, name: &str) -> Result<(), McpTransportError>;
@@ -339,18 +698,275 @@ pub trait McpManager: Send + Sync {
 pub struct InMemoryMcpManager {
     processes: Arc<dyn ProcessManager>,
     connections: Mutex<Vec<McpConnection>>,
+    /// Names explicitly closed via `disconnect`, so a subsequent `connect` can
+    /// replace the stopped tombstone while a duplicate unwired registration still
+    /// refuses without a prior `disconnect`.
+    disconnected: Mutex<HashSet<String>>,
     cursors: Mutex<HashMap<String, usize>>,
+    launches: Mutex<HashMap<String, McpLaunchOptions>>,
+    /// The Streamable HTTP client, when a caller injected one. `None` is the
+    /// pipeline's default and keeps an `http` config recorded rather than dialled:
+    /// nothing in this crate opens a socket on its own.
+    http: Option<Arc<dyn McpHttpClient>>,
+    /// The session each connected HTTP server issued, by server name.
+    http_sessions: Mutex<HashMap<String, HttpSession>>,
     next_request_id: AtomicU64,
 }
 
 impl InMemoryMcpManager {
     /// A manager that spawns stdio servers through `processes`.
+    ///
+    /// An `http` config is recorded and reported as disconnected until a client is
+    /// injected with [`InMemoryMcpManager::with_http_client`].
     pub fn new(processes: Arc<dyn ProcessManager>) -> Self {
         InMemoryMcpManager {
             processes,
             connections: Mutex::new(Vec::new()),
+            disconnected: Mutex::new(HashSet::new()),
             cursors: Mutex::new(HashMap::new()),
+            launches: Mutex::new(HashMap::new()),
+            http: None,
+            http_sessions: Mutex::new(HashMap::new()),
             next_request_id: AtomicU64::new(100),
+        }
+    }
+
+    /// The same manager, dialling `http` servers through `client`.
+    ///
+    /// The injection is the whole of the opt-in: the daemon hands its own
+    /// policy-bounded client here at startup, and a pipeline-only test that never
+    /// calls this keeps today's recorded-only behaviour and no network at all.
+    pub fn with_http_client(mut self, client: Arc<dyn McpHttpClient>) -> Self {
+        self.http = Some(client);
+        self
+    }
+
+    /// Whether **this manager** dials `config`.
+    ///
+    /// Stdio always; `http` only when a client was injected; `websocket` never. The
+    /// static [`McpServerConfig::is_wired`] cannot answer this, because the answer
+    /// depends on the manager rather than on the config.
+    fn dials(&self, config: &McpServerConfig) -> bool {
+        match config.transport {
+            McpTransport::Stdio => true,
+            McpTransport::Http { .. } => self.http.is_some(),
+            McpTransport::WebSocket { .. } => false,
+        }
+    }
+
+    /// Close an HTTP session, best effort.
+    ///
+    /// The `DELETE` the revision asks for never decides whether the local disconnect
+    /// happened: a server that is gone, that refuses the method (`405`), or that
+    /// times out is logged and nothing more.
+    async fn close_session(&self, name: &str, session: &HttpSession) {
+        let (Some(client), Some(session_id)) = (self.http.clone(), session.session_id.as_deref())
+        else {
+            return;
+        };
+        if let Err(error) = client.close(&session.url, session_id).await {
+            // The host, never the session id: a session can be bound to a caller.
+            tracing::warn!("could not close the MCP HTTP session for `{name}`: {error}");
+        }
+    }
+
+    /// One `POST` through the injected client, with the failures mapped once.
+    ///
+    /// A transport failure is never left on a `connected` row: the status becomes
+    /// [`McpStatus::Error`] before the error is returned, so `mcp.list` and the
+    /// caller tell the same story.
+    async fn http_post(
+        &self,
+        name: &str,
+        url: &str,
+        request: McpHttpRequest,
+        method: &str,
+    ) -> Result<crate::mcp_http::McpHttpReply, McpTransportError> {
+        let Some(client) = self.http.clone() else {
+            return Err(McpTransportError::NotWired(name.to_string()));
+        };
+        let timeout = request.timeout;
+        match client.post(url, request).await {
+            Ok(reply) => Ok(reply),
+            Err(McpHttpError::SessionExpired) => {
+                // The session is gone; nothing re-initializes behind the owner's
+                // back, so the connection is an error they can act on.
+                self.http_sessions.lock().await.remove(name);
+                let error = McpTransportError::SessionExpired {
+                    name: name.to_string(),
+                };
+                self.set_status(name, McpStatus::Error(error.to_string()))
+                    .await;
+                Err(error)
+            }
+            Err(error) => {
+                let error = http_transport_error(name, method, timeout, error);
+                self.set_status(name, McpStatus::Error(error.to_string()))
+                    .await;
+                Err(error)
+            }
+        }
+    }
+
+    /// The reply a request must have: one message, and never a JSON-RPC error.
+    fn reply_message(
+        name: &str,
+        method: &str,
+        reply: crate::mcp_http::McpHttpReply,
+    ) -> Result<Value, McpTransportError> {
+        let Some(message) = reply.message else {
+            return Err(McpTransportError::Protocol {
+                name: name.to_string(),
+                method: method.to_string(),
+                problem: "a request answered without a reply".to_string(),
+            });
+        };
+        if let Some(error) = message.get("error") {
+            return Err(McpTransportError::Protocol {
+                name: name.to_string(),
+                method: method.to_string(),
+                problem: format!("error {error}"),
+            });
+        }
+        Ok(message)
+    }
+
+    /// The opening of a Streamable HTTP session: `initialize`,
+    /// `notifications/initialized`, `tools/list`.
+    ///
+    /// The session id and the negotiated revision are kept as soon as the first
+    /// reply carries them, so a later step that fails can close what was opened.
+    async fn http_handshake(
+        &self,
+        name: &str,
+        url: &str,
+        timeout: Duration,
+    ) -> Result<(Vec<String>, Vec<crate::mcp::McpTool>), McpTransportError> {
+        let initialize = json!({
+            "jsonrpc": "2.0",
+            "id": INITIALIZE_REQUEST_ID,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": HTTP_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {
+                    "name": CLIENT_NAME,
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+            },
+        });
+        let reply = self
+            .http_post(
+                name,
+                url,
+                McpHttpRequest::new(initialize, Some(json!(INITIALIZE_REQUEST_ID)), timeout),
+                "initialize",
+            )
+            .await?;
+        let session_id = reply.session_id.clone();
+        let message = Self::reply_message(name, "initialize", reply)?;
+        let Some(result) = message.get("result") else {
+            return Err(McpTransportError::Protocol {
+                name: name.to_string(),
+                method: "initialize".to_string(),
+                problem: "a reply with no `result`".to_string(),
+            });
+        };
+        // A server that names no revision is taken at the one this client asked
+        // for; the header it is sent afterwards is the negotiated one.
+        let protocol_version = result
+            .get("protocolVersion")
+            .and_then(Value::as_str)
+            .unwrap_or(HTTP_PROTOCOL_VERSION)
+            .to_string();
+        self.http_sessions.lock().await.insert(
+            name.to_string(),
+            HttpSession {
+                url: url.to_string(),
+                session_id: session_id.clone(),
+                protocol_version: protocol_version.clone(),
+            },
+        );
+
+        let notification = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" });
+        // The revision goes on every request after `initialize`, session or not.
+        let mut note = McpHttpRequest::new(notification, None, timeout)
+            .with_protocol_version(protocol_version.clone());
+        if let Some(session_id) = session_id.clone() {
+            note = note.with_session(session_id);
+        }
+        // A notification is answered `202` with no body; a failure to send it is
+        // reported, because a server that never learned the client is initialized
+        // is not a session this client can trust.
+        self.http_post(name, url, note, "notifications/initialized")
+            .await?;
+
+        let mut list = McpHttpRequest::new(
+            json!({
+                "jsonrpc": "2.0",
+                "id": TOOLS_LIST_REQUEST_ID,
+                "method": "tools/list",
+                "params": {},
+            }),
+            Some(json!(TOOLS_LIST_REQUEST_ID)),
+            timeout,
+        )
+        .with_protocol_version(protocol_version);
+        if let Some(session_id) = session_id {
+            list = list.with_session(session_id);
+        }
+        let reply = self.http_post(name, url, list, "tools/list").await?;
+        let message = Self::reply_message(name, "tools/list", reply)?;
+        parse_tools_list(name, &message)
+    }
+
+    /// Dial a Streamable HTTP server and record the outcome.
+    ///
+    /// The row is pushed once, at the end, exactly as the stdio path does: there is
+    /// no half-connected row for `mcp.list` to report.
+    async fn connect_http(
+        &self,
+        config: McpServerConfig,
+        options: McpLaunchOptions,
+        url: String,
+    ) -> Result<(), McpTransportError> {
+        let name = config.name.clone();
+        // Remembered before the handshake, so its two requests already honour the
+        // per-server bound and `call_tool` keeps it afterwards.
+        self.launches
+            .lock()
+            .await
+            .insert(name.clone(), options.clone());
+        match self
+            .http_handshake(&name, &url, options.response_timeout)
+            .await
+        {
+            Ok((tools, tool_definitions)) => {
+                self.connections.lock().await.push(McpConnection {
+                    config,
+                    status: McpStatus::Connected,
+                    process_id: None,
+                    tools,
+                    tool_definitions,
+                });
+                Ok(())
+            }
+            Err(error) => {
+                // A session that was issued before the failure is closed best effort;
+                // there is no process to stop on this transport.
+                if let Some(session) = self.http_sessions.lock().await.remove(&name) {
+                    self.close_session(&name, &session).await;
+                }
+                self.launches.lock().await.remove(&name);
+                self.connections.lock().await.push(McpConnection {
+                    config,
+                    status: McpStatus::Error(error.to_string()),
+                    process_id: None,
+                    tools: Vec::new(),
+                    tool_definitions: Vec::new(),
+                });
+                Err(error)
+            }
         }
     }
 
@@ -379,6 +995,19 @@ impl InMemoryMcpManager {
             Ok(status) => McpStatus::Error(format!("process {process_id} is {}", status.as_str())),
             Err(_) => McpStatus::Error(format!("process {process_id} is gone")),
         }
+    }
+
+    /// How long this server is allowed to take for one reply.
+    ///
+    /// A connection that was recorded without a launch (an HTTP server, a test
+    /// double) uses the default; a stdio launch keeps the bound its caller named.
+    async fn response_timeout(&self, name: &str) -> Duration {
+        self.launches
+            .lock()
+            .await
+            .get(name)
+            .map(|options| options.response_timeout)
+            .unwrap_or(DEFAULT_RESPONSE_TIMEOUT)
     }
 
     /// Write one newline-framed JSON frame to a server's stdin.
@@ -435,10 +1064,11 @@ impl InMemoryMcpManager {
 
     /// Send one request and wait for the reply that carries its id.
     ///
-    /// The wait is bounded by [`RESPONSE_TIMEOUT`]: a server that never answers is
-    /// an error the caller can act on, not a daemon parked on a pipe. A JSON-RPC
-    /// error is a reply, so it is reported as [`McpTransportError::Protocol`]
-    /// rather than waited past.
+    /// The wait is bounded by the server's own
+    /// [`McpLaunchOptions::response_timeout`] (30 s by default): a server that
+    /// never answers is an error the caller can act on, not a daemon parked on a
+    /// pipe. A JSON-RPC error is a reply, so it is reported as
+    /// [`McpTransportError::Protocol`] rather than waited past.
     async fn request(
         &self,
         name: &str,
@@ -446,11 +1076,16 @@ impl InMemoryMcpManager {
         frame: &Value,
         method: &str,
     ) -> Result<Value, McpTransportError> {
-        self.request_with_timeout(name, process_id, frame, method, RESPONSE_TIMEOUT)
+        let timeout = self.response_timeout(name).await;
+        self.request_with_timeout(name, process_id, frame, method, timeout)
             .await
     }
 
     /// Send one request and wait for the reply with a specified timeout.
+    ///
+    /// Each poll also asks the process manager whether the child is still alive:
+    /// an exited server will never answer, and waiting out the timeout for it
+    /// would make a refused pack look like a slow one (KEEL K5b).
     async fn request_with_timeout(
         &self,
         name: &str,
@@ -480,6 +1115,25 @@ impl InMemoryMcpManager {
                     });
                 }
                 return Ok(reply);
+            }
+            match self.processes.status(process_id).await {
+                Ok(status) if status.is_terminal() => {
+                    return Err(McpTransportError::Exited {
+                        name: name.to_string(),
+                        method: method.to_string(),
+                        status: status.as_str().to_string(),
+                    });
+                }
+                Ok(_) => {}
+                // A process the manager no longer tracks is as gone as one that
+                // exited; the transport reports it rather than waiting.
+                Err(_) => {
+                    return Err(McpTransportError::Exited {
+                        name: name.to_string(),
+                        method: method.to_string(),
+                        status: "gone".to_string(),
+                    });
+                }
             }
             if Instant::now() >= deadline {
                 return Err(McpTransportError::Timeout {
@@ -548,51 +1202,7 @@ impl InMemoryMcpManager {
                 "tools/list",
             )
             .await?;
-        let tools = reply
-            .get("result")
-            .and_then(|result| result.get("tools"))
-            .and_then(Value::as_array)
-            .ok_or_else(|| McpTransportError::Protocol {
-                name: name.to_string(),
-                method: "tools/list".to_string(),
-                problem: "a reply with no `tools` array".to_string(),
-            })?;
-
-        let mut tool_names = Vec::new();
-        let mut tool_definitions = Vec::new();
-
-        for tool_val in tools {
-            let tool_name = tool_val
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            if !tool_name.is_empty() {
-                tool_names.push(tool_name.clone());
-            }
-            let description = tool_val
-                .get("description")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            let input_schema = tool_val
-                .get("inputSchema")
-                .or_else(|| tool_val.get("input_schema"))
-                .cloned()
-                .unwrap_or_else(|| json!({ "type": "object" }));
-            let annotations = tool_val
-                .get("annotations")
-                .and_then(|a| serde_json::from_value(a.clone()).ok());
-
-            tool_definitions.push(crate::mcp::McpTool {
-                name: tool_name,
-                description,
-                input_schema,
-                annotations,
-            });
-        }
-
-        Ok((tool_names, tool_definitions))
+        parse_tools_list(name, &reply)
     }
 
     /// Call a tool with a specific timeout.
@@ -612,18 +1222,17 @@ impl InMemoryMcpManager {
             .cloned()
             .ok_or_else(|| McpTransportError::NotFound(name.to_string()))?;
 
-        if !connection.config.is_wired() {
+        if !self.dials(&connection.config) {
             return Err(McpTransportError::NotWired(name.to_string()));
         }
         let status = self.observed_status(&connection).await;
-        let (Some(process_id), McpStatus::Connected) = (connection.process_id.as_deref(), &status)
-        else {
+        if !status.is_connected() {
             self.set_status(name, status.clone()).await;
             return Err(McpTransportError::NotConnected {
                 name: name.to_string(),
                 status: status.as_str().to_string(),
             });
-        };
+        }
 
         let id = self.next_request_id.fetch_add(1, Ordering::SeqCst);
         let frame = json!({
@@ -636,9 +1245,42 @@ impl InMemoryMcpManager {
             }
         });
 
-        let reply = self
-            .request_with_timeout(name, process_id, &frame, "tools/call", timeout)
-            .await?;
+        let reply = match &connection.config.transport {
+            // No child to write to: the call is one `POST` inside the session the
+            // handshake opened.
+            McpTransport::Http { .. } => {
+                let session = self
+                    .http_sessions
+                    .lock()
+                    .await
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| McpTransportError::Http {
+                        name: name.to_string(),
+                        problem: "no session; connect the server again".to_string(),
+                    })?;
+                let mut request = McpHttpRequest::new(frame.clone(), Some(json!(id)), timeout)
+                    .with_protocol_version(session.protocol_version.clone());
+                if let Some(session_id) = session.session_id.clone() {
+                    request = request.with_session(session_id);
+                }
+                let reply = self
+                    .http_post(name, &session.url, request, "tools/call")
+                    .await?;
+                Self::reply_message(name, "tools/call", reply)?
+            }
+            _ => {
+                let Some(process_id) = connection.process_id.as_deref() else {
+                    self.set_status(name, status.clone()).await;
+                    return Err(McpTransportError::NotConnected {
+                        name: name.to_string(),
+                        status: status.as_str().to_string(),
+                    });
+                };
+                self.request_with_timeout(name, process_id, &frame, "tools/call", timeout)
+                    .await?
+            }
+        };
 
         let result_val = reply
             .get("result")
@@ -648,113 +1290,55 @@ impl InMemoryMcpManager {
                 problem: "a reply with no `result`".to_string(),
             })?;
 
-        let is_error = result_val
-            .get("isError")
-            .or_else(|| result_val.get("is_error"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-
-        let mut content = Vec::new();
-        if let Some(items) = result_val.get("content").and_then(Value::as_array) {
-            for item in items {
-                let item_type = item.get("type").and_then(Value::as_str).unwrap_or("text");
-                match item_type {
-                    "text" => {
-                        let text = item
-                            .get("text")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string();
-                        content.push(crate::mcp::McpContent::Text { text });
-                    }
-                    "image" => {
-                        let data = item
-                            .get("data")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string();
-                        let mime_type = item
-                            .get("mimeType")
-                            .or_else(|| item.get("mime_type"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("image/png")
-                            .to_string();
-                        content.push(crate::mcp::McpContent::Image { data, mime_type });
-                    }
-                    "resource" => {
-                        if let Some(resource_val) = item.get("resource") {
-                            let uri = resource_val
-                                .get("uri")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .to_string();
-                            let mime_type = resource_val
-                                .get("mimeType")
-                                .or_else(|| resource_val.get("mime_type"))
-                                .and_then(Value::as_str)
-                                .map(str::to_string);
-                            let text = resource_val
-                                .get("text")
-                                .and_then(Value::as_str)
-                                .map(str::to_string);
-                            content.push(crate::mcp::McpContent::Resource {
-                                resource: crate::mcp::McpResource {
-                                    uri,
-                                    mime_type,
-                                    text,
-                                },
-                            });
-                        }
-                    }
-                    _ => {
-                        if let Some(text) = item.get("text").and_then(Value::as_str) {
-                            content.push(crate::mcp::McpContent::Text {
-                                text: text.to_string(),
-                            });
-                        }
-                    }
-                }
-            }
-        } else if let Some(text) = result_val.as_str() {
-            content.push(crate::mcp::McpContent::Text {
-                text: text.to_string(),
-            });
-        } else if let Some(text) = result_val.get("text").and_then(Value::as_str) {
-            content.push(crate::mcp::McpContent::Text {
-                text: text.to_string(),
-            });
-        } else if !result_val.is_null() && !result_val.as_object().is_some_and(|o| o.is_empty()) {
-            content.push(crate::mcp::McpContent::Text {
-                text: result_val.to_string(),
-            });
-        }
-
-        Ok(crate::mcp::McpToolResult { content, is_error })
+        Ok(parse_tool_result(result_val))
     }
 }
 
 #[async_trait]
 impl McpManager for InMemoryMcpManager {
     async fn connect(&self, config: McpServerConfig) -> Result<(), McpTransportError> {
+        self.connect_with(config, McpLaunchOptions::default()).await
+    }
+
+    async fn connect_with(
+        &self,
+        config: McpServerConfig,
+        options: McpLaunchOptions,
+    ) -> Result<(), McpTransportError> {
         let name = config.name.trim().to_string();
         if name.is_empty() {
             return Err(McpTransportError::EmptyName);
         }
         {
             let connections = self.connections.lock().await;
-            if connections
+            let was_disconnected = self.disconnected.lock().await.contains(&name);
+            if let Some(existing) = connections
                 .iter()
-                .any(|connection| connection.config.name == name)
+                .find(|connection| connection.config.name == name)
             {
-                return Err(McpTransportError::Duplicate(name));
+                // A live connection or an active unwired record blocks a duplicate
+                // connect; an explicitly disconnected server or a failed attempt is
+                // a tombstone and may be replaced.
+                let is_tombstone =
+                    was_disconnected || matches!(existing.status, McpStatus::Error(_));
+                if !is_tombstone {
+                    return Err(McpTransportError::Duplicate(name));
+                }
             }
         }
+        // Drop the stale tombstone before the new record is pushed.
+        self.disconnected.lock().await.remove(&name);
+        self.connections
+            .lock()
+            .await
+            .retain(|connection| connection.config.name != name);
 
         // The lock is not held across a spawn: starting a process is the slow step
         // and no other RPC should wait on it.
-        if !config.is_wired() {
-            // Recorded, not dialled: no HTTP client and no WebSocket client is
-            // wired, and saying `connected` here would be a lie the panel shows.
+        if !self.dials(&config) {
+            // Recorded, not dialled: this manager has no HTTP client, and no
+            // WebSocket client exists at all, so saying `connected` here would be a
+            // lie the panel shows.
             self.connections.lock().await.push(McpConnection {
                 config,
                 status: McpStatus::Disconnected,
@@ -765,6 +1349,16 @@ impl McpManager for InMemoryMcpManager {
             return Ok(());
         }
 
+        // A dialled `http` config has no child: its connection is the session its
+        // server issues, and the handshake is the same three steps stdio runs.
+        let http_url = match &config.transport {
+            McpTransport::Http { url } => Some(url.clone()),
+            _ => None,
+        };
+        if let Some(url) = http_url {
+            return self.connect_http(config, options, url).await;
+        }
+
         let Some(command) = config
             .command
             .as_deref()
@@ -773,9 +1367,11 @@ impl McpManager for InMemoryMcpManager {
         else {
             return Err(McpTransportError::MissingCommand(name));
         };
+        // The environment the caller named is the only one the child is handed;
+        // the process manager clears the daemon's own and applies its floor.
         let process_id = match self
             .processes
-            .spawn(command, &config.args, &HashMap::new())
+            .spawn(command, &config.args, &options.env)
             .await
         {
             Ok(process_id) => process_id,
@@ -792,6 +1388,9 @@ impl McpManager for InMemoryMcpManager {
             }
         };
 
+        // The bound and the environment are remembered before the handshake, so
+        // the two requests it sends already honour the per-server timeout.
+        self.launches.lock().await.insert(name.clone(), options);
         match self.handshake(&name, &process_id).await {
             Ok((tools, tool_definitions)) => {
                 self.connections.lock().await.push(McpConnection {
@@ -806,10 +1405,15 @@ impl McpManager for InMemoryMcpManager {
             Err(error) => {
                 // A server that will not handshake is not a connection: the child
                 // goes with the attempt, so a wrong command does not leave a
-                // process running that nothing will ever address again.
-                if let Err(stop) = self.processes.stop(&process_id).await {
+                // process running that nothing will ever address again. A stop
+                // that fails anyway is not swallowed into a log line — the child
+                // it left behind travels on the error the caller reads.
+                let stopped = self.processes.stop(&process_id).await;
+                if let Err(stop) = &stopped {
                     tracing::warn!("could not stop the MCP server `{name}`: {stop}");
                 }
+                let error = with_cleanup_failure(error, stopped);
+                self.launches.lock().await.remove(&name);
                 self.connections.lock().await.push(McpConnection {
                     config,
                     status: McpStatus::Error(error.to_string()),
@@ -850,10 +1454,21 @@ impl McpManager for InMemoryMcpManager {
             }
         }
 
+        // An `http` connection has a session to close rather than a process to
+        // stop. The `DELETE` is best effort by design: a server that answers `405`,
+        // that is already gone, or that never answers still leaves the local
+        // disconnect done, and only the log hears about it.
+        if let Some(session) = self.http_sessions.lock().await.remove(name) {
+            self.close_session(name, &session).await;
+        }
+
         // The next connection under this name reads its server's output from the
         // start: a cursor into a stopped process's transcript would misplace every
-        // reply the new server sends.
+        // reply the new server sends. Its launch inputs go with the connection, so
+        // a reconnect starts from what its own caller names.
         self.cursors.lock().await.remove(name);
+        self.launches.lock().await.remove(name);
+        self.disconnected.lock().await.insert(name.to_string());
 
         let mut connections = self.connections.lock().await;
         if let Some(connection) = connections
@@ -891,6 +1506,12 @@ impl McpManager for InMemoryMcpManager {
             .ok_or_else(|| McpTransportError::NotFound(name.to_string()))?;
 
         if !connection.config.is_wired() {
+            // A dialled `http` server has no raw seam to hand over: every message is
+            // a `POST` this module builds, and a caller-written frame would be a
+            // second, unchecked way onto the wire.
+            if self.dials(&connection.config) {
+                return Err(McpTransportError::RawFramesStdio(name.to_string()));
+            }
             return Err(McpTransportError::NotWired(name.to_string()));
         }
         let status = self.observed_status(&connection).await;
@@ -931,12 +1552,14 @@ impl McpManager for InMemoryMcpManager {
         tool: &str,
         arguments: Value,
     ) -> Result<crate::mcp::McpToolResult, McpTransportError> {
-        self.call_tool_with_timeout(name, tool, arguments, RESPONSE_TIMEOUT)
+        let timeout = self.response_timeout(name).await;
+        self.call_tool_with_timeout(name, tool, arguments, timeout)
             .await
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::process_spawn::InMemoryProcessManager;
@@ -1079,10 +1702,9 @@ mod tests {
                 "tools/list" => json!({
                     "tools": [{ "name": "echo", "description": "echo tool", "inputSchema": { "type": "object" } }],
                 }),
-                "tools/call" => {
-                    std::thread::sleep(Duration::from_secs(30));
-                    continue;
-                }
+                "tools/call" => loop {
+                    std::thread::park();
+                },
                 _ => {
                     println!(
                         "{}",
@@ -1164,7 +1786,9 @@ mod tests {
         if !std::env::args().any(|arg| arg == "--exact") {
             return;
         }
-        std::thread::sleep(Duration::from_secs(30));
+        loop {
+            std::thread::park();
+        }
     }
 
     /// A stdio server that answers `initialize` with a protocol error.
@@ -1588,5 +2212,415 @@ mod tests {
             "got {err:?}"
         );
         mcp.disconnect("bad").await.expect("the server closes");
+    }
+
+    /// KEEL K5a: what a launch hands a child, and how long it waits.
+    ///
+    /// The probes are ordinary tests that return immediately unless the marker
+    /// their parent passes names them, so a plain `cargo test` run costs a few
+    /// no-op functions and no ignored-test budget.
+    mod spawn_hardening {
+        use super::*;
+        use std::time::Instant;
+
+        const ENV_MARKER: &str = "WARSHA_K5_MCP_ENV_PROBE";
+        const SILENT_MARKER: &str = "WARSHA_K5_MCP_SILENT_PROBE";
+        const EXIT_MARKER: &str = "WARSHA_K5_MCP_EXIT_PROBE";
+        const DAEMON_ONLY: &str = "WARSHA_K5_DAEMON_ONLY";
+
+        /// A stdio server that answers `tools/list` with its whole environment.
+        ///
+        /// The dump is the description of its one tool, so the parent reads the
+        /// child's environment through the normal handshake rather than a side
+        /// channel the process manager would have to grow.
+        #[test]
+        fn env_probe() {
+            if std::env::var_os(ENV_MARKER).is_none() {
+                return;
+            }
+            // libtest writes `test <name> ... ` on stdout without a newline
+            // before a non-ignored test starts; this ends that line so every
+            // reply below is a clean JSON line.
+            println!();
+            let mut dump: Vec<String> = std::env::vars()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect();
+            dump.sort();
+            let dump = dump.join(";");
+            for line in std::io::stdin().lock().lines() {
+                let Ok(line) = line else { break };
+                let Ok(request) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                let Some(id) = request.get("id").cloned() else {
+                    continue;
+                };
+                let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+                let result = match method {
+                    "initialize" => json!({
+                        "protocolVersion": MCP_PROTOCOL_VERSION,
+                        "capabilities": {},
+                        "serverInfo": { "name": "env-probe", "version": "1.0.0" },
+                    }),
+                    "tools/list" => json!({
+                        "tools": [{
+                            "name": "env",
+                            "description": format!("ENVDUMP {dump}"),
+                            "inputSchema": { "type": "object" },
+                        }],
+                    }),
+                    _ => json!({}),
+                };
+                println!(
+                    "{}",
+                    json!({ "jsonrpc": "2.0", "id": id, "result": result })
+                );
+            }
+        }
+
+        /// A stdio server that stays up and answers nothing.
+        #[test]
+        fn silent_probe() {
+            if std::env::var_os(SILENT_MARKER).is_none() {
+                return;
+            }
+            loop {
+                std::thread::park();
+            }
+        }
+
+        /// A stdio server that reads one frame and exits without answering.
+        #[test]
+        fn exit_probe() {
+            if std::env::var_os(EXIT_MARKER).is_none() {
+                return;
+            }
+            let mut line = String::new();
+            let _ = std::io::stdin().lock().read_line(&mut line);
+            std::process::exit(0);
+        }
+
+        /// A configuration pointing at one probe of this test binary.
+        fn probe_config(name: &str, probe: &str) -> McpServerConfig {
+            let exe = std::env::current_exe().expect("the test binary names itself");
+            McpServerConfig::new_stdio(
+                name,
+                exe.to_string_lossy().into_owned(),
+                vec![
+                    "--exact".to_string(),
+                    format!("mcp_transport::tests::spawn_hardening::{probe}"),
+                    "--nocapture".to_string(),
+                    "--test-threads".to_string(),
+                    "1".to_string(),
+                ],
+            )
+        }
+
+        fn manager() -> (Arc<dyn ProcessManager>, InMemoryMcpManager) {
+            let processes = InMemoryProcessManager::shared();
+            let mcp = InMemoryMcpManager::new(processes.clone());
+            (processes, mcp)
+        }
+
+        #[tokio::test]
+        async fn a_launch_hands_the_child_only_the_manifest_environment() {
+            let (_processes, mcp) = manager();
+            std::env::set_var(DAEMON_ONLY, "leak");
+
+            let mut env = HashMap::new();
+            env.insert(ENV_MARKER.to_string(), "1".to_string());
+            env.insert(
+                "WARSHA_K5_MANIFEST_KEY".to_string(),
+                "manifest-value".to_string(),
+            );
+            // A caller-supplied PATH is replaced by the trusted daemon PATH, not honoured.
+            env.insert("PATH".to_string(), "/tmp/attacker-bin".to_string());
+
+            mcp.connect_with(
+                probe_config("env", "env_probe"),
+                McpLaunchOptions::with_env(env),
+            )
+            .await
+            .expect("the env probe connects");
+
+            let connection = &mcp.list().await[0];
+            let description = &connection.tool_definitions[0].description;
+            std::env::remove_var(DAEMON_ONLY);
+
+            assert!(
+                description.contains("WARSHA_K5_MANIFEST_KEY=manifest-value"),
+                "a manifest-named variable must reach the child: {description}"
+            );
+            let trusted_path = crate::command_policy::child_path();
+            assert!(
+                description.contains(&format!("PATH={trusted_path}")),
+                "the child's PATH must be the trusted daemon PATH: {description}"
+            );
+            assert!(
+                !description.contains("/tmp/attacker-bin"),
+                "a caller-supplied PATH must be refused: {description}"
+            );
+            assert!(
+                !description.contains(&format!("{DAEMON_ONLY}=leak")),
+                "the daemon's own environment must not be inherited: {description}"
+            );
+            assert!(
+                !description.contains("HOME="),
+                "the user profile must not be inherited: {description}"
+            );
+            mcp.disconnect("env").await.expect("the server closes");
+        }
+
+        #[tokio::test]
+        async fn a_response_timeout_is_per_server_with_a_thirty_second_default() {
+            assert_eq!(DEFAULT_RESPONSE_TIMEOUT, Duration::from_secs(30));
+            let (_processes, mcp) = manager();
+
+            let mut env = HashMap::new();
+            env.insert(SILENT_MARKER.to_string(), "1".to_string());
+            let started = Instant::now();
+            let error = mcp
+                .connect_with(
+                    probe_config("silent", "silent_probe"),
+                    McpLaunchOptions::with_env(env)
+                        .with_response_timeout(Duration::from_millis(250)),
+                )
+                .await
+                .expect_err("a silent server never completes the handshake");
+            let waited = started.elapsed();
+
+            assert!(
+                matches!(
+                    &error,
+                    McpTransportError::Timeout { method, .. } if method == "initialize"
+                ),
+                "got {error:?}"
+            );
+            assert!(
+                waited < Duration::from_secs(10),
+                "the per-server bound must win over the 30 s default; waited {waited:?}"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_server_that_exits_is_reported_without_waiting_for_the_timeout() {
+            let (_processes, mcp) = manager();
+
+            let mut env = HashMap::new();
+            env.insert(EXIT_MARKER.to_string(), "1".to_string());
+            let started = Instant::now();
+            let error = mcp
+                .connect_with(
+                    probe_config("exits", "exit_probe"),
+                    McpLaunchOptions::with_env(env),
+                )
+                .await
+                .expect_err("a server that dies cannot complete the handshake");
+            let waited = started.elapsed();
+
+            assert!(
+                matches!(
+                    &error,
+                    McpTransportError::Exited { method, .. } if method == "initialize"
+                ),
+                "got {error:?}"
+            );
+            assert!(
+                waited < DEFAULT_RESPONSE_TIMEOUT,
+                "a gone process is reported, not waited on; waited {waited:?}"
+            );
+        }
+
+        /// A process manager whose `stop` always fails.
+        ///
+        /// A child of this host cannot refuse the stop signal, so the one failure
+        /// the cleanup has to report — a child that outlives its failed launch —
+        /// is injected at the manager boundary the transport already holds.
+        /// Everything else goes to the real manager, so the child is a real
+        /// process with a real ladder of stdout replies.
+        struct RefusesToStop(Arc<dyn ProcessManager>);
+
+        #[async_trait::async_trait]
+        impl ProcessManager for RefusesToStop {
+            async fn spawn(
+                &self,
+                command: &str,
+                args: &[String],
+                env: &HashMap<String, String>,
+            ) -> std::result::Result<String, ProcessError> {
+                self.0.spawn(command, args, env).await
+            }
+
+            async fn stop(&self, id: &str) -> std::result::Result<(), ProcessError> {
+                Err(ProcessError::Stop {
+                    id: id.to_string(),
+                    source: std::io::Error::other("the probe refused to stop"),
+                })
+            }
+
+            async fn status(&self, id: &str) -> std::result::Result<ProcessStatus, ProcessError> {
+                self.0.status(id).await
+            }
+
+            async fn list(&self) -> Vec<crate::process_spawn::ManagedProcess> {
+                self.0.list().await
+            }
+
+            async fn restart(&self, id: &str) -> std::result::Result<String, ProcessError> {
+                self.0.restart(id).await
+            }
+
+            async fn read_stdout(
+                &self,
+                id: &str,
+                offset: usize,
+            ) -> std::result::Result<Vec<String>, ProcessError> {
+                self.0.read_stdout(id, offset).await
+            }
+
+            async fn read_stderr(
+                &self,
+                id: &str,
+                offset: usize,
+            ) -> std::result::Result<Vec<String>, ProcessError> {
+                self.0.read_stderr(id, offset).await
+            }
+
+            async fn kill_all(&self) -> usize {
+                self.0.kill_all().await
+            }
+
+            async fn write_stdin(
+                &self,
+                id: &str,
+                bytes: &[u8],
+            ) -> std::result::Result<(), ProcessError> {
+                self.0.write_stdin(id, bytes).await
+            }
+        }
+
+        /// A handshake failure whose child stops cleanly reports the handshake only.
+        #[tokio::test]
+        async fn a_handshake_failure_stops_its_child_and_reports_only_that_failure() {
+            let (processes, mcp) = manager();
+
+            let mut env = HashMap::new();
+            env.insert(SILENT_MARKER.to_string(), "1".to_string());
+            let error = mcp
+                .connect_with(
+                    probe_config("silent_cleanup", "silent_probe"),
+                    McpLaunchOptions::with_env(env)
+                        .with_response_timeout(Duration::from_millis(250)),
+                )
+                .await
+                .expect_err("a silent server never completes the handshake");
+
+            assert!(
+                matches!(
+                    &error,
+                    McpTransportError::Timeout { method, .. } if method == "initialize"
+                ),
+                "a clean stop must leave the handshake error alone: {error:?}"
+            );
+            let text = error.to_string();
+            assert!(
+                !text.contains("failed to stop"),
+                "a child that stopped is not reported as surviving: {text}"
+            );
+            let statuses: Vec<ProcessStatus> = processes
+                .list()
+                .await
+                .iter()
+                .map(|process| process.status)
+                .collect();
+            assert_eq!(
+                statuses,
+                vec![ProcessStatus::Stopped],
+                "the failed launch must not leave the child running"
+            );
+        }
+
+        /// A handshake failure whose child survives the stop reports both facts.
+        #[tokio::test]
+        async fn a_handshake_failure_names_a_child_that_survives_the_cleanup_stop() {
+            let processes = InMemoryProcessManager::shared();
+            let stubborn: Arc<dyn ProcessManager> = Arc::new(RefusesToStop(processes.clone()));
+            let mcp = InMemoryMcpManager::new(stubborn);
+
+            let mut env = HashMap::new();
+            env.insert(SILENT_MARKER.to_string(), "1".to_string());
+            let error = mcp
+                .connect_with(
+                    probe_config("silent_stuck", "silent_probe"),
+                    McpLaunchOptions::with_env(env)
+                        .with_response_timeout(Duration::from_millis(250)),
+                )
+                .await
+                .expect_err("a silent server never completes the handshake");
+
+            match &error {
+                McpTransportError::HandshakeCleanup { handshake, .. } => assert!(
+                    matches!(
+                        handshake.as_ref(),
+                        McpTransportError::Timeout { method, .. } if method == "initialize"
+                    ),
+                    "the handshake failure stays the primary cause: {handshake:?}"
+                ),
+                other => panic!("both facts must reach the caller, got {other:?}"),
+            }
+            let text = error.to_string();
+            assert!(
+                text.contains("did not answer `initialize`"),
+                "the handshake failure must still be named: {text}"
+            );
+            assert!(
+                text.contains("the child also failed to stop")
+                    && text.contains("the probe refused to stop"),
+                "the stop failure must be named too: {text}"
+            );
+
+            // The child is still there because the stop was refused: the record
+            // the caller reads now says so, and the test still has to end it.
+            assert_eq!(
+                processes.kill_all().await,
+                1,
+                "the surviving child is left for the exit path, not silently gone"
+            );
+        }
+    }
+}
+
+/// Review-driven repairs: a disconnected or failed record is a tombstone, not a
+/// permanent duplicate.
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+mod review_repair {
+    use super::*;
+
+    fn manager() -> InMemoryMcpManager {
+        InMemoryMcpManager::new(crate::process_spawn::InMemoryProcessManager::shared())
+    }
+
+    #[tokio::test]
+    async fn a_disconnected_server_can_be_reconnected() {
+        let mcp = manager();
+        let config = McpServerConfig::new_http("srv", "https://mcp.example/mcp");
+        mcp.connect(config.clone()).await.expect("records");
+        mcp.disconnect("srv").await.expect("disconnects");
+        mcp.connect(config)
+            .await
+            .expect("a disconnected name can be connected again");
+    }
+
+    #[allow(clippy::panic)]
+    #[tokio::test]
+    async fn a_failed_connect_can_be_retried() {
+        let mcp = manager();
+        let config = McpServerConfig::new_stdio("bad", "/nonexistent-warsha-probe", vec![]);
+        assert!(mcp.connect(config.clone()).await.is_err());
+        match mcp.connect(config).await {
+            Err(McpTransportError::Spawn { .. }) => {}
+            other => panic!("a retry must reach spawn again, not Duplicate: {other:?}"),
+        }
     }
 }

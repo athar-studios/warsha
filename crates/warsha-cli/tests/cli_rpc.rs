@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! CLI ↔ daemon RPC-path integration tests.
 //!
 //! These pin the two defects the CLI had against the daemon's JSON-RPC surface:
@@ -8,9 +15,11 @@
 //!   reported "not connected" even against a running daemon.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
 use warsha_cli::{Cli, CliApp, CliError, Commands, ProviderAction};
-use warshad::{start_daemon, DaemonConfig, DaemonHandle};
+use warsha_providers::InMemorySecretStore;
+use warshad::{start_daemon_with_secrets, DaemonConfig, DaemonHandle};
 
 const TEST_TOKEN: &str = "cli-test-auth-token-12345";
 
@@ -53,7 +62,7 @@ async fn start_test_daemon(data_dir: &std::path::Path) -> DaemonHandle {
         allowed_origins: vec![],
         ..DaemonConfig::default()
     };
-    start_daemon(config)
+    start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
         .await
         .expect("start_daemon on OS-chosen ports")
 }
@@ -65,6 +74,7 @@ fn cli_for(url: String, command: Commands) -> Cli {
         socket: None,
         url,
         token: None,
+        device_id: None,
         config: None,
     }
 }
@@ -173,4 +183,19 @@ async fn a_token_that_cannot_form_a_header_value_is_rejected_at_construction() {
         Err(other) => panic!("expected a Config error, got: {other}"),
         Ok(_) => panic!("a header-unsafe token must be rejected"),
     }
+}
+
+/// Proving test for H3: `start_test_daemon` uses injectable secret store (`start_daemon_with_secrets`)
+/// and starts promptly (<15s) without hanging on OS keychain.
+#[tokio::test]
+async fn test_daemon_starts_promptly_with_in_memory_secrets() {
+    let start = std::time::Instant::now();
+    let dir = fresh_tempdir();
+    let handle = start_test_daemon(dir.path()).await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "test daemon start should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
+    handle.shutdown().await;
 }

@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+
 //! Integration tests for the relay's inbound endpoints (security audit H-01, H-02).
 //!
 //! These drive a real listener on loopback: an HTTP submission, a WebSocket handshake
@@ -585,4 +587,86 @@ async fn a_relay_without_pairings_authenticates_no_channel() {
     )
     .await;
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn the_relay_stub_returns_not_implemented() {
+    let client = warsha_remote::RelayClient::new(
+        "ws://127.0.0.1:0".to_string(),
+        warsha_core::DeviceId::new(),
+    );
+    let frame = warsha_remote::EncryptedFrame {
+        from: warsha_core::DeviceId::new(),
+        to: warsha_core::DeviceId::new(),
+        nonce: [0u8; 12],
+        ciphertext: vec![],
+        timestamp: chrono::Utc::now(),
+    };
+    let send_result = client.send_frame(frame).await;
+    assert!(matches!(
+        send_result,
+        Err(warsha_remote::RemoteError::NotImplemented)
+    ));
+
+    let recv_result = client.receive_frames().await;
+    assert!(matches!(
+        recv_result,
+        Err(warsha_remote::RemoteError::NotImplemented)
+    ));
+
+    // Verify /stub route was removed
+    let trust = RelayTrust::from_entries(vec![]);
+    let state = Arc::new(warsha_relay::RelayState::new(trust, 1024 * 1024, 256));
+    let (addr, _server) = warsha_relay::serve(state, "127.0.0.1:0")
+        .await
+        .expect("the relay serves");
+    let response = reqwest::get(format!("http://{addr}/stub"))
+        .await
+        .expect("the relay answers");
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
+/// Proving test for H3 / FIX-SCOPE-2:
+/// Relay startup with `InMemoryTrustSource` routes through injectable trust seam
+/// and starts promptly (<15s) without touching OS keychain.
+#[tokio::test]
+async fn relay_with_in_memory_trust_source_starts_promptly() {
+    use warsha_relay::{run_relay_with_trust_source, InMemoryTrustSource, RelayArgs, TrustSource};
+
+    let start = std::time::Instant::now();
+    let device = Device::new("ProvingDevice");
+    let store = InMemoryTrustSource::new();
+    store
+        .save(&warsha_relay::StoredTrust {
+            device_id: device.id,
+            pairing_token: device.token.clone(),
+            expires_at: device.pairing.expires_at,
+        })
+        .expect("saving in-memory trust record succeeds");
+
+    let args = RelayArgs {
+        bind: "127.0.0.1:0".to_string(),
+        max_frame_size: 1024 * 1024,
+        max_devices: 256,
+        pairings: None,
+        trust_devices: vec![device.id.to_string()],
+        trust_stdin: false,
+        save_trust: false,
+    };
+
+    let runner = tokio::spawn(async move {
+        let _ = run_relay_with_trust_source(args, Arc::new(store)).await;
+    });
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(15),
+        "relay with in-memory trust source must start in <15s (took {elapsed:?})"
+    );
+    assert!(
+        !runner.is_finished(),
+        "relay runner should be actively serving"
+    );
+    runner.abort();
 }

@@ -8,6 +8,20 @@ on:
   # it adds no publish path of its own (the tag push path is unchanged).
   workflow_dispatch:
     inputs:
+      tag:
+        description: Existing v* tag to build or promote (required on dispatch)
+        required: true
+      publish:
+        description: Promote the verified draft to a public release
+        type: boolean
+        default: false
+      signing_scope:
+        description: Whether this release must ship signatures/updater metadata
+        type: choice
+        options:
+          - signed
+          - unsigned
+        default: unsigned
       release_repo:
         description: >-
           owner/repo that the generated winget/Homebrew/Scoop manifests point
@@ -17,9 +31,7 @@ on:
         default: 'athar-studios/warsha'
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,8 +42,8 @@ env:
   # DECISIONS.md 2026-11-03, "#10 release repo").
   #
   # Deliberately NOT derived from github.repository: this repository is the dev
-  # checkout (athar-studios/warsha-dev), while the product repo the Tauri
-  # updater endpoint already targets is athar-studios/warsha
+  # checkout (athar-studios/warsha-dev), while the Tauri updater endpoint
+  # already targets athar-studios/warsha
   # (apps/desktop/src-tauri/tauri.conf.json:74). Deriving from the running repo
   # would silently retarget every generated installer manifest at the dev fork.
   # The workflow_dispatch input allows an explicit override per run; the env
@@ -56,11 +68,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Verify release version matches repository versions
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${TAG_INPUT:-${GITHUB_REF#refs/tags/}}"
+          node scripts/check-versions.mjs --expect "${TAG#v}"
 
       - name: Extract version from tag
         id: version
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
+          TAG="${TAG_INPUT:-${GITHUB_REF#refs/tags/}}"
           VERSION="${TAG#v}"
           # Quoted "${GITHUB_OUTPUT}" (SC2086) and one redirect for both writes
           # (SC2129): an unquoted output path word-splits on a runner whose temp
@@ -269,18 +292,12 @@ jobs:
         working-directory: ./apps/desktop
         run: pnpm install --frozen-lockfile
 
-      - name: Build Tauri app
+      # 0.3.0 ships UNSIGNED (no Apple/Windows/Tauri signing keys exist; never generate or store any).
+      - name: Build Tauri app (unsigned)
         working-directory: ./apps/desktop
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          WINDOWS_CERTIFICATE_THUMBPRINT: ${{ secrets.WINDOWS_CERTIFICATE_THUMBPRINT }}
         run: |
-          pnpm tauri build --target ${{ matrix.tauri_target }}
+          printf '{\n  "bundle": {\n    "createUpdaterArtifacts": false\n  }\n}\n' > "$GITHUB_WORKSPACE/tauri.ci.unsigned.json"
+          pnpm tauri build --target ${{ matrix.tauri_target }} --config "$GITHUB_WORKSPACE/tauri.ci.unsigned.json"
 
       # Renamed from warsha-desktop-<os>: the release job's CLI pattern `warsha-*`
       # also matched that name, so the "CLI binaries" step silently downloaded the
@@ -483,7 +500,13 @@ jobs:
           files=()
           while IFS= read -r -d '' f; do
             files+=("$f")
-          done < <(find . -type f ! -name '*.sha256' -print0 | sort -z)
+          done < <(find . -type f \( \
+            -name 'warsha-x86_64-*' -o \
+            -name 'warshad-x86_64-*' -o \
+            -name 'sbom-cli.cdx.xml' -o \
+            -name 'sbom-daemon.cdx.xml' -o \
+            \( \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) ! -name 'warsha-*' ! -name 'warshad-*' \) \
+          \) ! -name '*.sha256' -print0 | sort -z)
           # The guard now checks the SAME recursive set the checksums are built from.
           # It previously looked only at -maxdepth 1, so an artifacts/ tree holding
           # only nested files passed the guard while the (different) recursive glob
@@ -514,8 +537,10 @@ jobs:
   # ============================================================
   release:
     name: Create Draft Release
-    needs: [prepare, rust-build, desktop-build, artifacts]
+    needs: [prepare, rust-build, desktop-build, artifacts, manifests]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download CLI binaries
         uses: actions/download-artifact@v4
@@ -544,14 +569,19 @@ jobs:
           name: release-artifacts
           path: release
 
+      - name: Download package manifests
+        uses: actions/download-artifact@v4
+        with:
+          name: package-manifests
+          path: release/manifests
+
       # Before: `mv release/warsha*` is a prefix glob — it matched warshad* too, so
       # the daemon binaries landed in release/cli/, release/daemon/ was always empty,
       # and `2>/dev/null || true` on all three lines made every miss (including an
       # entirely empty release/) invisible. Now: unmasked under set -euo pipefail,
       # target-triple globs that cannot cross-match (warsha-x86_64-* never matches
       # warshad-x86_64-*), a per-folder count assertion so a missing OS leg fails
-      # loudly, and a flatten of the nested bundle/<fmt>/ paths the merge-multiple
-      # desktop download preserves (the old find sweep is gone).
+      # loudly, and we keep the nested bundle/<fmt>/ paths to avoid collisions.
       - name: Organize release files
         run: |
           set -euo pipefail
@@ -560,13 +590,26 @@ jobs:
           mv release/warshad-x86_64-* release/daemon/
           test "$(find release/cli -maxdepth 1 -type f | wc -l)" -eq 3
           test "$(find release/daemon -maxdepth 1 -type f | wc -l)" -eq 3
-          find release/desktop -mindepth 2 -type f -exec mv -t release/desktop/ {} +
-          test -n "$(find release/desktop -type f -print -quit)"
+          test "$(find release/desktop \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) | wc -l)" -ge 6
+
+      # A rerun must never overwrite a release's assets: any release for this tag
+      # (draft or public) fails the job before the upload step can run.
+      - name: Reject an existing release for this tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "${{ needs.prepare.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::a release for ${{ needs.prepare.outputs.tag }} already exists; refusing to overwrite it"
+            exit 1
+          fi
 
       - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: Warsha ${{ needs.prepare.outputs.version }}
           body: ${{ needs.prepare.outputs.release_notes }}
           draft: true
@@ -574,7 +617,12 @@ jobs:
           files: |
             release/cli/*
             release/daemon/*
-            release/desktop/*
+            release/desktop/**/*.exe
+            release/desktop/**/*.msi
+            release/desktop/**/*.dmg
+            release/desktop/**/*.deb
+            release/desktop/**/*.rpm
+            release/desktop/**/*.AppImage
             release/checksums.sha256
             release/sbom-cli.cdx.xml
             release/sbom-daemon.cdx.xml
@@ -582,20 +630,82 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify no placeholders in all artifacts
+        run: |
+          grep -rI --exclude-dir="*AppDir*" "PLACEHOLDER" release/ && exit 1 || echo "No placeholders found."
+
+  # ============================================================
+  # Promote the verified draft to a public release (separate, gated step)
+  # ============================================================
+  promote:
+    name: Promote Verified Draft
+    needs: [prepare, release]
+    # A tag push only creates the draft. Promotion requires an explicit dispatch
+    # with publish=true, and the `release` environment can require an approval.
+    if: ${{ inputs.publish == true }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the tag (for the verifier)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Download the draft's assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "${{ needs.prepare.outputs.tag }}" --dir dist
+
+      # Fail closed: a missing asset, a checksum mismatch, a tag/version mismatch
+      # or missing signing material leaves the draft unpublished.
+      - name: Verify the draft's assets
+        run: |
+          set -euo pipefail
+          node scripts/verify-release-artifacts.mjs \
+            --dir dist \
+            --tag "${{ needs.prepare.outputs.tag }}" \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --scope "${{ inputs.signing_scope || 'unsigned' }}" \
+            --release-exists no
+
+      - name: Publish the verified release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release edit "${{ needs.prepare.outputs.tag }}" --draft=false --prerelease=false
+
   # ============================================================
   # Package Manager Manifests (prepare only)
   # ============================================================
   manifests:
     name: Prepare Package Manager Manifests
-    needs: prepare
+    needs: [prepare, artifacts]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: artifacts
+
       - name: Create winget manifest
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT="Warsha_${VERSION}_x64_en-US.msi"
+          HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
+          if [ -z "$HASH" ]; then
+            echo "::error::$ARTIFACT not found in checksums — the desktop MSI was not built or not checksummed"
+            exit 1
+          fi
           mkdir -p manifests/winget
           cat > manifests/winget/warsha.yaml <<EOF
           PackageIdentifier: Warsha.Warsha
@@ -609,9 +719,8 @@ jobs:
           Installers:
             - Architecture: x64
               InstallerType: msi
-              InstallerUrl: https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/Warsha_${VERSION}_x64_en-US.msi
-              InstallerSha256: PLACEHOLDER_SHA256
-              ProductCode: "{PLACEHOLDER}"
+              InstallerUrl: https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/$ARTIFACT
+              InstallerSha256: $HASH
           ManifestType: singleton
           ManifestVersion: 1.6.0
           EOF
@@ -619,6 +728,24 @@ jobs:
       - name: Create Homebrew formula
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
+          TARBALL="v${VERSION}.tar.gz"
+          URL="https://github.com/${{ env.RELEASE_REPO }}/archive/refs/tags/${TARBALL}"
+          
+          # Download source tarball with retry, fail on error
+          curl -sSfL --retry 3 -o source.tar.gz "$URL"
+          
+          # Compute sha256 (sha256sum on Linux; shasum on macOS runners)
+          if command -v sha256sum >/dev/null 2>&1; then
+            HASH=$(sha256sum source.tar.gz | cut -d ' ' -f 1)
+          else
+            HASH=$(shasum -a 256 source.tar.gz | cut -d ' ' -f 1)
+          fi
+          
+          if [ -z "$HASH" ]; then
+            echo "::error::Failed to compute hash for $URL"
+            exit 1
+          fi
+          
           mkdir -p manifests/homebrew
           # The heredoc is unquoted so $VERSION and the RELEASE_REPO expression
           # expand; `version "$VERSION"` is emitted because the `url` line below
@@ -632,7 +759,7 @@ jobs:
             version "$VERSION"
             homepage "https://github.com/${{ env.RELEASE_REPO }}"
             url "https://github.com/${{ env.RELEASE_REPO }}/archive/refs/tags/v#{version}.tar.gz"
-            sha256 "PLACEHOLDER_SHA256"
+            sha256 "$HASH"
             license "PolyForm-Noncommercial-1.0.0"
 
             depends_on "rust" => :build
@@ -651,6 +778,12 @@ jobs:
       - name: Create Scoop manifest
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
+          ARTIFACT="warsha-x86_64-pc-windows-msvc.exe"
+          HASH=$(grep "$ARTIFACT" artifacts/checksums.sha256 | awk '{print $1}' || true)
+          if [ -z "$HASH" ]; then
+            echo "::error::$ARTIFACT not found in checksums — the Windows CLI binary was not built or not checksummed"
+            exit 1
+          fi
           mkdir -p manifests/scoop
           cat > manifests/scoop/warsha.json <<EOF
           {
@@ -660,8 +793,8 @@ jobs:
             "license": "PolyForm-Noncommercial-1.0.0",
             "architecture": {
               "64bit": {
-                "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/warsha-windows.exe",
-                "hash": "PLACEHOLDER_SHA256"
+                "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$VERSION/$ARTIFACT",
+                "hash": "$HASH"
               }
             },
             "bin": "warsha.exe",
@@ -669,7 +802,7 @@ jobs:
             "autoupdate": {
               "architecture": {
                 "64bit": {
-                  "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v$version/warsha-windows.exe"
+                  "url": "https://github.com/${{ env.RELEASE_REPO }}/releases/download/v\$version/$ARTIFACT"
                 }
               }
             }
@@ -682,6 +815,19 @@ jobs:
           name: package-manifests
           path: manifests/
           retention-days: 30
+
+      - name: Verify no placeholders
+        run: |
+          set -euo pipefail
+          if [ -d manifests ]; then
+            grep -rn "PLACEHOLDER" manifests/ && exit 1 || echo "No placeholders found."
+          fi
+          test -f manifests/winget/warsha.yaml || { echo "::error::winget manifest was not generated"; exit 1; }
+          test -f manifests/homebrew/warsha.rb || { echo "::error::homebrew formula was not generated"; exit 1; }
+          test -f manifests/scoop/warsha.json || { echo "::error::scoop manifest was not generated"; exit 1; }
+          grep -q "InstallerSha256: [0-9a-f]\\{64\\}" manifests/winget/warsha.yaml || { echo "::error::winget manifest has no real sha256"; exit 1; }
+          grep -q 'sha256 "[0-9a-f]\{64\}"' manifests/homebrew/warsha.rb || { echo "::error::homebrew formula has no real sha256"; exit 1; }
+          grep -q '"hash": "[0-9a-f]\{64\}"' manifests/scoop/warsha.json || { echo "::error::scoop manifest has no real hash"; exit 1; }
 
   # ============================================================
   # Docs build

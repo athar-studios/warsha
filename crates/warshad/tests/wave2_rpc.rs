@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! Wave 2 & Wave 3 JSON-RPC end-to-end integration test suite (F10).
 //!
 //! Validates all Wave 2 RPC surfaces over a live daemon socket/HTTP listener:

@@ -4,39 +4,48 @@
 //! stores identifiers as their text/byte encodings described in
 //! `migrations/001_initial.sql`.
 //!
-//! The M20 settings-shaped rows (taste preferences, backend kits, run modes and
-//! phone pairings) live in the `persistence` module instead: one synchronous
-//! `rusqlite` connection in WAL mode, with its own idempotent migration. Both
-//! halves write the same SQLite file format; they differ in the API the caller
-//! wants, not in the database.
+//! The M20 settings-shaped rows (taste preferences, backend kits, run modes,
+//! phone pairings and the rest of the Wave 2 records) live in the `settings`
+//! module: [`SettingsRepo`], the same `sqlx` pool, and migration
+//! `006_settings.sql`. One file, one SQLite API, one native stack — the rules
+//! both halves used to need (WAL, a busy timeout, one migration owner) are the
+//! store's rules now.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::info;
 use ulid::Ulid;
 use uuid::Uuid;
+#[allow(unused_imports)]
 use warsha_core::{
-    Artifact, DeviceId, Event, EventKind, GateState, Project, ProjectId, Role, Run, RunId,
-    RunStatus, Stage, TokenUsage,
+    parse_subtask_status, ApprovalMode, Artifact, Confinement, DeviceId, Event, EventKind,
+    GateState, Project, ProjectId, ProjectPermissions, Role, Run, RunId, RunMode, RunStatus,
+    RunSubtask, RunSubtaskStatus, Session, SessionId, SessionStatus, Stage, TokenUsage,
 };
 
-mod persistence;
+pub mod secretary_chat;
+mod settings;
 
-pub use persistence::{
-    SqliteStore, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
-    StoredPairing, StoredPlugin, StoredPreference, StoredProvider, StoredRunMode, StoredSkill,
+pub use secretary_chat::{SecretaryConversation, SecretarySummary, SecretaryTurn};
+pub use settings::{
+    SettingsRepo, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
+    StoredPairing, StoredPlugin, StoredPreference, StoredProjectSwarmSettings, StoredProvider,
+    StoredRunMode, StoredSkill,
 };
 
 /// Errors raised by the persistence layer.
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("parse error for {0}: {1}")]
+    ParseError(&'static str, String),
     /// Underlying database failure.
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
@@ -58,6 +67,13 @@ pub enum StoreError {
     /// Run lookup miss.
     #[error("run not found: {0}")]
     RunNotFound(RunId),
+    /// Optimistic concurrency conflict: the run was modified concurrently.
+    #[error("version conflict on run {run_id}: expected version {expected}, actual {actual}")]
+    VersionConflict {
+        run_id: RunId,
+        expected: u64,
+        actual: u64,
+    },
     /// Gate lookup miss.
     #[error("gate not found: {0}")]
     GateNotFound(Ulid),
@@ -75,10 +91,7 @@ pub enum StoreError {
     /// A stored column had an unexpected SQL type.
     #[error("unexpected column type for {0}")]
     UnexpectedType(&'static str),
-    /// Underlying SQLite failure from the synchronous [`SqliteStore`].
-    #[error("sqlite error: {0}")]
-    Sqlite(#[from] rusqlite::Error),
-    /// The path handed to [`SqliteStore::open`] is unusable.
+    /// The path handed to [`SettingsRepo::open`] is unusable.
     #[error("invalid database path: {0}")]
     InvalidPath(String),
     /// The database did not end up in WAL mode, so the store refused it.
@@ -159,10 +172,35 @@ pub struct CostRecord {
     pub prompt_tokens: u64,
     /// Completion tokens produced.
     pub completion_tokens: u64,
+    /// Cache read tokens consumed.
+    pub cache_read_tokens: u64,
+    /// Cache write tokens produced.
+    pub cache_write_tokens: u64,
+    /// Source of cost data.
+    pub source: String,
+    /// Whether cost is estimated.
+    pub estimated: bool,
+    /// Whether cost is known.
+    pub cost_known: bool,
+    /// Duration in milliseconds.
+    pub duration_ms: Option<u64>,
+    /// Session identifier.
+    pub session_id: Option<String>,
     /// Cost in cents.
     pub cost_cents: u64,
     /// Row creation timestamp.
     pub created_at: DateTime<Utc>,
+}
+
+impl CostRecord {
+    /// TPS accessor: completion_tokens / duration_ms (estimated)
+    pub fn estimated_tps(&self) -> Option<f64> {
+        let duration_ms = self.duration_ms?;
+        if duration_ms == 0 {
+            return None;
+        }
+        Some(self.completion_tokens as f64 / (duration_ms as f64 / 1000.0))
+    }
 }
 
 /// Thin wrapper around a SQLite connection pool.
@@ -208,10 +246,17 @@ impl Store {
         }
         // Foreign keys are enforced per connection; without this the
         // `ON DELETE CASCADE` clauses in the migrations never fire.
+        //
+        // WAL and the five-second busy timeout are the settings repository's
+        // promises too (`SettingsRepo::open`): one file, read by the daemon's
+        // settings calls and written by its run handlers, so a reader must not
+        // block the writer and a short lock must wait rather than fail the call.
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
             .create_if_missing(true)
-            .foreign_keys(true);
+            .foreign_keys(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5));
         let pool = SqlitePoolOptions::new().connect_with(options).await?;
         Self::run_migrations(&pool).await?;
         // The bus outlives every subscriber: the receiver here is deliberately
@@ -226,16 +271,72 @@ impl Store {
     }
 
     async fn run_migrations(pool: &SqlitePool) -> Result<()> {
-        sqlx::migrate!("./migrations")
+        // Every migration in `migrations/` is applied here, in version order.
+        // The pairing-expiry column used to be a separate step (005) that this
+        // migrator had to skip, because the table it altered was created by the
+        // synchronous settings store; 006 creates that table with the column in
+        // it, so there is one owner and nothing to skip.
+        migration_migrator()
             .run(pool)
             .await
             .map_err(|e| StoreError::Migration(e.to_string()))?;
+        let mut transaction = pool.begin().await?;
+        repair_settings_expiry(&mut transaction).await?;
+        transaction.commit().await?;
         Ok(())
+    }
+
+    /// Upsert one MCP permission row (`server`, `tool`, `role`).
+    ///
+    /// The permission string is validated again by the table's CHECK constraint;
+    /// the daemon rejects anything but `allow`/`ask`/`deny` before this call.
+    pub async fn set_mcp_permission(
+        &self,
+        server: &str,
+        tool: &str,
+        role: &str,
+        permission: &str,
+        updated_at: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO mcp_permissions (server, tool, role, permission, updated_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(server, tool, role)
+             DO UPDATE SET permission = excluded.permission, updated_at = excluded.updated_at",
+        )
+        .bind(server)
+        .bind(tool)
+        .bind(role)
+        .bind(permission)
+        .bind(updated_at)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Every stored MCP permission row, in key order.
+    pub async fn load_mcp_permissions(&self) -> Result<Vec<(String, String, String, String)>> {
+        let rows = sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT server, tool, role, permission FROM mcp_permissions
+             ORDER BY server, tool, role",
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows)
     }
 
     /// Borrow the underlying pool.
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// The settings repository over this store's pool.
+    ///
+    /// One pool per process, one file: the settings rows and the projects, runs
+    /// and events they configure are served by the same connections, so there is
+    /// no second connection story to keep in step.
+    pub fn settings(&self) -> SettingsRepo {
+        SettingsRepo::from_pool(self.pool.clone())
     }
 
     /// Path of the database file backing this store.
@@ -257,8 +358,8 @@ impl Store {
     pub async fn create_project(&self, project: &Project) -> Result<()> {
         sqlx::query(
             "INSERT INTO projects \
-             (id, name, description, language, created_at, updated_at, repo_path, repo_url) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, name, description, language, created_at, updated_at, repo_path, repo_url, confinement, approval_mode) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(project.id.0.as_bytes().to_vec())
         .bind(&project.name)
@@ -268,6 +369,8 @@ impl Store {
         .bind(project.updated_at.to_rfc3339())
         .bind(&project.repo_path)
         .bind(&project.repo_url)
+        .bind(project.confinement.as_ref().map(|c| c.to_string()))
+        .bind(project.approval_mode.as_ref().map(|a| a.to_string()))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -276,7 +379,7 @@ impl Store {
     /// Fetch a project by id.
     pub async fn get_project(&self, id: ProjectId) -> Result<Project> {
         let row = sqlx::query(
-            "SELECT id, name, description, language, created_at, updated_at, repo_path, repo_url \
+            "SELECT id, name, description, language, created_at, updated_at, repo_path, repo_url, confinement, approval_mode \
              FROM projects WHERE id = ?",
         )
         .bind(id.0.as_bytes().to_vec())
@@ -289,7 +392,7 @@ impl Store {
     /// List all projects, newest first.
     pub async fn list_projects(&self) -> Result<Vec<Project>> {
         let rows = sqlx::query(
-            "SELECT id, name, description, language, created_at, updated_at, repo_path, repo_url \
+            "SELECT id, name, description, language, created_at, updated_at, repo_path, repo_url, confinement, approval_mode \
              FROM projects ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
@@ -301,7 +404,7 @@ impl Store {
     pub async fn update_project(&self, project: &Project) -> Result<()> {
         sqlx::query(
             "UPDATE projects SET name = ?, description = ?, language = ?, updated_at = ?, \
-             repo_path = ?, repo_url = ? WHERE id = ?",
+             repo_path = ?, repo_url = ?, confinement = ?, approval_mode = ? WHERE id = ?",
         )
         .bind(&project.name)
         .bind(&project.description)
@@ -309,10 +412,56 @@ impl Store {
         .bind(project.updated_at.to_rfc3339())
         .bind(&project.repo_path)
         .bind(&project.repo_url)
+        .bind(project.confinement.as_ref().map(|c| c.to_string()))
+        .bind(project.approval_mode.as_ref().map(|a| a.to_string()))
         .bind(project.id.0.as_bytes().to_vec())
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Fetch global default project permissions.
+    pub async fn get_default_permissions(&self) -> Result<ProjectPermissions> {
+        self.settings().get_default_permissions().await
+    }
+
+    /// Set global default project permissions.
+    pub async fn set_default_permissions(&self, permissions: &ProjectPermissions) -> Result<()> {
+        self.settings().set_default_permissions(permissions).await
+    }
+
+    /// Get effective permissions for a project (override if set, else global default).
+    pub async fn get_project_effective_permissions(
+        &self,
+        id: ProjectId,
+    ) -> Result<ProjectPermissions> {
+        let project = self.get_project(id).await?;
+        let default = self.get_default_permissions().await?;
+        Ok(project.effective_permissions(default))
+    }
+
+    /// Set explicit per-project permissions override (null clears to inherit from default).
+    pub async fn set_project_permissions(
+        &self,
+        id: ProjectId,
+        confinement: Option<Confinement>,
+        approval_mode: Option<ApprovalMode>,
+    ) -> Result<ProjectPermissions> {
+        let mut project = self.get_project(id).await?;
+        sqlx::query(
+            "UPDATE projects SET confinement = ?, approval_mode = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(confinement.as_ref().map(|c| c.to_string()))
+        .bind(approval_mode.as_ref().map(|a| a.to_string()))
+        .bind(Utc::now().to_rfc3339())
+        .bind(id.0.as_bytes().to_vec())
+        .execute(&self.pool)
+        .await?;
+
+        project.confinement = confinement;
+        project.approval_mode = approval_mode;
+        let default = self.get_default_permissions().await?;
+        Ok(project.effective_permissions(default))
     }
 
     // ------------------------------------------------------------------- runs
@@ -321,8 +470,9 @@ impl Store {
     pub async fn create_run(&self, run: &Run) -> Result<()> {
         sqlx::query(
             "INSERT INTO runs (id, project_id, current_stage, gate_states, artifacts, \
-             created_at, updated_at, status, budget_cents, spent_cents) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             created_at, updated_at, status, budget_cents, spent_cents, version, \
+             worktree_path, worktree_branch, confinement, run_mode) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
         )
         .bind(run.id.0.to_string())
         .bind(run.project_id.0.as_bytes().to_vec())
@@ -334,6 +484,10 @@ impl Store {
         .bind(serde_json::to_string(&run.status)?)
         .bind(run.budget_cents.map(|v| v as i64))
         .bind(run.spent_cents as i64)
+        .bind(&run.worktree_path)
+        .bind(&run.worktree_branch)
+        .bind(run.confinement.map(|c| c.to_string()))
+        .bind(run.run_mode.to_string())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -341,22 +495,42 @@ impl Store {
 
     /// Fetch a run by id.
     pub async fn get_run(&self, id: RunId) -> Result<Run> {
+        let (run, _version) = self.get_run_versioned(id).await?;
+        Ok(run)
+    }
+
+    /// Fetch a run by id along with its current optimistic concurrency version.
+    pub async fn get_run_versioned(&self, id: RunId) -> Result<(Run, u64)> {
         let row = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
-             updated_at, status, budget_cents, spent_cents FROM runs WHERE id = ?",
+             updated_at, status, budget_cents, spent_cents, version, worktree_path, \
+             worktree_branch, confinement, run_mode FROM runs WHERE id = ?",
         )
         .bind(id.0.to_string())
         .fetch_optional(&self.pool)
         .await?
         .ok_or(StoreError::RunNotFound(id))?;
-        run_from_row(&row)
+        let run = run_from_row(&row)?;
+        let version = column_int(&row, "version")?.unsigned_abs();
+        Ok((run, version))
     }
 
-    /// Update a run's mutable fields.
+    /// Fetch a run's current optimistic concurrency version.
+    pub async fn get_run_version(&self, id: RunId) -> Result<u64> {
+        let row = sqlx::query("SELECT version FROM runs WHERE id = ?")
+            .bind(id.0.to_string())
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(StoreError::RunNotFound(id))?;
+        Ok(column_int(&row, "version")?.unsigned_abs())
+    }
+
+    /// Update a run's mutable fields, bumping its version.
     pub async fn update_run(&self, run: &Run) -> Result<()> {
-        sqlx::query(
+        let outcome = sqlx::query(
             "UPDATE runs SET current_stage = ?, gate_states = ?, artifacts = ?, updated_at = ?, \
-             status = ?, budget_cents = ?, spent_cents = ? WHERE id = ?",
+             status = ?, budget_cents = ?, spent_cents = ?, version = version + 1, \
+             worktree_path = ?, worktree_branch = ?, confinement = ? WHERE id = ?",
         )
         .bind(serde_json::to_string(&run.current_stage)?)
         .bind(serde_json::to_string(&run.gate_states)?)
@@ -365,23 +539,121 @@ impl Store {
         .bind(serde_json::to_string(&run.status)?)
         .bind(run.budget_cents.map(|v| v as i64))
         .bind(run.spent_cents as i64)
+        .bind(&run.worktree_path)
+        .bind(&run.worktree_branch)
+        .bind(run.confinement.map(|c| c.to_string()))
         .bind(run.id.0.to_string())
         .execute(&self.pool)
         .await?;
+        if outcome.rows_affected() == 0 {
+            return Err(StoreError::RunNotFound(run.id));
+        }
         Ok(())
+    }
+
+    /// Update a run using optimistic concurrency compare-and-swap (CAS).
+    ///
+    /// If the stored version matches `expected_version`, applies the update,
+    /// increments the version by 1, and returns the new version.
+    /// If the version has moved, returns [`StoreError::VersionConflict`].
+    pub async fn update_run_cas(&self, run: &Run, expected_version: u64) -> Result<u64> {
+        let outcome = sqlx::query(
+            "UPDATE runs SET current_stage = ?, gate_states = ?, artifacts = ?, updated_at = ?, \
+             status = ?, budget_cents = ?, spent_cents = ?, version = version + 1, \
+             worktree_path = ?, worktree_branch = ?, confinement = ? \
+             WHERE id = ? AND version = ?",
+        )
+        .bind(serde_json::to_string(&run.current_stage)?)
+        .bind(serde_json::to_string(&run.gate_states)?)
+        .bind(serde_json::to_string(&run.artifacts)?)
+        .bind(run.updated_at.to_rfc3339())
+        .bind(serde_json::to_string(&run.status)?)
+        .bind(run.budget_cents.map(|v| v as i64))
+        .bind(run.spent_cents as i64)
+        .bind(&run.worktree_path)
+        .bind(&run.worktree_branch)
+        .bind(run.confinement.map(|c| c.to_string()))
+        .bind(run.id.0.to_string())
+        .bind(expected_version as i64)
+        .execute(&self.pool)
+        .await?;
+
+        if outcome.rows_affected() == 0 {
+            let actual = self.get_run_version(run.id).await?;
+            return Err(StoreError::VersionConflict {
+                run_id: run.id,
+                expected: expected_version,
+                actual,
+            });
+        }
+
+        Ok(expected_version + 1)
     }
 
     /// List runs belonging to a project, newest first.
     pub async fn list_runs(&self, project_id: ProjectId) -> Result<Vec<Run>> {
         let rows = sqlx::query(
             "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
-             updated_at, status, budget_cents, spent_cents FROM runs \
+             updated_at, status, budget_cents, spent_cents, version, worktree_path, \
+             worktree_branch, confinement, run_mode FROM runs \
              WHERE project_id = ? ORDER BY created_at DESC",
         )
         .bind(project_id.0.as_bytes().to_vec())
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(run_from_row).collect()
+    }
+
+    /// List all runs across all projects, newest first.
+    pub async fn list_all_runs(&self) -> Result<Vec<Run>> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
+             updated_at, status, budget_cents, spent_cents, version, worktree_path, \
+             worktree_branch, confinement, run_mode FROM runs \
+             ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(run_from_row).collect()
+    }
+
+    /// Recover runs left in `Running` state after an unclean restart/interruption:
+    /// marks them [`RunStatus::Paused`], increments their version via CAS,
+    /// and appends an `EventKind::Error` event with `{"action": "run_interrupted"}`.
+    pub async fn recover_interrupted_runs(&self) -> Result<Vec<Run>> {
+        let rows = sqlx::query(
+            "SELECT id, project_id, current_stage, gate_states, artifacts, created_at, \
+             updated_at, status, budget_cents, spent_cents, version, worktree_path, \
+             worktree_branch, confinement, run_mode FROM runs \
+             WHERE status = '\"running\"'",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut recovered = Vec::new();
+        for row in rows {
+            let mut run = run_from_row(&row)?;
+            let version = column_int(&row, "version")?.unsigned_abs();
+            run.status = RunStatus::Paused;
+            run.updated_at = Utc::now();
+            self.update_run_cas(&run, version).await?;
+
+            let event = Event {
+                id: Ulid::new(),
+                run_id: run.id,
+                stage: run.current_stage,
+                role: None,
+                kind: EventKind::Error,
+                payload: serde_json::json!({ "action": "run_interrupted" }),
+                cost_cents: None,
+                tokens: None,
+                created_at: Utc::now(),
+                device_id: None,
+            };
+            self.append_event(&event).await?;
+            recovered.push(run);
+        }
+        Ok(recovered)
     }
 
     // ----------------------------------------------------------------- events
@@ -437,7 +709,368 @@ impl Store {
         rows.iter().map(event_from_row).collect()
     }
 
-    // ------------------------------------------------------------------ gates
+    // ------------------------------------------------------------ secretary_chat
+
+    /// The single global (project-less) secretary thread: the earliest one, created if
+    /// none exists. `idx_secretary_global_thread` makes a second one impossible, so a race
+    /// between two creators converges on the same row.
+    pub async fn get_or_create_global_secretary_conversation(
+        &self,
+    ) -> Result<SecretaryConversation> {
+        const SELECT_GLOBAL: &str = "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE project_id IS NULL ORDER BY created_at ASC, id ASC LIMIT 1";
+        if let Some(row) = sqlx::query(SELECT_GLOBAL)
+            .fetch_optional(&self.pool)
+            .await?
+        {
+            return secretary_conversation_from_row(&row);
+        }
+        let now = Utc::now();
+        sqlx::query(
+            "INSERT OR IGNORE INTO secretary_conversations (id, project_id, created_at, updated_at) VALUES (?, NULL, ?, ?)",
+        )
+        .bind(Ulid::new().to_string())
+        .bind(now.to_rfc3339())
+        .bind(now.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        let row = sqlx::query(SELECT_GLOBAL).fetch_one(&self.pool).await?;
+        secretary_conversation_from_row(&row)
+    }
+
+    /// Create a conversation. `None` is the global thread, which is a singleton: it
+    /// returns the existing one rather than creating a second.
+    pub async fn create_secretary_conversation(
+        &self,
+        project_id: Option<Uuid>,
+    ) -> Result<SecretaryConversation> {
+        if project_id.is_none() {
+            return self.get_or_create_global_secretary_conversation().await;
+        }
+        let id = Ulid::new();
+        let now = Utc::now();
+        sqlx::query(
+            "INSERT INTO secretary_conversations (id, project_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(project_id.map(|u| u.to_string()))
+        .bind(now.to_rfc3339())
+        .bind(now.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(SecretaryConversation {
+            id,
+            project_id,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub async fn get_secretary_conversation(
+        &self,
+        id: Ulid,
+    ) -> Result<Option<SecretaryConversation>> {
+        let row = sqlx::query(
+            "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|r| secretary_conversation_from_row(&r)).transpose()
+    }
+
+    pub async fn add_secretary_turn(
+        &self,
+        conversation_id: Ulid,
+        role: &str,
+        content: &str,
+        proposal_json: Option<&str>,
+        refs_owner_message: Option<&str>,
+    ) -> Result<SecretaryTurn> {
+        let id = Ulid::new();
+        let now = Utc::now();
+        sqlx::query(
+            "INSERT INTO secretary_turns (id, conversation_id, role, content, proposal_json, refs_owner_message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(conversation_id.to_string())
+        .bind(role)
+        .bind(content)
+        .bind(proposal_json)
+        .bind(refs_owner_message)
+        .bind(now.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query("UPDATE secretary_conversations SET updated_at = ? WHERE id = ?")
+            .bind(now.to_rfc3339())
+            .bind(conversation_id.to_string())
+            .execute(&self.pool)
+            .await?;
+
+        Ok(SecretaryTurn {
+            id,
+            conversation_id,
+            role: role.to_string(),
+            content: content.to_string(),
+            proposal_json: proposal_json.map(|s| s.to_string()),
+            refs_owner_message: refs_owner_message.map(|s| s.to_string()),
+            created_at: now,
+        })
+    }
+
+    pub async fn list_secretary_conversations(
+        &self,
+        project_id: Option<Uuid>,
+    ) -> Result<Vec<SecretaryConversation>> {
+        let query = match project_id {
+            Some(_) => "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE project_id = ? ORDER BY updated_at DESC",
+            None => "SELECT id, project_id, created_at, updated_at FROM secretary_conversations WHERE project_id IS NULL ORDER BY updated_at DESC",
+        };
+
+        let mut query_builder = sqlx::query(query);
+        if let Some(pid) = project_id {
+            query_builder = query_builder.bind(pid.to_string());
+        }
+
+        let rows = query_builder.fetch_all(&self.pool).await?;
+        rows.iter().map(secretary_conversation_from_row).collect()
+    }
+
+    pub async fn list_secretary_turns(&self, conversation_id: Ulid) -> Result<Vec<SecretaryTurn>> {
+        let rows = sqlx::query(
+            "SELECT id, conversation_id, role, content, proposal_json, refs_owner_message, created_at FROM secretary_turns WHERE conversation_id = ? ORDER BY created_at ASC",
+        )
+        .bind(conversation_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter().map(secretary_turn_from_row).collect()
+    }
+
+    /// The turns of a conversation strictly after `after_turn_id` (all of them when
+    /// `None`, or when the id is not among them), oldest first.
+    pub async fn list_secretary_turns_after(
+        &self,
+        conversation_id: Ulid,
+        after_turn_id: Option<Ulid>,
+    ) -> Result<Vec<SecretaryTurn>> {
+        let turns = self.list_secretary_turns(conversation_id).await?;
+        let Some(after) = after_turn_id else {
+            return Ok(turns);
+        };
+        match turns.iter().position(|t| t.id == after) {
+            Some(index) => Ok(turns.into_iter().skip(index + 1).collect()),
+            None => Ok(turns),
+        }
+    }
+
+    pub async fn set_secretary_summary(
+        &self,
+        conversation_id: Ulid,
+        summary: &str,
+        covers_until: String,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO secretary_summaries (conversation_id, summary, covers_until) VALUES (?, ?, ?) ON CONFLICT(conversation_id) DO UPDATE SET summary = excluded.summary, covers_until = excluded.covers_until",
+        )
+        .bind(conversation_id.to_string())
+        .bind(summary)
+        .bind(covers_until)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_secretary_summary(
+        &self,
+        conversation_id: Ulid,
+    ) -> Result<Option<SecretarySummary>> {
+        let row = sqlx::query(
+            "SELECT conversation_id, summary, covers_until FROM secretary_summaries WHERE conversation_id = ?",
+        )
+        .bind(conversation_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|r| {
+            let conversation_id =
+                Ulid::from_string(&column_text(&r, "conversation_id")?).map_err(|e| {
+                    StoreError::CorruptId {
+                        field: "conversation_id",
+                        value: e.to_string(),
+                    }
+                })?;
+            let summary = column_text(&r, "summary")?;
+            let covers_until = column_text(&r, "covers_until")?;
+            Ok(SecretarySummary {
+                conversation_id,
+                summary,
+                covers_until,
+            })
+        })
+        .transpose()
+    }
+
+    /// Create a session.
+    pub async fn create_session(&self, session: &Session) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO sessions (id, run_id, project_id, role, backend, provider, model, status, \
+             started_at, ended_at, parent_session_id, cli_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(session.id.to_string())
+        .bind(session.run_id.as_ref().map(|r| r.0.to_string()))
+        .bind(session.project_id.0.as_bytes().to_vec())
+        .bind(serde_json::to_string(&session.role)?)
+        .bind(&session.backend)
+        .bind(&session.provider)
+        .bind(&session.model)
+        .bind(serde_json::to_string(&session.status)?)
+        .bind(session.started_at.to_rfc3339())
+        .bind(session.ended_at.map(|t| t.to_rfc3339()))
+        .bind(session.parent_session_id.map(|id| id.to_string()))
+        .bind(&session.cli_session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Update session status.
+    pub async fn update_session_status(
+        &self,
+        session_id: SessionId,
+        status: SessionStatus,
+    ) -> Result<()> {
+        sqlx::query("UPDATE sessions SET status = ? WHERE id = ?")
+            .bind(serde_json::to_string(&status)?)
+            .bind(session_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Finish a session.
+    pub async fn finish_session(
+        &self,
+        session_id: SessionId,
+        status: SessionStatus,
+        ended_at: DateTime<Utc>,
+    ) -> Result<()> {
+        sqlx::query("UPDATE sessions SET status = ?, ended_at = ? WHERE id = ?")
+            .bind(serde_json::to_string(&status)?)
+            .bind(ended_at.to_rfc3339())
+            .bind(session_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// List a run's sessions in creation order.
+    pub async fn list_sessions_by_run(&self, run_id: RunId) -> Result<Vec<Session>> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, project_id, role, backend, provider, model, status, \
+             started_at, ended_at, parent_session_id, cli_session_id FROM sessions \
+             WHERE run_id = ? ORDER BY started_at ASC",
+        )
+        .bind(run_id.0.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(session_from_row).collect()
+    }
+
+    /// List standalone (run-less, e.g. Ask mode) sessions for a project, newest first.
+    pub async fn list_standalone_sessions_by_project(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<Session>> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, project_id, role, backend, provider, model, status, \
+             started_at, ended_at, parent_session_id, cli_session_id FROM sessions \
+             WHERE project_id = ? AND run_id IS NULL ORDER BY started_at DESC",
+        )
+        .bind(project_id.0.as_bytes().to_vec())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(session_from_row).collect()
+    }
+
+    /// Read one session by id.
+    pub async fn get_session(&self, session_id: SessionId) -> Result<Option<Session>> {
+        let row = sqlx::query(
+            "SELECT id, run_id, project_id, role, backend, provider, model, status, \
+             started_at, ended_at, parent_session_id, cli_session_id FROM sessions \
+             WHERE id = ?",
+        )
+        .bind(session_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|r| session_from_row(&r)).transpose()
+    }
+
+    /// Update a session's CLI-reported session id.
+    pub async fn update_session_cli_id(
+        &self,
+        session_id: SessionId,
+        cli_session_id: &str,
+    ) -> Result<()> {
+        sqlx::query("UPDATE sessions SET cli_session_id = ? WHERE id = ?")
+            .bind(cli_session_id)
+            .bind(session_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Insert one swarm subtask row (D5).
+    pub async fn create_run_subtask(&self, subtask: &RunSubtask) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO run_subtasks (id, run_id, session_id, title, files, status, \
+             created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(subtask.id.to_string())
+        .bind(subtask.run_id.0.to_string())
+        .bind(subtask.session_id.map(|id| id.to_string()))
+        .bind(&subtask.title)
+        .bind(serde_json::to_string(&subtask.files)?)
+        .bind(subtask.status.to_string())
+        .bind(subtask.created_at.to_rfc3339())
+        .bind(subtask.updated_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Update one subtask's status, session link and touched-files list.
+    pub async fn update_run_subtask(
+        &self,
+        subtask_id: Ulid,
+        status: RunSubtaskStatus,
+        session_id: Option<SessionId>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE run_subtasks SET status = ?, session_id = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(status.to_string())
+        .bind(session_id.map(|id| id.to_string()))
+        .bind(Utc::now().to_rfc3339())
+        .bind(subtask_id.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// List one run's subtasks in creation order.
+    pub async fn list_run_subtasks(&self, run_id: RunId) -> Result<Vec<RunSubtask>> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, session_id, title, files, status, created_at, updated_at \
+             FROM run_subtasks WHERE run_id = ? ORDER BY created_at ASC",
+        )
+        .bind(run_id.0.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(run_subtask_from_row).collect()
+    }
 
     /// Insert a gate row for one stage of a run.
     pub async fn create_gate(&self, gate: &Gate) -> Result<()> {
@@ -570,7 +1203,100 @@ impl Store {
         rows.iter().map(artifact_from_row).collect()
     }
 
-    // ------------------------------------------------------------------ costs
+    // ------------------------------------------------------------------ secretary_interviews
+    pub async fn save_secretary_interview(&self, project_id: ProjectId, state: &str) -> Result<()> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO secretary_interviews (project_id, state) VALUES (?, ?)",
+        )
+        .bind(project_id.0.as_bytes().to_vec())
+        .bind(state)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn load_secretary_interview(&self, project_id: ProjectId) -> Result<Option<String>> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT state FROM secretary_interviews WHERE project_id = ?")
+                .bind(project_id.0.as_bytes().to_vec())
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|r| r.0))
+    }
+
+    pub async fn delete_secretary_interview(&self, project_id: ProjectId) -> Result<()> {
+        sqlx::query("DELETE FROM secretary_interviews WHERE project_id = ?")
+            .bind(project_id.0.as_bytes().to_vec())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Record a project-scoped role cost without an owning run (e.g. a
+    /// Secretary interview turn before a pipeline run starts). The row sits in
+    /// `costs` with `run_id = NULL` and carries `agent_role` so A3's usage
+    /// aggregation (`aggregate_costs_by`, `costs_in_window`, etc.) splits it
+    /// out alongside run costs.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn record_role_cost(
+        &self,
+        project_id: ProjectId,
+        role: Role,
+        provider_id: &str,
+        model_id: &str,
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        cost_cents: u64,
+        created_at: DateTime<Utc>,
+    ) -> Result<Ulid> {
+        let id = Ulid::new();
+        let agent_role = serde_json::to_string(&role)?;
+        sqlx::query(
+            "INSERT INTO costs (id, run_id, project_id, agent_role, provider_id, model_id, \
+             prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, source, \
+             estimated, cost_known, duration_ms, session_id, cost_cents, created_at) \
+             VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 0, 0, 'api_metered', 0, 1, NULL, NULL, ?, ?)",
+        )
+        .bind(id.to_string())
+        .bind(project_id.0.as_bytes().to_vec())
+        .bind(agent_role)
+        .bind(provider_id)
+        .bind(model_id)
+        .bind(prompt_tokens as i64)
+        .bind(completion_tokens as i64)
+        .bind(cost_cents as i64)
+        .bind(created_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    /// Sum recorded costs for a given project and role on a UTC calendar day (`YYYY-MM-DD`).
+    pub async fn daily_role_cost_cents(
+        &self,
+        project_id: ProjectId,
+        role: Role,
+        date_utc: &str,
+    ) -> Result<u64> {
+        let agent_role = serde_json::to_string(&role)?;
+        let row = sqlx::query(
+            "SELECT COALESCE(SUM(cost_cents), 0) AS total \
+             FROM costs \
+             WHERE project_id = ? AND agent_role = ? AND DATE(created_at) = ?",
+        )
+        .bind(project_id.0.as_bytes().to_vec())
+        .bind(agent_role)
+        .bind(date_utc)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(column_int(&row, "total")?.unsigned_abs())
+    }
+
+    /// Sum recorded costs for a given project and role during the current UTC day.
+    pub async fn today_role_cost_cents(&self, project_id: ProjectId, role: Role) -> Result<u64> {
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        self.daily_role_cost_cents(project_id, role, &today).await
+    }
 
     /// Record one model call's token usage and cost.
     pub async fn record_cost(&self, cost: &CostRecord) -> Result<()> {
@@ -580,8 +1306,9 @@ impl Store {
         };
         sqlx::query(
             "INSERT INTO costs (id, run_id, project_id, agent_role, provider_id, model_id, \
-             prompt_tokens, completion_tokens, cost_cents, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, source, \
+             estimated, cost_known, duration_ms, session_id, cost_cents, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(cost.id.to_string())
         .bind(cost.run_id.0.to_string())
@@ -591,6 +1318,13 @@ impl Store {
         .bind(&cost.model_id)
         .bind(cost.prompt_tokens as i64)
         .bind(cost.completion_tokens as i64)
+        .bind(cost.cache_read_tokens as i64)
+        .bind(cost.cache_write_tokens as i64)
+        .bind(&cost.source)
+        .bind(cost.estimated as i64)
+        .bind(cost.cost_known as i64)
+        .bind(cost.duration_ms.map(|v| v as i64))
+        .bind(&cost.session_id)
         .bind(cost.cost_cents as i64)
         .bind(cost.created_at.to_rfc3339())
         .execute(&self.pool)
@@ -602,7 +1336,9 @@ impl Store {
     pub async fn list_costs(&self, run_id: RunId) -> Result<Vec<CostRecord>> {
         let rows = sqlx::query(
             "SELECT id, run_id, project_id, agent_role, provider_id, model_id, prompt_tokens, \
-             completion_tokens, cost_cents, created_at FROM costs WHERE run_id = ? \
+             completion_tokens, cache_read_tokens, cache_write_tokens, source, estimated, \
+             cost_known, duration_ms, session_id, cost_cents, created_at FROM costs \
+             WHERE run_id = ? \
              ORDER BY created_at ASC, id ASC",
         )
         .bind(run_id.0.to_string())
@@ -619,6 +1355,177 @@ impl Store {
                 .fetch_one(&self.pool)
                 .await?;
         Ok(column_int(&row, "total")?.unsigned_abs())
+    }
+
+    /// Aggregate costs by a specified dimension (e.g., 'provider_id', 'model_id', 'agent_role', 'project_id').
+    pub async fn aggregate_costs_by(
+        &self,
+        dimension: &str,
+        project_id: Option<ProjectId>,
+    ) -> Result<HashMap<String, u64>> {
+        let whitelisted = ["provider_id", "model_id", "agent_role", "project_id"];
+        if !whitelisted.contains(&dimension) {
+            return Err(StoreError::UnexpectedType("invalid dimension"));
+        }
+
+        let mut query = format!(
+            "SELECT {} AS dim, SUM(cost_cents) AS total FROM costs",
+            dimension
+        );
+
+        if project_id.is_some() {
+            query.push_str(" WHERE project_id = ?");
+        }
+
+        query.push_str(" GROUP BY dim");
+
+        let mut query_builder = sqlx::query(&query);
+        if let Some(pid) = project_id {
+            query_builder = query_builder.bind(pid.0.as_bytes().to_vec());
+        }
+
+        let rows = query_builder.fetch_all(&self.pool).await?;
+
+        let mut results = HashMap::new();
+        for row in rows {
+            results.insert(
+                column_text(&row, "dim")?,
+                column_int(&row, "total")?.unsigned_abs(),
+            );
+        }
+        Ok(results)
+    }
+
+    /// Aggregate tokens by dimension and time (day/month).
+    pub async fn aggregate_tokens_by(
+        &self,
+        dimension: &str,
+        time_format: &str, // "%Y-%m-%d" or "%Y-%m"
+        project_id: Option<ProjectId>,
+    ) -> Result<HashMap<(String, String), (u64, u64, u64, u64, u64)>> {
+        let whitelisted = ["provider_id", "model_id", "agent_role", "project_id"];
+        if !whitelisted.contains(&dimension) {
+            return Err(StoreError::UnexpectedType("invalid dimension"));
+        }
+
+        // SQLite date formatting: strftime(format, created_at)
+        let time_sql = match time_format {
+            "%Y-%m-%d" => "DATE(created_at)",
+            "%Y-%m" => "strftime('%Y-%m', created_at)",
+            _ => return Err(StoreError::UnexpectedType("invalid time format")),
+        };
+
+        let mut query = format!(
+            "SELECT {dim} AS dim, {time_sql} AS time, \
+             SUM(prompt_tokens) AS p, SUM(completion_tokens) AS c, \
+             SUM(cache_read_tokens) AS cr, SUM(cache_write_tokens) AS cw, \
+             COUNT(*) AS reqs \
+             FROM costs",
+            dim = dimension,
+            time_sql = time_sql
+        );
+
+        if project_id.is_some() {
+            query.push_str(" WHERE project_id = ?");
+        }
+
+        query.push_str(" GROUP BY dim, time");
+
+        let mut query_builder = sqlx::query(&query);
+        if let Some(pid) = project_id {
+            query_builder = query_builder.bind(pid.0.as_bytes().to_vec());
+        }
+
+        let rows = query_builder.fetch_all(&self.pool).await?;
+
+        let mut results = HashMap::new();
+        for row in rows {
+            let dim = column_text(&row, "dim")?;
+            let time = column_text(&row, "time")?;
+            let p = column_int(&row, "p")?.unsigned_abs();
+            let c = column_int(&row, "c")?.unsigned_abs();
+            let cr = column_int(&row, "cr")?.unsigned_abs();
+            let cw = column_int(&row, "cw")?.unsigned_abs();
+            let reqs = column_int(&row, "reqs")?.unsigned_abs();
+            results.insert((dim, time), (p, c, cr, cw, reqs));
+        }
+        Ok(results)
+    }
+
+    /// Aggregate costs by a time bucket (`"%Y-%m-%d"` for a day, `"%Y-%m"` for a
+    /// month), optionally narrowed to one project. The bucket format is
+    /// whitelisted, never interpolated from caller input.
+    pub async fn aggregate_costs_by_time(
+        &self,
+        time_format: &str,
+        project_id: Option<ProjectId>,
+    ) -> Result<HashMap<String, u64>> {
+        let time_sql = match time_format {
+            "%Y-%m-%d" => "DATE(created_at)",
+            "%Y-%m" => "strftime('%Y-%m', created_at)",
+            _ => return Err(StoreError::UnexpectedType("invalid time format")),
+        };
+        let mut query = format!(
+            "SELECT {time_sql} AS period, SUM(cost_cents) AS total FROM costs",
+            time_sql = time_sql
+        );
+        if project_id.is_some() {
+            query.push_str(" WHERE project_id = ?");
+        }
+        query.push_str(" GROUP BY period");
+        let mut query_builder = sqlx::query(&query);
+        if let Some(pid) = project_id {
+            query_builder = query_builder.bind(pid.0.as_bytes().to_vec());
+        }
+        let rows = query_builder.fetch_all(&self.pool).await?;
+        let mut results = HashMap::new();
+        for row in rows {
+            results.insert(
+                column_text(&row, "period")?,
+                column_int(&row, "total")?.unsigned_abs(),
+            );
+        }
+        Ok(results)
+    }
+
+    /// Aggregate costs by day.
+    pub async fn aggregate_costs_by_day(&self) -> Result<HashMap<String, u64>> {
+        let rows = sqlx::query(
+            "SELECT DATE(created_at) AS day, SUM(cost_cents) AS total FROM costs GROUP BY day",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut results = HashMap::new();
+        for row in rows {
+            results.insert(
+                column_text(&row, "day")?,
+                column_int(&row, "total")?.unsigned_abs(),
+            );
+        }
+        Ok(results)
+    }
+
+    /// Costs and requests inside a trailing window ending now (A3 subscription
+    /// windows: a rolling 5-hour or 7-day window over the daemon's own cost
+    /// records). The window is one of the whitelisted presets — never
+    /// interpolated from caller input. `created_at` is stored as RFC 3339
+    /// (see `record_cost`), so the cutoff is formatted the same way.
+    pub async fn costs_in_window(&self, window: &str) -> Result<(u64, u64)> {
+        let cutoff = match window {
+            "5h" => Utc::now() - chrono::Duration::hours(5),
+            "7d" => Utc::now() - chrono::Duration::days(7),
+            _ => return Err(StoreError::UnexpectedType("invalid window")),
+        };
+        let row = sqlx::query(
+            "SELECT COUNT(*) AS requests, COALESCE(SUM(cost_cents), 0) AS total \
+             FROM costs WHERE created_at >= ?",
+        )
+        .bind(cutoff.to_rfc3339())
+        .fetch_one(&self.pool)
+        .await?;
+        let requests = column_int(&row, "requests")?.unsigned_abs();
+        let total = column_int(&row, "total")?.unsigned_abs();
+        Ok((requests, total))
     }
 
     // -------------------------------------------------------------- artifacts
@@ -652,6 +1559,52 @@ impl Store {
         let path = self.factory_dir(project_id).join(format!("{name}.md"));
         Ok(std::fs::read_to_string(path)?)
     }
+}
+
+// ---------------------------------------------------------------- migrations
+
+/// The migrations this binary ships, embedded at build time.
+///
+/// One place, so the store and its tests can never disagree about which
+/// versions exist.
+fn migration_migrator() -> sqlx::migrate::Migrator {
+    sqlx::migrate!("./migrations")
+}
+
+// ------------------------------------------------------------ settings schema
+
+/// Repair the one settings table shape `006_settings.sql` cannot migrate.
+///
+/// `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so a database a
+/// pre-audit-H1 daemon wrote keeps its four-column `pairing_devices`, and SQLite
+/// has no `ALTER TABLE … ADD COLUMN IF NOT EXISTS` to bring it forward inside
+/// the migration. This is that guarded step: while the column is missing it is
+/// added, and the rows the older daemon paired are grandfathered with the same
+/// 10-minute grace window 005 applied, so an owner upgrading can still use a
+/// phone that was paired under the old code and no secret outlives that window.
+///
+/// It is deliberately conditional on the column's absence: a pairing row with a
+/// `NULL` deadline written after the column existed means "revocation only", and
+/// a repair that ran unconditionally would silently give it one.
+async fn repair_settings_expiry(connection: &mut sqlx::SqliteConnection) -> Result<()> {
+    let has_expiry: Option<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('pairing_devices') WHERE name = ?")
+            .bind("expires_at")
+            .fetch_optional(&mut *connection)
+            .await?;
+    if has_expiry.is_none() {
+        sqlx::query("ALTER TABLE pairing_devices ADD COLUMN expires_at INTEGER")
+            .execute(&mut *connection)
+            .await?;
+        sqlx::query(
+            "UPDATE pairing_devices \
+                SET expires_at = CAST(strftime('%s', 'now') AS INTEGER) + 600 \
+              WHERE expires_at IS NULL",
+        )
+        .execute(&mut *connection)
+        .await?;
+    }
+    Ok(())
 }
 
 // --------------------------------------------------------------- row mapping
@@ -712,7 +1665,79 @@ fn parse_time(field: &'static str, value: &str) -> Result<DateTime<Utc>> {
     )
 }
 
+fn secretary_turn_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<SecretaryTurn> {
+    let id = Ulid::from_string(&column_text(row, "id")?).map_err(|e| StoreError::CorruptId {
+        field: "id",
+        value: e.to_string(),
+    })?;
+    let conversation_id =
+        Ulid::from_string(&column_text(row, "conversation_id")?).map_err(|e| {
+            StoreError::CorruptId {
+                field: "conversation_id",
+                value: e.to_string(),
+            }
+        })?;
+    let role = column_text(row, "role")?;
+    let content = column_text(row, "content")?;
+    let proposal_json = column_opt_text(row, "proposal_json")?;
+    let refs_owner_message = column_opt_text(row, "refs_owner_message")?;
+    let created_at = DateTime::parse_from_rfc3339(&column_text(row, "created_at")?)
+        .map_err(|e| StoreError::ParseError("created_at", e.to_string()))?
+        .with_timezone(&Utc);
+
+    Ok(SecretaryTurn {
+        id,
+        conversation_id,
+        role,
+        content,
+        proposal_json,
+        refs_owner_message,
+        created_at,
+    })
+}
+
+fn secretary_conversation_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<SecretaryConversation> {
+    let id = Ulid::from_string(&column_text(row, "id")?).map_err(|e| StoreError::CorruptId {
+        field: "id",
+        value: e.to_string(),
+    })?;
+    let project_id = column_opt_text(row, "project_id")?
+        .map(|s| {
+            Uuid::parse_str(&s).map_err(|e| StoreError::CorruptId {
+                field: "project_id",
+                value: e.to_string(),
+            })
+        })
+        .transpose()?;
+    let created_at = DateTime::parse_from_rfc3339(&column_text(row, "created_at")?)
+        .map_err(|e| StoreError::ParseError("created_at", e.to_string()))?
+        .with_timezone(&Utc);
+    let updated_at = DateTime::parse_from_rfc3339(&column_text(row, "updated_at")?)
+        .map_err(|e| StoreError::ParseError("updated_at", e.to_string()))?
+        .with_timezone(&Utc);
+
+    Ok(SecretaryConversation {
+        id,
+        project_id,
+        created_at,
+        updated_at,
+    })
+}
+
 fn project_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Project> {
+    let confinement: Option<Confinement> = column_opt_text(row, "confinement")?
+        .map(|s| {
+            s.parse()
+                .map_err(|e| StoreError::ParseError("confinement", e))
+        })
+        .transpose()?;
+    let approval_mode: Option<ApprovalMode> = column_opt_text(row, "approval_mode")?
+        .map(|s| {
+            s.parse()
+                .map_err(|e| StoreError::ParseError("approval_mode", e))
+        })
+        .transpose()?;
+
     Ok(Project {
         id: ProjectId(parse_uuid("projects.id", &column_blob(row, "id")?)?),
         name: column_text(row, "name")?,
@@ -722,6 +1747,13 @@ fn project_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Project> {
         updated_at: parse_time("projects.updated_at", &column_text(row, "updated_at")?)?,
         repo_path: column_opt_text(row, "repo_path")?,
         repo_url: column_opt_text(row, "repo_url")?,
+        confinement,
+        approval_mode,
+        permissions: ProjectPermissions {
+            confinement: confinement.unwrap_or_default(),
+            approval_mode: approval_mode.unwrap_or_default(),
+            is_override: confinement.is_some() || approval_mode.is_some(),
+        },
     })
 }
 
@@ -745,6 +1777,18 @@ fn run_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Run> {
         budget_cents: column_opt_int(row, "budget_cents")?.map(|v| v.unsigned_abs()),
         spent_cents: column_opt_int(row, "spent_cents")?
             .map_or(0, |v| u64::from_ne_bytes(i64::to_ne_bytes(v))),
+        worktree_path: column_opt_text(row, "worktree_path")?,
+        worktree_branch: column_opt_text(row, "worktree_branch")?,
+        // B2: the confinement the run is confined by, persisted with the run so
+        // the backstop survives a restart. Legacy rows read NULL → None.
+        confinement: column_opt_text(row, "confinement")?
+            .map(|s| s.parse())
+            .transpose()
+            .map_err(|e: String| StoreError::ParseError("runs.confinement", e))?,
+        run_mode: column_opt_text(row, "run_mode")?
+            .unwrap_or_else(|| "agent".to_string())
+            .parse()
+            .map_err(|e: String| StoreError::ParseError("runs.run_mode", e))?,
     })
 }
 
@@ -798,6 +1842,61 @@ fn gate_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Gate> {
     })
 }
 
+/// Map one `run_subtasks` row onto the domain struct.
+fn run_subtask_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<RunSubtask> {
+    let files_json = column_text(row, "files")?;
+    let status_raw = column_text(row, "status")?;
+    Ok(RunSubtask {
+        id: parse_ulid("run_subtasks.id", &column_text(row, "id")?)?,
+        run_id: RunId(parse_ulid(
+            "run_subtasks.run_id",
+            &column_text(row, "run_id")?,
+        )?),
+        session_id: column_opt_text(row, "session_id")?
+            .map(|t| parse_ulid("run_subtasks.session_id", &t))
+            .transpose()?
+            .map(SessionId),
+        title: column_text(row, "title")?,
+        files: serde_json::from_str(&files_json)?,
+        status: parse_subtask_status(&status_raw).ok_or_else(|| {
+            StoreError::ParseError(
+                "run_subtasks.status",
+                format!("not a known subtask status: {status_raw}"),
+            )
+        })?,
+        created_at: parse_time("run_subtasks.created_at", &column_text(row, "created_at")?)?,
+        updated_at: parse_time("run_subtasks.updated_at", &column_text(row, "updated_at")?)?,
+    })
+}
+
+fn session_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Session> {
+    Ok(Session {
+        id: SessionId(parse_ulid("sessions.id", &column_text(row, "id")?)?),
+        run_id: column_opt_text(row, "run_id")?
+            .map(|t| parse_ulid("sessions.run_id", &t))
+            .transpose()?
+            .map(RunId),
+        project_id: ProjectId(parse_uuid(
+            "sessions.project_id",
+            &column_blob(row, "project_id")?,
+        )?),
+        role: serde_json::from_str::<Role>(&column_text(row, "role")?)?,
+        backend: column_text(row, "backend")?,
+        provider: column_text(row, "provider")?,
+        model: column_text(row, "model")?,
+        status: serde_json::from_str::<SessionStatus>(&column_text(row, "status")?)?,
+        started_at: parse_time("sessions.started_at", &column_text(row, "started_at")?)?,
+        ended_at: column_opt_text(row, "ended_at")?
+            .map(|t| parse_time("sessions.ended_at", &t))
+            .transpose()?,
+        parent_session_id: column_opt_text(row, "parent_session_id")?
+            .map(|t| parse_ulid("sessions.parent_session_id", &t))
+            .transpose()?
+            .map(SessionId),
+        cli_session_id: column_opt_text(row, "cli_session_id")?,
+    })
+}
+
 fn artifact_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<ArtifactRecord> {
     Ok(ArtifactRecord {
         id: parse_ulid("artifacts.id", &column_text(row, "id")?)?,
@@ -835,12 +1934,20 @@ fn cost_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<CostRecord> {
         model_id: column_text(row, "model_id")?,
         prompt_tokens: column_int(row, "prompt_tokens")?.unsigned_abs(),
         completion_tokens: column_int(row, "completion_tokens")?.unsigned_abs(),
+        cache_read_tokens: column_int(row, "cache_read_tokens")?.unsigned_abs(),
+        cache_write_tokens: column_int(row, "cache_write_tokens")?.unsigned_abs(),
+        source: column_text(row, "source")?,
+        estimated: column_int(row, "estimated")? != 0,
+        cost_known: column_int(row, "cost_known")? != 0,
+        duration_ms: column_opt_int(row, "duration_ms")?.map(|v| v.unsigned_abs()),
+        session_id: column_opt_text(row, "session_id")?,
         cost_cents: column_int(row, "cost_cents")?.unsigned_abs(),
         created_at: parse_time("costs.created_at", &column_text(row, "created_at")?)?,
     })
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use chrono::Utc;
@@ -885,6 +1992,9 @@ mod tests {
             updated_at: now,
             repo_path: None,
             repo_url: None,
+            confinement: None,
+            approval_mode: None,
+            permissions: Default::default(),
         }
     }
 
@@ -916,6 +2026,22 @@ mod tests {
                 "002_m1_gates_artifacts_costs.sql",
                 &include_bytes!("../migrations/002_m1_gates_artifacts_costs.sql")[..],
             ),
+            (
+                "003_run_version.sql",
+                &include_bytes!("../migrations/003_run_version.sql")[..],
+            ),
+            (
+                "006_settings.sql",
+                &include_bytes!("../migrations/006_settings.sql")[..],
+            ),
+            (
+                "007_cli_usage_costs.sql",
+                &include_bytes!("../migrations/007_cli_usage_costs.sql")[..],
+            ),
+            (
+                "009_project_permissions.sql",
+                &include_bytes!("../migrations/009_project_permissions.sql")[..],
+            ),
         ] {
             assert!(
                 !bytes.contains(&b'\r'),
@@ -926,12 +2052,20 @@ mod tests {
     }
 
     /// Checksum-stability proxy: the compile-time embedded migrator must
-    /// expose exactly versions 1 and 2, with no CR in any embedded SQL.
+    /// expose exactly versions 1, 2, 3, 4, 6, 7, 8, 9, 10, 11 and 12, with no CR
+    /// in any embedded SQL.
+    ///
+    /// 5 is deliberately absent: the pairing-expiry column it added is part of
+    /// 006 now (P-E7), and no database can have recorded it, because the
+    /// migrator skipped it from the release that introduced it.
     #[test]
     fn embedded_migrator_versions_are_lf_only() {
-        let migrator = sqlx::migrate!("./migrations");
+        let migrator = migration_migrator();
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
-        assert_eq!(versions, vec![1, 2]);
+        assert_eq!(
+            versions,
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+        );
         for migration in migrator.iter() {
             assert!(
                 !migration.sql.contains('\r'),
@@ -939,6 +2073,68 @@ mod tests {
                 migration.version
             );
         }
+    }
+
+    /// The async migrator owns the settings schema (006), and there is no
+    /// skipped version left: the ledger is exactly what the migrator runs. The
+    /// two tables that would collide are both present and distinct: `providers`
+    /// is 001's, `configured_providers` is 006's — the same-file trap
+    /// DECISIONS.md records.
+    #[tokio::test]
+    async fn settings_schema_is_created_by_the_async_migrator() {
+        let store = temp_store().await;
+        let applied: Vec<i64> =
+            sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+                .fetch_all(store.pool())
+                .await
+                .expect("the migration ledger is readable");
+        assert_eq!(
+            applied,
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+        );
+
+        let tables: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM sqlite_master \
+             WHERE type = 'table' AND name IN ('pairing_devices', 'providers', 'configured_providers') \
+             ORDER BY name ASC",
+        )
+        .fetch_all(store.pool())
+        .await
+        .expect("the schema is readable");
+        assert_eq!(
+            tables,
+            vec![
+                "configured_providers".to_string(),
+                "pairing_devices".to_string(),
+                "providers".to_string(),
+            ],
+            "the settings tables and the async schema's `providers` share one file"
+        );
+    }
+
+    /// [`Store::settings`] is the same pool, not a second connection story: a row
+    /// written through the repository is visible to a query on the store's own
+    /// pool, and the store's migrations created the table it writes to.
+    #[tokio::test]
+    async fn settings_write_through_the_stores_own_pool() {
+        let store = temp_store().await;
+        let settings = store.settings();
+        settings
+            .save_provider(&StoredProvider {
+                name: "open_router".to_string(),
+                kind: "open_router".to_string(),
+                api_base: None,
+                enabled: true,
+                created_at: 1_700_000_000,
+            })
+            .await
+            .expect("the settings write lands");
+
+        let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM configured_providers")
+            .fetch_one(store.pool())
+            .await
+            .expect("the store pool reads the settings table");
+        assert_eq!(rows, 1);
     }
 
     #[tokio::test]
@@ -971,6 +2167,10 @@ mod tests {
             status: RunStatus::Running,
             budget_cents: Some(500),
             spent_cents: 0,
+            worktree_path: None,
+            worktree_branch: None,
+            confinement: None,
+            run_mode: RunMode::Agent,
         };
         store.create_run(&run).await.unwrap();
 
@@ -997,6 +2197,10 @@ mod tests {
             status: RunStatus::Running,
             budget_cents: None,
             spent_cents: 0,
+            worktree_path: None,
+            worktree_branch: None,
+            confinement: None,
+            run_mode: RunMode::Agent,
         };
         store.create_run(&run).await.unwrap();
 
@@ -1012,6 +2216,7 @@ mod tests {
                 input: 10,
                 output: 5,
                 total: 15,
+                cost_cents: None,
             }),
             created_at: Utc::now(),
             device_id: None,
@@ -1151,6 +2356,10 @@ mod tests {
             status: RunStatus::Running,
             budget_cents: None,
             spent_cents: 0,
+            worktree_path: None,
+            worktree_branch: None,
+            confinement: None,
+            run_mode: RunMode::Agent,
         }
     }
 
@@ -1203,6 +2412,13 @@ mod tests {
             model_id: "mock-1".to_owned(),
             prompt_tokens: 100,
             completion_tokens: 50,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            source: "api_metered".to_owned(),
+            estimated: false,
+            cost_known: true,
+            duration_ms: None,
+            session_id: None,
             cost_cents,
             created_at,
         }
@@ -1410,5 +2626,316 @@ mod tests {
         assert!(store.list_artifacts(run.id).await.unwrap().is_empty());
         assert!(store.list_costs(run.id).await.unwrap().is_empty());
         assert_eq!(store.total_cost_cents(run.id).await.unwrap(), 0);
+    }
+
+    #[cfg(test)]
+    mod cas {
+        #![allow(clippy::unwrap_used, clippy::expect_used)]
+        use super::*;
+
+        #[tokio::test]
+        async fn concurrent_update_with_stale_version_is_rejected() -> Result<()> {
+            let store = temp_store().await;
+            let project = sample_project();
+            store.create_project(&project).await.unwrap();
+
+            let run = sample_run(project.id);
+            store.create_run(&run).await.unwrap();
+
+            // Both workers read the run at version 1.
+            let (mut run_w1, v_w1) = store.get_run_versioned(run.id).await.unwrap();
+            let (mut run_w2, v_w2) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(v_w1, 1);
+            assert_eq!(v_w2, 1);
+
+            // Worker 1 commits first with CAS expected version 1.
+            run_w1.current_stage = Stage::Research;
+            let new_v = store.update_run_cas(&run_w1, v_w1).await.unwrap();
+            assert_eq!(new_v, 2);
+
+            // Worker 2 attempts to commit with stale version 1 -> rejected with VersionConflict.
+            run_w2.current_stage = Stage::Design;
+            let err = store
+                .update_run_cas(&run_w2, v_w2)
+                .await
+                .expect_err("stale CAS update must fail");
+
+            match err {
+                StoreError::VersionConflict {
+                    run_id,
+                    expected,
+                    actual,
+                } => {
+                    assert_eq!(run_id, run.id);
+                    assert_eq!(expected, 1);
+                    assert_eq!(actual, 2);
+                }
+                other => return Err(other),
+            }
+
+            // Stored state remains Worker 1's commit (Research), not overwritten by Worker 2.
+            let (stored, stored_v) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(stored.current_stage, Stage::Research);
+            assert_eq!(stored_v, 2);
+
+            // Worker 2 re-reads versioned state and retries with expected version 2 -> succeeds.
+            run_w2.current_stage = Stage::Design;
+            let retry_v = store.update_run_cas(&run_w2, stored_v).await.unwrap();
+            assert_eq!(retry_v, 3);
+
+            let (final_run, final_v) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(final_run.current_stage, Stage::Design);
+            assert_eq!(final_v, 3);
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn sequential_cas_updates_increment_version() {
+            let store = temp_store().await;
+            let project = sample_project();
+            store.create_project(&project).await.unwrap();
+
+            let mut run = sample_run(project.id);
+            store.create_run(&run).await.unwrap();
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 1);
+
+            run.current_stage = Stage::Research;
+            let v2 = store.update_run_cas(&run, 1).await.unwrap();
+            assert_eq!(v2, 2);
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 2);
+
+            run.current_stage = Stage::PrdSpec;
+            let v3 = store.update_run_cas(&run, 2).await.unwrap();
+            assert_eq!(v3, 3);
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 3);
+
+            // A direct update_run also increments version to 4.
+            run.current_stage = Stage::Design;
+            store.update_run(&run).await.unwrap();
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 4);
+
+            // A stale expected version (3) now fails because version is 4.
+            let err = store
+                .update_run_cas(&run, 3)
+                .await
+                .expect_err("expected version 3 should conflict with version 4");
+            assert!(matches!(
+                err,
+                StoreError::VersionConflict {
+                    expected: 3,
+                    actual: 4,
+                    ..
+                }
+            ));
+        }
+
+        #[tokio::test]
+        async fn reloading_run_version_reflects_version_bump() {
+            let store = temp_store().await;
+            let project = sample_project();
+            store.create_project(&project).await.unwrap();
+
+            let run = sample_run(project.id);
+            store.create_run(&run).await.unwrap();
+
+            let v = store.get_run_version(run.id).await.unwrap();
+            assert_eq!(v, 1);
+
+            let (loaded_run, loaded_v) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(loaded_v, 1);
+            assert_eq!(loaded_run.id, run.id);
+        }
+
+        #[tokio::test]
+        async fn recovering_interrupted_runs_bumps_version() {
+            let store = temp_store().await;
+            let project = sample_project();
+            store.create_project(&project).await.unwrap();
+
+            let run = sample_run(project.id);
+            store.create_run(&run).await.unwrap();
+            assert_eq!(run.status, RunStatus::Running);
+            assert_eq!(store.get_run_version(run.id).await.unwrap(), 1);
+
+            let recovered = store.recover_interrupted_runs().await.unwrap();
+            assert_eq!(recovered.len(), 1);
+            assert_eq!(recovered[0].id, run.id);
+            assert_eq!(recovered[0].status, RunStatus::Paused);
+
+            // Version was bumped by the CAS update during recovery.
+            let (stored, version) = store.get_run_versioned(run.id).await.unwrap();
+            assert_eq!(stored.status, RunStatus::Paused);
+            assert_eq!(version, 2);
+
+            // Interrupted event was recorded on the run's log.
+            let events = store.get_events(run.id).await.unwrap();
+            assert!(events
+                .iter()
+                .any(|e| e.payload["action"] == "run_interrupted"));
+        }
+    }
+
+    /// K6: upsert overwrites, the CHECK rejects an unknown permission, and all
+    /// three accepted values round-trip in key order.
+    #[tokio::test]
+    async fn mcp_permissions_upsert_check_and_round_trip() {
+        let temp = fresh_tempdir();
+        let store = Store::open_at(temp.path().join("permissions.db"))
+            .await
+            .expect("the test store opens");
+        store
+            .set_mcp_permission("srv", "tool", "agent", "allow", "2026-01-01T00:00:00Z")
+            .await
+            .expect("allow writes");
+        store
+            .set_mcp_permission("srv", "tool", "agent", "deny", "2026-01-02T00:00:00Z")
+            .await
+            .expect("the upsert writes");
+        store
+            .set_mcp_permission("srv", "other", "reviewer", "ask", "2026-01-03T00:00:00Z")
+            .await
+            .expect("ask writes");
+
+        let rows = store.load_mcp_permissions().await.expect("the rows load");
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "srv".to_string(),
+                    "other".to_string(),
+                    "reviewer".to_string(),
+                    "ask".to_string()
+                ),
+                (
+                    "srv".to_string(),
+                    "tool".to_string(),
+                    "agent".to_string(),
+                    "deny".to_string()
+                ),
+            ],
+            "the upsert did not overwrite or the rows did not round-trip"
+        );
+
+        let refused = store
+            .set_mcp_permission("srv", "tool", "agent", "permit", "2026-01-04T00:00:00Z")
+            .await;
+        assert!(
+            refused.is_err(),
+            "the CHECK constraint accepted an unknown permission"
+        );
+    }
+
+    #[tokio::test]
+    async fn sessions_crud_round_trip() {
+        let temp = fresh_tempdir();
+        let store = Store::open_at(temp.path().join("sessions_test.db"))
+            .await
+            .expect("the test store opens");
+
+        let project = sample_project();
+        store
+            .create_project(&project)
+            .await
+            .expect("project creates");
+        let run = sample_run(project.id);
+        store.create_run(&run).await.expect("run creates");
+
+        let session_id = SessionId::new();
+        let session = Session {
+            id: session_id,
+            run_id: Some(run.id),
+            project_id: project.id,
+            role: Role::Coder,
+            backend: "claude-code".to_string(),
+            provider: "anthropic".to_string(),
+            model: "claude-3-7-sonnet".to_string(),
+            status: SessionStatus::Starting,
+            started_at: Utc::now(),
+            ended_at: None,
+            parent_session_id: None,
+            cli_session_id: None,
+        };
+
+        store
+            .create_session(&session)
+            .await
+            .expect("session creates");
+
+        let fetched = store
+            .get_session(session_id)
+            .await
+            .expect("session fetches")
+            .expect("session is found");
+        assert_eq!(fetched.id, session_id);
+        assert_eq!(fetched.run_id, Some(run.id));
+        assert_eq!(fetched.status, SessionStatus::Starting);
+        assert_eq!(fetched.backend, "claude-code");
+
+        // Ask-mode session with NULL run_id (migration 016)
+        let ask_session_id = SessionId::new();
+        let ask_session = Session {
+            id: ask_session_id,
+            run_id: None,
+            project_id: project.id,
+            role: Role::Secretary,
+            backend: "native".to_string(),
+            provider: "mock".to_string(),
+            model: "default".to_string(),
+            status: SessionStatus::Done,
+            started_at: Utc::now(),
+            ended_at: Some(Utc::now()),
+            parent_session_id: None,
+            cli_session_id: None,
+        };
+        store
+            .create_session(&ask_session)
+            .await
+            .expect("ask session creates without run_id");
+        let fetched_ask = store
+            .get_session(ask_session_id)
+            .await
+            .expect("ask session fetches")
+            .expect("ask session found");
+        assert_eq!(fetched_ask.run_id, None);
+        assert_eq!(fetched_ask.role, Role::Secretary);
+
+        store
+            .update_session_status(session_id, SessionStatus::Working)
+            .await
+            .expect("status updates");
+
+        store
+            .update_session_cli_id(session_id, "cli-sess-1234")
+            .await
+            .expect("cli id updates");
+
+        let working = store
+            .get_session(session_id)
+            .await
+            .expect("session fetches")
+            .expect("session is found");
+        assert_eq!(working.status, SessionStatus::Working);
+        assert_eq!(working.cli_session_id.as_deref(), Some("cli-sess-1234"));
+
+        let end_time = Utc::now();
+        store
+            .finish_session(session_id, SessionStatus::Done, end_time)
+            .await
+            .expect("session finishes");
+
+        let done = store
+            .get_session(session_id)
+            .await
+            .expect("session fetches")
+            .expect("session is found");
+        assert_eq!(done.status, SessionStatus::Done);
+        assert!(done.ended_at.is_some());
+
+        let list = store
+            .list_sessions_by_run(run.id)
+            .await
+            .expect("sessions list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, session_id);
     }
 }

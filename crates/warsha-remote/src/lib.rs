@@ -12,7 +12,6 @@ use qrcode::QrCode;
 use rand::rngs::OsRng;
 use rand::TryRngCore;
 use serde::{Deserialize, Serialize};
-use snow::{params::NoiseParams, Builder, HandshakeState, TransportState};
 use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
@@ -47,6 +46,8 @@ pub enum RemoteError {
     PairingOrigin(String),
     #[error("Relay error: {0}")]
     Relay(String),
+    #[error("Not implemented")]
+    NotImplemented,
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
     #[error("IO error: {0}")]
@@ -77,9 +78,6 @@ pub fn constant_time_eq(expected: &[u8], presented: &[u8]) -> bool {
         == 0
 }
 
-/// Noise XX parameters
-const NOISE_PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
-
 /// Long-term device identity
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceIdentity {
@@ -108,11 +106,6 @@ impl DeviceIdentity {
             revoked: false,
             revoked_at: None,
         })
-    }
-
-    pub fn verify_signature(&self, _message: &[u8], _signature: &[u8]) -> bool {
-        // In real implementation, verify Ed25519 signature
-        true
     }
 }
 
@@ -183,8 +176,11 @@ impl PairingData {
             .decode(base64_png)
             .map_err(|e| RemoteError::QrCode(e.to_string()))?;
 
-        // In real implementation, decode QR from image
-        // For now, assume we have the JSON data directly
+        // This decodes the base64 payload to bytes and parses those bytes as the
+        // pairing's JSON; it does not decode a PNG image back into text. A plate
+        // produced by `to_qr_code` is a PNG and is not readable here, which is why
+        // `devices.pair-start` hands the desktop a link and a plate instead of asking
+        // the CLI to read a plate back.
         let data = serde_json::from_slice(&png_data)?;
         Ok(data)
     }
@@ -583,139 +579,21 @@ pub struct EncryptedFrame {
     pub timestamp: DateTime<Utc>,
 }
 
-/// E2E encrypted channel using Noise XX
-#[allow(dead_code)]
-pub struct EncryptedChannel {
-    transport: Option<TransportState>,
-    local_static: StaticSecret,
-    remote_static: PublicKey,
-    local_device_id: DeviceId,
-    remote_device_id: DeviceId,
-    replay_cache: Arc<Mutex<Vec<[u8; 12]>>>,
-}
-
-impl EncryptedChannel {
-    /// Initiator side: start handshake
-    pub fn initiate(local_identity: &DeviceIdentity, remote_public: &[u8; 32]) -> Result<Self> {
-        let params: NoiseParams = NOISE_PARAMS
-            .parse::<NoiseParams>()
-            .map_err(|e: snow::Error| RemoteError::Crypto(e.to_string()))?;
-        let builder = Builder::new(params);
-
-        let mut secret_bytes = [0u8; 32];
-        OsRng
-            .try_fill_bytes(&mut secret_bytes)
-            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
-        let local_static = StaticSecret::from(secret_bytes);
-
-        let _handshake = builder
-            .local_private_key(&local_static.to_bytes())
-            .remote_public_key(remote_public)
-            .build_initiator()
-            .map_err(|e| RemoteError::Handshake(e.to_string()))?;
-
-        Ok(Self {
-            transport: None,
-            local_static,
-            remote_static: PublicKey::from(*remote_public),
-            local_device_id: local_identity.device_id,
-            remote_device_id: DeviceId::new(), // Will be set after handshake
-            replay_cache: Arc::new(Mutex::new(Vec::new())),
-        })
-    }
-
-    /// Responder side: start handshake
-    pub fn respond(local_identity: &DeviceIdentity) -> Result<Self> {
-        let params: NoiseParams = NOISE_PARAMS
-            .parse::<NoiseParams>()
-            .map_err(|e: snow::Error| RemoteError::Crypto(e.to_string()))?;
-        let builder = Builder::new(params);
-
-        let mut secret_bytes = [0u8; 32];
-        OsRng
-            .try_fill_bytes(&mut secret_bytes)
-            .map_err(|e| RemoteError::Crypto(e.to_string()))?;
-        let local_static = StaticSecret::from(secret_bytes);
-
-        let _handshake = builder
-            .local_private_key(&local_static.to_bytes())
-            .build_responder()
-            .map_err(|e| RemoteError::Handshake(e.to_string()))?;
-
-        Ok(Self {
-            transport: None,
-            local_static,
-            remote_static: PublicKey::from([0u8; 32]), // Will be set after handshake
-            local_device_id: local_identity.device_id,
-            remote_device_id: DeviceId::new(),
-            replay_cache: Arc::new(Mutex::new(Vec::new())),
-        })
-    }
-
-    /// Process handshake message
-    pub fn process_handshake(&mut self, _msg: &[u8], _out: &mut Vec<u8>) -> Result<bool> {
-        // In real implementation, use snow's handshake state machine
-        Ok(false)
-    }
-
-    /// Write a message (encrypt)
-    pub fn write_message(&mut self, plaintext: &[u8], out: &mut [u8]) -> Result<()> {
-        if let Some(transport) = &mut self.transport {
-            transport
-                .write_message(plaintext, out)
-                .map_err(|e| RemoteError::Crypto(e.to_string()))?;
-            Ok(())
-        } else {
-            Err(RemoteError::Handshake("Handshake not complete".to_string()))
-        }
-    }
-
-    /// Read a message (decrypt)
-    pub fn read_message(&mut self, ciphertext: &[u8], out: &mut [u8]) -> Result<()> {
-        if let Some(transport) = &mut self.transport {
-            transport
-                .read_message(ciphertext, out)
-                .map_err(|e| RemoteError::Crypto(e.to_string()))?;
-
-            // Check replay protection
-            Ok(())
-        } else {
-            Err(RemoteError::Handshake("Handshake not complete".to_string()))
-        }
-    }
-
-    /// Complete handshake and get transport
-    pub fn complete_handshake(&mut self, handshake: HandshakeState) -> Result<()> {
-        self.transport = Some(
-            handshake
-                .into_transport_mode()
-                .map_err(|e| RemoteError::Handshake(e.to_string()))?,
-        );
-        Ok(())
-    }
-}
-
-/// Relay client for connecting to warsha-relay
+/// An outbound relay client that is not implemented.
+///
+/// Only [`RelayClient::new`] and [`RelayClient::credential`] do real work; there is no
+/// socket and no `connect`. `send_frame` and `receive_frames` are placeholders that
+/// return success and an empty list without moving anything. Nothing in the daemon
+/// constructs this type.
 #[allow(dead_code)]
 pub struct RelayClient {
     url: String,
     device_id: DeviceId,
-    channel: Arc<Mutex<Option<EncryptedChannel>>>,
 }
 
 impl RelayClient {
     pub fn new(url: String, device_id: DeviceId) -> Self {
-        Self {
-            url,
-            device_id,
-            channel: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    pub async fn connect(&self, _pairing: &PairingData) -> Result<()> {
-        // In real implementation, connect to relay WebSocket
-        // Perform handshake with remote device
-        Ok(())
+        Self { url, device_id }
     }
 
     /// The `Authorization` value this client must present to open a relay channel.
@@ -739,14 +617,14 @@ impl RelayClient {
         Ok(format!("Bearer {}", pairing.secret_token()))
     }
 
+    /// Not implemented: returns an error instead of reporting fake success.
     pub async fn send_frame(&self, _frame: EncryptedFrame) -> Result<()> {
-        // Send encrypted frame to relay
-        Ok(())
+        Err(RemoteError::NotImplemented)
     }
 
+    /// Not implemented: returns an error instead of reporting fake success.
     pub async fn receive_frames(&self) -> Result<Vec<EncryptedFrame>> {
-        // Receive frames from relay
-        Ok(vec![])
+        Err(RemoteError::NotImplemented)
     }
 }
 
@@ -813,6 +691,7 @@ impl DeviceRegistry {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -851,15 +730,6 @@ mod tests {
 
         registry.revoke_device(remote.device_id).await.unwrap();
         assert!(registry.is_revoked(remote.device_id).await);
-    }
-
-    #[test]
-    fn test_encrypted_channel_creation() {
-        let local = DeviceIdentity::generate("Local".to_string()).unwrap();
-        let remote_public = [1u8; 32]; // dummy
-
-        let channel = EncryptedChannel::initiate(&local, &remote_public).unwrap();
-        assert_eq!(channel.local_device_id, local.device_id);
     }
 
     /// A pairing an owner has handed the relay, five minutes from its expiry.

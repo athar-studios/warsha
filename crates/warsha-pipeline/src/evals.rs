@@ -291,10 +291,20 @@ fn default_cases() -> Vec<EvalCase> {
             must_not_contain: vec!["cannot".to_string()],
             max_cost_cents: None,
         },
+        EvalCase {
+            id: "secretary-interview".to_string(),
+            role: Role::Secretary,
+            name: "conducts interview".to_string(),
+            prompt: "Ask about the project audience.".to_string(),
+            must_contain: vec!["audience".to_string()],
+            must_not_contain: vec!["cannot".to_string()],
+            max_cost_cents: None,
+        },
     ]
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -307,7 +317,7 @@ mod tests {
         let suite = EvalSuite::default_suite();
 
         assert!(!suite.is_empty());
-        assert_eq!(suite.len(), 14);
+        assert_eq!(suite.len(), 15);
         for role in Role::all() {
             assert!(
                 !suite.cases_for(*role).is_empty(),

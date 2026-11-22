@@ -81,4 +81,13 @@ RUN_TRIGGER
 graphify-out/
 .graphify*
 
+# Android signing keys (SECURITY.md)
+*.jks
+*.keystore
+*.p12
+keystore.properties
 
+
+
+.runlogs/
+.runlogs/

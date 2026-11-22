@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! D2 — the provider RPCs really store, really test and really remove (PLAN.md M20,
 //! provider-RPC batch).
 //!
@@ -292,7 +299,7 @@ fn add_params(name: &str, api_base: &str, key: &str) -> Value {
 /// only if the test shuts it down first, which `shutdown` is.
 async fn daemon_over(
     dir: &Path,
-    secrets: Arc<InMemorySecretStore>,
+    secrets: Arc<dyn warsha_providers::SecretStore>,
 ) -> (warshad::DaemonHandle, Rpc) {
     std::fs::create_dir_all(dir).expect("the data directory is made");
     let handle = start_daemon_with_secrets(config(dir), secrets)
@@ -694,6 +701,104 @@ async fn a_key_pasted_with_surrounding_whitespace_is_stored_trimmed() {
         endpoint.authorization_headers(),
         vec![bearer(CANARY_KEY)],
         "the bearer token must not carry the pasted whitespace"
+    );
+
+    daemon.shutdown().await;
+}
+
+#[tokio::test]
+async fn providers_add_supports_standard_vendor_kinds_without_api_base() {
+    let data_dir = fresh_tempdir();
+    let secrets = Arc::new(InMemorySecretStore::new());
+
+    let (daemon, rpc) = daemon_over(data_dir.path(), secrets.clone()).await;
+
+    // Adding openai with no api_base uses canonical default
+    rpc.call(
+        "providers.add",
+        json!({
+            "name": "my-openai",
+            "kind": "openai",
+            "key": CANARY_KEY,
+            "api_base": null,
+        }),
+    )
+    .await;
+
+    let list = rpc.call("providers.list", json!([])).await;
+    let providers = list.as_array().expect("providers is a list");
+    let found = providers.iter().find(|p| p["name"] == "my-openai");
+    assert!(found.is_some(), "my-openai should be saved");
+
+    daemon.shutdown().await;
+}
+
+/// Proving test for H3 / FIX-SCOPE-3:
+/// `providers.add` and `providers.test` with a failing primary secret store complete < timeout
+/// by persisting to and loading from the fallback encrypted store.
+#[tokio::test]
+async fn daemon_add_and_test_with_failing_primary_store_completes_within_timeout() {
+    use std::time::Instant;
+    use warsha_providers::{
+        EncryptedFileSecretStore, FallbackSecretStore, ProviderError, Result as ProviderResult,
+        SecretStore,
+    };
+
+    #[derive(Debug)]
+    struct FailingPrimaryStore;
+
+    #[async_trait::async_trait]
+    impl SecretStore for FailingPrimaryStore {
+        async fn store(&self, _account: &str, _key: &str) -> ProviderResult<()> {
+            Err(ProviderError::Auth("keychain is locked".to_string()))
+        }
+        async fn load(&self, _account: &str) -> ProviderResult<String> {
+            Err(ProviderError::Auth("keychain is locked".to_string()))
+        }
+        async fn delete(&self, _account: &str) -> ProviderResult<()> {
+            Err(ProviderError::Auth("keychain is locked".to_string()))
+        }
+    }
+
+    let dir = fresh_tempdir();
+    let data_dir = dir.path().join("data");
+    let endpoint = StubEndpoint::start(200);
+
+    let fallback =
+        Arc::new(EncryptedFileSecretStore::new(&data_dir).expect("fallback store created"));
+    let store = Arc::new(FallbackSecretStore::new(
+        Arc::new(FailingPrimaryStore),
+        fallback,
+    ));
+
+    let (daemon, rpc) = daemon_over(&data_dir, store).await;
+
+    let start = Instant::now();
+
+    // 1. providers.add with failing primary store writes to fallback store without hanging
+    let added = rpc
+        .call(
+            "providers.add",
+            add_params("failing-keychain-qwen", &endpoint.base_url, CANARY_KEY),
+        )
+        .await;
+    assert_eq!(added["name"], json!("failing-keychain-qwen"));
+
+    // 2. providers.test reads key from fallback store and tests against endpoint
+    let tested = rpc
+        .call("providers.test", json!({ "name": "failing-keychain-qwen" }))
+        .await;
+    assert_eq!(tested["healthy"], json!(true));
+    assert_eq!(
+        endpoint.authorization_headers(),
+        vec![bearer(CANARY_KEY)],
+        "key from fallback store was used for authorization"
+    );
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "add and test completed in < 2s with failing primary store (took {elapsed:?})"
     );
 
     daemon.shutdown().await;

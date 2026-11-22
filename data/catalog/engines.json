@@ -1,0 +1,317 @@
+[
+  {
+    "name": "claude-code",
+    "display_name": "Claude Code",
+    "command": "claude",
+    "args_template": ["-p", "{prompt}"],
+    "output_format": "stream-json",
+    "tier": "A",
+    "permission_mapping": "claude-code"
+  },
+  {
+    "name": "codex-cli",
+    "display_name": "Codex CLI",
+    "command": "codex",
+    "args_template": ["exec", "--json", "{prompt}"],
+    "output_format": "jsonl",
+    "tier": "A",
+    "permission_mapping": "codex-cli"
+  },
+  {
+    "name": "opencode",
+    "display_name": "OpenCode",
+    "command": "opencode",
+    "args_template": ["run", "--format", "json", "{prompt}"],
+    "output_format": "jsonl",
+    "tier": "A",
+    "permission_mapping": null
+  },
+  {
+    "name": "gemini-cli",
+    "display_name": "Gemini CLI",
+    "command": "gemini",
+    "args_template": ["{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "cursor-cli",
+    "display_name": "Cursor CLI",
+    "command": "cursor",
+    "args_template": ["--cli", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "openhands",
+    "display_name": "OpenHands",
+    "command": "openhands",
+    "args_template": ["{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "aider",
+    "display_name": "Aider",
+    "command": "aider",
+    "args_template": ["--message", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "goose",
+    "display_name": "Goose",
+    "command": "goose",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "cline",
+    "display_name": "Cline",
+    "command": "cline",
+    "args_template": ["{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "amp",
+    "display_name": "Amp",
+    "command": "amp",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "kiro",
+    "display_name": "Kiro",
+    "command": "kiro",
+    "args_template": ["{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "qwen-code",
+    "display_name": "Qwen Code",
+    "command": "qwen",
+    "args_template": ["{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "droid",
+    "display_name": "Droid",
+    "command": "droid",
+    "args_template": ["exec", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "crush",
+    "display_name": "Crush",
+    "command": "crush",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "devin",
+    "display_name": "Devin",
+    "command": "devin",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "augment",
+    "display_name": "Augment",
+    "command": "augment",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "windsurf",
+    "display_name": "Windsurf",
+    "command": "windsurf",
+    "args_template": ["--run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "continue-cli",
+    "display_name": "Continue",
+    "command": "continue",
+    "args_template": ["exec", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "cody",
+    "display_name": "Cody",
+    "command": "cody",
+    "args_template": ["chat", "-m", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "junie",
+    "display_name": "Junie",
+    "command": "junie",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "copilot-cli",
+    "display_name": "GitHub Copilot CLI",
+    "command": "copilot",
+    "args_template": ["explain", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "amazon-q",
+    "display_name": "Amazon Q Developer CLI",
+    "command": "q",
+    "args_template": ["chat", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "plandex",
+    "display_name": "Plandex",
+    "command": "plandex",
+    "args_template": ["tell", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "mentat",
+    "display_name": "Mentat",
+    "command": "mentat",
+    "args_template": ["--prompt", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "sweep",
+    "display_name": "Sweep",
+    "command": "sweep",
+    "args_template": ["{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "roo-code",
+    "display_name": "Roo Code",
+    "command": "roo",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "trae",
+    "display_name": "Trae",
+    "command": "trae",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "v0-cli",
+    "display_name": "v0",
+    "command": "v0",
+    "args_template": ["{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "bolt-cli",
+    "display_name": "Bolt",
+    "command": "bolt",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "lovable-cli",
+    "display_name": "Lovable",
+    "command": "lovable",
+    "args_template": ["exec", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "zed-cli",
+    "display_name": "Zed",
+    "command": "zed",
+    "args_template": ["--chat", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "koda",
+    "display_name": "Koda",
+    "command": "koda",
+    "args_template": ["run", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "crush-code",
+    "display_name": "Crush Code",
+    "command": "crush-code",
+    "args_template": ["exec", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "codeium",
+    "display_name": "Codeium",
+    "command": "codeium",
+    "args_template": ["chat", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  },
+  {
+    "name": "tabnine-cli",
+    "display_name": "Tabnine CLI",
+    "command": "tabnine",
+    "args_template": ["chat", "{prompt}"],
+    "output_format": "plain",
+    "tier": "C",
+    "permission_mapping": null
+  }
+]

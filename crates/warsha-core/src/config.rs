@@ -83,6 +83,14 @@ pub struct FileEntry {
     pub is_dir: bool,
     /// Size in bytes for files; 0 for directories.
     pub size_bytes: u64,
+    /// Modification time, if available.
+    pub mtime: Option<DateTime<Utc>>,
+    /// Whether the entry is protected and content should not be served.
+    #[serde(default)]
+    pub protected: bool,
+    /// Short git porcelain status code (e.g. `"M"`, `"A"`, `"??"`), when in a git repo.
+    #[serde(default)]
+    pub git_status: Option<String>,
 }
 
 /// The text content of one file, for the viewer pane.
@@ -96,7 +104,99 @@ pub struct FileContent {
     pub mime_type: String,
 }
 
+/// Side-by-side diff payload for one file (`files.diff`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileDiff {
+    /// Path the diff was built for, relative to the browsing root.
+    pub path: String,
+    /// Git ref used for the base side (e.g. `"HEAD"` or a run base commit SHA).
+    pub base_ref: String,
+    /// File text at `base_ref` (empty string when the file does not exist at `base_ref`).
+    pub base_content: String,
+    /// Current file text on disk.
+    pub current_content: String,
+    /// Best-guess MIME type, e.g. `text/rust`.
+    pub mime_type: String,
+}
+
+/// Owner-written definition of a custom coding CLI backend (R-NEXT N2).
+///
+/// Contains NO secrets: API keys stay in the OS keychain or host environment;
+/// `env_names` names only the environment variables to forward.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomBackendDefinition {
+    /// Canonical identifier used to select this backend (e.g. `"my-custom-cli"`).
+    pub name: String,
+    /// Human-friendly display label.
+    pub display_name: String,
+    /// Executable name on PATH or absolute path.
+    pub executable: String,
+    /// Argument template containing a `{prompt}` placeholder.
+    pub args_template: Vec<String>,
+    /// Output format: `"plain"`, `"stream-json"`, or `"jsonl"`.
+    pub output_format: String,
+    /// Environment variable names to forward (no secret values stored here).
+    #[serde(default)]
+    pub env_names: Vec<String>,
+    /// Optional permission mapping reference (e.g. `"claude-code"`, `"codex-cli"`).
+    #[serde(default)]
+    pub permission_mapping: Option<String>,
+}
+
+impl CustomBackendDefinition {
+    /// Validate a custom backend definition.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("custom backend name cannot be empty".to_string());
+        }
+        if self.executable.trim().is_empty() {
+            return Err(format!(
+                "custom backend `{}` has missing or empty executable",
+                self.name
+            ));
+        }
+        if !self
+            .args_template
+            .iter()
+            .any(|arg| arg.contains("{prompt}"))
+        {
+            return Err(format!(
+                "custom backend `{}` is missing required `{{prompt}}` placeholder in args_template",
+                self.name
+            ));
+        }
+        if !matches!(
+            self.output_format.as_str(),
+            "plain" | "stream-json" | "jsonl"
+        ) {
+            return Err(format!(
+                "custom backend `{}` has unknown output format `{}`",
+                self.name, self.output_format
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns true if any argument carries a permission-skipping flag.
+    ///
+    /// Custom backends are permitted to carry these flags (unlike shipped catalog entries);
+    /// this boolean provides the warning data surfaced to the owner.
+    pub fn has_permission_skipping_flag(&self) -> bool {
+        const SKIP_SUBSTRINGS: &[&str] = &[
+            "dangerously-skip-permissions",
+            "dangerously-bypass-approvals-and-sandbox",
+            "bypass-permissions",
+            "skip-permissions",
+            "no-verify",
+        ];
+        self.args_template
+            .iter()
+            .any(|arg| SKIP_SUBSTRINGS.iter().any(|sub| arg.contains(sub)))
+    }
+}
+
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -147,6 +247,9 @@ mod tests {
             path: "docs/README.md".to_string(),
             is_dir: false,
             size_bytes: 1_024,
+            mtime: None,
+            protected: false,
+            git_status: Some("M".to_string()),
         };
         let encoded = serde_json::to_string(&entry).expect("encodes");
         assert_eq!(
@@ -164,5 +267,53 @@ mod tests {
             serde_json::from_str::<FileContent>(&encoded).expect("decodes"),
             content
         );
+
+        let diff = FileDiff {
+            path: "docs/README.md".to_string(),
+            base_ref: "HEAD".to_string(),
+            base_content: "# Old".to_string(),
+            current_content: "# Warsha".to_string(),
+            mime_type: "text/markdown".to_string(),
+        };
+        let encoded = serde_json::to_string(&diff).expect("encodes");
+        assert_eq!(
+            serde_json::from_str::<FileDiff>(&encoded).expect("decodes"),
+            diff
+        );
+    }
+
+    #[test]
+    fn custom_backend_definition_validates_and_detects_skip_flags() {
+        let valid = CustomBackendDefinition {
+            name: "my-cli".to_string(),
+            display_name: "My CLI".to_string(),
+            executable: "my-cli".to_string(),
+            args_template: vec!["run".to_string(), "{prompt}".to_string()],
+            output_format: "plain".to_string(),
+            env_names: vec!["API_KEY".to_string()],
+            permission_mapping: None,
+        };
+        assert!(valid.validate().is_ok());
+        assert!(!valid.has_permission_skipping_flag());
+
+        let mut invalid_exe = valid.clone();
+        invalid_exe.executable = "".to_string();
+        assert!(invalid_exe.validate().is_err());
+
+        let mut invalid_prompt = valid.clone();
+        invalid_prompt.args_template = vec!["run".to_string()];
+        assert!(invalid_prompt.validate().is_err());
+
+        let mut invalid_format = valid.clone();
+        invalid_format.output_format = "xml".to_string();
+        assert!(invalid_format.validate().is_err());
+
+        let mut skipping = valid.clone();
+        skipping.args_template = vec![
+            "--dangerously-skip-permissions".to_string(),
+            "{prompt}".to_string(),
+        ];
+        assert!(skipping.validate().is_ok());
+        assert!(skipping.has_permission_skipping_flag());
     }
 }

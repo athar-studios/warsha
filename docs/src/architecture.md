@@ -48,7 +48,7 @@ Warsha follows a **modular, crate-based architecture** with clear separation of 
 | `warsha-backends` | Coding agent backends | `CodingBackend` trait, `BuiltinBackend`, `CliBackend`, adapters |
 | `warsha-git` | Git + GitHub types | `GitRepo`, `GitHubClient`, `ProjectTemplate`. **Nothing in the daemon or the app calls them:** no `github.*` RPC is served, and `DaemonState.github` is built from a keychain token and then never used (`crates/warshad/src/lib.rs:504`, `:3203`) |
 | `warsha-relay` | Optional relay server | `RelayState`, WebSocket frame forwarding |
-| `warsha-remote` | Pairing, E2E crypto, relay client | `DeviceIdentity`, `PairingData` (both in use); `EncryptedChannel` exists but its handshake is a stub — see [Security Model](security.md) |
+| `warsha-remote` | Pairing, E2E crypto, relay client | `DeviceIdentity`, `PairingData` (both in use); the E2E handshake channel is **not built** (crypto stubs deleted, OD-R6/KEEL K7) — see [Security Model](security.md) |
 | `warshad` | Daemon binary | HTTP/WS server, JSON-RPC methods, sidecar support |
 | `warsha-cli` | CLI binary | All 15 commands, RPC client, config management |
 
@@ -127,11 +127,11 @@ Desktop                          Relay                          Mobile
 ```
 
 `PairingData` carries an X25519 static public key, a one-time secret and a 10-minute expiry. The
-encrypted channel is **scaffolding, not encryption**: `EncryptedChannel::process_handshake` is a
-stub that returns `Ok(false)` (`crates/warsha-remote/src/lib.rs:656-659`) and no session keys are
-derived, so today's frames are not end-to-end encrypted. The phone opens the daemon's address with
-the bearer token instead, and on any network that is not your own machine it must sit behind HTTPS
-or a tunnel the owner controls (see [Security Model](security.md)).
+encrypted channel is **not built**: the crypto stubs were deleted (OD-R6, KEEL K7), so there is no
+handshake channel in the tree and no session keys are derived; today's frames are not end-to-end
+encrypted. The phone opens the daemon's address with the bearer token instead, and on any network that is
+not your own machine it must sit behind HTTPS or a tunnel the owner controls (see
+[Security Model](security.md)).
 
 ## Deployment
 

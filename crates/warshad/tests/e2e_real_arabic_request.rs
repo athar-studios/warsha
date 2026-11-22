@@ -1,29 +1,35 @@
-//! End-to-end test: Arabic request for a dental clinic appointment booking web app.
-//!
-//! Covers the Definition of Done requirement:
-//! "Real build: from one written Arabic request ("تطبيق حجز مواعيد لعيادة أسنان"),
-//! Warsha asks clarifying questions, plans, writes code with a REAL model
-//! (cheapest configured, cost cap enforced by Warsha's own cost accounting),
-//! tests pass, and produces a runnable web app. Proven by WARSHA_E2E_REAL=1 test
-//! + screenshots of the generated app."
-//!
-//! # Modes of Execution
-//!
-//! - **Standard run** (`WARSHA_E2E_REAL != "1"`, default in `cargo test`):
-//!   Runs completely offline using [`MockProvider`]. Meters spend at a fraction of a cent
-//!   via Warsha's own cost accounting ([`ProviderRouter::cost_of`], [`ProviderRouter::set_budget`],
-//!   [`ProviderRouter::get_spent`]). Adheres strictly to the repository rule:
-//!   "No network calls to real model APIs in tests".
-//!
-//! - **Real model run** (`WARSHA_E2E_REAL=1`):
-//!   Detects API key from `WARSHA_REAL_PROVIDER_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-//!   or the secret store. Registers the real provider with the cheapest configured model
-//!   (`gpt-4o-mini` for OpenAI-compatible, `claude-3-5-haiku-20241022` for Anthropic).
-//!   Enforces budget cap, makes live model calls, verifies costs, builds the app,
-//!   and writes the screenshot preview to `bridge-io/shots/clinic-app-preview.png`.
-//!   If `WARSHA_E2E_REAL=1` is set but no API key is found, the test fails immediately
-//!   with a clear explanation.
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
 
+/// End-to-end test: Arabic request for a dental clinic appointment booking web app.
+///
+/// Covers the Definition of Done requirement:
+/// "Real build: from one written Arabic request ("تطبيق حجز مواعيد لعيادة أسنان"),
+/// Warsha asks clarifying questions, plans, writes code with a REAL model
+/// (cheapest configured, cost cap enforced by Warsha's own cost accounting),
+/// tests pass, and produces a runnable web app. Proven by WARSHA_E2E_REAL=1 test
+/// + screenshots of the generated app."
+///
+/// # Modes of Execution
+///
+/// - **Standard run** (`WARSHA_E2E_REAL != "1"`, default in `cargo test`):
+///   Runs completely offline using [`MockProvider`]. Meters spend at a fraction of a cent
+///   via Warsha's own cost accounting ([`ProviderRouter::cost_of`], [`ProviderRouter::set_budget`],
+///   [`ProviderRouter::get_spent`]). Adheres strictly to the repository rule:
+///   "No network calls to real model APIs in tests".
+///
+/// - **Real model run** (`WARSHA_E2E_REAL=1`):
+///   Detects API key from `WARSHA_REAL_PROVIDER_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+///   or the secret store. Registers the real provider with the cheapest configured model
+///   (`gpt-4o-mini` for OpenAI-compatible, `claude-3-5-haiku-20241022` for Anthropic).
+///   Enforces budget cap, makes live model calls, verifies costs, builds the app,
+///   and writes the screenshot preview to `bridge-io/shots/clinic-app-preview.png`.
+///   If `WARSHA_E2E_REAL=1` is set but no API key is found, the test fails immediately
+///   with a clear explanation.
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -41,9 +47,9 @@ use warsha_core::{
 use warsha_pipeline::{
     AgentLoop, AgentMode, AskUserRequest, FilesystemToolExecutor, InMemoryCrashReportStore,
     InMemoryMcpManager, InMemoryPairingStore, InMemoryPreferenceStore, InMemoryProcessManager,
-    InMemoryStoreReviewStore, LivePreviewManager, McpManager, MockRoutineRunner, PipelineEngine,
-    ProcessManager, ProviderRouterAdapter, RoutineRegistry, RoutineRunner, RoutineScheduler,
-    RunMode, RunModeConfig, AGENT_ROLE,
+    InMemoryStoreReviewStore, LivePreviewManager, McpManager, PipelineEngine, ProcessManager,
+    ProviderRouterAdapter, RoutineRegistry, RoutineRunner, RoutineScheduler, RunMode,
+    RunModeConfig, UnavailableRoutineRunner, AGENT_ROLE,
 };
 use warsha_providers::{
     AnthropicProvider, ChatMessage, ChatProvider, ChatRequest, InMemorySecretStore, MessageRole,
@@ -206,6 +212,7 @@ impl ClinicSchedule {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -556,6 +563,7 @@ impl RealOrMockProvider {
                     .ok();
                 let provider = OpenAIProvider::new(
                     "openai".to_string(),
+                    warsha_core::ProviderKind::OpenAI,
                     api_base,
                     &CredentialsRef::EnvVar {
                         var: var_name.to_string(),
@@ -642,6 +650,8 @@ async fn e2e_real_arabic_request_clinic_flow() {
             PACKAGE_NAME.to_string(),
             ARABIC_REQUEST.to_string(),
             "ar".to_string(),
+            None,
+            None,
         )
         .await
         .expect("projects.create succeeds");
@@ -649,7 +659,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
     assert_eq!(project.description, ARABIC_REQUEST);
 
     let run = rpc
-        .start_run(&ext, project.id, ARABIC_REQUEST.to_string())
+        .start_run(&ext, project.id, ARABIC_REQUEST.to_string(), None, None)
         .await
         .expect("runs.start succeeds");
     assert_eq!(run.current_stage, Stage::Idea);
@@ -718,6 +728,11 @@ async fn e2e_real_arabic_request_clinic_flow() {
     assert_eq!(approval.from, AgentMode::Plan);
     assert_eq!(approval.to, AgentMode::Agent);
 
+    // ---- 6. Pipeline stages walk and cost accounting.
+    let engine = state.pipeline.clone();
+    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
+    assert_eq!(run.current_stage, Stage::GateA);
+
     // Owner approves Gate A (brief approval)
     let device = owner;
     let run = rpc
@@ -728,11 +743,6 @@ async fn e2e_real_arabic_request_clinic_flow() {
         run.gate_states[&Stage::GateA],
         GateState::Approved { .. }
     ));
-
-    // ---- 6. Pipeline stages walk and cost accounting.
-    let engine = state.pipeline.clone();
-    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
-    assert_eq!(run.current_stage, Stage::GateA);
 
     let run = engine
         .advance_stage(run.id)
@@ -835,6 +845,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
             input: 2_000,
             output: 1_000,
             total: 3_000,
+            cost_cents: None,
         };
         let estimated_cost = providers
             .cost_of("test-model", &usage)
@@ -1117,7 +1128,8 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
     ));
 
     let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
-    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> = Arc::new(MockRoutineRunner::new());
+    let routine_runner: Arc<dyn RoutineRunner + Send + Sync> =
+        Arc::new(UnavailableRoutineRunner::new());
     let routine_scheduler = Arc::new(RoutineScheduler::new(routines.clone(), routine_runner));
 
     let identity = DeviceIdentity::generate("arabic e2e daemon".to_string()).expect("device id");
@@ -1143,6 +1155,10 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
         crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
         agent_loop,
+        mcp_permissions: Arc::new(warsha_pipeline::StaticPermissions::new()),
+        mcp_approvals: Arc::new(warsha_pipeline::McpApprovals::default()),
+        run_worktrees: Arc::new(RwLock::new(std::collections::HashMap::new())),
+        agent_sessions: Arc::new(warsha_pipeline::RunAgentSessions::new()),
         processes,
         mcp,
         previews,
@@ -1171,6 +1187,7 @@ async fn daemon_state(data_dir: &Path, provider_mode: RealOrMockProvider) -> Arc
         // A hand-built state has no background pump draining the store bus, so this
         // sequencer simply starts empty; direct RPC calls read the store, not this.
         events: std::sync::Arc::new(warshad::EventSequencer::new()),
+        start_time: std::time::Instant::now(),
     })
 }
 

@@ -1,5 +1,23 @@
 //! Warsha CLI binary entry point
 
+use anyhow as _;
+use jsonrpsee as _;
+use reqwest as _;
+use serde as _;
+use serde_json as _;
+#[cfg(test)]
+use tempfile as _;
+use thiserror as _;
+use tracing as _;
+use ulid as _;
+use uuid as _;
+use warsha_backends as _;
+use warsha_core as _;
+use warsha_providers as _;
+use warsha_remote as _;
+use warshad as _;
+use which as _;
+
 use clap::Parser;
 use std::path::Path;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -17,20 +35,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    // Load auth token from config.toml or CLI override
+    // Load auth token and device id from config.toml or CLI overrides
     let token = load_token(&cli)?;
+    let device_id = load_device_id(&cli);
 
     // Handle daemon subcommand specially (runs in-process)
     if matches!(cli.command, warsha_cli::Commands::Daemon(_)) {
-        let app = CliApp::new(cli.url.clone(), token, cli.json)?;
+        let app =
+            CliApp::new(cli.url.clone(), token, cli.json)?.with_device_id(device_id.clone())?;
         app.run(cli).await?;
         return Ok(());
     }
 
     // For all other commands, connect to daemon
-    let app = CliApp::new(cli.url.clone(), token, cli.json)?;
+    let app = CliApp::new(cli.url.clone(), token, cli.json)?.with_device_id(device_id)?;
     app.run(cli).await?;
     Ok(())
+}
+
+/// The CLI-only device id: `--device-id`, else the `device_id` key in `config.toml`.
+fn load_device_id(cli: &Cli) -> Option<String> {
+    let config_path = cli.config.clone().unwrap_or_else(|| {
+        dirs::config_dir()
+            .map(|d| d.join("warsha").join("config.toml"))
+            .unwrap_or_else(|| Path::new(".").join("warsha").join("config.toml"))
+    });
+    warsha_cli::resolve_device_id(cli.device_id.as_deref(), &config_path)
 }
 
 fn load_token(cli: &Cli) -> Result<String, Box<dyn std::error::Error>> {

@@ -72,7 +72,7 @@ Verified against: `crates/warshad/src/lib.rs`, `crates/warsha-store/src/lib.rs`,
 | `http_port` | u16 | `8765` | HTTP surface, bound on `127.0.0.1` |
 | `ws_port` | u16 | `8766` | JSON-RPC surface, bound on `127.0.0.1` |
 | `auth_token` | string | `""` in `Default`, **replaced on first run** by 32 random bytes from `OsRng` encoded with `base64 URL_SAFE_NO_PAD` (`:549-558`) | Bearer token, see §3 |
-| `allowed_origins` | string[] | `["http://localhost:5173", "tauri://localhost"]` | CORS allow-list for the HTTP surface (`:89-92`, applied at `:501-506`) |
+| `allowed_origins` | string[] | `["http://localhost:5173", "tauri://localhost"]` | Extra origins, **unioned with the app's own** (`APP_ORIGINS`) rather than replacing them — see §4 |
 
 Because `auth_token` has a default of `""` only for in-memory construction, a config file that loses the
 field yields an empty token; treat a non-empty 43-character base64url string as the signal that the config
@@ -108,9 +108,29 @@ was created normally.
 | `GET /health` | none | Returns `HealthResponse` as JSON: `{"status":"healthy","version":"<crate version>","uptime_seconds":0}` (`:412-418`) |
 | `GET /events` | bearer | **Pending M1** — see below |
 
-CORS is layered over the router with `allow_origin(allowed_origins)`, `allow_methods(Any)` and
-`allow_headers(Any)` (`:501-506`), so browser clients from the configured origins (Vite dev server, Tauri)
-may call it.
+CORS is layered over both listeners with `allow_origin(cors_origins(&config.allowed_origins))`,
+`allow_methods(Any)` and `allow_headers(Any)` (`crates/warshad/src/auth.rs`,
+`crates/warshad/src/http.rs`, `crates/warshad/src/startup.rs`), so browser clients from the configured
+origins (Vite dev server, Tauri, a browser PWA) may call them.
+
+### The origin rule — `APP_ORIGINS` ∪ `allowed_origins`, exact match
+
+A request that carries an `Origin` header is refused with `403 {"error":"origin not allowed"}` before
+its credential is read unless that origin is one of `APP_ORIGINS` or of `allowed_origins`
+(`origin_allowed` in `crates/warshad/src/auth.rs`). `APP_ORIGINS` is the app's own, compiled-in list:
+
+| Origin | Who presents it |
+|---|---|
+| `tauri://localhost` | the desktop webview (Unix) |
+| `http://tauri.localhost` | the desktop webview (Windows) |
+| `https://appassets.androidplatform.net` | the Android shell (`apps/mobile`), which serves the bundled page from that host in `MainActivity` (OD-UI7, R-UI-7) |
+
+The comparison is the whole string — scheme, host, no port, no trailing slash — so `http://…`, a
+`…:8443` form and a suffixed attacker domain are all refused. `null` is **never** admitted, in either
+list: it is what a `file:` document presents and what any hostile page can force a browser to send
+(sandboxed iframe, `data:` document), so admitting it would remove the check while leaving the code.
+The bearer token remains the credential; the origin rule is browser-facing defence in depth, and a
+non-browser client can forge any `Origin` (that was already true of the two Tauri origins).
 
 Note the drift: the HTTP `/health` handler hardcodes `uptime_seconds: 0` (`:416`), while the JSON-RPC
 `health` method reports real uptime from `start_time.elapsed()` (`:244-250`). Same type, different truth.
@@ -130,6 +150,40 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 - Ordering follows the append-only event log (`events.created_at ASC` index), so a client sees a run's
   history in commit order.
 
+### Event kinds and payload shapes (R-EXT-2)
+
+**No gate covers this table.** `scripts/check-wire-contract.mjs` compares JSON-RPC method names, policy rows,
+param names, harness stubs and CSP; the event `kind` and its `payload` are not parsed by any check, and on the
+client `EventKind` is `string`. So an event's shape is a contract kept here and in the tests, and a change to it
+is a manual review item, not a red gate. The kinds are `warsha_core::EventKind` (`crates/warsha-core/src/lib.rs`),
+snake_case on the wire.
+
+| `kind` | `payload` | Written by |
+|---|---|---|
+| `stage_started` | `{"action": "start_run" \| "run_resumed", "from", "to", …}` | pipeline stage advance |
+| `gate_decision` | the gate, its state and the deciding device | `gates.approve` / `gates.reject` / `gates.request_changes` |
+| `agent_step` | the turn's summary line | the agent loop's run view |
+| `tool_call` | `{"action": "mcp_call", "phase", "server", "tool", "role", "question_id"?}` or `{"action": "mcp_allow_once", "server", "tool", "role", "question_id"}` | an agent MCP call (`warshad/src/mcp_call_events.rs`), or an owner's `allow_once` answer (`warshad/src/mcp_approvals.rs`) |
+| `artifact_created` / `artifact_updated` | `{"name", "stage", "version"}` | a stage that wrote an artifact |
+| `cost_recorded` | `{"cost_cents", "tokens", "model"}` | a model call that spent |
+| `error` | `{"action": "stage_failed" \| "provider_required" \| "run_cancelled", …}` | a stage failure, or `runs.cancel` |
+| `run_finished` | `{"status": "completed" \| "failed" \| "cancelled"}` | the terminal transition itself (see below) |
+
+`run_finished` is appended exactly once per run — inside the same CAS-guarded status update that ends it
+(`warsha-pipeline/src/lib.rs`), so a lost CAS race writes nothing and a second advance writes none. `stage` is
+the stage the run was at when it ended, `role` is always `null`, and `device_id` is the authenticated device for
+`runs.cancel` (a system cancel passes `null`). `Paused` is not terminal and emits nothing.
+
+`tool_call` phases are `requested`, `approval_required`, `denied`, `succeeded` and `failed`, in that life:
+`requested` before the permission row is consulted, then exactly one of the rest. **No event payload ever carries
+a tool argument, a tool result or an approval summary** — the identifying fields above are the whole payload,
+which is why `mcp.approvals.list`'s redacted summary is a separate, owner-only read.
+
+Downgrade: the kind is stored as its serde name in `events.kind` (text), and `warsha-store` reads it back with
+`serde_json::from_str::<EventKind>`. A binary built before this kind **fails to decode the events of a run that
+has a `run_finished` row** (unknown variant). There is no migration — the column is text — so an older daemon
+reading a newer database is a downgrade hazard recorded in `DECISIONS.md`.
+
 ---
 
 ## 5. JSON-RPC surface (jsonrpsee, `127.0.0.1:<ws_port>`, default 8766)
@@ -145,10 +199,18 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 
 | Method | Params (in order) | Result |
 |---|---|---|
-| `health` | — | `HealthResponse` (`status`, `version`, `uptime_seconds`) |
+| `health` | — | `HealthResponse` (`status`, `version`, `uptime_seconds`, `capabilities`) |
+
+`capabilities` is `HealthCapabilities`: `daemon`, `providers`, `keychain` (all probed, never hardcoded)
+and `run_controls`, which is `true` only when the daemon is up **and** its store carries the K2
+run-version (CAS) column — the same `runs.version` the run-state CAS loop needs, so it is the honest
+answer to "can this daemon serve `gates.changes` / `gates.reject` / `runs.cancel`?" (`state.rs`
+`probe_capabilities`). The field is additive on the wire: `#[serde(default)]`, so a payload written
+before it existed decodes as `false`, and a client that predates it ignores it.
 | `projects.list` | — | `Project[]` |
 | `projects.create` | `name: string, description: string, language: string` | `Project` |
 | `projects.get` | `id: ProjectId` (UUID string) | `Project` |
+| `projects.attach` | `project_id: ProjectId, repo_path: string` | `Project` |
 | `runs.start` | `project_id: ProjectId, idea: string` | `Run` |
 | `runs.get` | `run_id: RunId` (ULID string) | `Run` |
 | `runs.list` | `project_id: ProjectId` | `Run[]` |
@@ -156,22 +218,62 @@ Not yet in the router (only `/health` is registered, `:500`). The contract to be
 | `gates.approve` | `run_id: RunId, stage: Stage, device_id: DeviceId` | `Run` |
 | `gates.reject` | `run_id: RunId, stage: Stage, reason: string, device_id: DeviceId` | `Run` |
 | `gates.changes` | `run_id: RunId, stage: Stage, notes: string, device_id: DeviceId` | `Run` |
+| `gates.evidence` | `run_id: RunId, program: string, args: string[]` | `GateEvidence` (`diff`, `files_changed`, `tests: TestRun`, `preview: PreviewEvidence \| null`) — **Owner / Spend** (`crates/warshad/src/auth.rs:333`): every call runs one test command in the run's worktree under `CommandPolicy` and is a spend, never a passive read. Collectable only while the run is at `gate_c`; `-32002` when the caller is not the owner, `-32005` when the policy refuses the program, `-32000` when the stage or the worktree cannot serve it |
 | `providers.list` | — | `ProviderConfig[]` (`id`, `kind`, `api_base?`, `models[]`) |
 | `providers.add` | `config: ProviderConfig` | `null` |
 | `providers.test` | `provider_id: string` | `HealthCheck` (`healthy`, `latency_ms?`, `error?`) |
 | `devices.list` | — | `DeviceIdentity[]` (`device_id`, `name`, `revoked`, …) |
 | `devices.pair` | `pairing_data: PairingData` | `null` |
 | `devices.revoke` | `device_id: DeviceId` | `null` |
+| `agent.turn` | `input: string` | `AgentTurnResult` (retired, refuses: "agent.turn is retired: start a run and use agent.turn_run with its run id") |
+| `agent.turn_run` | `run_id: RunId, input: string` | `AgentTurnResult` |
+| `agent.approve_mode` | `run_id?: RunId` | `ModeTransition` |
+| `agent.plan_mode` | `run_id?: RunId` | `ModeTransition` |
+| `agent.state` | `run_id?: RunId` | `AgentState` |
+| `mcp.approvals.list` | — | `McpApproval[]` (`id`, `run_id`, `server`, `tool`, `role`, `summary`, `requested_at`) — **Owner / Standard** (`crates/warshad/src/auth.rs:615`). Every MCP call waiting for the owner's answer, across runs; the summary is the daemon's redacted, bounded rendering of the arguments, never the raw values |
+| `mcp.approvals.allow_once` | `id: string` | `McpApprovalAnswer` (`id`, `run_id`, `server`, `tool`, `role`, `granted_by`, `expires_at`) — **Owner / Spend** (`crates/warshad/src/auth.rs:620`). Issues one single-use grant bound to the run, server, tool, role and exact arguments of the pending entry, live for `MCP_ONCE_GRANT_TTL` (10 min) and spent by the next matching call. Writes no permission row, so a restart is back to `ask`; the answer appends one `mcp_allow_once` event whose device is the authenticated one, never a parameter |
+| `mcp.connect` | `config: McpServerConfig` (`name`, `transport`, `command`, `args`) | `null` — **Owner / Spend** (`crates/warshad/src/auth.rs:576`). Records a server and, for `stdio`, starts it through the daemon's process manager and runs the MCP handshake (`initialize`, `notifications/initialized`, `tools/list`); the tool names that reply carried are what `mcp.list` then reports. The launch is checked before a byte moves: `connect_mcp` runs `CommandPolicy` on the program (`-32005`) and `wave2::require_pinned_launch` on a launcher's package, so `npx pkg` without `pkg@x.y.z` is refused (`crates/warshad/src/lib.rs:1430-1457`). An `http` config is **dialled** over Streamable HTTP (R-EXT-4): its URL first passes `ProcessPolicy::check_transport_url` (`-32005` — TLS anywhere, plain `http` only on loopback), then the same three-step handshake runs over `POST`, so this call blocks up to the server's `response_timeout` (30 s by default) and answers `-32000` with a reason instead of always `null`. The `Mcp-Session-Id` the server issues is echoed on every later request with the negotiated `MCP-Protocol-Version`, and a `404` on a sessioned request is reported as an expired session (no silent re-initialize). No credential leaves the daemon: a `401`/`403` is reported ("the server requires authorization, which this version does not support"), never solved. A `websocket` config still succeeds without connecting — it is recorded and reported `disconnected` with no tools (`McpServerConfig::is_wired`) |
+| `mcp.disconnect` | `name: string` | `null` — **Owner / Standard** (`crates/warshad/src/auth.rs:581`). Stops the named server's child and drops the connection row; a name the manager does not hold is the manager's own refusal (`-32000`), not a silent success |
+| `mcp.list` | — | `McpConnection[]` (`config`, `status`, `process_id`, `tools: string[]`, `tool_definitions: McpTool[]`) — **Session / Standard** (`crates/warshad/src/auth.rs:586`). Every configured server with its status. `McpStatus` is externally tagged snake_case, so its unit variants arrive as strings (`"connected"`, `"connecting"`, `"disconnected"`) and `Error(String)` arrives as `{ "error": "<message>" }` — a decoder that reads only strings turns every failed server into a decode error |
+| `mcp.permissions.list` | — | `McpPermissionsReply` (`rows: McpPermissionRow[]`, `agent_role`, `default_permission`) — **Owner / Standard** (`crates/warshad/src/auth.rs:603`). Every stored `server::tool::role` row in key order, plus the permission an unseen `server::tool` gets for the agent role — `ask` today, and fail-closed (`crates/warshad/src/lib.rs:3375-3396`) |
+| `mcp.permissions.set` | `server: string, tool: string, role: string, permission: string` | `McpPermissionRow` (`server`, `tool`, `role`, `permission`) — **Owner / Spend** (`crates/warshad/src/auth.rs:608`). Writes one row through to the settings store before it answers, so a restart sees it. Only `allow`, `ask` and `deny` are accepted (`ToolPermission::parse_strict`, `crates/warsha-pipeline/src/mcp_permission.rs:53-62`); anything else is refused. Setting `allow` or `deny` also resolves that `server::tool`'s pending approval (R-BRIDGE-B3a T11) |
+| `preview.start` | `project_id: string, command: string` | `LivePreview` (`project_id`, `process_id`, `command`, `args`, `status`, `url: string \| null`) — **Owner / Spend** (`crates/warshad/src/auth.rs:627`). Starts the project's dev server as a child of the daemon's one process manager under `CommandPolicy` (`-32005` when the program is refused), and waits up to `PREVIEW_URL_TIMEOUT` for the address the server prints — the URL is read, never guessed. The entry records the run that started it (R-BRIDGE-B5 D1): the project's newest unfinished run is the owner, and a start while another **live** run owns the live server is refused with `PreviewOwnedByRun` (`-32000`, naming both run ids). A finished owner never blocks: its entry is stopped and dropped on the next start/status for the project (D3) |
+| `preview.stop` | `project_id: string` | `null` — **Owner / Standard** (`crates/warshad/src/auth.rs:632`). Stops the project's server and keeps its entry as a stopped record (`preview.status` then reports `stopped`). Project-scoped, so the owner can always take a server down, whoever started it |
+| `preview.status` | `project_id: string` | `LivePreview` — **Session / Standard** (`crates/warshad/src/auth.rs:637`). Answers in the caller's run context without a new wire method (OD-B2): the project's newest unfinished run is reported through *its* server, and with no live run the project's own server answers (D4). A server another live run owns is `PreviewNotFound` for this one |
+
+A run owns its preview (R-BRIDGE-B5). A terminal `runs.advance` (`completed`, `failed`,
+`cancelled`) and `runs.cancel` stop every server the run owns and drop the entries — the
+same close that purges an ended run's MCP questions and grants — and that stop is
+best-effort: a server that will not die is logged and never fails the run close.
+`gates.evidence` reads the preview in the run's own context, so a reviewer is shown that
+run's server and never another run's. Previews are process memory only (like `allow_once`
+grants): a daemon restart leaves no entry behind, and a child a restart forgets is the
+known PLAN.md half, reaped by `process.kill_all` on the daemon's exit path.
+
+Client wrappers (`packages/client/src/index.ts`, R-EXT-1): `mcpList()` → `mcp.list` (decoded into
+`McpConnection[]`, both `McpStatus` arrivals normalised), `mcpConnect(config)` → `mcp.connect` with exactly
+`{ config }`, and `mcpDisconnect(name)` → `mcp.disconnect` with exactly `{ name }`. Settings → Connections drives
+them: the rows show status, transport, command or url and tools; "Refresh status" is `mcp.list` again (no probe
+method exists), a stdio server is added through the form, a disconnect goes through a confirmation step, and a
+tool's permission is written with `mcpPermissionsSet(server, tool, agent_role, permission)` where `agent_role` is
+the one `mcp.permissions.list` reports.
+
+Client wrappers (`packages/client/src/index.ts`, R-BRIDGE-B3b): `mcpApprovalsList()` → `mcp.approvals.list`,
+`mcpAllowOnce(id)` → `mcp.approvals.allow_once`, `mcpPermissionsList()` → `mcp.permissions.list`, and
+`mcpPermissionsSet(server, tool, role, permission)` → `mcp.permissions.set`. Each parameter is the daemon's
+own bound argument name, and each reply is decoded at the client edge (snake_case → the screen's camelCase),
+naming the offending field when an answer is malformed rather than rendering `undefined`. The Inbox answers a
+pending ask with `mcpApprovalsList` + `mcpAllowOnce`/`mcpPermissionsSet`; Settings revokes with
+`mcpPermissionsSet(…, default_permission)`, the fail-closed value the list reply itself reports.
 
 Parameter serialization: `ProjectId`, `RunId` and `DeviceId` are newtypes over `Uuid`/`Ulid` and serialize
-as plain strings (hyphenated UUID, Crockford ULID). `Stage` serializes as `snake_case`
-(`idea`, `research`, `prd_spec`, `design`, `plan_tasks`, `code`, `review_qa_security`, `gate_c`, `release`,
-`gate_d`, `launch_drafts`, `feedback`) — note the model has **no `gate_a`/`gate_b` stage**; the mandatory
-gates that exist as stages today are `GateC` and `GateD` only.
+as plain strings (hyphenated UUID, Crockford ULID). `Stage` serializes as `snake_case` across all 14 stages
+defined in `crates/warsha-core/src/lib.rs:74-89`:
+`idea`, `gate_a`, `research`, `prd_spec`, `gate_b`, `design`, `plan_tasks`, `code`, `review_qa_security`, `gate_c`, `release`, `gate_d`, `launch_drafts`, `feedback`.
 
-Implementation status inside the server is uneven and worth knowing before relying on it:
-`projects.*`, `runs.*` and `gates.*` hit the store/pipeline for real; `providers.list` returns an empty
-vector and `providers.add` / `providers.test` return success without touching any provider (`:365-380`).
+Implementation status inside the server:
+`projects.*`, `runs.*` and `gates.*` hit the store and pipeline for real.
+`providers.*` are fully wired: `providers.list` queries configured providers from the settings store (`load_providers()`); `providers.add` validates kind/URL/key, stores the API key in the OS keychain via the secret store, persists configuration to the database (`save_provider`), and registers a deferred adapter in the router; `providers.test` resolves the test model, validates keychain credentials, and actively probes endpoint health (`probe_endpoint`); and `providers.remove` purges keychain secrets, removes settings, and registers a refusal adapter in the router.
 
 ---
 

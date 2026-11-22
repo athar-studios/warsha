@@ -40,7 +40,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use thiserror::Error;
-use warsha_store::{SqliteStore, StoreError, StoredPreference};
+use warsha_store::{SettingsRepo, StoreError, StoredPreference};
 
 /// How long it takes a signal to lose half its weight, in seconds (30 days).
 pub const DECAY_HALF_LIFE_SECS: u64 = 30 * 24 * 60 * 60;
@@ -325,7 +325,7 @@ impl InMemoryPreferenceStore {
     /// The owner dimension is not a column: `Preference` has no `owner_id`, so
     /// the owner-scoped view ([`InMemoryPreferenceStore::owner_preferences`])
     /// stays in memory until the scoring model carries one.
-    pub fn save_to_store(&self, store: &SqliteStore) -> Result<(), StoreError> {
+    pub async fn save_to_store(&self, store: &SettingsRepo) -> Result<(), StoreError> {
         let project_ids: BTreeSet<&str> = self
             .signals
             .iter()
@@ -333,13 +333,15 @@ impl InMemoryPreferenceStore {
             .collect();
         for project_id in project_ids {
             for preference in self.scored(project_id, None) {
-                store.save_preference(&StoredPreference {
-                    project_id: project_id.to_string(),
-                    key: preference.key,
-                    score: preference.score,
-                    evidence_count: preference.evidence_count,
-                    last_updated: preference.last_updated,
-                })?;
+                store
+                    .save_preference(&StoredPreference {
+                        project_id: project_id.to_string(),
+                        key: preference.key,
+                        score: preference.score,
+                        evidence_count: preference.evidence_count,
+                        last_updated: preference.last_updated,
+                    })
+                    .await?;
             }
         }
         Ok(())
@@ -351,11 +353,11 @@ impl InMemoryPreferenceStore {
     /// again on read, because the signals that carry the timestamps are not in
     /// the table; a caller that wants fresh decay records the signals in a new
     /// store first. An unknown project is an empty list, not an error.
-    pub fn load_from_store(
-        store: &SqliteStore,
+    pub async fn load_from_store(
+        store: &SettingsRepo,
         project_id: &str,
     ) -> Result<Vec<Preference>, StoreError> {
-        let rows = store.load_preferences(project_id)?;
+        let rows = store.load_preferences(project_id).await?;
         Ok(rows
             .into_iter()
             .map(|row| Preference {
@@ -476,6 +478,7 @@ fn capitalize_first(text: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -793,17 +796,19 @@ mod tests {
         assert_eq!(store.len(), 1);
     }
 
-    /// A `warsha-store` database on a temporary file, with the M20 schema applied.
-    fn temp_sqlite_store() -> (SqliteStore, tempfile::TempDir) {
+    /// A `warsha-store` settings database on a temporary file, schema applied.
+    async fn temp_settings_repo() -> (SettingsRepo, tempfile::TempDir) {
         let dir = crate::test_util::fresh_tempdir();
         let path = dir.path().join("warsha.db");
-        let store = SqliteStore::open(&path.to_string_lossy()).expect("the store opens");
-        store.migrate().expect("the schema is applied");
+        let store = SettingsRepo::open(&path.to_string_lossy())
+            .await
+            .expect("the repository opens");
+        store.migrate().await.expect("the schema is applied");
         (store, dir)
     }
 
-    #[test]
-    fn preferences_round_trip_through_the_sqlite_store() {
+    #[tokio::test]
+    async fn preferences_round_trip_through_the_sqlite_store() {
         let mut memory = InMemoryPreferenceStore::new();
         for (index, (kind, target)) in [
             (SignalKind::Approve, "dark mode"),
@@ -834,17 +839,21 @@ mod tests {
             ))
             .expect("records");
 
-        let (store, _dir) = temp_sqlite_store();
+        let (store, _dir) = temp_settings_repo().await;
         memory
             .save_to_store(&store)
+            .await
             .expect("the projection is written");
 
         assert_eq!(
-            InMemoryPreferenceStore::load_from_store(&store, PROJECT).expect("the rows are read"),
+            InMemoryPreferenceStore::load_from_store(&store, PROJECT)
+                .await
+                .expect("the rows are read"),
             memory.list_preferences(PROJECT)
         );
         assert_eq!(
             InMemoryPreferenceStore::load_from_store(&store, "project-2")
+                .await
                 .expect("the rows are read")
                 .len(),
             1
@@ -852,22 +861,29 @@ mod tests {
         // An unknown project is an empty list, not an error.
         assert!(
             InMemoryPreferenceStore::load_from_store(&store, "project-3")
+                .await
                 .expect("the rows are read")
                 .is_empty()
         );
     }
 
-    #[test]
-    fn a_second_save_replaces_the_stored_score() {
+    #[tokio::test]
+    async fn a_second_save_replaces_the_stored_score() {
         let mut memory = InMemoryPreferenceStore::new();
         memory
             .record_signal(signal("s1", SignalKind::Approve, "dark mode", 0))
             .expect("records");
 
-        let (store, _dir) = temp_sqlite_store();
-        memory.save_to_store(&store).expect("the first projection");
+        let (store, _dir) = temp_settings_repo().await;
+        memory
+            .save_to_store(&store)
+            .await
+            .expect("the first projection");
         approx(
-            InMemoryPreferenceStore::load_from_store(&store, PROJECT).expect("read")[0].score,
+            InMemoryPreferenceStore::load_from_store(&store, PROJECT)
+                .await
+                .expect("read")[0]
+                .score,
             1.0,
         );
 
@@ -877,9 +893,14 @@ mod tests {
         memory
             .record_signal(signal("s2", SignalKind::Approve, "dark mode", 30 * DAY))
             .expect("records");
-        memory.save_to_store(&store).expect("the second projection");
+        memory
+            .save_to_store(&store)
+            .await
+            .expect("the second projection");
 
-        let loaded = InMemoryPreferenceStore::load_from_store(&store, PROJECT).expect("read");
+        let loaded = InMemoryPreferenceStore::load_from_store(&store, PROJECT)
+            .await
+            .expect("read");
         assert_eq!(loaded.len(), 1);
         approx(loaded[0].score, 1.5);
         assert_eq!(loaded[0].evidence_count, 2);

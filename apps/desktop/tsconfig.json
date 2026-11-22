@@ -18,7 +18,9 @@
     "paths": {
       "@warsha/ui": ["../../packages/ui/src"],
       "@warsha/i18n": ["../../packages/i18n/src"],
-      "@warsha/client": ["../../packages/client/src"]
+      "@warsha/client": ["../../packages/client/src"],
+      "@warsha/ui/v3": ["../../packages/ui/src/v3"],
+      "@warsha/i18n/v3": ["../../packages/i18n/src/v3"]
     }
   },
   "include": ["src", "vite.config.ts"],

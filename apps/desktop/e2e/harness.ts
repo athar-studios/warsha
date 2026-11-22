@@ -102,6 +102,7 @@ export const RPC_METHODS = [
   'agent.plan_mode',
   'agent.state',
   'agent.turn',
+  'agent.turn_run',
   'backend.export',
   'backend.get',
   'backend.set',
@@ -115,6 +116,7 @@ export const RPC_METHODS = [
   'files.tree',
   'gates.approve',
   'gates.changes',
+  'gates.evidence',
   'gates.list',
   'gates.reject',
   'handoff.apply',
@@ -129,6 +131,16 @@ export const RPC_METHODS = [
   'integrations.disconnect',
   'integrations.list',
   'integrations.test',
+  'interview.start',
+  'interview.status',
+  'interview.turn',
+  'mcp.approvals.allow_once',
+  'mcp.approvals.list',
+  'mcp.connect',
+  'mcp.disconnect',
+  'mcp.list',
+  'mcp.permissions.list',
+  'mcp.permissions.set',
   'models.add',
   'models.list',
   'models.remove',
@@ -138,6 +150,12 @@ export const RPC_METHODS = [
   'plugins.remove',
   'plugins.toggle',
   'postlaunch.crashes',
+  'permissions.defaults.get',
+  'permissions.defaults.set',
+  'permissions.project.get',
+  'permissions.project.set',
+  'swarm.project.get',
+  'swarm.project.set',
   'postlaunch.reviews',
   'preferences.list',
   'preferences.record',
@@ -148,8 +166,13 @@ export const RPC_METHODS = [
   'projects.get',
   'projects.list',
   'providers.add',
+  'providers.auth_complete',
+  'providers.auth_start',
+  'providers.auth_status',
   'providers.check_models',
+  'providers.disconnect',
   'providers.list',
+  'providers.quota',
   'providers.remove',
   'providers.test',
   'roles.list',
@@ -164,16 +187,27 @@ export const RPC_METHODS = [
   'runs.advance',
   'runs.artifacts',
   'runs.cancel',
+  'runs.estimate',
   'runs.events',
   'runs.followup',
   'runs.get',
   'runs.list',
   'runs.start',
+  'secretary.chat',
+  'secretary.thread.list',
+  'secretary.thread.turns',
+  'runs.subtasks',
   'runs.subscribe',
+  'sessions.list',
+  'sessions.stop',
+  'sessions.tail',
   'skills.delete',
   'skills.import',
   'skills.list',
   'skills.toggle',
+  'usage.by_dimension',
+  'usage.by_time',
+  'usage.subscription_window',
 ] as const;
 export type RpcMethod = (typeof RPC_METHODS)[number];
 
@@ -223,8 +257,12 @@ export type WizardDrive =
 
 /** One method's answer for one case. */
 export interface RpcBehaviour {
-  /** Answer this instead of the default fixture. */
-  result?: unknown;
+  /**
+   * Answer this instead of the default fixture. A function is called with the request's `params`, so a
+   * case can answer two calls of one method differently — `runs.list` for two projects, say — without
+   * a second stub.
+   */
+  result?: unknown | ((params: unknown) => unknown);
   /** Answer a JSON-RPC error carrying this message (the daemon's own words, never UI copy). */
   error?: string;
   /** Wait this long before answering, so a screen's in-flight state is reachable. */
@@ -549,6 +587,7 @@ const RUNS = [
     status: 'running',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:45:00.000Z',
+    run_mode: 'agent',
   },
   {
     id: 'run-gate-a',
@@ -557,6 +596,7 @@ const RUNS = [
     status: 'awaiting_gate',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:00:00.000Z',
+    run_mode: 'plan',
   },
   {
     id: 'run-research',
@@ -565,6 +605,7 @@ const RUNS = [
     status: 'running',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:10:00.000Z',
+    run_mode: 'spec-file',
   },
   {
     id: 'run-review',
@@ -573,6 +614,16 @@ const RUNS = [
     status: 'running',
     startedAt: RUN_STARTED,
     updatedAt: '2026-10-05T09:20:00.000Z',
+    run_mode: 'ask',
+  },
+  {
+    id: 'run-gate-c',
+    projectId: 'proj-ui',
+    stage: 'gate_c',
+    status: 'awaiting_gate',
+    startedAt: RUN_STARTED,
+    updatedAt: '2026-10-05T09:45:00.000Z',
+    run_mode: 'agent',
   },
 ];
 
@@ -799,10 +850,101 @@ const RUN_EVENTS: readonly EventFixture[] = RUN_LOGS.map((line, index) => ({
   device_id: 'dev-laptop',
 }));
 
+/**
+ * One agent MCP tool call and the run's end, as `runs.subscribe` answers (R-EXT-2).
+ *
+ * The Terminal tab draws from these rows and not from a summary string: one line per
+ * phase, the server and tool as LTR tokens, then the run's own ending. The payloads
+ * carry no argument and no result — that is the daemon's rule, not this fixture's —
+ * so a screen that renders them shows a call and never its content.
+ *
+ * A case passes it as `openV3(..., { fixtures: { 'runs.subscribe': { result: AGENT_TOOL_STREAM } } })`.
+ * The wire shape is the daemon's: snake_case fields and the same kind strings every
+ * other event carries, so no new method and no new field is introduced.
+ */
+export const AGENT_TOOL_STREAM = {
+  seq: 4,
+  gap_detected: false,
+  resync_required: false,
+  dropped_count: 0,
+  run: null,
+  events: [
+    {
+      id: 'evt-mcp-1',
+      run_id: 'run-code',
+      stage: 'code',
+      role: null,
+      kind: 'tool_call',
+      payload: {
+        action: 'mcp_call',
+        phase: 'requested',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+      },
+      cost_cents: null,
+      created_at: '2026-10-05T07:16:00.000Z',
+      device_id: null,
+      seq: 1,
+    },
+    {
+      id: 'evt-mcp-2',
+      run_id: 'run-code',
+      stage: 'code',
+      role: null,
+      kind: 'tool_call',
+      payload: {
+        action: 'mcp_call',
+        phase: 'approval_required',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+        question_id: 'mcp-approval-1',
+      },
+      cost_cents: null,
+      created_at: '2026-10-05T07:16:30.000Z',
+      device_id: null,
+      seq: 2,
+    },
+    {
+      id: 'evt-mcp-3',
+      run_id: 'run-code',
+      stage: 'code',
+      role: null,
+      kind: 'tool_call',
+      payload: {
+        action: 'mcp_call',
+        phase: 'succeeded',
+        server: 'files',
+        tool: 'read_file',
+        role: 'agent',
+      },
+      cost_cents: null,
+      created_at: '2026-10-05T07:17:00.000Z',
+      device_id: null,
+      seq: 3,
+    },
+    {
+      id: 'evt-mcp-end',
+      run_id: 'run-code',
+      stage: 'feedback',
+      role: null,
+      kind: 'run_finished',
+      payload: { status: 'completed' },
+      cost_cents: null,
+      created_at: '2026-10-05T07:18:00.000Z',
+      device_id: null,
+      seq: 4,
+    },
+  ],
+} as const;
+
 /** What the stubs observed, so a test can assert the app really talked to them. */
 export interface StubReport {
   /** JSON-RPC methods the app called, in order. */
   rpcMethods: string[];
+  /** JSON-RPC calls the app made, in order, with method and params. */
+  rpcCalls: { method: string; params: unknown }[];
   /** Requests whose bearer token was not the app's own — always zero when the stub is right. */
   unauthorized: number;
   /** Methods the stub does not implement, so an unexpected call fails the case instead of hiding. */
@@ -830,6 +972,16 @@ export interface OpenScreenOptions {
   config?: Record<string, string>;
   /** Replace the default `?screen=…` query, e.g. `''` to let the shell choose its own screen. */
   search?: string;
+  /**
+   * Which UI the shell starts on, appended to the search as `ui=`.
+   *
+   * R-BRIDGE-B4a made v3 the default, and this harness drives the **v2** shell: `?screen=` is the
+   * v2 address. So the default here is `'v2'` — the address cannot be left unset, because the
+   * clean start now opens v3 and every case would time out waiting for a v2 selector (measured:
+   * 793/793 failed with no `ui=`). `'v3'` is available for a case that wants the new shell; the v3
+   * suite's own `openV3` opens `?ui=v3` itself and does not come through here.
+   */
+  ui?: 'v2' | 'v3';
   /** Absolute origin for a page that has no `baseURL` (a context the test made itself). */
   origin?: string;
   /** How far to drive the first-run wizard; overrides the case's own `drive`. */
@@ -915,7 +1067,7 @@ export function createDaemon(
 
 /** A fresh stub report, so an app-specific harness can start the same record. */
 export function createStubReport(): StubReport {
-  return { rpcMethods: [], unauthorized: 0, unimplemented: [], configWrites: [], eventsSent: 0 };
+  return { rpcMethods: [], rpcCalls: [], unauthorized: 0, unimplemented: [], configWrites: [], eventsSent: 0 };
 }
 
 /**
@@ -1049,7 +1201,137 @@ function bindPairingData(source: Record<string, unknown>): StubOutcome {
 }
 
 /** What the stub answers for one call: a result, or an error the screen is meant to show. */
-type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
+export type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
+
+/** The programs that fetch a package (`PACKAGE_LAUNCHERS`, `crates/warshad/src/wave2.rs:754`). */
+const MCP_PACKAGE_LAUNCHERS = new Set(['npx', 'pnpm', 'yarn', 'bun', 'bunx', 'npm', 'uvx', 'pipx']);
+
+/** The launcher subcommands that stand between a launcher and its package (`…/wave2.rs:757`). */
+const MCP_LAUNCHER_SUBCOMMANDS = new Set(['dlx', 'exec', 'x', 'run', 'tool']);
+
+/** True for a package argument that names an exact release (`is_pinned_package`, `…/wave2.rs:830`). */
+function isPinnedPackage(spec: string): boolean {
+  const at = spec.lastIndexOf('@');
+  if (at <= 0) return false;
+  const version = spec.slice(at + 1);
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version);
+}
+
+/**
+ * The package a launcher's argument list names, or `null` when it names none.
+ *
+ * Read the way `wave2::require_pinned_launch` reads it (`crates/warshad/src/wave2.rs:765-830`): a
+ * launcher option is not a package, `--package=…`/`-p …` names one, `npm|pnpm|yarn run <script>`
+ * runs a local script rather than a fetched package, and every token after the package is a server
+ * argument.
+ */
+function launchedPackage(command: string, args: readonly string[]): string | null | undefined {
+  const base = command.trim().split(/[/\\]/).pop()?.trim().toLowerCase() ?? '';
+  const program = base.replace(/\.(cmd|exe)$/, '');
+  if (!MCP_PACKAGE_LAUNCHERS.has(program)) return undefined;
+  const tokens = args.map((arg) => arg.trim()).filter((arg) => arg.length > 0);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index] ?? '';
+    if (MCP_LAUNCHER_SUBCOMMANDS.has(token)) {
+      if (token === 'run' && (program === 'npm' || program === 'pnpm' || program === 'yarn')) {
+        return undefined;
+      }
+      continue;
+    }
+    if (token.startsWith('--package=')) return token.slice('--package='.length);
+    if (token === '--package' || token === '-p') return tokens[index + 1] ?? null;
+    if (token.startsWith('-')) continue;
+    return token;
+  }
+  return null;
+}
+
+/**
+ * Bind a `mcp.connect` params object the way `warshad` binds it, or refuse it the way the daemon
+ * refuses it.
+ *
+ * `McpServerConfig` (`crates/warsha-pipeline/src/mcp_transport.rs:120-136`) is the whole bound
+ * argument, so every field below is serde's own requirement. On top of the binding,
+ * `connect_mcp` (`crates/warshad/src/lib.rs:1430-1457`) refuses a blank name
+ * (`McpTransportError::EmptyName`) and a launcher that would fetch an unpinned release
+ * (`wave2::require_pinned_launch`), and the words here are the daemon's own, because the screen
+ * renders them verbatim. The unpinned refusal is the packet's `-32602`-class refusal rather than
+ * the live `POLICY_REFUSED` (-32005, `crates/warshad/src/auth.rs:1434`): the client shows the
+ * message and never the code, and a stub that accepted the launch would let a screen photograph a
+ * server no daemon would start.
+ */
+function bindMcpServerConfig(raw: unknown): StubOutcome {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(raw)}, expected struct McpServerConfig`,
+    };
+  }
+  const config = raw as Record<string, unknown>;
+  for (const field of ['name', 'transport', 'args'] as const) {
+    if (!(field in config)) return missingField(field);
+  }
+  const name = config['name'];
+  if (typeof name !== 'string') {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(name)}, expected a string`,
+    };
+  }
+  if (name.trim().length === 0) {
+    return { ok: false, code: -32602, message: 'an MCP server needs a name' };
+  }
+  const transport = config['transport'];
+  if (typeof transport !== 'object' || transport === null || Array.isArray(transport)) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(transport)}, expected internally tagged enum McpTransport`,
+    };
+  }
+  const kind = (transport as Record<string, unknown>)['kind'];
+  if (kind !== 'stdio' && kind !== 'http' && kind !== 'websocket') {
+    return {
+      ok: false,
+      code: -32602,
+      message: `unknown variant \`${String(kind)}\`, expected one of \`stdio\`, \`http\`, \`websocket\``,
+    };
+  }
+  const args = config['args'];
+  if (!Array.isArray(args)) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `invalid type: ${serdeUnexpected(args)}, expected a sequence`,
+    };
+  }
+  if (kind !== 'stdio') return { ok: true, result: null };
+  const command = config['command'];
+  if (typeof command !== 'string' || command.trim().length === 0) {
+    // `connect_mcp` refuses a stdio server with no program before it reaches the manager.
+    return { ok: false, code: -32602, message: 'a stdio MCP server names no program to start' };
+  }
+  const launchArgs = args.map((arg) => String(arg));
+  const launched = launchedPackage(command, launchArgs);
+  if (launched === undefined) return { ok: true, result: null };
+  if (launched === null) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `the pack launches \`${command}\` but names no package; there is nothing pinned to run`,
+    };
+  }
+  if (!isPinnedPackage(launched)) {
+    return {
+      ok: false,
+      code: -32602,
+      message: `the pack launches the unpinned package \`${launched}\`; name the release it was tested with as \`pkg@x.y.z\``,
+    };
+  }
+  return { ok: true, result: null };
+}
 
 /** The wire shape `warsha_core::HarnessDefinition` serialises (`harness.get`/`harness.import`). */
 function harnessRow(id: string): Record<string, unknown> {
@@ -1282,11 +1564,15 @@ function bindRunModeConfig(value: unknown): { config: Record<string, unknown> } 
  * `StubReport.unimplemented` and fails a case, and it is deliberately different from an error the
  * daemon is modelled as returning (a refused API key), which a screen is supposed to render.
  */
-function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): StubOutcome | null {
+export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): StubOutcome | null {
   const override = daemon.fixtures[method];
   if (override !== undefined && (override.result !== undefined || override.error !== undefined)) {
     if (override.error !== undefined) return { ok: false, code: -32001, message: override.error };
-    return { ok: true, result: override.result };
+    const result =
+      typeof override.result === 'function'
+        ? (override.result as (params: unknown) => unknown)(params)
+        : override.result;
+    return { ok: true, result };
   }
 
   switch (method) {
@@ -1294,9 +1580,13 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
       return { ok: true, result: PROJECTS };
     case 'runs.list': {
       const projectId = paramValue(params, 'project_id');
+      const runs = projectId === null ? RUNS : RUNS.filter((run) => run.projectId === projectId);
       return {
         ok: true,
-        result: projectId === null ? RUNS : RUNS.filter((run) => run.projectId === projectId),
+        result: runs.map(run => ({
+          ...run,
+          run_mode: run.run_mode,
+        })),
       };
     }
     case 'runs.get': {
@@ -1312,8 +1602,74 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     // daemon method), so the stub answers the rows and not the text.
     case 'runs.events':
       return { ok: true, result: RUN_EVENTS };
+    case 'runs.subtasks': {
+      // `warshad` binds `run_id` positionally (crates/warshad/src/api.rs runs.subtasks).
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      // No seeded subtasks yet — the desktop reads an empty list as "not a swarm run".
+      return { ok: true, result: [] };
+    }
+    case 'secretary.thread.list':
+      // One global thread plus one project thread, so the scope switcher has both.
+      return {
+        ok: true,
+        result: [
+          { id: 'sec-conv-1', project_id: null, created_at: '2026-11-18T09:00:00Z', updated_at: '2026-11-18T09:30:00Z' },
+          { id: 'sec-conv-2', project_id: 'proj-ui', created_at: '2026-11-18T10:00:00Z', updated_at: '2026-11-18T10:05:00Z' },
+        ],
+      };
+    case 'secretary.thread.turns': {
+      if (!paramEntry(params, 'conversation_id').found) return missingField('conversation_id');
+      return {
+        ok: true,
+        result: [
+          { id: 'turn-1', conversation_id: paramValue(params, 'conversation_id'), role: 'owner', content: 'Can you approve gate B?', proposal_json: null, refs_owner_message: null, created_at: '2026-11-18T09:10:00Z' },
+          {
+            id: 'turn-2',
+            conversation_id: paramValue(params, 'conversation_id'),
+            role: 'secretary',
+            content: 'Gate B is ready for your decision.',
+            proposal_json: JSON.stringify({
+              label: 'Approve gate B on the current run',
+              action: { gate_approve: { run_id: 'run-1', stage: 'gate_b' } },
+            }),
+            refs_owner_message: 'turn-1',
+            created_at: '2026-11-18T09:11:00Z',
+          },
+        ],
+      };
+    }
+    case 'secretary.chat': {
+      if (!paramEntry(params, 'message').found) return missingField('message');
+      // The stub answers words; a proposal appears only when the owner's own
+      // message asks for one — the injection rule the engine enforces upstream.
+      const message = String(paramValue(params, 'message') ?? '');
+      const wantsProposal = message.toLowerCase().includes('approve');
+      return {
+        ok: true,
+        result: {
+          reply: 'Noted. The gate is still waiting on you.',
+          proposal: wantsProposal
+            ? {
+                label: 'Approve gate B on the current run',
+                action: { gate_approve: { run_id: 'run-1', stage: 'gate_b' } },
+              }
+            : null,
+          conversation_id: paramValue(params, 'conversation_id') ?? 'sec-conv-1',
+          turn_id: `turn-${Math.floor(Date.now() / 1000)}`,
+        },
+      };
+    }
     case 'runs.start':
-      return { ok: true, result: RUNS[0] };
+      // D4: echo the requested mode back so the chip could be exercised. The
+      // daemon accepts the mode as a positional Option; unknown words decode
+      // to `agent` on the client, and the stub mirrors that leniency.
+      return {
+        ok: true,
+        result: {
+          ...RUNS[0],
+          run_mode: paramValue(params, 'runMode') ?? paramValue(params, 'run_mode') ?? 'agent',
+        },
+      };
     // Run stream synchronisation and run control (WS3). The stub answers the
     // daemon's own wire shapes: `runs.subscribe` returns a `RunStreamSync`
     // (seq / gap flags / run / sequenced events), the run-control methods
@@ -1386,6 +1742,58 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
         ],
       };
     }
+    case 'interview.start':
+      return {
+        ok: true,
+        result: {
+          kind: 'next_question',
+          question: 'What is the primary problem you want to solve?',
+          topic: 'problem',
+          state: {
+            project_id: paramValue(params, 'project_id'),
+            brief: {},
+            topic_answers: {},
+            covered_topics: [],
+            open_topics: ['audience', 'problem'],
+            transcript: [],
+            is_done: false,
+            updated_at: new Date().toISOString(),
+          },
+        },
+      };
+    case 'interview.turn':
+      return {
+        ok: true,
+        result: {
+          kind: 'next_question',
+          question: 'Who are the target users?',
+          topic: 'audience',
+          state: {
+            project_id: paramValue(params, 'project_id'),
+            brief: { problem_statement: paramValue(params, 'reply') },
+            topic_answers: { problem: paramValue(params, 'reply') },
+            covered_topics: ['problem'],
+            open_topics: ['audience'],
+            transcript: [{ question: 'What is the primary problem you want to solve?', answer: paramValue(params, 'reply') }],
+            is_done: false,
+            updated_at: new Date().toISOString(),
+          },
+        },
+      };
+    case 'interview.status':
+      return {
+        ok: true,
+        result: {
+          project_id: paramValue(params, 'project_id'),
+          brief: {},
+          topic_answers: {},
+          covered_topics: [],
+          open_topics: ['audience', 'problem'],
+          transcript: [],
+          is_done: false,
+          updated_at: new Date().toISOString(),
+        },
+      };
     case 'projects.get': {
       // `get_project(&self, id)` really is named `id` (`crates/warshad/src/lib.rs:677`), so this one
       // is the checked-and-correct case; it still refuses a request that never carried it rather
@@ -1410,6 +1818,25 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     }
     case 'gates.list':
       return { ok: true, result: GATES };
+    case 'gates.evidence':
+      return {
+        ok: true,
+        result: {
+          diff: 'diff --git a/a b/a\nindex ...',
+          files_changed: ['a', 'b/c'],
+          tests: {
+            program: 'pnpm',
+            args: ['test'],
+            success: true,
+            exit_code: 0,
+            stdout: 'ok',
+            stderr: '',
+            duration_ms: 100,
+            truncated: false,
+          },
+          preview: null,
+        },
+      };
     case 'gates.approve':
     case 'gates.reject':
     case 'gates.changes':
@@ -1517,6 +1944,142 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     case 'integrations.list':
     case 'files.tree':
       return { ok: true, result: [] };
+    // MCP approvals and permissions (R-BRIDGE-B3b). The two reads answer "nothing pending, no
+    // stored rows" so a capture that does not override them keeps the baseline it had before the
+    // Inbox gained a second item kind; a case that needs a question or a row passes it through
+    // `fixtures`, the way the Wave 2 lists above are overridden. Every required argument is
+    // checked the way the daemon's serde binding checks it, so a call that would fail live with
+    // `-32602` fails here instead of passing.
+    case 'mcp.approvals.list':
+      return { ok: true, result: [] };
+    case 'mcp.approvals.allow_once': {
+      if (!paramEntry(params, 'id').found) return missingField('id');
+      // The daemon answers the granted row, including the device the session authenticated and
+      // the lapse time; the grantor is never a request parameter.
+      return {
+        ok: true,
+        result: {
+          id: paramValue(params, 'id') ?? '',
+          run_id: 'run-gate-a',
+          server: 'github',
+          tool: 'create_issue',
+          role: 'agent',
+          granted_by: 'dev-laptop',
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+        },
+      };
+    }
+    case 'mcp.permissions.list':
+      return {
+        ok: true,
+        result: { rows: [], agent_role: 'agent', default_permission: 'ask' },
+      };
+    case 'mcp.permissions.set': {
+      for (const name of ['server', 'tool', 'role', 'permission']) {
+        if (!paramEntry(params, name).found) return missingField(name);
+      }
+      const permission = paramValue(params, 'permission') ?? '';
+      if (permission !== 'allow' && permission !== 'ask' && permission !== 'deny') {
+        // `ToolPermission::parse_strict` (`crates/warsha-pipeline/src/mcp_permission.rs:53-62`)
+        // refuses anything else in these words; a stub that accepted it would let a screen show a
+        // row the daemon never stored.
+        return {
+          ok: false,
+          code: -32602,
+          message: `\`${permission}\` is not an MCP permission; use \`allow\`, \`ask\` or \`deny\``,
+        };
+      }
+      return {
+        ok: true,
+        result: {
+          server: paramValue(params, 'server') ?? '',
+          tool: paramValue(params, 'tool') ?? '',
+          role: paramValue(params, 'role') ?? '',
+          permission,
+        },
+      };
+    }
+    case 'permissions.defaults.get':
+      return {
+        ok: true,
+        result: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+      };
+    case 'permissions.defaults.set':
+      if (!paramEntry(params, 'confinement').found) return missingField('confinement');
+      if (!paramEntry(params, 'approval_mode').found) return missingField('approval_mode');
+      return {
+        ok: true,
+        result: {
+          confinement: paramValue(params, 'confinement'),
+          approvalMode: paramValue(params, 'approval_mode'),
+          isOverride: true,
+        },
+      };
+    case 'permissions.project.get':
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      return {
+        ok: true,
+        result: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+      };
+    case 'permissions.project.set':
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      return {
+        ok: true,
+        result: {
+          confinement: paramValue(params, 'confinement') ?? 'workspace-write',
+          approvalMode: paramValue(params, 'approval_mode') ?? 'ask-for-risky',
+          isOverride: paramEntry(params, 'confinement').found || paramEntry(params, 'approval_mode').found,
+        },
+      };
+
+    // D5 swarm settings: project-scoped, defaults off/4 — the daemon's stored
+    // defaults (`migration 017 project_settings`). The stub mirrors the daemon
+    // shape: `enable_swarm` boolean + `max_parallel_agents` integer.
+    case 'swarm.project.get':
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      return { ok: true, result: { project_id: paramValue(params, 'project_id'), enable_swarm: false, max_parallel_agents: 4 } };
+    case 'swarm.project.set': {
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      const maxAgents = paramEntry(params, 'max_parallel_agents');
+      const max = maxAgents.found ? Number(maxAgents.value) : 4;
+      if (!Number.isInteger(max) || max < 1 || max > 20) {
+        return { ok: false, code: -32000, message: 'max_parallel_agents must be between 1 and 20' };
+      }
+      return {
+        ok: true,
+        result: {
+          project_id: paramValue(params, 'project_id'),
+          enable_swarm: paramEntry(params, 'enable_swarm').found
+            ? (paramEntry(params, 'enable_swarm').value === true)
+            : false,
+          max_parallel_agents: max,
+        },
+      };
+    }
+
+    // MCP connections (R-EXT-1). `mcp.list` answers "no server configured" so a capture that does
+    // not override it keeps the baseline it had; a case that needs a connected, an `{error: …}` or
+    // a recorded-not-dialled http row passes it through `fixtures`, the way the Wave 2 lists above
+    // are overridden. `mcp.connect` binds the whole `config` struct and refuses a launch the daemon
+    // would refuse, so a screen that sends the wrong body fails here instead of passing.
+    case 'mcp.list':
+      return { ok: true, result: [] };
+    case 'mcp.connect': {
+      const config = paramEntry(params, 'config');
+      if (!config.found) return missingField('config');
+      return bindMcpServerConfig(config.value);
+    }
+    case 'mcp.disconnect': {
+      const name = paramEntry(params, 'name');
+      if (!name.found) return missingField('name');
+      if (paramValue(params, 'name') === null) {
+        return { ok: false, code: -32602, message: 'invalid type: map, expected a string' };
+      }
+      // `McpTransportError::NotFound` is the daemon's own refusal for a name it does not hold; the
+      // stub holds no server, so a disconnect that binds answers the daemon's `()` and the row
+      // disappears on the next `mcp.list` the case stubs.
+      return { ok: true, result: null };
+    }
     case 'agent.state':
       return {
         ok: true,
@@ -1534,6 +2097,12 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
         },
       };
     case 'agent.turn':
+      return {
+        ok: false,
+        code: -32000,
+        message: 'agent.turn is retired: start a run and use agent.turn_run with its run id',
+      };
+    case 'agent.turn_run':
       return {
         ok: true,
         result: {
@@ -1554,57 +2123,104 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     case 'postlaunch.crashes':
       return {
         ok: true,
-        result: {
-          crashes: [
-            {
-              id: 'crash-9f3a',
-              run_id: 'run-code',
-              message: 'تعطلت المعاينة بعد تحميل الحزمة، ولم تُحفظ المراجعة',
-              stack_trace: '    at BenchPreview.render (src/components/LivePreview.tsx:118:9)',
-              occurred_at: 1764939300,
-              sent: false,
-            },
-            {
-              id: 'crash-4b71',
-              run_id: 'run-gate-a',
-              message: 'WebSocket closed while the run was waiting on a gate',
-              stack_trace: null,
-              occurred_at: 1764935700,
-              sent: true,
-            },
-          ],
-        },
+        result: [
+          {
+            id: 'crash-9f3a',
+            run_id: 'run-code',
+            message: 'تعطلت المعاينة بعد تحميل الحزمة، ولم تُحفظ المراجعة',
+            stack_trace: '    at BenchPreview.render (src/components/LivePreview.tsx:118:9)',
+            occurred_at: 1764939300,
+            sent: false,
+          },
+          {
+            id: 'crash-4b71',
+            run_id: 'run-gate-a',
+            message: 'WebSocket closed while the run was waiting on a gate',
+            stack_trace: null,
+            occurred_at: 1764935700,
+            sent: true,
+          },
+        ],
       };
     case 'postlaunch.reviews':
       return {
         ok: true,
-        result: {
-          reviews: [
-            {
-              id: 'rev-1',
-              store: 'play',
-              rating: 5,
-              body: 'أفضل أداة متابعة للعمل، عربية من البداية إلى النهاية',
-              author: 'Maha',
-              received_at: 1764939300,
-            },
-            {
-              id: 'rev-2',
-              store: 'ios',
-              rating: 3,
-              body: 'Works well, but I would like a darker theme for night shifts.',
-              author: 'Omar',
-              received_at: 1764935700,
-            },
-          ],
-        },
+        result: [
+          {
+            id: 'rev-1',
+            store: 'play',
+            rating: 5,
+            body: 'أفضل أداة متابعة للعمل، عربية من البداية إلى النهاية',
+            author: 'Maha',
+            received_at: 1764939300,
+          },
+          {
+            id: 'rev-2',
+            store: 'ios',
+            rating: 3,
+            body: 'Works well, but I would like a darker theme for night shifts.',
+            author: 'Omar',
+            received_at: 1764935700,
+          },
+        ],
       };
     case 'backend.export':
-      return { ok: true, result: { path: '/tmp/warsha/backend-kit' } };
+      return { ok: true, result: '/tmp/warsha/backend-kit' };
     case 'handoff.create':
-      return { ok: true, result: { path: '/tmp/warsha/handoff.zip' } };
+      return { ok: true, result: '/tmp/warsha/handoff.zip' };
     case 'handoff.apply':
-      return { ok: true, result: { summary: '{"files":3,"conflicts":0}' } };
+      return {
+        ok: true,
+        result: JSON.stringify({
+          applied: ['src/App.tsx', 'package.json'],
+          conflicts: [],
+          backups: ['/tmp/warsha/.warsha-backup/1764939300/src/App.tsx'],
+          resolved: [],
+          backup_dir: '/tmp/warsha/.warsha-backup/1764939300',
+        }),
+      };
+    case 'sessions.list': {
+      // E4: `warshad` binds `run_id` positionally; the stub answers one parent
+      // session plus one swarm child (N1 parent link) for the seeded code run.
+      if (!paramEntry(params, 'run_id').found) return missingField('run_id');
+      return {
+        ok: true,
+        result: [
+          {
+            id: '01HCODER000000000000000000',
+            run_id: 'run-code',
+            project_id: 'proj-ui',
+            role: 'coder',
+            backend: 'claude-code',
+            provider: 'cli',
+            model: 'default',
+            status: 'working',
+            started_at: '2026-10-05T09:40:00.000Z',
+            ended_at: null,
+            parent_session_id: null,
+            cli_session_id: null,
+          },
+          {
+            id: '01HSWARM1000000000000000000',
+            run_id: 'run-code',
+            project_id: 'proj-ui',
+            role: 'coder',
+            backend: 'claude-code',
+            provider: 'cli',
+            model: 'default',
+            status: 'working',
+            started_at: '2026-10-05T09:41:00.000Z',
+            ended_at: null,
+            parent_session_id: '01HCODER000000000000000000',
+            cli_session_id: null,
+          },
+        ],
+      };
+    }
+    case 'sessions.tail':
+      return { ok: true, result: ['line 1', 'line 2'] };
+    case 'sessions.stop':
+      return { ok: true, result: null };
     // Wave 2 reads and writes plus the wiring batch (PLAN.md M16/M19/M20). These stubs exist to keep
     // W9 honest (every client method has a stub) and to model the daemon's own answers: reads list
     // `[]` or answer `null`, and the mutations echo a minimal valid row built from the request.
@@ -1727,7 +2343,7 @@ function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): Stub
     case 'files.read':
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
       if (!paramEntry(params, 'path').found) return missingField('path');
-      return { ok: true, result: { path: paramValue(params, 'path') ?? '', content: '', mime_type: 'text/plain' } };
+      return { ok: true, result: { content: '', mime_type: 'text/plain', path: paramValue(params, 'path') ?? '' } };
     // `routines.*` (`warsha_pipeline::Routine`; lib.rs list/get/run_now/pause/resume). The registry
     // starts empty, so the two reads answer `[]`/`null`; each mutation echoes the row it acted on —
     // the state the daemon's runner would have moved it to (`run_now` → `running`, `pause` →
@@ -1895,6 +2511,16 @@ async function driveWizard(page: Page, target: WizardDrive): Promise<void> {
   await page.locator('.onboarding').waitFor({ state: 'detached' });
 }
 
+const PAGE_RPC_CALLS = new WeakMap<Page, { method: string; params: unknown }[]>();
+
+/**
+ * Return all JSON-RPC calls observed by the daemon stub for this page, in order.
+ */
+export async function rpcCalls(page: Page): Promise<{ method: string; params: unknown }[]> {
+  const calls = PAGE_RPC_CALLS.get(page);
+  return calls ? calls.map((c) => ({ method: c.method, params: c.params })) : [];
+}
+
 /**
  * The RPC surface both browser apps are tested against.
  *
@@ -1913,6 +2539,14 @@ export async function installDaemonStub(
   report: StubReport,
   token = DAEMON_TOKEN
 ): Promise<void> {
+  let pageCalls = PAGE_RPC_CALLS.get(page);
+  if (!pageCalls) {
+    pageCalls = report.rpcCalls;
+    PAGE_RPC_CALLS.set(page, pageCalls);
+  } else {
+    report.rpcCalls = pageCalls;
+  }
+
   // The daemon answers JSON-RPC over HTTP; nothing listens on its port, and nothing has to.
   await page.route('**/rpc', async (route) => {
     const request = route.request();
@@ -1937,6 +2571,7 @@ export async function installDaemonStub(
     }
 
     report.rpcMethods.push(method);
+    report.rpcCalls.push({ method, params });
     const behaviour = daemon.fixtures[method as RpcMethod];
 
     // "the daemon is not there" is a transport failure, not a JSON-RPC error: the client's own catch
@@ -2003,6 +2638,18 @@ export async function installEventStub(
 }
 
 /**
+ * Add `ui=<ui>` to a `location.search` string, unless the case already names a UI.
+ *
+ * The search arrives as `?screen=…` or `''`, and the parameter is appended rather than rebuilt so a
+ * case's own query keeps its exact spelling and order.
+ */
+function withUiSearch(search: string, ui: 'v2' | 'v3'): string {
+  if (/(^|[?&])ui=/.test(search)) return search;
+  if (search === '') return `?ui=${ui}`;
+  return search.startsWith('?') ? `${search}&ui=${ui}` : `?${search}&ui=${ui}`;
+}
+
+/**
  * Open one screen in a deterministic browser state.
  *
  * @param page the page to drive
@@ -2012,6 +2659,7 @@ export async function installEventStub(
 export async function openScreen(page: Page, options: OpenScreenOptions): Promise<StubReport> {
   const report: StubReport = {
     rpcMethods: [],
+    rpcCalls: [],
     unauthorized: 0,
     unimplemented: [],
     configWrites: [],
@@ -2040,7 +2688,10 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
   // which is what `auditUsedFonts` then proves. The app bundle carries no font bytes.
   await page.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 
-  const search = options.search ?? screen.search ?? `?screen=${options.screen}`;
+  const search = withUiSearch(
+    options.search ?? screen.search ?? `?screen=${options.screen}`,
+    options.ui ?? 'v2'
+  );
   // The stubbed shell answers the three daemon keys like `src-tauri/src/lib.rs` does — the app
   // carries no defaults of its own — then the case's own preferences on top.
   const config = {
@@ -2134,8 +2785,8 @@ export const SCENARIOS: readonly Scenario[] = [
       'providers.list': { result: [] },
       'roles.list': { result: [] },
       'devices.list': { result: [] },
-      'postlaunch.crashes': { result: { crashes: [] } },
-      'postlaunch.reviews': { result: { reviews: [] } },
+      'postlaunch.crashes': { result: [] },
+      'postlaunch.reviews': { result: [] },
     },
     settle: 'settled',
   },
@@ -2335,33 +2986,29 @@ export const SCENARIOS: readonly Scenario[] = [
         ],
       },
       'postlaunch.reviews': {
-        result: {
-          reviews: [
-            {
-              id: 'rev-long',
-              store: 'play',
-              rating: 4,
-              body: 'أستخدم التطبيق لمتابعة أعمال الورشة منذ إصداره الأول وهو ممتاز، لكنني أتمنى إضافة تقارير مفصلة عن التكاليف لكل مشروع مع إمكانية تصديرها إلى جدول بيانات مباشرة من الهاتف دون الحاجة إلى اتصال بالإنترنت',
-              author: 'عبدالرحمن',
-              received_at: 1764939300,
-            },
-          ],
-        },
+        result: [
+          {
+            id: 'rev-long',
+            store: 'play',
+            rating: 4,
+            body: 'أستخدم التطبيق لمتابعة أعمال الورشة منذ إصداره الأول وهو ممتاز، لكنني أتمنى إضافة تقارير مفصلة عن التكاليف لكل مشروع مع إمكانية تصديرها إلى جدول بيانات مباشرة من الهاتف دون الحاجة إلى اتصال بالإنترنت',
+            author: 'عبدالرحمن',
+            received_at: 1764939300,
+          },
+        ],
       },
       'postlaunch.crashes': {
-        result: {
-          crashes: [
-            {
-              id: 'crash-bidi',
-              run_id: 'run-code',
-              message:
-                'فشل تحميل المعاينة عند المسار src/components/LivePreview.tsx:118 بينما كان الأمر cargo test --workspace يعمل',
-              stack_trace: 'thread main panicked at src/main.rs:42',
-              occurred_at: 1764939300,
-              sent: false,
-            },
-          ],
-        },
+        result: [
+          {
+            id: 'crash-bidi',
+            run_id: 'run-code',
+            message:
+              'فشل تحميل المعاينة عند المسار src/components/LivePreview.tsx:118 بينما كان الأمر cargo test --workspace يعمل',
+            stack_trace: 'thread main panicked at src/main.rs:42',
+            occurred_at: 1764939300,
+            sent: false,
+          },
+        ],
       },
     },
     settle: 'settled',

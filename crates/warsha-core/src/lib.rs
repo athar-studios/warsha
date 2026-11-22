@@ -7,16 +7,23 @@ pub mod config;
 pub mod harness;
 pub mod plugin;
 pub mod redaction;
+pub mod rules;
+pub mod session;
 pub mod skill;
+pub mod subtask;
+
+pub use rules::{InMemoryRuleStore, RuleAction, RuleStore, ToolRules};
 
 pub use config::{
-    CustomModelRecord, FileContent, FileEntry, IntegrationConfig, IntegrationStatus,
-    IntegrationTestResult,
+    CustomBackendDefinition, CustomModelRecord, FileContent, FileDiff, FileEntry,
+    IntegrationConfig, IntegrationStatus, IntegrationTestResult,
 };
 pub use harness::{bundled_harnesses, HarnessDefinition, HarnessRules, HarnessStage};
 pub use plugin::{bundled_plugins, PluginDefinition, PluginToolDefinition};
 pub use redaction::{mask_query_secrets, mask_secrets, REDACTED};
+pub use session::{Session, SessionId, SessionStatus};
 pub use skill::{bundled_skills, SkillDefinition};
+pub use subtask::{parse_subtask_status, RunSubtask, RunSubtaskStatus};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -27,6 +34,13 @@ use uuid::Uuid;
 /// Unique identifier for a project
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProjectId(pub Uuid);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProviderQuota {
+    Reported { used: u64, limit: u64 },
+    Estimated { usage_percentage: u8 },
+    Unknown,
+}
 
 impl ProjectId {
     pub fn new() -> Self {
@@ -184,6 +198,7 @@ pub enum Role {
     Release,
     Marketer,
     Feedback,
+    Secretary,
 }
 
 impl Role {
@@ -201,11 +216,108 @@ impl Role {
             Role::Release,
             Role::Marketer,
             Role::Feedback,
+            Role::Secretary,
         ]
     }
 }
 
-/// Project configuration
+/// Project permission axes
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Confinement {
+    #[serde(alias = "read-only", alias = "ReadOnly")]
+    ReadOnly,
+    #[serde(alias = "workspace-write", alias = "WorkspaceWrite")]
+    #[default]
+    WorkspaceWrite,
+    #[serde(alias = "full-access", alias = "FullAccess")]
+    FullAccess,
+}
+
+impl std::fmt::Display for Confinement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReadOnly => write!(f, "read-only"),
+            Self::WorkspaceWrite => write!(f, "workspace-write"),
+            Self::FullAccess => write!(f, "full-access"),
+        }
+    }
+}
+
+impl std::str::FromStr for Confinement {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_lowercase().replace('_', "-").as_str() {
+            "read-only" | "readonly" => Ok(Self::ReadOnly),
+            "workspace-write" | "workspacewrite" => Ok(Self::WorkspaceWrite),
+            "full-access" | "fullaccess" => Ok(Self::FullAccess),
+            other => Err(format!("unknown confinement: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalMode {
+    #[serde(alias = "ask-always", alias = "AskAlways")]
+    AskAlways,
+    #[serde(alias = "ask-for-risky", alias = "AskForRisky")]
+    #[default]
+    AskForRisky,
+    #[serde(
+        alias = "never-ask",
+        alias = "NeverAsk",
+        alias = "auto_inside_project",
+        alias = "auto-inside-project",
+        alias = "AutoInsideProject"
+    )]
+    NeverAsk,
+}
+
+impl std::fmt::Display for ApprovalMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AskAlways => write!(f, "ask-always"),
+            Self::AskForRisky => write!(f, "ask-for-risky"),
+            Self::NeverAsk => write!(f, "never-ask"),
+        }
+    }
+}
+
+impl std::str::FromStr for ApprovalMode {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_lowercase().replace('_', "-").as_str() {
+            "ask-always" | "askalways" => Ok(Self::AskAlways),
+            "ask-for-risky" | "askforrisky" => Ok(Self::AskForRisky),
+            "never-ask" | "neverask" | "auto-inside-project" | "autoinsideproject" => {
+                Ok(Self::NeverAsk)
+            }
+            other => Err(format!("unknown approval mode: {other}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ProjectPermissions {
+    pub confinement: Confinement,
+    #[serde(alias = "approval")]
+    pub approval_mode: ApprovalMode,
+    #[serde(default)]
+    pub is_override: bool,
+}
+
+impl Default for ProjectPermissions {
+    fn default() -> Self {
+        Self {
+            confinement: Confinement::WorkspaceWrite,
+            approval_mode: ApprovalMode::AskForRisky,
+            is_override: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub id: ProjectId,
@@ -216,6 +328,76 @@ pub struct Project {
     pub updated_at: DateTime<Utc>,
     pub repo_path: Option<String>,
     pub repo_url: Option<String>,
+    #[serde(default)]
+    pub confinement: Option<Confinement>,
+    #[serde(default)]
+    pub approval_mode: Option<ApprovalMode>,
+    #[serde(default)]
+    pub permissions: ProjectPermissions,
+}
+
+impl Default for Project {
+    fn default() -> Self {
+        Self {
+            id: ProjectId::new(),
+            name: "default".to_owned(),
+            description: "default".to_owned(),
+            language: "en".to_owned(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            repo_path: None,
+            repo_url: None,
+            confinement: None,
+            approval_mode: None,
+            permissions: Default::default(),
+        }
+    }
+}
+
+impl Project {
+    /// Compute the effective permissions using the given global default when fields are unset.
+    pub fn effective_permissions(&self, default: ProjectPermissions) -> ProjectPermissions {
+        let is_override = self.confinement.is_some() || self.approval_mode.is_some();
+        ProjectPermissions {
+            confinement: self.confinement.unwrap_or(default.confinement),
+            approval_mode: self.approval_mode.unwrap_or(default.approval_mode),
+            is_override,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RunMode {
+    #[default]
+    Agent,
+    Plan,
+    SpecFile,
+    Ask,
+}
+
+impl std::fmt::Display for RunMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Agent => write!(f, "agent"),
+            Self::Plan => write!(f, "plan"),
+            Self::SpecFile => write!(f, "spec-file"),
+            Self::Ask => write!(f, "ask"),
+        }
+    }
+}
+
+impl std::str::FromStr for RunMode {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "agent" => Ok(Self::Agent),
+            "plan" => Ok(Self::Plan),
+            "spec-file" | "specfile" => Ok(Self::SpecFile),
+            "ask" => Ok(Self::Ask),
+            other => Err(format!("unknown run mode: {other}")),
+        }
+    }
 }
 
 /// Run represents a single execution of the pipeline for a project
@@ -231,6 +413,12 @@ pub struct Run {
     pub status: RunStatus,
     pub budget_cents: Option<u64>,
     pub spent_cents: u64,
+    pub worktree_path: Option<String>,
+    pub worktree_branch: Option<String>,
+    /// B2: the confinement this run is confined by (resolved at start from the
+    /// project's effective permissions). The read-only backstop keys on it.
+    pub confinement: Option<Confinement>,
+    pub run_mode: RunMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -285,13 +473,29 @@ pub enum EventKind {
     Fallback,
     BudgetWarning,
     BudgetExceeded,
+    /// The run's end, appended once on the transition into `Completed`, `Failed` or
+    /// `Cancelled` (R-EXT-2). The payload carries `{"status": "completed"|"failed"|
+    /// "cancelled"}` and nothing else, so a client that watches the stream learns the
+    /// run ended without re-polling `runs.list` (G1).
+    ///
+    /// The discriminant of a stored row only ever moves forward with
+    /// a new variant, and the store keeps this kind as its serde name (`run_finished`).
+    RunFinished,
+    /// NEW variants for N1 (added at the end):
+    SessionStarted,
+    SessionStatusChanged,
+    ToolStarted,
+    ToolFinished,
+    FileTouched,
+    SessionEnded,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TokenUsage {
     pub input: u64,
     pub output: u64,
     pub total: u64,
+    pub cost_cents: Option<u64>,
 }
 
 /// Provider configuration
@@ -379,6 +583,7 @@ pub struct RoutingTarget {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -455,6 +660,46 @@ mod tests {
         assert_eq!(gate, GateState::Pending);
     }
 
+    /// T7 (R-EXT-2): `run_finished` is the wire name of the run-end kind, it round
+    /// trips through serde, and an unknown kind string is still an error — the store
+    /// reads a kind back by name (`warsha-store/src/lib.rs`), so a silent default here
+    /// would turn a row it cannot understand into some other event.
+    #[test]
+    fn test_event_kind_run_finished_round_trip() {
+        assert_eq!(
+            serde_json::to_string(&EventKind::RunFinished).unwrap(),
+            "\"run_finished\""
+        );
+        let decoded: EventKind = serde_json::from_str("\"run_finished\"").unwrap();
+        assert_eq!(decoded, EventKind::RunFinished);
+        assert!(serde_json::from_str::<EventKind>("\"run_ended\"").is_err());
+        assert!(serde_json::from_str::<EventKind>("\"RunFinished\"").is_err());
+    }
+
+    /// The new variant is additive on the wire: every kind the daemon already emitted
+    /// keeps its own name, so a client that reads kinds as strings sees no change.
+    #[test]
+    fn test_event_kind_names_are_unchanged_for_existing_kinds() {
+        let expected = [
+            (EventKind::StageStarted, "\"stage_started\""),
+            (EventKind::StageCompleted, "\"stage_completed\""),
+            (EventKind::GateDecision, "\"gate_decision\""),
+            (EventKind::AgentStep, "\"agent_step\""),
+            (EventKind::ToolCall, "\"tool_call\""),
+            (EventKind::ArtifactCreated, "\"artifact_created\""),
+            (EventKind::ArtifactUpdated, "\"artifact_updated\""),
+            (EventKind::CostRecorded, "\"cost_recorded\""),
+            (EventKind::Error, "\"error\""),
+            (EventKind::Fallback, "\"fallback\""),
+            (EventKind::BudgetWarning, "\"budget_warning\""),
+            (EventKind::BudgetExceeded, "\"budget_exceeded\""),
+            (EventKind::RunFinished, "\"run_finished\""),
+        ];
+        for (kind, name) in expected {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), name);
+        }
+    }
+
     #[test]
     fn test_project_id_unique() {
         let id1 = ProjectId::new();
@@ -475,6 +720,7 @@ mod tests {
             input: 100,
             output: 50,
             total: 150,
+            cost_cents: None,
         };
         assert_eq!(usage.total, usage.input + usage.output);
     }

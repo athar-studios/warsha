@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    unused_crate_dependencies
+)]
+
 //! M1 integration tests for the Warsha daemon.
 //!
 //! Tests cover:
@@ -9,8 +16,10 @@ use reqwest::Client;
 use reqwest::StatusCode;
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
-use warshad::{start_daemon, DaemonConfig, DaemonError};
+use warsha_providers::{InMemorySecretStore, SecretStore};
+use warshad::{start_daemon_with_secrets, DaemonConfig, DaemonError};
 
 const TEST_TOKEN: &str = "test-auth-token-12345";
 
@@ -129,7 +138,7 @@ async fn restart_survives_with_state_intact() {
     };
 
     // First daemon instance
-    let handle = start_daemon(config.clone())
+    let handle = start_daemon_with_secrets(config.clone(), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("start_daemon first instance");
     let http_port = handle.http_port();
@@ -168,7 +177,7 @@ async fn restart_survives_with_state_intact() {
     handle.shutdown().await;
 
     // Restart daemon on same data_dir
-    let handle2 = start_daemon(config)
+    let handle2 = start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
         .await
         .expect("start_daemon second instance (restart)");
     let _http_port2 = handle2.http_port();
@@ -221,7 +230,9 @@ async fn unauthenticated_calls_are_rejected() {
         ..DaemonConfig::default()
     };
 
-    let handle = start_daemon(config).await.expect("start_daemon");
+    let handle = start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+        .await
+        .expect("start_daemon");
     let http_port = handle.http_port();
     let rpc_port = handle.rpc_port();
 
@@ -319,7 +330,7 @@ async fn second_instance_is_locked_out() {
     };
 
     // First instance
-    let handle1 = start_daemon(config.clone())
+    let handle1 = start_daemon_with_secrets(config.clone(), Arc::new(InMemorySecretStore::new()))
         .await
         .expect("first start_daemon");
 
@@ -329,7 +340,7 @@ async fn second_instance_is_locked_out() {
         ws_port: 0,
         ..config.clone()
     };
-    let err = start_daemon(config2)
+    let err = start_daemon_with_secrets(config2, Arc::new(InMemorySecretStore::new()))
         .await
         .expect_err("second start_daemon should fail");
 
@@ -341,4 +352,87 @@ async fn second_instance_is_locked_out() {
     );
 
     handle1.shutdown().await;
+}
+
+/// Proving test for H3: daemon start with `InMemorySecretStore` completes promptly (<15s)
+/// without hanging on OS keychain.
+#[tokio::test]
+async fn daemon_with_in_memory_secrets_starts_promptly() {
+    let start = std::time::Instant::now();
+    let dir = fresh_tempdir();
+    let data_dir = dir.path().to_path_buf();
+    let config = DaemonConfig {
+        data_dir,
+        socket_path: dir.path().join("warshad.sock"),
+        http_port: 0,
+        ws_port: 0,
+        auth_token: TEST_TOKEN.to_string(),
+        allowed_origins: vec!["http://localhost:5173".to_string()],
+        ..DaemonConfig::default()
+    };
+    let handle = start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))
+        .await
+        .expect("start_daemon_with_secrets");
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(15),
+        "daemon startup should complete in <15s without touching OS keychain (took {elapsed:?})"
+    );
+    handle.shutdown().await;
+}
+
+/// A secret store simulating a hanging keyring read/write (e.g. locked keyring D-Bus stall).
+#[derive(Debug)]
+struct HangingSecretStore;
+
+#[async_trait::async_trait]
+impl SecretStore for HangingSecretStore {
+    async fn store(&self, _account: &str, _key: &str) -> warsha_providers::Result<()> {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        Ok(())
+    }
+    async fn load(&self, _account: &str) -> warsha_providers::Result<String> {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        Ok("hung".to_string())
+    }
+    async fn delete(&self, _account: &str) -> warsha_providers::Result<()> {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        Ok(())
+    }
+}
+
+/// Proving test for R5-M1: daemon shutdown with an injected hanging SecretStore
+/// completes promptly (<5s) without blocking Tokio runtime teardown.
+#[tokio::test]
+async fn daemon_shutdown_with_hanging_secret_store_completes_within_bound() {
+    let dir = fresh_tempdir();
+    let data_dir = dir.path().to_path_buf();
+    let config = DaemonConfig {
+        data_dir,
+        socket_path: dir.path().join("warshad.sock"),
+        http_port: 0,
+        ws_port: 0,
+        auth_token: TEST_TOKEN.to_string(),
+        allowed_origins: vec!["http://localhost:5173".to_string()],
+        ..DaemonConfig::default()
+    };
+    let hanging_secrets = Arc::new(HangingSecretStore);
+    let handle = start_daemon_with_secrets(config, hanging_secrets.clone())
+        .await
+        .expect("start_daemon_with_secrets");
+
+    // Spawn a concurrent secret load that hangs (simulating locked keyring access while running)
+    let secrets_clone = hanging_secrets.clone();
+    let pending_op = tokio::spawn(async move { secrets_clone.load("hanging-provider").await });
+
+    let shutdown_start = std::time::Instant::now();
+    let shutdown_res =
+        tokio::time::timeout(std::time::Duration::from_secs(5), handle.shutdown()).await;
+    let elapsed = shutdown_start.elapsed();
+
+    assert!(
+        shutdown_res.is_ok(),
+        "daemon shutdown must complete in <5s even with pending hanging secret store operation (took {elapsed:?})"
+    );
+    pending_op.abort();
 }
