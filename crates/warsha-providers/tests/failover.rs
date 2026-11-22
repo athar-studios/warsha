@@ -189,3 +189,155 @@ fn estimate_cents(
     let output = (output_tokens / 1_000_000.0) * output_per_million_cents as f64;
     (input + output).ceil() as u64
 }
+
+#[tokio::test]
+async fn server_503_fails_over_after_at_most_one_fast_retry_and_sets_cooldown() {
+    let primary = MockProvider::new("primary")
+        .with_failure(ProviderError::Http(503, "Service Unavailable".to_string()));
+    let primary_calls = primary.call_counter();
+    let secondary = MockProvider::new("secondary");
+    let secondary_calls = secondary.call_counter();
+
+    let mut router = ProviderRouter::new();
+    router.register_provider(Box::new(primary));
+    router.register_provider(Box::new(secondary));
+    // Default retry policy has max_retries_per_target = 2.
+    // Use no_backoff so tests run fast without sleeping.
+    router.set_retry_policy(RetryPolicy::no_backoff());
+    router.set_role_routing(coder_routing(
+        vec![target("primary"), target("secondary")],
+        true,
+    ));
+
+    let result = router
+        .chat_with_fallback(Role::Coder, "project-1", request())
+        .await;
+    assert!(result.is_ok(), "secondary must succeed: {result:?}");
+
+    // Primary should have been called at most 2 times: 1 initial attempt + at most 1 fast retry.
+    // Under the old code, this was 3 calls (burning all max_retries_per_target).
+    assert_eq!(
+        primary_calls.load(Ordering::SeqCst),
+        2,
+        "primary should make at most 1 fast retry before failing over"
+    );
+    assert_eq!(secondary_calls.load(Ordering::SeqCst), 1);
+
+    // Primary must land in cooldown: a subsequent call skips primary without calling it again.
+    assert!(
+        router.is_in_cooldown("primary"),
+        "primary must be in cooldown"
+    );
+    let second_result = router
+        .chat_with_fallback(Role::Coder, "project-1", request())
+        .await;
+    assert!(second_result.is_ok());
+    assert_eq!(
+        primary_calls.load(Ordering::SeqCst),
+        2,
+        "primary in cooldown is skipped on subsequent walk"
+    );
+    assert_eq!(secondary_calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn server_503_with_fallback_disabled_fails_fast_and_engages_cooldown() {
+    let primary = MockProvider::new("primary")
+        .with_failure(ProviderError::Http(503, "Service Unavailable".to_string()));
+    let primary_calls = primary.call_counter();
+
+    let mut router = ProviderRouter::new();
+    router.register_provider(Box::new(primary));
+    router.set_retry_policy(RetryPolicy::no_backoff());
+    router.set_role_routing(coder_routing(vec![target("primary")], false));
+
+    let first = router
+        .chat_with_fallback(Role::Coder, "project-1", request())
+        .await;
+    assert!(first.is_err(), "no fallback configured, the error surfaces");
+    assert_eq!(
+        primary_calls.load(Ordering::SeqCst),
+        2,
+        "primary should fail fast after at most 1 fast retry instead of burning all retries"
+    );
+
+    // The provider must now be in cooldown even with fallback disabled.
+    assert!(
+        router.is_in_cooldown("primary"),
+        "primary must be in cooldown even with fallback disabled"
+    );
+    let second = router
+        .chat_with_fallback(Role::Coder, "project-1", request())
+        .await;
+    assert!(second.is_err());
+    assert_eq!(
+        primary_calls.load(Ordering::SeqCst),
+        2,
+        "provider in cooldown must not be dialled again"
+    );
+}
+
+#[tokio::test]
+async fn server_error_5xx_in_other_fails_over_fast_with_cooldown() {
+    let primary = MockProvider::new("primary").with_failure(ProviderError::Other(
+        "Server error: 503 - Service Unavailable".to_string(),
+    ));
+    let primary_calls = primary.call_counter();
+    let secondary = MockProvider::new("secondary");
+    let secondary_calls = secondary.call_counter();
+
+    let mut router = ProviderRouter::new();
+    router.register_provider(Box::new(primary));
+    router.register_provider(Box::new(secondary));
+    router.set_retry_policy(RetryPolicy::no_backoff());
+    router.set_role_routing(coder_routing(
+        vec![target("primary"), target("secondary")],
+        true,
+    ));
+
+    let result = router
+        .chat_with_fallback(Role::Coder, "project-1", request())
+        .await;
+    assert!(result.is_ok(), "secondary must succeed: {result:?}");
+    assert_eq!(
+        primary_calls.load(Ordering::SeqCst),
+        2,
+        "primary with 5xx Other error makes at most 1 fast retry"
+    );
+    assert_eq!(secondary_calls.load(Ordering::SeqCst), 1);
+    assert!(
+        router.is_in_cooldown("primary"),
+        "primary must be in cooldown after 5xx Other error"
+    );
+}
+
+#[tokio::test]
+async fn transient_rate_limit_still_burns_retries_before_failover() {
+    let primary = MockProvider::new("primary").with_failure(ProviderError::RateLimited(
+        "429 Too Many Requests".to_string(),
+    ));
+    let primary_calls = primary.call_counter();
+    let secondary = MockProvider::new("secondary");
+    let secondary_calls = secondary.call_counter();
+
+    let mut router = ProviderRouter::new();
+    router.register_provider(Box::new(primary));
+    router.register_provider(Box::new(secondary));
+    router.set_retry_policy(RetryPolicy::no_backoff());
+    router.set_role_routing(coder_routing(
+        vec![target("primary"), target("secondary")],
+        true,
+    ));
+
+    let retry = router.retry_policy();
+    let result = router
+        .chat_with_fallback(Role::Coder, "project-1", request())
+        .await;
+    assert!(result.is_ok(), "secondary must succeed: {result:?}");
+    // Transient signals (429) burn all max_retries_per_target attempts.
+    assert_eq!(
+        primary_calls.load(Ordering::SeqCst),
+        retry.max_retries_per_target + 1
+    );
+    assert_eq!(secondary_calls.load(Ordering::SeqCst), 1);
+}

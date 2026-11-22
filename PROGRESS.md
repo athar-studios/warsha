@@ -1,5 +1,30 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — Fix GAP-H3: Fast failover and universal cooldown on 503/5xx server downtime (D-R9-FAILOVER-1)
+- **Scope**: Fix GAP-H3 on branch `fix-r9-failover` (base `750934c`, worktree `.agents/worktrees/fix-r9-failover`). Local-only: no push, no tag, no publish, main untouched.
+- **Changes**:
+  - `crates/warsha-providers/src/lib.rs`:
+    - Added `ProviderError::is_server_downtime(&self) -> bool` classifying persistent server downtime (`Http(500..=599, _)`, `Other` carrying 5xx/server error/service unavailable/bad gateway/gateway timeout strings, excluding rate limits).
+    - Updated `is_retryable` and `should_failover` to check `is_server_downtime()`.
+    - Added `ProviderRouter::is_in_cooldown(&self, provider_id: &str) -> bool` with lazy expiration pruning.
+    - Updated `chat_with_fallback`: for server downtime signals, capped target retries at `retry.max_retries_per_target.min(1)` with zero backoff delay (`delay = 0`). On exhausting target retries or failure, engaged 60s cooldown on `target.provider_id` unconditionally (regardless of `fallback_enabled`). Genuine transient signals (429/402/timeout) remain on existing exponential backoff retry loop.
+    - Added unit tests `server_downtime_classification` and `cooldown_status_and_reset`.
+  - `crates/warsha-providers/tests/failover.rs`:
+    - Added proving integration tests: `server_503_fails_over_after_at_most_one_fast_retry_and_sets_cooldown`, `server_503_with_fallback_disabled_fails_fast_and_engages_cooldown`, `server_error_5xx_in_other_fails_over_fast_with_cooldown`, and control test `transient_rate_limit_still_burns_retries_before_failover`.
+  - Documentation: Recorded `D-R9-FAILOVER-1` in `DECISIONS.md`.
+- **Proving test evidence**:
+  - Before fix: all 3 server downtime tests failed with `left: 3, right: 2` (burned `max_retries_per_target` with backoff instead of failing fast).
+  - After fix: all 9 failover integration tests passed (`9 passed; 0 failed`).
+- **Gate matrix**:
+  - `cargo fmt --all -- --check`: clean (exit code 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (exit code 0).
+  - `cargo test -p warsha-providers --lib`: 71 passed, 0 failed (exit code 0).
+  - `cargo test -p warsha-providers --test failover`: 9 passed, 0 failed (exit code 0).
+  - `cargo test -p warshad --lib`: 315 passed, 0 failed, 4 ignored (exit code 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit code 0).
+  - `node scripts/check-versions.mjs --expect 0.3.1`: versions aligned 0.3.1 (exit code 0).
+- **Status**: COMPLETE.
+
 ## Run 2026-11-22 — Intake-watchdog merge verification (D-UI-INTAKE-WATCHDOG-1)
 - **Scope**: Merge lane `200c848` as `1271c42` into `r-next/integration`. Local-only: no push, no tag, no publish, main untouched.
 - **Gates (merged tip `1271c42`)**: fmt FMT_OK; clippy 0; pipeline 586/0/7; warshad 315/0/4; policy 8/0; versions 0.3.1 aligned; arch 5/0; wire 11/0; actions 199/199/1 (single pre-existing factory.retry A6, base parity); i18n 1074/19 (base parity, native model names exempt).
