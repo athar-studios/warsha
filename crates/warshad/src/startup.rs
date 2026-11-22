@@ -119,6 +119,32 @@ async fn seed_pairings(settings: &SettingsStore) -> Result<InMemoryPairingStore>
     Ok(settings.load_pairings().await?)
 }
 
+/// The device registry for this process: a freshly minted local identity, plus
+/// every paired device the store still has.
+///
+/// The local identity is not a row. It is regenerated on every start, and the
+/// rows are the phones an owner paired — the thing `devices.list` was empty of
+/// after a restart. A revoked row is restored revoked: `add_device` would refuse
+/// it, and dropping it would let a cut-off phone come back as if it had never
+/// been paired.
+pub(crate) async fn load_device_registry(store: &Store) -> Result<DeviceRegistry> {
+    let local_identity = warsha_remote::DeviceIdentity::generate("Warsha Daemon".to_string())?;
+    let registry = DeviceRegistry::new(local_identity);
+    for stored in store.load_devices().await? {
+        registry
+            .restore_stored(warsha_remote::DeviceIdentity {
+                device_id: stored.id,
+                static_public: stored.public_key,
+                name: stored.name,
+                created_at: stored.paired_at,
+                revoked: stored.revoked,
+                revoked_at: stored.revoked_at,
+            })
+            .await;
+    }
+    Ok(registry)
+}
+
 /// Start the daemon and return a handle for management.
 /// Accepts `http_port` and `ws_port` of 0 to let the OS choose ports.
 pub async fn start_daemon(config: DaemonConfig) -> Result<DaemonHandle> {
@@ -359,9 +385,9 @@ pub(crate) async fn start_daemon_with_interfaces(
         None => None,
     };
 
-    // Initialize device registry
-    let local_identity = warsha_remote::DeviceIdentity::generate("Warsha Daemon".to_string())?;
-    let devices = Arc::new(DeviceRegistry::new(local_identity));
+    // The local identity is minted here; every phone the owner already paired is
+    // read back from the `devices` table, so a restart still lists them.
+    let devices = Arc::new(load_device_registry(&store).await?);
 
     // The live event bus is the store's: every `append_event` publishes on it, and
     // `/events` subscribes through `state.store`. There is deliberately no second

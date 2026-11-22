@@ -1814,6 +1814,10 @@ impl WarshaApiServer for WarshaRpc {
             revoked: false,
             revoked_at: None,
         };
+        // The registry is rebuilt from the `devices` table on the next start, so the
+        // row has to land before the in-memory copy: a crash between the two leaves a
+        // device the owner can still see, never one they paired and then lost.
+        self.persist_device(&device).await?;
         self.state
             .devices
             .add_device(device)
@@ -1876,7 +1880,10 @@ impl WarshaApiServer for WarshaRpc {
 
         // The secret itself is never logged: the origin and the expiry are what an owner
         // and a reviewer need, and a pairing line in a log is otherwise a bearer token in
-        // a file that gets shipped to support (audit N-1).
+        // a file that gets shipped to support (audit N-1). The identity is persisted
+        // first for the same reason `devices.pair` persists it: a restart must still
+        // list the device the offer enrolled.
+        self.persist_device(&device).await?;
         self.state
             .devices
             .add_device(device.clone())
@@ -1906,6 +1913,18 @@ impl WarshaApiServer for WarshaRpc {
 
     async fn revoke_device(&self, ext: &RpcExtensions, device_id: DeviceId) -> RpcResult<()> {
         self.authorize(ext, "devices.revoke").await?;
+        // Persist the revocation before the registry flips, so a restart cannot
+        // resurrect a device the owner already cut off. The row is read back from
+        // the registry first: a device that was never paired has nothing to revoke.
+        let mut device = self
+            .state
+            .devices
+            .get_device(device_id)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        device.revoked = true;
+        device.revoked_at = Some(Utc::now());
+        self.persist_device(&device).await?;
         self.state
             .devices
             .revoke_device(device_id)
@@ -4440,8 +4459,6 @@ use warsha_pipeline::{
 };
 #[cfg(test)]
 use warsha_providers::{ProviderRouter, SecretStore};
-#[cfg(test)]
-use warsha_remote::DeviceRegistry;
 
 // The unit-test modules. They are declared last so the first `#[cfg(test)]` in this
 // file still comes after every production line:

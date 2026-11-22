@@ -18,7 +18,8 @@ use warsha_core::*;
 use warsha_pipeline::{AgentMode, BackendKit, ModeTransition, SlashCommand};
 use warsha_providers::OneClickProvider;
 use warsha_store::{
-    Store, StoredHarness, StoredIntegration, StoredPlugin, StoredProvider, StoredSkill,
+    Store, StoredDevice, StoredHarness, StoredIntegration, StoredPlugin, StoredProvider,
+    StoredSkill,
 };
 
 use crate::skills::{catalog_from_registry, verified_skill_registry};
@@ -165,6 +166,31 @@ impl WarshaRpc {
         self.state
             .settings
             .save_pairings(pairings)
+            .await
+            .map_err(|error| rpc_error(error.to_string()))
+    }
+
+    /// Write one paired device's public identity into the `devices` table.
+    ///
+    /// The pairing secret is not this row: `save_pairings` owns that credential.
+    /// What survives here is the identity `devices.list` rebuilds after a restart,
+    /// including a revocation — a revoked device keeps its row so the next start
+    /// does not forget the owner already cut it off.
+    pub(crate) async fn persist_device(
+        &self,
+        device: &warsha_remote::DeviceIdentity,
+    ) -> RpcResult<()> {
+        let stored = StoredDevice {
+            id: device.device_id,
+            name: device.name.clone(),
+            public_key: device.static_public,
+            paired_at: device.created_at,
+            revoked: device.revoked,
+            revoked_at: device.revoked_at,
+        };
+        self.state
+            .store
+            .save_device(&stored)
             .await
             .map_err(|error| rpc_error(error.to_string()))
     }
