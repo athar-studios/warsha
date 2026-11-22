@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Fix runs.start ignoring budget_cents (D-R11-BUDGET-1)
+- **Scope**: Owner finding #7, merged from `fix-r11-budget` `9e06f19`. `runs.start` records the budget the caller passes. Local-only: no push, no tag, no publish, main untouched.
+- **Changes**: trailing `budget_cents: Option<u64>` on `runs.start`; an explicit value, including `0`, wins over a pending `budget.set` and over the inherited budget. Home start and the MCP `start_run` tool forward it.
+- **Proving test**: `runs_start_records_the_budget_it_was_given` (prior run 700, start with 5, recorded budget is 5). `cargo test -p warshad --lib runs_start_budget`: 3 passed, 0 failed. `cargo fmt --all -- --check` exit 0. `cargo clippy -p warshad -p warsha-cli --all-targets -- -D warnings` exit 0.
+- **Status**: green, merged.
+
 ## Run 2026-11-23 — Role routing reads the stored key shapes (D-R11-ROLES-1)
 
 - **Scope**: Owner UI finding #2 on branch `fix-r11-roles` (base `7de0302`). Local-only: no push, no tag, no publish, main untouched.

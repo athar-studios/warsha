@@ -168,6 +168,7 @@ pub trait WarshaApi {
         idea: String,
         run_mode: Option<String>,
         spec_file_path: Option<String>,
+        budget_cents: Option<u64>,
     ) -> RpcResult<Run>;
 
     #[method(name = "runs.worktree", with_extensions)]

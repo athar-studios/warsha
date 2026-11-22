@@ -712,8 +712,8 @@ export default function HomePage(): React.ReactElement {
       : await client.createProject(projectName, trimmedIdea, locale);
     projectsResult.reload();
 
-    // 2. runs.start
-    await client.startRun(project.id, trimmedIdea);
+    // 2. runs.start — the budget the owner entered is the budget the run records.
+    await client.startRun(project.id, trimmedIdea, undefined, undefined, budgetCents);
 
     // 3. budget.set
     await client.setProjectBudget(project.id, budgetCents);

@@ -151,6 +151,11 @@ pub fn tool_definitions() -> Vec<Value> {
                     "spec_file_path": {
                         "type": "string",
                         "description": "Spec-file mode: path of the spec file inside the repository, taken as the run's brief (treated as untrusted data)."
+                    },
+                    "budget_cents": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Optional budget in cents recorded on the new run. Omitted leaves the project's current budget unchanged."
                     }
                 },
                 "required": ["project_id", "idea"]
@@ -360,8 +365,22 @@ async fn call_start_run(client: &HttpClient, args: &Value) -> Value {
         .get("spec_file_path")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let budget_cents = match args.get("budget_cents") {
+        Some(value) => match value.as_u64() {
+            Some(cents) => Some(cents),
+            None => {
+                return tool_error(
+                    "Optional argument `budget_cents` must be a non-negative integer".to_string(),
+                )
+            }
+        },
+        None => None,
+    };
     match client
-        .request::<Run, _>("runs.start", (project_id, idea, run_mode, spec_file_path))
+        .request::<Run, _>(
+            "runs.start",
+            (project_id, idea, run_mode, spec_file_path, budget_cents),
+        )
         .await
     {
         Ok(run) => tool_ok_json(&run),

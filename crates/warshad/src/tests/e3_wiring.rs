@@ -58,6 +58,7 @@ async fn a_repository_backed_run_gets_its_own_worktree() {
             "Build a todo app".to_string(),
             None,
             None,
+            None,
         )
         .await
         .expect("the run starts");
@@ -92,6 +93,7 @@ async fn an_unusable_repository_cancels_the_run() {
             &owner(),
             project.id,
             "Build a todo app".to_string(),
+            None,
             None,
             None,
         )

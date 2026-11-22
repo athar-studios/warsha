@@ -222,6 +222,7 @@ async fn a_project_created_in_arabic_renders_its_run_prompts_in_arabic() {
             "تطبيق حجز مواعيد".to_string(),
             None,
             None,
+            None,
         )
         .await
         .expect("the run starts");

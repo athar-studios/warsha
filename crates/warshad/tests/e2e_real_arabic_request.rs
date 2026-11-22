@@ -660,7 +660,14 @@ async fn e2e_real_arabic_request_clinic_flow() {
     assert_eq!(project.description, ARABIC_REQUEST);
 
     let run = rpc
-        .start_run(&ext, project.id, ARABIC_REQUEST.to_string(), None, None)
+        .start_run(
+            &ext,
+            project.id,
+            ARABIC_REQUEST.to_string(),
+            None,
+            None,
+            None,
+        )
         .await
         .expect("runs.start succeeds");
     assert_eq!(run.current_stage, Stage::Idea);

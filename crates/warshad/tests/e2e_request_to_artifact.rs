@@ -204,7 +204,14 @@ async fn e2e_request_to_artifact() {
         .expect("projects.create succeeds");
     assert_eq!(project.name, PACKAGE_NAME);
     let run = rpc
-        .start_run(&ext, project.id, HELLO_REQUEST.to_string(), None, None)
+        .start_run(
+            &ext,
+            project.id,
+            HELLO_REQUEST.to_string(),
+            None,
+            None,
+            None,
+        )
         .await
         .expect("runs.start succeeds");
     assert_eq!(run.current_stage, Stage::Idea);
