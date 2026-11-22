@@ -3781,6 +3781,7 @@ mod runs_resume {
                 "en".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -3830,6 +3831,7 @@ mod runs_resume {
                 "Change Request Loop Project".to_string(),
                 "Test change-request resume".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
             )
@@ -3913,6 +3915,7 @@ mod runs_resume {
                 "Gate C Resume Project".to_string(),
                 "Test Gate C change-request resume".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
             )
@@ -4044,6 +4047,7 @@ mod runs_resume {
                 "Budget Resume Project".to_string(),
                 "Test budget pause & resume".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
             )
@@ -4182,6 +4186,7 @@ mod runs_start_budget {
                 "en".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -4247,6 +4252,7 @@ mod runs_start_budget {
                 "Runless Budget Project".to_string(),
                 "A project that has no runs yet".to_string(),
                 "ar".to_string(),
+                None,
                 None,
                 None,
             )
@@ -4330,6 +4336,7 @@ mod runs_followup {
                 "Followup Integrity Project".to_string(),
                 "Test followup CAS and cancel refusal".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
             )
@@ -4467,6 +4474,7 @@ mod provider_truth {
                 "en".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -4540,6 +4548,7 @@ mod provider_truth {
                 "en".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -4601,6 +4610,7 @@ mod provider_truth {
                 "en".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -4644,6 +4654,7 @@ mod provider_truth {
                 "Resume After Routing Project".to_string(),
                 "Test resuming after adding provider".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
             )

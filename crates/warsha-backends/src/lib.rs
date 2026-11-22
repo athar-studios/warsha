@@ -1074,6 +1074,71 @@ mod tests {
 
             assert!(matches!(error, BackendError::NotInstalled(_)), "{error:?}");
         }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn test_opencode_cli_backend_command_args_and_sandbox_execution() {
+            let temp = tempfile::tempdir().expect("a temp dir");
+            std::fs::write(temp.path().join("base.txt"), "initial").expect("base file");
+            git_repo(temp.path());
+
+            // Fake opencode script that records its invocation args, verifies working directory, and modifies a file
+            let cli = fake_cli(
+                temp.path(),
+                "printf '%s\n' \"$@\" > args.txt\npwd > cwd.txt\nprintf 'updated' > base.txt",
+            );
+
+            // Construct opencode CLI backend from catalog
+            let catalog_entry = catalog::EngineCatalog::builtin()
+                .get("opencode")
+                .expect("opencode in catalog");
+            let mut backend = CliBackend::from_catalog_entry(catalog_entry);
+            // Point the command to the fake script
+            backend.command = cli.to_str().expect("valid utf8 path").to_string();
+
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+            let result = backend
+                .execute(task("Opencode Task", "Implement feature"), &sandbox)
+                .await
+                .expect("opencode backend executes");
+
+            assert!(result.success);
+            assert!(result.files_changed.contains(&"base.txt".to_string()));
+            let diff = result.diff.expect("changes captured in diff");
+            assert!(
+                diff.contains("updated"),
+                "diff contains modification: {diff}"
+            );
+
+            // Verify recorded arguments: must contain `run` and `--format json`
+            let args_record =
+                std::fs::read_to_string(temp.path().join("args.txt")).expect("args recorded");
+            let lines: Vec<&str> = args_record.lines().collect();
+            assert!(
+                lines.contains(&"run"),
+                "args must contain 'run': {args_record}"
+            );
+            assert!(
+                lines.contains(&"--format"),
+                "args must contain '--format': {args_record}"
+            );
+            assert!(
+                lines.contains(&"json"),
+                "args must contain 'json': {args_record}"
+            );
+
+            // Verify execution was in sandbox.work_dir
+            let recorded_cwd =
+                std::fs::read_to_string(temp.path().join("cwd.txt")).expect("cwd recorded");
+            let canonical_temp = temp.path().canonicalize().expect("canonical temp");
+            let recorded_path = std::path::PathBuf::from(recorded_cwd.trim())
+                .canonicalize()
+                .expect("canonical cwd");
+            assert_eq!(
+                recorded_path, canonical_temp,
+                "executed in sandbox.work_dir"
+            );
+        }
     }
 
     /// ENGINE E4: the Code stage executes through a selected coding CLI, and the

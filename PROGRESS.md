@@ -8192,6 +8192,47 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
   - `cargo deny check`: PASSED (expected FAIL only on owner-accepted `RUSTSEC-2026-0543` for chrono v0.4.45; no ignore entry added).
 - **Decisions**: Logged `D-R8-APPROVAL-1` in `DECISIONS.md`.
 
+## Run 2026-11-22 — Activate External Coding Harness Path OpenCode-First (D-HARNESS-OPENCODE-1)
+- **Scope & Objective**: Complete activation of external coding harness path opencode-first on `r-next/integration`, local-only, addressing GAP-H1 and GAP-H2 (Steps 1–4 of `docs/zadloop/packets/AUDIT-V5-REALITY.md` Section 3).
+- **Delivered**:
+  - `crates/warshad/src/lib.rs` & `api.rs`:
+    * Added `repo_path: Option<String>` to `create_project`, validated via `warsha_pipeline::worktree::validate_repository(Path::new(path))` before setting `project.repo_path`.
+    * In `start_run`: when `project.repo_path` is present, creates run worktree via `warsha_pipeline::create_run_worktree` and registers it in `state.run_worktrees`, exposed by `runs.worktree`.
+    * Added 3 JSON-RPC endpoints:
+      - `coding_backends.list`: returns catalog entries with command, tier, and `installed` status via `which(command)` (`Session` policy).
+      - `backend_routing.get`: returns persistent `backend-routings` document from `SettingsStore` (`Session` policy).
+      - `backend_routing.set`: persists `backend-routings` document and synchronizes in-memory `pipeline.backend_registry` (`Owner` policy).
+  - `crates/warsha-pipeline/src/coding_backend.rs` & `lib.rs`:
+    * Wired registry resolution order: `(project_id, role)` -> `project_id` -> `role` -> `default_backend` -> `WARSHA_CODING_BACKEND` env var.
+    * Refuses silent fallback: `resolve_coding_backend` converts `Err(unknown_backend)` to `PipelineError::Other`, preserving fail-loud invariant.
+  - `packages/client/src/index.ts`:
+    * Added `CodingBackendSummary`, `BackendRoutingsConfig`, `repoPath` in `ProjectSummary`, `createProject(..., repoPath)`, `attachProject`, `listCodingBackends`, `getBackendRouting`, `setBackendRouting`.
+  - `apps/desktop/e2e/harness.ts`:
+    * Added wire contract RPC methods and stubs for `projects.attach`, `coding_backends.list`, `backend_routing.get`, `backend_routing.set`.
+  - `apps/desktop`:
+    * Exported `NewProjectDialog` in `home/index.tsx` with repository path input.
+    * Added optional repo path field in home composer card and onboarding step `idea`.
+    * Created `apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.tsx`: enumerates backends, displays `Installed` / `Not installed` detection badges, provides Default Coding Engine dropdown, and saves via `client.setBackendRouting`.
+    * Added Arabic and English i18n catalogs (`packages/i18n/src/v3/`).
+  - **Proving Tests**:
+    * (a) `test_list_backends_returns_opencode_entry` in `crates/warshad/src/tests/harness_opencode.rs`: proves `opencode` is present with boolean `installed` flag.
+    * (b) `test_set_get_backend_routing_round_trip_persists` in `crates/warshad/src/tests/harness_opencode.rs`: proves round-trip persistence and in-memory registry update.
+    * (c) `test_create_project_with_repo_path_then_start_run_yields_worktree` in `crates/warshad/src/tests/harness_opencode.rs`: proves `create_project` with `repo_path` followed by `start_run` yields non-null `runs.worktree`.
+    * (d) `test_unknown_backend_routing_errors_fail_loud` in `crates/warshad/src/tests/harness_opencode.rs` and `test_code_stage_completion_unknown_backend_errors_fail_loud` in `crates/warsha-pipeline/src/lib.rs`: proves unknown backend errors fail-loud without silent native fallback.
+    * `test_opencode_cli_backend_command_args_and_sandbox_execution` in `crates/warsha-backends/src/lib.rs`: proves `opencode run --format json` command line, sandbox working directory, and diff capture.
+    * `apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.test.tsx`: proves UI backend listing, badges, and routing selection/saving.
+- **Verification Gates**:
+  - `cargo fmt --all -- --check`: PASSED (exit 0)
+  - `cargo clippy --workspace --all-targets -- -D warnings`: PASSED (exit 0)
+  - `cargo test -p warsha-pipeline --lib`: PASSED (584 passed, 0 failed)
+  - `cargo test -p warshad --lib`: PASSED (314 passed, 0 failed)
+  - `cargo test -p warsha-backends`: PASSED (6 passed, 0 failed)
+  - `node scripts/check-wire-contract.mjs`: PASSED (11 checks, 0 violations)
+  - `node scripts/check-engineering-policy.mjs`: PASSED (8 checks, 0 failures)
+  - `node scripts/check-versions.mjs --expect 0.3.1`: PASSED (aligned 0.3.1)
+- **Decisions**: Logged `D-HARNESS-OPENCODE-1` in `DECISIONS.md`.
+
+
 
 
 

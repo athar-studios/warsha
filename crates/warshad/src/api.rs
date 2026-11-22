@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 //! Wire-contract surface for the daemon: the `WarshaApi` JSON-RPC trait (97 methods)
 //! and the 15 DTOs it carries. Split out of `lib.rs` (P-H1 step A1, pure move).
 
@@ -19,6 +20,7 @@ use crate::mcp_approvals::{PermissionAskAccepted, PermissionDecision};
 use crate::{McpApproval, McpApprovalAnswer, McpPermissionRow, McpPermissionsReply, RunStreamSync};
 
 /// JSON-RPC API trait
+#[allow(clippy::too_many_arguments)]
 #[rpc(server)]
 pub trait WarshaApi {
     // Every method on this surface takes `with_extensions` (security re-audit, LOAD-1
@@ -36,6 +38,7 @@ pub trait WarshaApi {
     async fn list_projects(&self) -> RpcResult<Vec<Project>>;
 
     #[method(name = "projects.create", with_extensions)]
+    #[allow(clippy::too_many_arguments)]
     async fn create_project(
         &self,
         name: String,
@@ -43,6 +46,7 @@ pub trait WarshaApi {
         language: String,
         confinement: Option<Confinement>,
         approval_mode: Option<ApprovalMode>,
+        repo_path: Option<String>,
     ) -> RpcResult<Project>;
 
     #[method(name = "permissions.defaults.get", with_extensions)]
@@ -650,6 +654,21 @@ pub trait WarshaApi {
     #[method(name = "harness.delete", with_extensions)]
     async fn delete_harness(&self, id: String) -> RpcResult<()>;
 
+    // Coding backends and routing (R-NEXT GAP-H1/GAP-H2).
+    #[method(name = "coding_backends.list", with_extensions)]
+    async fn list_coding_backends(&self) -> RpcResult<Vec<CodingBackendSummary>>;
+
+    #[method(name = "backend_routing.get", with_extensions)]
+    async fn get_backend_routing(&self) -> RpcResult<crate::runtime::BackendRoutingsConfig>;
+
+    #[method(name = "backend_routing.set", with_extensions)]
+    async fn set_backend_routing(
+        &self,
+        default_backend: Option<String>,
+        role_backends: Option<std::collections::HashMap<String, String>>,
+        project_backends: Option<std::collections::HashMap<String, String>>,
+    ) -> RpcResult<crate::runtime::BackendRoutingsConfig>;
+
     // Wave 2 — skills.
     //
     // `skills.list` is the catalog the owner manages: every installed
@@ -1155,4 +1174,14 @@ pub struct AgentState {
     /// routing table that decides whether that call reaches a provider, so a wired
     /// loop with no routing still answers honestly that nothing was reached.
     pub model_wired: bool,
+}
+
+/// Summary of a registered or cataloged coding backend (R-NEXT GAP-H1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodingBackendSummary {
+    pub name: String,
+    pub display_name: String,
+    pub command: String,
+    pub installed: bool,
+    pub tier: String,
 }

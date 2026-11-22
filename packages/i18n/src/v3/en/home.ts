@@ -1,9 +1,11 @@
 export default {
   'home.title': 'Home',
   'home.greeting': 'Hello, what are we building today?',
-  'home.help': 'Describe your idea in your own words. The team will plan, build, and test, and return to you for every key decision.',
+  'home.help':
+    'Describe your idea in your own words. The team will plan, build, and test, and return to you for every key decision.',
   'home.idea_label': 'Your idea',
-  'home.idea_placeholder': 'e.g. Appointment booking app for a dental clinic with SMS reminders and a doctor dashboard.',
+  'home.idea_placeholder':
+    'e.g. Appointment booking app for a dental clinic with SMS reminders and a doctor dashboard.',
   'home.start': 'Start project',
   'home.estimate.line': 'Estimated cost for this run: ${min}–${max} (estimated)',
   'home.provider_add': 'Add a provider first',
@@ -66,4 +68,13 @@ export default {
   'home.alerts.run_failed': 'Some runs failed ({count}). Retry them from the inbox.',
   'home.alerts.quota_near': 'Provider quota is at {percent}% of its known limit.',
   'home.alerts.spend_near': 'Run spend is at {percent}% of its cap.',
+  'home.repo_path_label': 'Git repository path (optional)',
+  'home.repo_path_placeholder': 'e.g. /home/user/my-project',
+  'home.repo_path_hint': 'Path to an existing git repository to work on.',
+  'home.new_project_btn': 'New project',
+  'home.new_project_submit': 'Create',
+  'home.new_project_dialog_title': 'Create new project',
+  'home.new_project_dialog_desc': 'Start a new project with an optional Git repository.',
+  'home.project_name_label': 'Project name',
+  'home.project_name_placeholder': 'e.g. My Next Project',
 };

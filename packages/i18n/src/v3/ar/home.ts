@@ -66,4 +66,13 @@ export default {
   'home.alerts.run_failed': 'تعثّرت بعض التشغيلات ({count}). أعِد تشغيلها من صندوق القرارات.',
   'home.alerts.quota_near': 'بلغت حصة المزوّد {percent}% من حدّها المعروف.',
   'home.alerts.spend_near': 'بلغ إنفاق التشغيل {percent}% من سقفه.',
+  'home.repo_path_label': 'مسار مستودع Git (اختياري)',
+  'home.repo_path_placeholder': 'مسار المجلد المحلي',
+  'home.repo_path_hint': 'مسار مستودع Git محلي موجود للعمل عليه.',
+  'home.new_project_btn': 'مشروع جديد',
+  'home.new_project_submit': 'إنشاء',
+  'home.new_project_dialog_title': 'إنشاء مشروع جديد',
+  'home.new_project_dialog_desc': 'ابدأ مشروعًا جديدًا مع تحديد مسار مستودع Git اختياريًا.',
+  'home.project_name_label': 'اسم المشروع',
+  'home.project_name_placeholder': 'مثل: مشروعي القادم',
 };

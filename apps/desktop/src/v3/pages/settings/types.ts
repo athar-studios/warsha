@@ -15,6 +15,7 @@ export type SettingsSectionId =
   | 'swarm'
   | 'postlaunch'
   | 'backend'
+  | 'coding-engines'
   | 'export'
   | 'about';
 
@@ -154,6 +155,14 @@ export const SETTINGS_SECTIONS: readonly SectionMeta[] = [
     descKey: 'settings.section.backend.desc',
     scopeKey: 'settings.scope.run',
     isAdvanced: true,
+  },
+  {
+    id: 'coding-engines',
+    labelKey: 'settings.section.coding_engines',
+    descKey: 'settings.section.coding_engines.desc',
+    scopeKey: 'settings.scope.system',
+    isAdvanced: false,
+    isQuick: true,
   },
   {
     id: 'export',

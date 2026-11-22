@@ -67,6 +67,10 @@ function getSectionIcon(id: SettingsSectionId): React.ReactNode {
       return <IconAlert size={18} />;
     case 'backend':
       return <IconCode size={18} />;
+    case 'coding-engines':
+      return <IconTerminal size={18} />;
+    default:
+      return <IconSettings size={18} />;
   }
 }
 
@@ -114,14 +118,19 @@ export function SettingsNav({
     visibleAdvanced = SETTINGS_SECTIONS.filter((s) => s.isAdvanced);
   }
 
-  const showAdvanced = isSearching || (layer === 'developers' && (mode !== 'simple' || advancedExpanded));
-  
+  const showAdvanced =
+    isSearching || (layer === 'developers' && (mode !== 'simple' || advancedExpanded));
+
   return (
-    <nav
-      className="v3-settings-nav"
-      aria-label={t('settings.nav.label')}
-    >
-      <div style={{ padding: 'var(--w-space-2)', display: 'flex', flexDirection: 'column', gap: 'var(--w-space-2)' }}>
+    <nav className="v3-settings-nav" aria-label={t('settings.nav.label')}>
+      <div
+        style={{
+          padding: 'var(--w-space-2)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--w-space-2)',
+        }}
+      >
         <TextField
           label={t('settings.search.label')}
           placeholder={t('settings.search.placeholder')}
@@ -164,7 +173,13 @@ export function SettingsNav({
       </div>
 
       {isSearching && visiblePrimary.length === 0 && visibleAdvanced.length === 0 && (
-        <div style={{ padding: 'var(--w-space-4)', color: 'var(--w-text-muted)', fontSize: 'var(--w-font-size-sm)' }}>
+        <div
+          style={{
+            padding: 'var(--w-space-4)',
+            color: 'var(--w-text-muted)',
+            fontSize: 'var(--w-font-size-sm)',
+          }}
+        >
           {t('settings.search.empty')}
         </div>
       )}
@@ -215,9 +230,7 @@ export function SettingsNav({
             onClick={onToggleAdvanced}
             style={{ width: '100%', justifyContent: 'flex-start' }}
           >
-            {showAdvanced
-              ? t('settings.nav.advanced_hide')
-              : t('settings.nav.advanced_show')}
+            {showAdvanced ? t('settings.nav.advanced_hide') : t('settings.nav.advanced_show')}
           </Button>
         </div>
       )}
@@ -231,9 +244,7 @@ export function SettingsNav({
           }}
         >
           {!isSearching && (
-            <div className="v3-settings-nav-group-title">
-              {t('settings.nav.advanced_group')}
-            </div>
+            <div className="v3-settings-nav-group-title">{t('settings.nav.advanced_group')}</div>
           )}
           <ul className="v3-settings-nav-list">
             {visibleAdvanced.map((sec) => {

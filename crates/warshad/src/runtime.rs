@@ -157,7 +157,7 @@ pub(crate) const CUSTOM_BACKENDS_DOCUMENT: &str = "custom-backends";
 pub(crate) const BACKEND_ROUTINGS_DOCUMENT: &str = "backend-routings";
 
 /// Stored per-project / per-role coding backend selection configuration.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct BackendRoutingsConfig {
     #[serde(default)]
     pub default_backend: Option<String>,
@@ -304,6 +304,27 @@ pub(crate) async fn seed_backend_routings(
             Ok(BackendRoutingsConfig::default())
         }
     }
+}
+
+/// Write the backend routings configuration to the daemon's settings (R-NEXT GAP-H1).
+pub(crate) async fn store_backend_routings(
+    settings: &SettingsStore,
+    config: &BackendRoutingsConfig,
+) -> Result<()> {
+    let document = serde_json::to_value(config).map_err(|error| {
+        DaemonError::Config(format!(
+            "the backend routings could not be encoded: {error}"
+        ))
+    })?;
+    settings
+        .save_document(BACKEND_ROUTINGS_DOCUMENT, &document)
+        .await?;
+    Ok(())
+}
+
+/// The per-project / per-role backend routing config as loaded from settings.
+pub(crate) async fn load_backend_routings(settings: &SettingsStore) -> BackendRoutingsConfig {
+    seed_backend_routings(settings).await.unwrap_or_default()
 }
 
 /// The loop's stored conversation, if there is one.

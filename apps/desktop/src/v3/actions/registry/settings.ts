@@ -68,11 +68,26 @@ export const ACTIONS: readonly ActionDef[] = [
     effect: 'rpc',
     rpc: ['roles.set'],
   },
-  { id: 'settings.provider.disconnect', labelKey: 'settings.providers.disconnect', effect: 'rpc', rpc: ['providers.disconnect'] },
-  { id: 'settings.provider.auth', labelKey: 'settings.providers.auth_start', effect: 'rpc', rpc: ['providers.auth_start'] },
+  {
+    id: 'settings.provider.disconnect',
+    labelKey: 'settings.providers.disconnect',
+    effect: 'rpc',
+    rpc: ['providers.disconnect'],
+  },
+  {
+    id: 'settings.provider.auth',
+    labelKey: 'settings.providers.auth_start',
+    effect: 'rpc',
+    rpc: ['providers.auth_start'],
+  },
   { id: 'settings.usage.dimension.set', labelKey: 'settings.usage.dimension', effect: 'state' },
   { id: 'settings.usage.granularity.set', labelKey: 'settings.usage.granularity', effect: 'state' },
-  { id: 'settings.usage.quota.check', labelKey: 'settings.usage.quota', effect: 'rpc', rpc: ['providers.quota'] },
+  {
+    id: 'settings.usage.quota.check',
+    labelKey: 'settings.usage.quota',
+    effect: 'rpc',
+    rpc: ['providers.quota'],
+  },
 
   // Devices section
   {
@@ -255,7 +270,11 @@ export const ACTIONS: readonly ActionDef[] = [
   },
 
   // Integrations section
-  { id: 'settings.integration.connect.open', labelKey: 'settings.integrations.connect_btn', effect: 'state' },
+  {
+    id: 'settings.integration.connect.open',
+    labelKey: 'settings.integrations.connect_btn',
+    effect: 'state',
+  },
   {
     id: 'settings.integration.connect',
     labelKey: 'settings.integrations.form.save',
@@ -268,7 +287,11 @@ export const ACTIONS: readonly ActionDef[] = [
     effect: 'rpc',
     rpc: ['integrations.test'],
   },
-  { id: 'settings.integration.disconnect.open', labelKey: 'settings.integrations.disconnect', effect: 'state' },
+  {
+    id: 'settings.integration.disconnect.open',
+    labelKey: 'settings.integrations.disconnect',
+    effect: 'state',
+  },
   {
     id: 'settings.integration.disconnect',
     labelKey: 'settings.common.confirm_disconnect',
@@ -345,8 +368,15 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['backend.export'],
   },
 
+  // Coding engines section
+  {
+    id: 'settings.coding-engines.save',
+    labelKey: 'settings.coding_engines.save_btn',
+    effect: 'rpc',
+    rpc: ['backend_routing.set'],
+  },
+
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },
   { id: 'settings.error.retry', labelKey: 'common.retry', effect: 'state' },
 ];
-

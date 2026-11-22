@@ -106,8 +106,11 @@ export const RPC_METHODS = [
   'backend.export',
   'backend.get',
   'backend.set',
+  'backend_routing.get',
+  'backend_routing.set',
   'budget.set',
   'budget.show',
+  'coding_backends.list',
   'devices.list',
   'devices.pair',
   'devices.pair-start',
@@ -162,6 +165,7 @@ export const RPC_METHODS = [
   'preview.start',
   'preview.status',
   'preview.stop',
+  'projects.attach',
   'projects.create',
   'projects.get',
   'projects.list',
@@ -247,13 +251,7 @@ const DAEMON_CONFIG: Record<string, string> = {
  * where the wizard leaves the screen to the shell.
  */
 export type WizardDrive =
-  | 'language'
-  | 'provider'
-  | 'key'
-  | 'test-ok'
-  | 'test-failed'
-  | 'project'
-  | 'created';
+  'language' | 'provider' | 'key' | 'test-ok' | 'test-failed' | 'project' | 'created';
 
 /** One method's answer for one case. */
 export interface RpcBehaviour {
@@ -410,7 +408,12 @@ export const SCREENS: readonly ScreenCase[] = [
 
   // The settings family: phone, tablet, reference desktop.
   { id: 'settings', root: '.settings-screen', rpc: ['projects.list'], viewports: CORE },
-  { id: 'providers', root: '.providers-settings', rpc: ['projects.list', 'providers.list'], viewports: CORE },
+  {
+    id: 'providers',
+    root: '.providers-settings',
+    rpc: ['projects.list', 'providers.list'],
+    viewports: CORE,
+  },
   {
     id: 'roles',
     root: '.roles-settings',
@@ -719,7 +722,12 @@ const DEVICES = [
 /** The reading `budget.show` answers with, in the daemon's own cents (`BudgetStatus` is USD).
  *  `client.getProjectBudget` divides by 100 at the edge, so the screens render 12 / 4.37 / 7.63
  *  exactly as they did when the stub answered dollars directly. */
-const BUDGET = { project_id: 'proj-ui', budget_cents: 1200, spent_cents: 437, remaining_cents: 763 };
+const BUDGET = {
+  project_id: 'proj-ui',
+  budget_cents: 1200,
+  spent_cents: 437,
+  remaining_cents: 763,
+};
 
 /**
  * The run's log lines — the terminal dock's and the run view's content.
@@ -1012,7 +1020,8 @@ export async function settleScroll(page: Page): Promise<void> {
     for (const node of Array.from(document.querySelectorAll('*'))) {
       const element = node as HTMLElement;
       if (typeof element.scrollTop === 'number' && element.scrollTop !== 0) element.scrollTop = 0;
-      if (typeof element.scrollLeft === 'number' && element.scrollLeft !== 0) element.scrollLeft = 0;
+      if (typeof element.scrollLeft === 'number' && element.scrollLeft !== 0)
+        element.scrollLeft = 0;
     }
   });
 }
@@ -1055,7 +1064,10 @@ export interface StubDaemon {
 
 /** The daemon a case runs against: its providers, the keys and previews it holds, its overrides. */
 export function createDaemon(
-  options: { providers?: readonly ProviderFixture[]; fixtures?: Partial<Record<RpcMethod, RpcBehaviour>> } = {}
+  options: {
+    providers?: readonly ProviderFixture[];
+    fixtures?: Partial<Record<RpcMethod, RpcBehaviour>>;
+  } = {}
 ): StubDaemon {
   return {
     providers: options.providers ?? DAEMON_PROVIDERS,
@@ -1067,7 +1079,14 @@ export function createDaemon(
 
 /** A fresh stub report, so an app-specific harness can start the same record. */
 export function createStubReport(): StubReport {
-  return { rpcMethods: [], rpcCalls: [], unauthorized: 0, unimplemented: [], configWrites: [], eventsSent: 0 };
+  return {
+    rpcMethods: [],
+    rpcCalls: [],
+    unauthorized: 0,
+    unimplemented: [],
+    configWrites: [],
+    eventsSent: 0,
+  };
 }
 
 /**
@@ -1201,7 +1220,8 @@ function bindPairingData(source: Record<string, unknown>): StubOutcome {
 }
 
 /** What the stub answers for one call: a result, or an error the screen is meant to show. */
-export type StubOutcome = { ok: true; result: unknown } | { ok: false; code: number; message: string };
+export type StubOutcome =
+  { ok: true; result: unknown } | { ok: false; code: number; message: string };
 
 /** The programs that fetch a package (`PACKAGE_LAUNCHERS`, `crates/warshad/src/wave2.rs:754`). */
 const MCP_PACKAGE_LAUNCHERS = new Set(['npx', 'pnpm', 'yarn', 'bun', 'bunx', 'npm', 'uvx', 'pipx']);
@@ -1461,7 +1481,9 @@ function isHostName(candidate: string): boolean {
  * `RunModeError` display text. A stub that answered defaults for a malformed config would let a
  * screen keep a setting a live daemon refuses.
  */
-function bindRunModeConfig(value: unknown): { config: Record<string, unknown> } | { refusal: StubOutcome } {
+function bindRunModeConfig(
+  value: unknown
+): { config: Record<string, unknown> } | { refusal: StubOutcome } {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return {
       refusal: {
@@ -1564,7 +1586,11 @@ function bindRunModeConfig(value: unknown): { config: Record<string, unknown> } 
  * `StubReport.unimplemented` and fails a case, and it is deliberately different from an error the
  * daemon is modelled as returning (a refused API key), which a screen is supposed to render.
  */
-export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon): StubOutcome | null {
+export function rpcResult(
+  method: RpcMethod,
+  params: unknown,
+  daemon: StubDaemon
+): StubOutcome | null {
   const override = daemon.fixtures[method];
   if (override !== undefined && (override.result !== undefined || override.error !== undefined)) {
     if (override.error !== undefined) return { ok: false, code: -32001, message: override.error };
@@ -1583,7 +1609,7 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       const runs = projectId === null ? RUNS : RUNS.filter((run) => run.projectId === projectId);
       return {
         ok: true,
-        result: runs.map(run => ({
+        result: runs.map((run) => ({
           ...run,
           run_mode: run.run_mode,
         })),
@@ -1613,8 +1639,18 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       return {
         ok: true,
         result: [
-          { id: 'sec-conv-1', project_id: null, created_at: '2026-11-18T09:00:00Z', updated_at: '2026-11-18T09:30:00Z' },
-          { id: 'sec-conv-2', project_id: 'proj-ui', created_at: '2026-11-18T10:00:00Z', updated_at: '2026-11-18T10:05:00Z' },
+          {
+            id: 'sec-conv-1',
+            project_id: null,
+            created_at: '2026-11-18T09:00:00Z',
+            updated_at: '2026-11-18T09:30:00Z',
+          },
+          {
+            id: 'sec-conv-2',
+            project_id: 'proj-ui',
+            created_at: '2026-11-18T10:00:00Z',
+            updated_at: '2026-11-18T10:05:00Z',
+          },
         ],
       };
     case 'secretary.thread.turns': {
@@ -1622,7 +1658,15 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       return {
         ok: true,
         result: [
-          { id: 'turn-1', conversation_id: paramValue(params, 'conversation_id'), role: 'owner', content: 'Can you approve gate B?', proposal_json: null, refs_owner_message: null, created_at: '2026-11-18T09:10:00Z' },
+          {
+            id: 'turn-1',
+            conversation_id: paramValue(params, 'conversation_id'),
+            role: 'owner',
+            content: 'Can you approve gate B?',
+            proposal_json: null,
+            refs_owner_message: null,
+            created_at: '2026-11-18T09:10:00Z',
+          },
           {
             id: 'turn-2',
             conversation_id: paramValue(params, 'conversation_id'),
@@ -1774,7 +1818,12 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
             topic_answers: { problem: paramValue(params, 'reply') },
             covered_topics: ['problem'],
             open_topics: ['audience'],
-            transcript: [{ question: 'What is the primary problem you want to solve?', answer: paramValue(params, 'reply') }],
+            transcript: [
+              {
+                question: 'What is the primary problem you want to solve?',
+                answer: paramValue(params, 'reply'),
+              },
+            ],
             is_done: false,
             updated_at: new Date().toISOString(),
           },
@@ -1806,7 +1855,9 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       // The daemon requires all three fields and refuses with -32602 naming the first missing one
       // (measured live, DECISIONS.md 2026-11-03); a stub that answered a one-field create would let
       // the first-run flow pass while no real daemon could ever take it.
-      const missing = ['name', 'description', 'language'].find((key) => paramValue(params, key) === null);
+      const missing = ['name', 'description', 'language'].find(
+        (key) => paramValue(params, key) === null
+      );
       if (missing !== undefined) {
         return { ok: false, code: -32602, message: `missing field '${missing}'` };
       }
@@ -1814,6 +1865,22 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       return {
         ok: true,
         result: { id: 'proj-created', name, createdAt: CREATED_AT, updatedAt: CREATED_AT },
+      };
+    }
+    case 'projects.attach': {
+      if (!paramEntry(params, 'project_id').found) return missingField('project_id');
+      if (!paramEntry(params, 'repo_path').found) return missingField('repo_path');
+      const id = paramValue(params, 'project_id') ?? 'proj-attached';
+      const repoPath = paramValue(params, 'repo_path') ?? '';
+      return {
+        ok: true,
+        result: {
+          id,
+          name: 'Attached Project',
+          createdAt: CREATED_AT,
+          updatedAt: CREATED_AT,
+          repo_path: repoPath,
+        },
       };
     }
     case 'gates.list':
@@ -2002,7 +2069,11 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
     case 'permissions.defaults.get':
       return {
         ok: true,
-        result: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+        result: {
+          confinement: 'workspace-write',
+          approvalMode: 'ask-for-risky',
+          isOverride: false,
+        },
       };
     case 'permissions.defaults.set':
       if (!paramEntry(params, 'confinement').found) return missingField('confinement');
@@ -2019,7 +2090,11 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
       return {
         ok: true,
-        result: { confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false },
+        result: {
+          confinement: 'workspace-write',
+          approvalMode: 'ask-for-risky',
+          isOverride: false,
+        },
       };
     case 'permissions.project.set':
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
@@ -2028,7 +2103,8 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
         result: {
           confinement: paramValue(params, 'confinement') ?? 'workspace-write',
           approvalMode: paramValue(params, 'approval_mode') ?? 'ask-for-risky',
-          isOverride: paramEntry(params, 'confinement').found || paramEntry(params, 'approval_mode').found,
+          isOverride:
+            paramEntry(params, 'confinement').found || paramEntry(params, 'approval_mode').found,
         },
       };
 
@@ -2037,7 +2113,14 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
     // shape: `enable_swarm` boolean + `max_parallel_agents` integer.
     case 'swarm.project.get':
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
-      return { ok: true, result: { project_id: paramValue(params, 'project_id'), enable_swarm: false, max_parallel_agents: 4 } };
+      return {
+        ok: true,
+        result: {
+          project_id: paramValue(params, 'project_id'),
+          enable_swarm: false,
+          max_parallel_agents: 4,
+        },
+      };
     case 'swarm.project.set': {
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
       const maxAgents = paramEntry(params, 'max_parallel_agents');
@@ -2050,7 +2133,7 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
         result: {
           project_id: paramValue(params, 'project_id'),
           enable_swarm: paramEntry(params, 'enable_swarm').found
-            ? (paramEntry(params, 'enable_swarm').value === true)
+            ? paramEntry(params, 'enable_swarm').value === true
             : false,
           max_parallel_agents: max,
         },
@@ -2276,7 +2359,8 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       return { ok: true, result: null };
     // `plugins.*` (`warsha_core::PluginDefinition`; lib.rs install_plugin/configure_plugin/...).
     case 'plugins.install':
-      if (!paramEntry(params, 'manifest_json_or_url').found) return missingField('manifest_json_or_url');
+      if (!paramEntry(params, 'manifest_json_or_url').found)
+        return missingField('manifest_json_or_url');
       return { ok: true, result: pluginRow('plugin-installed', true) };
     case 'plugins.toggle': {
       if (!paramEntry(params, 'id').found) return missingField('id');
@@ -2343,7 +2427,10 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
     case 'files.read':
       if (!paramEntry(params, 'project_id').found) return missingField('project_id');
       if (!paramEntry(params, 'path').found) return missingField('path');
-      return { ok: true, result: { content: '', mime_type: 'text/plain', path: paramValue(params, 'path') ?? '' } };
+      return {
+        ok: true,
+        result: { content: '', mime_type: 'text/plain', path: paramValue(params, 'path') ?? '' },
+      };
     // `routines.*` (`warsha_pipeline::Routine`; lib.rs list/get/run_now/pause/resume). The registry
     // starts empty, so the two reads answer `[]`/`null`; each mutation echoes the row it acted on —
     // the state the daemon's runner would have moved it to (`run_now` → `running`, `pause` →
@@ -2357,7 +2444,8 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
     case 'routines.pause':
     case 'routines.resume': {
       if (!paramEntry(params, 'id').found) return missingField('id');
-      const state = method === 'routines.run_now' ? 'running' : method === 'routines.pause' ? 'paused' : 'idle';
+      const state =
+        method === 'routines.run_now' ? 'running' : method === 'routines.pause' ? 'paused' : 'idle';
       return { ok: true, result: routineRow(paramValue(params, 'id') ?? '', state) };
     }
     // `backend.get`/`backend.set` (`warsha_pipeline::BackendKit`; lib.rs get_backend/set_backend).
@@ -2368,6 +2456,26 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
       if (!paramEntry(params, 'run_id').found) return missingField('run_id');
       if (!paramEntry(params, 'kit').found) return missingField('kit');
       return { ok: true, result: null };
+    case 'coding_backends.list':
+      return { ok: true, result: [] };
+    case 'backend_routing.get':
+      return {
+        ok: true,
+        result: { default_backend: null, role_backends: {}, project_backends: {} },
+      };
+    case 'backend_routing.set': {
+      const defaultBackend = paramValue(params, 'default_backend');
+      const roleBackends = (params as Record<string, unknown>)?.role_backends ?? {};
+      const projectBackends = (params as Record<string, unknown>)?.project_backends ?? {};
+      return {
+        ok: true,
+        result: {
+          default_backend: defaultBackend,
+          role_backends: roleBackends,
+          project_backends: projectBackends,
+        },
+      };
+    }
     // `preview.*` (`warsha_pipeline::LivePreview`; lib.rs start/stop/status). The manager keeps one
     // entry per project (`LivePreviewManager::preview_entry`, `process_spawn.rs:834-843`): `status`
     // and `stop` REFUSE a project with none (`-32000 no preview for project \`p\``), and a stopped
@@ -2395,7 +2503,11 @@ export function rpcResult(method: RpcMethod, params: unknown, daemon: StubDaemon
         .split(/\s+/)
         .filter(Boolean);
       if (program.length === 0) {
-        return { ok: false, code: -32000, message: 'empty command: a process needs a program to run' };
+        return {
+          ok: false,
+          code: -32000,
+          message: 'empty command: a process needs a program to run',
+        };
       }
       const entry: StubPreview = {
         processId: `proc-${project}`,
@@ -2460,9 +2572,7 @@ interface StubWindow {
  * pressed. The first-run flag and the saved mode travel this way and nowhere else.
  */
 export function readConfigWrites(page: Page): Promise<{ key: string; value: string }[]> {
-  return page.evaluate(
-    () => (window as unknown as StubWindow).__WARSHA_STUB__?.configWrites ?? []
-  );
+  return page.evaluate(() => (window as unknown as StubWindow).__WARSHA_STUB__?.configWrites ?? []);
 }
 
 /** The two elements every wizard step walks through, addressed by the testids they carry. */
@@ -2703,7 +2813,15 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
   };
 
   await page.addInitScript(
-    ({ locale, theme, merged }: { locale: string; theme: string; merged: Record<string, string> }) => {
+    ({
+      locale,
+      theme,
+      merged,
+    }: {
+      locale: string;
+      theme: string;
+      merged: Record<string, string>;
+    }) => {
       // The two preferences the app reads at start-up, under the keys it uses.
       window.localStorage.setItem('warsha.theme', theme);
       window.localStorage.setItem('warsha.locale', locale);
@@ -2746,7 +2864,8 @@ export async function openScreen(page: Page, options: OpenScreenOptions): Promis
 
   // A driven case is ready when the step it drove to is on screen. The exception is a finished first
   // run: the wizard has left the screen, so what has to be visible is the shell it left for.
-  const ready = options.ready ?? screen.ready ?? (drive === 'created' ? '.simple-mode' : screen.root);
+  const ready =
+    options.ready ?? screen.ready ?? (drive === 'created' ? '.simple-mode' : screen.root);
   if (ready !== undefined) {
     await page.locator(ready).first().waitFor({ state: 'visible' });
   }
@@ -2777,7 +2896,7 @@ export const SCENARIOS: readonly Scenario[] = [
   },
   {
     id: 'empty',
-    note: 'a daemon with nothing in it — every list answers empty, so each empty state is the screen\'s own',
+    note: "a daemon with nothing in it — every list answers empty, so each empty state is the screen's own",
     fixtures: {
       'projects.list': { result: [] },
       'runs.list': { result: [] },
@@ -2894,7 +3013,12 @@ export const SCENARIOS: readonly Scenario[] = [
         ],
       },
       'budget.show': {
-        result: { project_id: 'proj-ui', budget_cents: 1200, spent_cents: 210, remaining_cents: 990 },
+        result: {
+          project_id: 'proj-ui',
+          budget_cents: 1200,
+          spent_cents: 210,
+          remaining_cents: 990,
+        },
       },
     },
     settle: 'settled',
@@ -2938,7 +3062,12 @@ export const SCENARIOS: readonly Scenario[] = [
     // so the fixture answers the spend (437¢, a reading) without the cap (a word), on a settled daemon.
     fixtures: {
       'budget.show': {
-        result: { project_id: 'proj-ui', budget_cents: null, spent_cents: 437, remaining_cents: null },
+        result: {
+          project_id: 'proj-ui',
+          budget_cents: null,
+          spent_cents: 437,
+          remaining_cents: null,
+        },
       },
     },
     settle: 'settled',

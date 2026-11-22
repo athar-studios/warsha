@@ -111,10 +111,11 @@ mod api_estimate;
 pub(crate) use api::provider_model;
 pub(crate) use api::{default_base_url_for_kind, non_empty, provider_endpoint};
 pub use api::{
-    AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, CostEstimate,
-    GateSummary, GateSummaryState, HealthCapabilities, HealthResponse, ProviderQuotaStatus,
-    ProviderRecord, QuotaState, RoleRoutingConfig, RoutingTargetConfig, SubscriptionWindow,
-    ToolRulesReply, UsageRow, UsageTimeRow, WarshaApiServer, WindowUsage,
+    AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus,
+    CodingBackendSummary, CostEstimate, GateSummary, GateSummaryState, HealthCapabilities,
+    HealthResponse, ProviderQuotaStatus, ProviderRecord, QuotaState, RoleRoutingConfig,
+    RoutingTargetConfig, SubscriptionWindow, ToolRulesReply, UsageRow, UsageTimeRow,
+    WarshaApiServer, WindowUsage,
 };
 // --- end P-H1 A1 ---
 
@@ -133,13 +134,14 @@ pub use startup::{
 
 // --- P-H1 A7: `runtime` region (agent loop + role routing) moved to runtime.rs; kept crate-visible here. ---
 mod runtime;
-pub use runtime::AgentLoopSnapshot;
 pub(crate) use runtime::{
-    apply_role_routings, build_agent_loop, build_agent_loop_in, register_configured_providers,
-    routing_config, routing_for, seed_agent_snapshot, seed_backend_routings, seed_custom_backends,
-    seed_role_routings, store_agent_snapshot, store_role_routings, AGENT_METER_KEY,
-    AGENT_WORKSPACE_DIR, MOCK_PROVIDER_ID,
+    apply_role_routings, build_agent_loop, build_agent_loop_in, load_backend_routings,
+    register_configured_providers, routing_config, routing_for, seed_agent_snapshot,
+    seed_backend_routings, seed_custom_backends, seed_role_routings, store_agent_snapshot,
+    store_backend_routings, store_role_routings, AGENT_METER_KEY, AGENT_WORKSPACE_DIR,
+    MOCK_PROVIDER_ID,
 };
+pub use runtime::{AgentLoopSnapshot, BackendRoutingsConfig};
 // --- end P-H1 A7 ---
 
 /// In-memory pending budget store for projects before any run has been created (N2 fix).
@@ -173,6 +175,7 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_project(
         &self,
         ext: &RpcExtensions,
@@ -181,8 +184,24 @@ impl WarshaApiServer for WarshaRpc {
         language: String,
         confinement: Option<Confinement>,
         approval_mode: Option<ApprovalMode>,
+        repo_path: Option<String>,
     ) -> RpcResult<Project> {
         self.authorize(ext, "projects.create").await?;
+        let validated_repo_path = match repo_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
+            Some(path) => {
+                warsha_pipeline::worktree::validate_repository(std::path::Path::new(path))
+                    .await
+                    .map_err(|e| {
+                        ErrorObject::owned(-32000, format!("cannot use `{path}`: {e}"), None::<()>)
+                    })?;
+                Some(path.to_string())
+            }
+            None => None,
+        };
         let project = Project {
             id: ProjectId::new(),
             name,
@@ -190,7 +209,7 @@ impl WarshaApiServer for WarshaRpc {
             language,
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            repo_path: None,
+            repo_path: validated_repo_path,
             repo_url: None,
             confinement,
             approval_mode,
@@ -3368,6 +3387,93 @@ impl WarshaApiServer for WarshaRpc {
         Ok(())
     }
 
+    async fn list_coding_backends(
+        &self,
+        ext: &RpcExtensions,
+    ) -> RpcResult<Vec<CodingBackendSummary>> {
+        self.authorize(ext, "coding_backends.list").await?;
+        let catalog = warsha_backends::catalog::EngineCatalog::builtin();
+        let summaries = catalog
+            .entries()
+            .iter()
+            .map(|entry| CodingBackendSummary {
+                name: entry.name.clone(),
+                display_name: entry.display_name.clone(),
+                command: entry.command.clone(),
+                installed: entry.is_installed(),
+                tier: match entry.tier {
+                    warsha_backends::catalog::VerificationTier::A => "A".to_string(),
+                    warsha_backends::catalog::VerificationTier::B => "B".to_string(),
+                    warsha_backends::catalog::VerificationTier::C => "C".to_string(),
+                },
+            })
+            .collect();
+        Ok(summaries)
+    }
+
+    async fn get_backend_routing(
+        &self,
+        ext: &RpcExtensions,
+    ) -> RpcResult<crate::runtime::BackendRoutingsConfig> {
+        self.authorize(ext, "backend_routing.get").await?;
+        let config = load_backend_routings(&self.state.settings).await;
+        Ok(config)
+    }
+
+    async fn set_backend_routing(
+        &self,
+        ext: &RpcExtensions,
+        default_backend: Option<String>,
+        role_backends: Option<std::collections::HashMap<String, String>>,
+        project_backends: Option<std::collections::HashMap<String, String>>,
+    ) -> RpcResult<crate::runtime::BackendRoutingsConfig> {
+        self.authorize(ext, "backend_routing.set").await?;
+        let mut config = load_backend_routings(&self.state.settings).await;
+
+        if let Some(def) = default_backend {
+            let trimmed = def.trim();
+            if trimmed.is_empty() || trimmed == "native" || trimmed == "builtin" {
+                config.default_backend = None;
+            } else {
+                config.default_backend = Some(trimmed.to_string());
+            }
+        }
+        if let Some(roles) = role_backends {
+            config.role_backends = roles;
+        }
+        if let Some(projects) = project_backends {
+            config.project_backends = projects;
+        }
+
+        store_backend_routings(&self.state.settings, &config)
+            .await
+            .map_err(|e| {
+                ErrorObject::owned(
+                    -32000,
+                    format!("failed to persist backend routings: {e}"),
+                    None::<()>,
+                )
+            })?;
+
+        let registry = self.state.pipeline.backend_registry();
+        registry.set_default_backend(config.default_backend.clone());
+
+        for (role_str, backend_name) in &config.role_backends {
+            if let Ok(role) = serde_json::from_value::<warsha_core::Role>(
+                serde_json::Value::String(role_str.to_lowercase()),
+            ) {
+                registry.set_role_backend(role, backend_name);
+            }
+        }
+        for (project_str, backend_name) in &config.project_backends {
+            if let Ok(project_uuid) = project_str.parse::<uuid::Uuid>() {
+                registry.set_project_backend(warsha_core::ProjectId(project_uuid), backend_name);
+            }
+        }
+
+        Ok(config)
+    }
+
     /// The installed skills, in the shape the owner manages them in.
     ///
     /// Every row, enabled or not: a screen that could only see the enabled ones could
@@ -4287,6 +4393,9 @@ mod e5_wiring;
 #[cfg(test)]
 #[path = "tests/e8_wiring.rs"]
 mod e8_wiring;
+#[cfg(test)]
+#[path = "tests/harness_opencode.rs"]
+mod harness_opencode;
 #[cfg(test)]
 #[path = "tests/health_reports_probed_capabilities.rs"]
 mod health_reports_probed_capabilities;

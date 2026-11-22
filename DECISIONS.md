@@ -2843,5 +2843,37 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
     * `test_r8_n4_cmake_hn_configure_refused_e2e`: reproduces `cmake -HN` legacy configure form; proves command is refused and build/marker file is ABSENT.
   - Existing tests updated deliberately: `test_r6_h4_cmake_allow_list`, `test_r7_h5_absolute_path_workspace_confinement`, `test_r7_h6_cmake_configure_forms_risky`.
 
+## 2026-11-22 — D-HARNESS-OPENCODE-1: Activate External Coding Harness Path (OpenCode-First)
+
+- **Context & Objective**: Activate external coding harness path opencode-first on `r-next/integration`, local-only (Steps 1–4 of `docs/zadloop/packets/AUDIT-V5-REALITY.md` Section 3, resolving GAP-H1 and GAP-H2).
+- **Architecture & Implementation**:
+  1. **Project Repository Plumbing & Worktree Creation**:
+     - Updated `create_project` in `crates/warshad/src/api.rs` and `crates/warshad/src/lib.rs` to take `repo_path: Option<String>`.
+     - Validates repository path via `warsha_pipeline::worktree::validate_repository(Path::new(path))` before persisting on `Project`.
+     - `start_run` in `crates/warshad/src/lib.rs` checks `project.repo_path`, instantiates git run worktree via `warsha_pipeline::create_run_worktree(&repo, &root, run_id, "HEAD")`, and registers it in `state.run_worktrees` queryable by `runs.worktree`.
+  2. **JSON-RPC Wire Contract & Auth Policies**:
+     - `coding_backends.list`: returns catalog entries from `EngineCatalog::builtin().entries()` with command, display name, tier, and `installed` flag via `which(command)`. Policy: `Session`.
+     - `backend_routing.get`: retrieves `backend-routings` document from `SettingsStore`. Policy: `Session`.
+     - `backend_routing.set`: persists `backend-routings` document and synchronizes in-memory `pipeline.backend_registry`. Policy: `Owner`.
+     - `packages/client/src/index.ts`: added `attachProject`, `listCodingBackends`, `getBackendRouting`, `setBackendRouting`, plus `repoPath` in `createProject` and `ProjectSummary`.
+     - `apps/desktop/e2e/harness.ts`: added RPC method declarations and handler stubs.
+  3. **Fail-Loud Resolution in Pipeline**:
+     - `CodingBackendRegistry::resolve()` in `crates/warsha-pipeline/src/coding_backend.rs` checks `(project_id, role)` -> `project_id` -> `role` -> `default_backend` -> `WARSHA_CODING_BACKEND` env var.
+     - Returns `Ok(Some(backend))` if found, `Err(unknown)` if configured name is not in catalog/registry, and `Ok(None)` only when unconfigured.
+     - `resolve_coding_backend` in `crates/warsha-pipeline/src/lib.rs` converts `Err(unknown)` to `PipelineError::Other`, refusing silent fallback to native LLM.
+  4. **Desktop UI & i18n Catalogs**:
+     - `apps/desktop/src/v3/pages/home/index.tsx`: Exported `NewProjectDialog` with repository path input; added optional repository path field in home composer card; passed `repoPath` to `client.createProject`.
+     - `apps/desktop/src/v3/pages/onboarding/index.tsx`: Added optional repository path input in step `idea`; passed `repoPath` to `client.createProject`.
+     - `apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.tsx`: Enumerates backends via `client.listCodingBackends()`, shows `Installed` / `Not installed` badges, provides Default Coding Engine dropdown, and persists updates via `client.setBackendRouting()`.
+     - `packages/i18n/src/v3/`: Added full Arabic and English string catalogs using RTL-safe logical properties.
+- **Proving Tests**:
+  - Proving test (a): `test_list_backends_returns_opencode_entry` in `crates/warshad/src/tests/harness_opencode.rs`.
+  - Proving test (b): `test_set_get_backend_routing_round_trip_persists` in `crates/warshad/src/tests/harness_opencode.rs`.
+  - Proving test (c): `test_create_project_with_repo_path_then_start_run_yields_worktree` in `crates/warshad/src/tests/harness_opencode.rs`.
+  - Proving test (d): `test_unknown_backend_routing_errors_fail_loud` in `crates/warshad/src/tests/harness_opencode.rs` and `test_code_stage_completion_unknown_backend_errors_fail_loud` in `crates/warsha-pipeline/src/lib.rs`.
+  - CliBackend verification: `test_opencode_cli_backend_command_args_and_sandbox_execution` in `crates/warsha-backends/src/lib.rs`.
+  - Frontend test: `apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.test.tsx`.
+
+
 
 

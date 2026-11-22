@@ -906,6 +906,21 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         tier: Standard,
     },
     M {
+        method: "coding_backends.list",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "backend_routing.get",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "backend_routing.set",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
         method: "skills.import",
         policy: Owner,
         tier: Standard,

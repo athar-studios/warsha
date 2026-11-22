@@ -89,7 +89,9 @@ export const MASKED_KEY_PLACEHOLDER = '••••••••';
 
 export function isMaskedKey(key: string): boolean {
   const trimmed = key.trim();
-  return trimmed.length > 0 && (/^[•\u2022*]+$/.test(trimmed) || trimmed === MASKED_KEY_PLACEHOLDER);
+  return (
+    trimmed.length > 0 && (/^[•\u2022*]+$/.test(trimmed) || trimmed === MASKED_KEY_PLACEHOLDER)
+  );
 }
 
 export function isValidHttpUrl(value: string): boolean {
@@ -180,6 +182,7 @@ export default function OnboardingPage(): React.ReactElement {
   const [modelConfigured, setModelConfigured] = useState<boolean>(false);
 
   const [idea, setIdea] = useState<string>('');
+  const [repoPath, setRepoPath] = useState<string>('');
   const [ideaError, setIdeaError] = useState<string | undefined>(undefined);
   const [startError, setStartError] = useState<string | null>(null);
 
@@ -211,8 +214,7 @@ export default function OnboardingPage(): React.ReactElement {
     if (!providersResult.data || providersResult.data.length === 0) return;
 
     const existing =
-      providersResult.data.find((p) => p.kind === selectedKind) ??
-      providersResult.data[0];
+      providersResult.data.find((p) => p.kind === selectedKind) ?? providersResult.data[0];
 
     if (existing) {
       if (!configuredKinds.has(selectedKind)) {
@@ -284,7 +286,7 @@ export default function OnboardingPage(): React.ReactElement {
     }
 
     const name = isCustom ? customName.trim() : activePreset.name;
-    const baseUrl = isCustom ? customBaseUrl.trim() : activePreset.apiBase ?? '';
+    const baseUrl = isCustom ? customBaseUrl.trim() : (activePreset.apiBase ?? '');
     const modelId = customModelId.trim();
 
     if (isCustom) {
@@ -444,7 +446,8 @@ export default function OnboardingPage(): React.ReactElement {
 
     try {
       const projectName = deriveProjectName(trimmed);
-      const project = await client.createProject(projectName, trimmed, locale);
+      const cleanRepo = repoPath.trim() || undefined;
+      const project = await client.createProject(projectName, trimmed, locale, cleanRepo);
       reloadAllProjects();
       await client.startRun(project.id, trimmed);
 
@@ -546,7 +549,10 @@ export default function OnboardingPage(): React.ReactElement {
         </header>
 
         <nav
-          aria-label={t('onboarding.step_indicator', { current: stepIndex + 1, total: STEPS.length })}
+          aria-label={t('onboarding.step_indicator', {
+            current: stepIndex + 1,
+            total: STEPS.length,
+          })}
           className="v3-onboarding-progress"
         >
           {STEPS.map((s, idx) => {
@@ -573,7 +579,11 @@ export default function OnboardingPage(): React.ReactElement {
               <p className="v3-onboarding-desc">{t('onboarding.language_desc')}</p>
             </header>
 
-            <div className="v3-onboarding-lang-grid" role="group" aria-label={t('onboarding.step_language')}>
+            <div
+              className="v3-onboarding-lang-grid"
+              role="group"
+              aria-label={t('onboarding.step_language')}
+            >
               <button
                 type="button"
                 className="v3-onboarding-lang-btn"
@@ -627,7 +637,9 @@ export default function OnboardingPage(): React.ReactElement {
                 action={retryButtonElement}
                 data-testid="onboarding-error-banner"
               >
-                <bdi dir="auto">{providersResult.error?.message ?? t('onboarding.test_failed')}</bdi>
+                <bdi dir="auto">
+                  {providersResult.error?.message ?? t('onboarding.test_failed')}
+                </bdi>
               </Banner>
             )}
 
@@ -637,7 +649,11 @@ export default function OnboardingPage(): React.ReactElement {
               </Banner>
             )}
 
-            <div className="v3-onboarding-provider-grid" role="group" aria-label={t('onboarding.step_provider')}>
+            <div
+              className="v3-onboarding-provider-grid"
+              role="group"
+              aria-label={t('onboarding.step_provider')}
+            >
               {PROVIDER_PRESETS.map((preset) => {
                 const isSelected = selectedKind === preset.kind;
                 const isConfigured = configuredKinds.has(preset.kind);
@@ -852,7 +868,11 @@ export default function OnboardingPage(): React.ReactElement {
             </header>
 
             {startError && (
-              <Banner variant="danger" title={t('onboarding.error_title')} data-testid="onboarding-start-error">
+              <Banner
+                variant="danger"
+                title={t('onboarding.error_title')}
+                data-testid="onboarding-start-error"
+              >
                 <bdi dir="auto">{startError}</bdi>
               </Banner>
             )}
@@ -873,6 +893,16 @@ export default function OnboardingPage(): React.ReactElement {
                 rows={4}
                 data-testid="onboarding-idea-input"
               />
+              <div style={{ marginBlockStart: 'var(--w-space-3)' }}>
+                <TextField
+                  label={t('onboarding.repo_path_label')}
+                  placeholder={t('onboarding.repo_path_placeholder')}
+                  hint={t('onboarding.repo_path_hint')}
+                  value={repoPath}
+                  onChange={(e) => setRepoPath(e.target.value)}
+                  data-testid="onboarding-repo-path-input"
+                />
+              </div>
             </Card>
 
             <footer className="v3-onboarding-actions">
