@@ -26,7 +26,7 @@ pub enum WorktreeError {
         value: String,
     },
     /// Git refused or failed.
-    #[error("git worktree failed: {0}")]
+    #[error("git failed: {0}")]
     Git(String),
     /// Filesystem failure.
     #[error("io error: {0}")]
@@ -295,6 +295,110 @@ async fn ensure_repository(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Auto-initialize a bare-minimum Git repository at `repo`.
+///
+/// Creates parent directories, runs `git init -q`, writes a minimal `.gitignore`
+/// and `README.md`, and creates an initial commit so that [`create_run_worktree`]
+/// (which requires a valid HEAD reference) can succeed immediately.
+pub async fn init_repository(repo: &Path) -> Result<()> {
+    init_repository_with_meta(repo, None, None).await
+}
+
+/// Auto-initialize a bare-minimum Git repository at `repo` with optional name and description.
+pub async fn init_repository_with_meta(
+    repo: &Path,
+    name: Option<&str>,
+    description: Option<&str>,
+) -> Result<()> {
+    tokio::fs::create_dir_all(repo).await?;
+
+    let init_output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["init", "-q"])
+        .output()
+        .await?;
+
+    if !init_output.status.success() {
+        let err = String::from_utf8_lossy(&init_output.stderr)
+            .trim()
+            .to_string();
+        return Err(WorktreeError::Git(format!("git init failed: {err}")));
+    }
+
+    let gitignore_path = repo.join(".gitignore");
+    tokio::fs::write(&gitignore_path, "target/\nnode_modules/\n.DS_Store\n").await?;
+
+    let readme_path = repo.join("README.md");
+    let title = name
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .unwrap_or("Warsha Project");
+    let readme_content = match description.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(desc) => format!("# {title}\n\n{desc}\n"),
+        None => format!("# {title}\n"),
+    };
+    tokio::fs::write(&readme_path, readme_content).await?;
+
+    let name_check = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["config", "user.name"])
+        .output()
+        .await?;
+
+    let has_user_identity = name_check.status.success()
+        && !String::from_utf8_lossy(&name_check.stdout)
+            .trim()
+            .is_empty();
+
+    if !has_user_identity {
+        let _ = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["config", "user.name", "Warsha"])
+            .output()
+            .await;
+        let _ = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["config", "user.email", "warsha@local"])
+            .output()
+            .await;
+    }
+
+    let add_output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["add", ".gitignore", "README.md"])
+        .output()
+        .await?;
+
+    if !add_output.status.success() {
+        let err = String::from_utf8_lossy(&add_output.stderr)
+            .trim()
+            .to_string();
+        return Err(WorktreeError::Git(format!("git add failed: {err}")));
+    }
+
+    let mut commit_cmd = tokio::process::Command::new("git");
+    commit_cmd.arg("-C").arg(repo);
+    if !has_user_identity {
+        commit_cmd.args(["-c", "user.name=Warsha", "-c", "user.email=warsha@local"]);
+    }
+    commit_cmd.args(["commit", "-qm", "initial commit"]);
+    let commit_output = commit_cmd.output().await?;
+
+    if !commit_output.status.success() {
+        let err = String::from_utf8_lossy(&commit_output.stderr)
+            .trim()
+            .to_string();
+        return Err(WorktreeError::Git(format!("git commit failed: {err}")));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod e3 {
@@ -407,5 +511,73 @@ mod e3 {
             .await
             .expect("the worktree is removed");
         assert!(!worktree.path.exists());
+    }
+
+    #[tokio::test]
+    async fn init_repository_creates_usable_repo_with_exact_files_and_head() {
+        let repo_dir = tempfile::tempdir().expect("temp repo dir");
+        let repo_path = repo_dir.path().join("project-repo");
+        let root = tempfile::tempdir().expect("worktree root");
+
+        init_repository_with_meta(
+            &repo_path,
+            Some("Test Project"),
+            Some("Description for test"),
+        )
+        .await
+        .expect("init_repository succeeds");
+
+        validate_repository(&repo_path)
+            .await
+            .expect("validate_repository passes on auto-initted repo");
+
+        let gitignore = repo_path.join(".gitignore");
+        assert!(gitignore.exists(), ".gitignore must exist");
+        let gitignore_content = std::fs::read_to_string(&gitignore).expect("read .gitignore");
+        assert!(gitignore_content.contains("target/"));
+        assert!(gitignore_content.contains("node_modules/"));
+
+        let readme = repo_path.join("README.md");
+        assert!(readme.exists(), "README.md must exist");
+        let readme_content = std::fs::read_to_string(&readme).expect("read README.md");
+        assert_eq!(readme_content, "# Test Project\n\nDescription for test\n");
+
+        // Verify no extra files exist in the worktree
+        let mut entries: Vec<String> = std::fs::read_dir(&repo_path)
+            .expect("read_dir")
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name != ".git")
+            .collect();
+        entries.sort();
+        assert_eq!(
+            entries,
+            vec![".gitignore", "README.md"],
+            "only .gitignore and README.md must exist in the root"
+        );
+
+        // Verify git worktree creation against HEAD succeeds
+        let worktree = create_run_worktree(&repo_path, root.path(), "run-init", "HEAD")
+            .await
+            .expect("create_run_worktree must succeed on freshly initialized repo");
+        assert!(worktree.path.join(".gitignore").exists());
+        assert!(worktree.path.join("README.md").exists());
+    }
+
+    #[tokio::test]
+    async fn init_repository_fail_closed_on_unwritable_path() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let file_path = temp.path().join("blocked-file");
+        std::fs::write(&file_path, "not a directory").expect("write file");
+
+        // Attempting to initialize inside a regular file must fail closed with Io error
+        let invalid_path = file_path.join("repo");
+        let err = init_repository(&invalid_path)
+            .await
+            .expect_err("init_repository must fail on unwritable path");
+        assert!(
+            matches!(err, WorktreeError::Io(_)),
+            "expected Io error, got {err:?}"
+        );
     }
 }

@@ -25,6 +25,31 @@
   - `node scripts/check-versions.mjs --expect 0.3.1`: versions aligned 0.3.1 (exit code 0).
 - **Status**: COMPLETE.
 
+## Run 2026-11-22 — Fix MISS-1 Greenfield Git Auto-Init (D-R9-AUTOINIT-1)
+- **Scope**: Fix MISS-1: No Greenfield Git Auto-Init (audit `docs/zadloop/packets/AUDIT-V5-REALITY.md:256` — HIGH) on branch `fix-r9-autoinit` (base `750934c` on `r-next/integration`). Local-only: no push, no tag, no publish, main untouched.
+- **Problem**: When users create a greenfield project without specifying an existing repository path, `create_project` persisted `repo_path: None`. Consequently, `runs.worktree` returned `null`, worktree isolation could not be established, and CLI coding backends and `code_stage_completion` failed.
+- **Changes**:
+  - `crates/warsha-pipeline/src/worktree.rs`: Added `init_repository(&Path)` and `init_repository_with_meta(&Path, Option<&str>, Option<&str>)`. The function creates the directory, runs `git init -q`, seeds `.gitignore` and `README.md`, configures fallback author identity (`user.name=Warsha`, `user.email=warsha@local`) if author identity is absent from git config, stages both files, and commits with message `"initial commit"`.
+  - `crates/warsha-pipeline/src/lib.rs`: Re-exported `init_repository`, `init_repository_with_meta`, and `validate_repository`.
+  - `crates/warshad/src/lib.rs` (`create_project`): When `repo_path` is `None` or whitespace, auto-initializes the Git repository at `<data_dir>/projects/<project_id>/repo`, persists the canonical path as `Some(...)`, and fails closed with an explicit RPC error if initialization fails (never silently storing `None`).
+  - `crates/warshad/src/lib.rs` (`attach_project`): Permitted attaching an external repository when the project's current repository is the auto-initted scratch repository (`<data_dir>/projects/<project_id>/repo`).
+  - `crates/warshad/src/tests/e3_wiring.rs` & `e8_wiring.rs`: Updated assertions for greenfield projects to expect the auto-initted repository path instead of `None`.
+  - Proving tests:
+    - `crates/warsha-pipeline/src/worktree.rs`: `init_repository_creates_usable_repo_with_exact_files_and_head` (proves git init, exact files, HEAD commit, and subsequent `create_run_worktree` success), `init_repository_fail_closed_on_unwritable_path` (proves fail-closed on unwritable target).
+    - `crates/warshad/src/tests/greenfield_autoinit.rs`:
+      - `test_greenfield_create_project_auto_inits_repo_and_start_run_yields_worktree` (proves `repo_path: None` initializes repo at `<data_dir>/projects/<id>/repo`, validates via `validate_repository`, persists to DB, and follow-up `start_run` produces non-null `worktree_path` with checkout files).
+      - `test_greenfield_create_project_with_empty_or_whitespace_repo_path` (proves whitespace input triggers auto-init).
+      - `test_greenfield_create_project_fail_closed_on_unwritable_path` (proves blocked path fails with RPC error and persists 0 projects to the DB).
+      - `test_greenfield_project_allows_attaching_real_repo_later` (proves user can upgrade auto-initted scratch repo by attaching an external repo, but cannot re-attach over an explicit repo).
+- **Gate matrix**:
+  - `cargo fmt --all -- --check`: clean (exit code 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (exit code 0).
+  - `cargo test -p warsha-pipeline --lib`: 588 passed, 0 failed, 7 ignored (exit code 0).
+  - `cargo test -p warshad --lib`: 319 passed, 0 failed, 4 ignored (exit code 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit code 0).
+  - `node scripts/check-versions.mjs --expect 0.3.1`: versions aligned 0.3.1 (exit code 0).
+- **Status**: COMPLETE.
+
 ## Run 2026-11-22 — Intake-watchdog merge verification (D-UI-INTAKE-WATCHDOG-1)
 - **Scope**: Merge lane `200c848` as `1271c42` into `r-next/integration`. Local-only: no push, no tag, no publish, main untouched.
 - **Gates (merged tip `1271c42`)**: fmt FMT_OK; clippy 0; pipeline 586/0/7; warshad 315/0/4; policy 8/0; versions 0.3.1 aligned; arch 5/0; wire 11/0; actions 199/199/1 (single pre-existing factory.retry A6, base parity); i18n 1074/19 (base parity, native model names exempt).

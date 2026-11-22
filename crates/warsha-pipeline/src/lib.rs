@@ -61,7 +61,8 @@ pub use crate::mcp_permission::{
     AskEverything, McpPermissionSource, McpPermissionStore, StaticPermissions, MCP_AGENT_ROLE,
 };
 pub use crate::worktree::{
-    commit_run_worktree, create_run_worktree, dirty_set, remove_run_worktree, restore_run_worktree,
+    commit_run_worktree, create_run_worktree, dirty_set, init_repository,
+    init_repository_with_meta, remove_run_worktree, restore_run_worktree, validate_repository,
     worktree_path, RunWorktree, WorktreeError,
 };
 /// The Streamable HTTP transport's client seam and its pure SSE parser (R-EXT-4):

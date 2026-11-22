@@ -133,7 +133,15 @@ async fn attaching_an_existing_repository_records_it_on_the_project() {
         )
         .await
         .expect("the project is created");
-    assert_eq!(project.repo_path, None);
+    let auto_repo = temp
+        .path()
+        .join("projects")
+        .join(project.id.to_string())
+        .join("repo");
+    assert_eq!(
+        project.repo_path.as_deref(),
+        Some(auto_repo.to_str().unwrap())
+    );
 
     let path = repo.path().display().to_string();
     let attached = rpc
@@ -195,7 +203,7 @@ async fn attaching_a_path_that_is_not_a_repository_is_refused_and_changes_nothin
             .await
             .expect("the project row");
         assert_eq!(
-            stored.repo_path, None,
+            stored.repo_path, project.repo_path,
             "a refused attach half-attached {path}"
         );
         assert_eq!(
