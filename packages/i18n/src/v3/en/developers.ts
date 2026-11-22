@@ -22,6 +22,7 @@ export default {
   'developers.table.elapsed': 'Elapsed',
   'developers.table.idle': 'Idle',
   'developers.unknown': 'unknown',
+  'developers.not_routed_yet': 'not routed yet',
   'developers.estimated': 'estimated',
   'developers.list.refresh': 'Refresh',
   'developers.detail.nav_hint': 'Open detail',

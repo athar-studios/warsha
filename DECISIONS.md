@@ -1,6 +1,11 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-SESSIONS-1: Record the routed provider and model on the agent session
+- **Decision**: The native stage path in `crates/warsha-pipeline/src/lib.rs` reads `ProviderRouter::route(role)` before inserting the session and stores that `(provider_id, model_id)`. A role with no route stores an empty provider and model. SQL NULL was rejected: `sessions.provider` and `sessions.model` are `TEXT NOT NULL` (`008_sessions.sql`, rebuilt by `016_sessions_nullable_run_id.sql`), and changing that needs a migration plus `warsha_core::Session` and the client decoder, all outside this fix. Developer mode renders `developers.not_routed_yet` (ar+en) for an empty provider, an empty model, or the old placeholder pair, instead of `developers.unknown`.
+- **Reason**: Owner UI finding #5. Every agent session was inserted as `provider="routed"`, `model="default"`, so Developer mode showed the provider and cost as unknown.
+- **Scope**: `crates/warsha-pipeline/src/lib.rs`, `apps/desktop/src/v3/pages/developers/index.tsx`, `apps/desktop/src/v3/pages/developers/SessionDetail.tsx`, `apps/desktop/src/v3/components/developers/DevelopersList.tsx`, `packages/i18n/src/v3/{en,ar}/developers.ts`. No `router.rs` exists; routing stays in `warsha-providers`. `warshad` does not write this row.
+
 ## 2026-11-23 — D-EX1-DESIGN-1: Experts & Flexible Teams (design only)
 - **Decision**: Register packet EX1. Experts are data, not code: an expert record resolves to one of the 13 existing `Role` values (`crates/warsha-core/src/lib.rs:186`) for routing and budget, and carries its own persona. No new `Role` variant and no new harness. The pipeline is generated from the approved roster; the current fixed pipeline stays as the fallback preset for projects that skip staffing. The core team defaults to PM, Secretary, Reviewer and is owner-adjustable. HR is a mandatory built-in expert. Hiring beyond the approved roster always needs owner approval. Spec: `docs/zadloop/packets/EX1-design.md`.
 - **Reason**: Owner order 2026-11-23. The project is measured first, the Secretary consults HR, the roster and spec kit are approved, and only then does work start. A fixed pipeline hires roles the project does not need.
