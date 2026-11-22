@@ -148,6 +148,45 @@ pub use runtime::{AgentLoopSnapshot, BackendRoutingsConfig};
 static PENDING_PROJECT_BUDGETS: std::sync::LazyLock<std::sync::RwLock<HashMap<ProjectId, u64>>> =
     std::sync::LazyLock::new(|| std::sync::RwLock::new(HashMap::new()));
 
+/// Record the budget `runs.start` was given.
+///
+/// An explicit `budget_cents` is the budget the new run stores, including `0`.
+/// It wins over a pending `budget.set` and over the previous run's budget.
+/// `None` leaves the pipeline's inherited budget and still applies a pending
+/// `budget.set`, which is the path callers that do not name a budget already use.
+async fn apply_start_budget(
+    state: &DaemonState,
+    project_id: ProjectId,
+    mut run: Run,
+    budget_cents: Option<u64>,
+) -> RpcResult<Run> {
+    let pending_budget = match PENDING_PROJECT_BUDGETS.write() {
+        Ok(mut pending) => pending.remove(&project_id),
+        Err(poisoned) => poisoned.into_inner().remove(&project_id),
+    };
+    let cents = match budget_cents {
+        Some(explicit) => explicit,
+        None => match pending_budget {
+            Some(pending) => pending,
+            None => return Ok(run),
+        },
+    };
+    match state.pipeline.set_run_budget(run.id, cents).await {
+        Ok(updated) => {
+            run = updated;
+        }
+        Err(e) => {
+            warn!(
+                run_id = %run.id.0,
+                project_id = %project_id.0,
+                error = %e,
+                "failed to apply start budget to newly created run"
+            );
+        }
+    }
+    Ok(run)
+}
+
 #[async_trait]
 impl WarshaApiServer for WarshaRpc {
     async fn health(&self, ext: &RpcExtensions) -> RpcResult<HealthResponse> {
@@ -615,6 +654,7 @@ impl WarshaApiServer for WarshaRpc {
         idea: String,
         run_mode: Option<String>,
         spec_file_path: Option<String>,
+        budget_cents: Option<u64>,
     ) -> RpcResult<Run> {
         self.authorize(ext, "runs.start").await?;
         let run_mode = run_mode
@@ -635,26 +675,7 @@ impl WarshaApiServer for WarshaRpc {
         if run.run_mode == warsha_core::RunMode::Plan
             || run.run_mode == warsha_core::RunMode::SpecFile
         {
-            let pending_budget = match PENDING_PROJECT_BUDGETS.write() {
-                Ok(mut pending) => pending.remove(&project_id),
-                Err(poisoned) => poisoned.into_inner().remove(&project_id),
-            };
-            if let Some(cents) = pending_budget {
-                match self.state.pipeline.set_run_budget(run.id, cents).await {
-                    Ok(updated) => {
-                        run = updated;
-                    }
-                    Err(e) => {
-                        warn!(
-                            run_id = %run.id.0,
-                            project_id = %project_id.0,
-                            error = %e,
-                            "failed to apply pending project budget to newly created run"
-                        );
-                    }
-                }
-            }
-            return Ok(run);
+            return apply_start_budget(&self.state, project_id, run, budget_cents).await;
         }
 
         // Wire active harness + enabled skills + enabled plugins into run start context (F2)
@@ -795,27 +816,7 @@ impl WarshaApiServer for WarshaRpc {
             warn!(run_id = %run.id.0, "the run already had an agent session");
         }
 
-        let pending_budget = match PENDING_PROJECT_BUDGETS.write() {
-            Ok(mut pending) => pending.remove(&project_id),
-            Err(poisoned) => poisoned.into_inner().remove(&project_id),
-        };
-        if let Some(cents) = pending_budget {
-            match self.state.pipeline.set_run_budget(run.id, cents).await {
-                Ok(updated) => {
-                    run = updated;
-                }
-                Err(e) => {
-                    warn!(
-                        run_id = %run.id.0,
-                        project_id = %project_id.0,
-                        error = %e,
-                        "failed to apply pending project budget to newly created run"
-                    );
-                }
-            }
-        }
-
-        Ok(run)
+        apply_start_budget(&self.state, project_id, run, budget_cents).await
     }
 
     async fn run_worktree(

@@ -122,6 +122,7 @@ async fn test_create_project_with_repo_path_then_start_run_yields_worktree() {
             "Build something".to_string(),
             None,
             None,
+            None,
         )
         .await
         .expect("run starts");
@@ -175,6 +176,7 @@ async fn test_unknown_backend_routing_errors_fail_loud() {
             &owner,
             project.id,
             "Build with ghost backend".to_string(),
+            None,
             None,
             None,
         )

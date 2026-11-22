@@ -80,6 +80,7 @@ async fn test_greenfield_create_project_auto_inits_repo_and_start_run_yields_wor
             "Initial prompt for greenfield".to_string(),
             None,
             None,
+            None,
         )
         .await
         .expect("start_run succeeds");

@@ -2758,15 +2758,19 @@ export class WarshaClient
     projectId: ProjectId,
     idea: string,
     runMode?: 'agent' | 'plan' | 'spec-file' | 'ask',
-    specFilePath?: string
+    specFilePath?: string,
+    budgetCents?: number
   ): Promise<RunSummary> {
     // D4: the wire keeps the daemon's positional shape — trailing optional
-    // params serialise as absent fields, never as a params object.
+    // params serialise as absent fields, never as a params object. D-R11-BUDGET-1:
+    // a budget is sent only when the caller named one, so an omitted budget stays
+    // the daemon's inherited-or-pending budget and is not replaced by a default.
     const row = await this.rpc<unknown>('runs.start', {
       projectId,
       idea,
       runMode,
       specFilePath,
+      ...(budgetCents === undefined ? {} : { budgetCents }),
     });
     return decodeRunSummary(row);
   }

@@ -344,6 +344,7 @@ async fn approved_agent_run(state: &Arc<DaemonState>, store: &Arc<Store>) -> Run
             "An agent turn".to_string(),
             None,
             None,
+            None,
         )
         .await
         .expect("the run starts");
@@ -2342,6 +2343,7 @@ async fn second_run_never_inherits_a_live_server() {
             "the first run".to_string(),
             None,
             None,
+            None,
         )
         .await
         .expect("run A starts");
@@ -2355,6 +2357,7 @@ async fn second_run_never_inherits_a_live_server() {
             &owner_ext(),
             project.id,
             "the second run".to_string(),
+            None,
             None,
             None,
         )
@@ -2415,7 +2418,14 @@ async fn terminal_advance_stops_the_owned_server() {
     let rpc = WarshaRpc::new(state.clone());
 
     let run = rpc
-        .start_run(&owner_ext(), project.id, "a run".to_string(), None, None)
+        .start_run(
+            &owner_ext(),
+            project.id,
+            "a run".to_string(),
+            None,
+            None,
+            None,
+        )
         .await
         .expect("the run starts");
     let started = rpc
@@ -2466,7 +2476,14 @@ async fn cancel_stops_the_owned_server() {
     let rpc = WarshaRpc::new(state.clone());
 
     let run = rpc
-        .start_run(&owner_ext(), project.id, "a run".to_string(), None, None)
+        .start_run(
+            &owner_ext(),
+            project.id,
+            "a run".to_string(),
+            None,
+            None,
+            None,
+        )
         .await
         .expect("the run starts");
     let started = rpc
@@ -2511,6 +2528,7 @@ async fn dead_run_entry_swept_lazily() {
             "the run that dies".to_string(),
             None,
             None,
+            None,
         )
         .await
         .expect("the run starts");
@@ -2550,6 +2568,7 @@ async fn dead_run_entry_swept_lazily() {
             "the next run".to_string(),
             None,
             None,
+            None,
         )
         .await
         .expect("the next run starts");
@@ -2580,7 +2599,14 @@ async fn a_run_closes_even_when_its_server_is_already_down() {
     let rpc = WarshaRpc::new(state.clone());
 
     let run = rpc
-        .start_run(&owner_ext(), project.id, "a run".to_string(), None, None)
+        .start_run(
+            &owner_ext(),
+            project.id,
+            "a run".to_string(),
+            None,
+            None,
+            None,
+        )
         .await
         .expect("the run starts");
     let started = rpc
@@ -3819,6 +3845,7 @@ mod runs_resume {
                 "Idea for resume auth".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("run started");
@@ -3869,6 +3896,7 @@ mod runs_resume {
                 &owner,
                 project.id,
                 "Clinic booking app".to_string(),
+                None,
                 None,
                 None,
             )
@@ -3953,6 +3981,7 @@ mod runs_resume {
                 &owner,
                 project.id,
                 "Web application".to_string(),
+                None,
                 None,
                 None,
             )
@@ -4085,6 +4114,7 @@ mod runs_resume {
                 &owner,
                 project.id,
                 "Budgeted project".to_string(),
+                None,
                 None,
                 None,
             )
@@ -4224,6 +4254,7 @@ mod runs_start_budget {
                 "Budgeted project".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("first run starts");
@@ -4237,7 +4268,14 @@ mod runs_start_budget {
 
         // runs.start is refused with the pipeline's message naming both numbers.
         let err = rpc
-            .start_run(&owner, project.id, "Second run".to_string(), None, None)
+            .start_run(
+                &owner,
+                project.id,
+                "Second run".to_string(),
+                None,
+                None,
+                None,
+            )
             .await
             .expect_err("runs.start must refuse an over-budget project");
         assert!(
@@ -4257,11 +4295,72 @@ mod runs_start_budget {
             .await
             .expect("budget.set succeeds");
         let second = rpc
-            .start_run(&owner, project.id, "Second run".to_string(), None, None)
+            .start_run(
+                &owner,
+                project.id,
+                "Second run".to_string(),
+                None,
+                None,
+                None,
+            )
             .await
             .expect("runs.start succeeds after budget.set");
         assert_eq!(second.budget_cents, Some(500));
         assert_eq!(second.spent_cents, 0);
+    }
+
+    /// D-R11-BUDGET-1: the budget passed to `runs.start` is the budget the run
+    /// records. Before the fix the argument did not exist, so a start recorded
+    /// the inherited budget (here the prior run's 700) and ignored the owner's 5.
+    #[tokio::test]
+    async fn runs_start_records_the_budget_it_was_given() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Explicit Start Budget".to_string(),
+                "The start call names the budget".to_string(),
+                "en".to_string(),
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("project created");
+        let first = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "Inherited budget".to_string(),
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("first run starts");
+        let (mut stored, version) = store.get_run_versioned(first.id).await.unwrap();
+        stored.budget_cents = Some(700);
+        stored.status = RunStatus::Paused;
+        store.update_run_cas(&stored, version).await.unwrap();
+
+        let started = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "Owner set five cents".to_string(),
+                None,
+                None,
+                Some(5),
+            )
+            .await
+            .expect("runs.start with an explicit budget succeeds");
+        assert_eq!(started.budget_cents, Some(5));
+        let recorded = store.get_run(started.id).await.unwrap();
+        assert_eq!(recorded.budget_cents, Some(5));
     }
 
     /// N2 fix: `budget.set` and `budget.show` on a brand-new project with no runs
@@ -4319,6 +4418,7 @@ mod runs_start_budget {
                 "Build an online bookstore".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("start_run must succeed");
@@ -4370,7 +4470,14 @@ mod runs_followup {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Initial idea".to_string(), None, None)
+            .start_run(
+                &owner,
+                project.id,
+                "Initial idea".to_string(),
+                None,
+                None,
+                None,
+            )
             .await
             .expect("run started");
 
@@ -4448,6 +4555,7 @@ mod runs_followup {
                 "In-flight cancel signal test".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("run2 started");
@@ -4510,6 +4618,7 @@ mod provider_truth {
                 &owner,
                 project.id,
                 "Task tracker app".to_string(),
+                None,
                 None,
                 None,
             )
@@ -4586,6 +4695,7 @@ mod provider_truth {
                 "Followup test idea".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("run started");
@@ -4648,6 +4758,7 @@ mod provider_truth {
                 "Explicit routing idea".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("run started");
@@ -4688,7 +4799,14 @@ mod provider_truth {
             .await
             .expect("project created");
         let run = rpc
-            .start_run(&owner, project.id, "Resume idea".to_string(), None, None)
+            .start_run(
+                &owner,
+                project.id,
+                "Resume idea".to_string(),
+                None,
+                None,
+                None,
+            )
             .await
             .expect("run started");
 
@@ -6696,6 +6814,7 @@ mod agent_tool_events {
                 "an agent turn".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("the run starts");
@@ -7141,6 +7260,7 @@ mod agent_tool_events {
                 "a run".to_string(),
                 None,
                 None,
+                None,
             )
             .await
             .expect("the run starts");
@@ -7203,6 +7323,7 @@ mod agent_tool_events {
                 &owner_ext(),
                 failing_project.id,
                 "a run".to_string(),
+                None,
                 None,
                 None,
             )
@@ -7503,6 +7624,7 @@ async fn cancel_during_hung_stage_stops_promptly() {
             &owner_ext(),
             project.id,
             "test cancel while hanging".to_string(),
+            None,
             None,
             None,
         )

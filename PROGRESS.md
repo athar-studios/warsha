@@ -1,5 +1,16 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Fix runs.start ignoring budget_cents (D-R11-BUDGET-1)
+- **Scope**: Owner finding #7 on worktree `.agents/worktrees/fix-r11-budget`. `runs.start` now records the budget the caller passes. Local-only: no push, no tag, no publish, main untouched.
+- **Changes**:
+  - `crates/warshad/src/api.rs` and `crates/warshad/src/lib.rs`: trailing `budget_cents: Option<u64>` on `runs.start`. An explicit value is applied with `set_run_budget` on both the plan/spec-file return and the agent return. `None` keeps inheritance and the pending `budget.set` consume. No new default.
+  - `packages/client/src/index.ts`: `startRun` sends `budgetCents` only when the caller passed it.
+  - `apps/desktop/src/v3/pages/home/index.tsx`: home start passes the owner's `budgetCents` into `runs.start`.
+  - `crates/warsha-cli/src/mcp_serve.rs`: optional `budget_cents` on the MCP `start_run` tool, forwarded in the trailing position.
+  - Proving test: `runs_start_records_the_budget_it_was_given` (prior run 700, start with 5, recorded budget is 5).
+- **Gates**: pending in this run entry until the success commands finish.
+- **Status**: in progress.
+
 ## Run 2026-11-22 — Practical UI drive proof for R9 (GAP-H3 + MISS-1) (D-R9-DRIVE-1)
 - **Scope**: Practical end-to-end UI drive on `r-next/integration` for merged tip `db29346` (lane `5764fe8` GAP-H3 + lane `db29346` MISS-1), per permanent owner rule OD-PRACTICAL-REVIEW-1. Local-only: no push, no tag, no publish, main untouched.
 - **Drive implementation**:

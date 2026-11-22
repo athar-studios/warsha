@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-BUDGET-1: runs.start records the budget it is given
+- **Decision**: `runs.start` takes a trailing `budget_cents: Option<u64>`. When the caller passes a value, including `0`, that value is the budget the new run records (`set_run_budget`), and it wins over both a pending `budget.set` and the previous run's inherited budget. When the argument is absent, the previous behavior stays: the pipeline copies the newest run's budget, and a pending `budget.set` is still consumed. No new default is introduced. The desktop home start sends the budget the owner already entered (`budgetCents`) on `runs.start`. The MCP `start_run` tool forwards an optional non-negative `budget_cents` in the same trailing position.
+- **Reason**: Owner finding #7. The method did not bind a budget, so a client that sent one was ignored by serde and the new run kept the previous run's budget (owner set 5, the run started with 700).
+- **Proving test**: `crates/warshad/src/tests/mod.rs` `runs_start_budget::runs_start_records_the_budget_it_was_given` — a project whose newest run has budget 700, then `runs.start` with `Some(5)`, asserts the returned and stored budget are `Some(5)`.
+- **Scope**: `crates/warshad/src/api.rs`, `crates/warshad/src/lib.rs`, `crates/warshad` `start_run` call sites, `packages/client/src/index.ts`, `apps/desktop/src/v3/pages/home/index.tsx`, `crates/warsha-cli/src/mcp_serve.rs`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-22 — D-R9-DRIVE-1: Practical UI Drive Proof for R9 (GAP-H3 Fast Failover + MISS-1 Greenfield Git Auto-Init)
 - **Decision**:
   1. Automated practical drive script `scripts/ui-drive-r9-failover-autoinit.mjs` orchestrating a real `warshad` daemon and headless Chromium in Arabic locale (`ar-EG`, RTL, dark theme) exercising both R9 fixes end-to-end:
