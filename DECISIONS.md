@@ -1,6 +1,11 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-STATUS-1: A cancelled run is not a failed run
+
+- **Decision**: `mapRunStatusToPill('cancelled')` returns the new `cancelled` state on `StatusPill`, and `getStatusLabelKey` maps it to `bench.status.cancelled` (ar `ملغاة`, en `Cancelled`). The Home and Projects lists use the same key. The pill is neutral, not danger. `failed` stays danger.
+- **Reason**: Owner UI finding #8. A cancelled run was rendered with the failed label and the danger colour, so the owner could not tell a cancellation from a failure.
+- **Scope**: `apps/desktop/src/v3/pages/bench/helpers.ts`, `apps/desktop/src/v3/pages/bench/bench.test.tsx`, `apps/desktop/src/v3/pages/home/index.tsx`, `apps/desktop/src/v3/pages/projects/index.tsx`, `packages/ui/src/v3/primitives/StatusPill.tsx`, `packages/ui/src/v3/primitives/StatusPill.stories.tsx`, `packages/i18n/src/v3/{en,ar}/bench.ts`. Local-only; no main/push/tag/publish.
 ## 2026-11-23 — D-R11-DEVICES-1: Persist paired device identities across a daemon restart
 
 - **Decision**: Paired device identities are written to the `devices` table migration 001 already created (`id`, `name`, `public_key`, `paired_at`, `revoked`, `revoked_at`) and reloaded into `DeviceRegistry` whenever daemon state is built — both `start_daemon` and the in-process `test_state` builder a restart test uses. The write happens before the in-memory registry changes, in `devices.pair`, `devices.pair-start`, and `devices.revoke`. The local server identity stays minted per process and is not a row; `devices.list` still returns it because the registry inserts it on construction. A revoked row is restored revoked through `DeviceRegistry::restore_stored`, because `add_device` refuses a revoked identity. `last_seen_at` is left untouched. The pairing secret stays in `pairing_devices` and is never copied onto the device row.

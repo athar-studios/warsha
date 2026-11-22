@@ -13,8 +13,9 @@ export function mapRunStatusToPill(status: string): StatusPillState {
       return 'done';
     case 'failed':
     case 'error':
-    case 'cancelled':
       return 'failed';
+    case 'cancelled':
+      return 'cancelled';
     case 'paused':
       return 'paused';
     default:
@@ -23,15 +24,20 @@ export function mapRunStatusToPill(status: string): StatusPillState {
 }
 
 export function getStatusLabelKey(status: string): string {
-  switch (mapRunStatusToPill(status)) {
+  switch (status) {
     case 'running':
       return 'bench.status.running';
+    case 'awaiting_gate':
     case 'waiting':
       return 'bench.status.waiting';
+    case 'completed':
     case 'done':
       return 'bench.status.done';
     case 'failed':
+    case 'error':
       return 'bench.status.failed';
+    case 'cancelled':
+      return 'bench.status.cancelled';
     case 'paused':
       return 'bench.status.paused';
     default:

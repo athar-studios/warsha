@@ -9,7 +9,7 @@ const meta = {
   argTypes: {
     status: {
       control: 'inline-radio',
-      options: ['idle', 'running', 'waiting', 'done', 'failed', 'paused'],
+      options: ['idle', 'running', 'waiting', 'done', 'failed', 'cancelled', 'paused'],
     },
   },
   args: { status: 'waiting' },

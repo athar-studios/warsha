@@ -1206,6 +1206,7 @@ export default function HomePage(): React.ReactElement {
                     waiting: t('home.status_waiting'),
                     done: t('home.status_done'),
                     failed: t('home.status_failed'),
+                    cancelled: t('bench.status.cancelled'),
                     paused: t('home.status_paused'),
                   };
 
