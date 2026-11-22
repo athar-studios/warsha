@@ -13,6 +13,86 @@ use warsha_core::{Artifact, GateState, Run, RunStatus, Stage};
 
 use crate::{stage_to_string, PipelineError, Result};
 
+/// How a Simple-mode gate card may present one stage of a run.
+///
+/// A card is not a forecast. [`GateCardFace::Name`] is an unlit name: the stage
+/// exists on the walk, and that is all the card may say. [`GateCardFace::Recorded`]
+/// repeats a gate state the daemon stored for the stage the run stands on.
+/// [`GateCardFace::Decidable`] is the only face that offers a decision, and only
+/// while that stored state is still [`GateState::Pending`] on the current stage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GateCardFace {
+    /// An unlit name. Not an approval card, and not a claim the stage is done.
+    Name,
+    /// The gate state the daemon stored for the stage the run stands on.
+    Recorded(GateState),
+    /// The current stage is a pending gate, so a decision is the run's next act.
+    Decidable(GateState),
+}
+
+impl GateCardFace {
+    /// Whether this face claims the stage was approved.
+    pub fn shows_approved(&self) -> bool {
+        match self {
+            Self::Recorded(GateState::Approved { .. })
+            | Self::Decidable(GateState::Approved { .. }) => true,
+            Self::Name | Self::Recorded(_) | Self::Decidable(_) => false,
+        }
+    }
+
+    /// Whether this face claims the stage is done.
+    ///
+    /// Done is a recorded decision that is no longer pending. An unlit name is
+    /// not done, and a gate still waiting on the owner is not done.
+    pub fn shows_done(&self) -> bool {
+        match self {
+            Self::Recorded(state) | Self::Decidable(state) => !matches!(state, GateState::Pending),
+            Self::Name => false,
+        }
+    }
+
+    /// Whether this face offers the owner a decision.
+    pub fn is_decidable(&self) -> bool {
+        matches!(self, Self::Decidable(_))
+    }
+}
+
+/// The face a Simple-mode gate card may show for `stage` on `run`.
+///
+/// The run's `current_stage` is the only stage a card may describe. A stage the
+/// run has not reached stays [`GateCardFace::Name`] even when `gate_states`
+/// already holds `Pending` — `start_run` seeds every gate that way — or when a
+/// caller has written `Approved` ahead of the run. A stored state is shown only
+/// for the stage the run stands on, and it is decidable only while that state
+/// is still pending.
+pub fn gate_card_face(run: &Run, stage: Stage) -> GateCardFace {
+    if stage_index(stage) > stage_index(run.current_stage) {
+        return GateCardFace::Name;
+    }
+    let Some(recorded) = run.gate_states.get(&stage).cloned() else {
+        return GateCardFace::Name;
+    };
+    if stage == run.current_stage && matches!(recorded, GateState::Pending) && stage.is_gate() {
+        return GateCardFace::Decidable(recorded);
+    }
+    if stage == run.current_stage {
+        return GateCardFace::Recorded(recorded);
+    }
+    // A stage the run has passed is a name unless the daemon recorded a
+    // decision for that exact gate. Pending is not a done card and not a decision.
+    match recorded {
+        GateState::Pending => GateCardFace::Name,
+        decided => GateCardFace::Recorded(decided),
+    }
+}
+
+fn stage_index(stage: Stage) -> usize {
+    Stage::all()
+        .iter()
+        .position(|candidate| *candidate == stage)
+        .unwrap_or(0)
+}
+
 /// Validate that `run` can currently accept a gate decision for `stage`.
 pub(crate) fn ensure_gate_decidable(run: &Run, stage: Stage) -> Result<()> {
     if !stage.is_gate() {
@@ -560,4 +640,133 @@ fn sha256_matches_fips_180_4_test_vectors() {
         abc.finalize_hex(),
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
+}
+
+/// A Simple-mode card may describe only the stage the run stands on.
+///
+/// `start_run` seeds every gate `Pending`, and a stale map can even say a later
+/// gate is `Approved`. Neither fact lights a card for a stage `Run.current_stage`
+/// has not reached: that card stays an unlit name, not approved, done, or decidable.
+#[cfg(test)]
+#[test]
+fn test_gate_card_shows_only_the_state_the_run_has() {
+    use chrono::Utc;
+    use warsha_core::{DeviceId, ProjectId, Run, RunId, RunMode, RunStatus};
+
+    let now = Utc::now();
+    let device = DeviceId::new();
+    let mut run = Run {
+        id: RunId::new(),
+        project_id: ProjectId::new(),
+        current_stage: Stage::Idea,
+        gate_states: HashMap::new(),
+        artifacts: HashMap::new(),
+        created_at: now,
+        updated_at: now,
+        status: RunStatus::Running,
+        budget_cents: None,
+        spent_cents: 0,
+        worktree_path: None,
+        worktree_branch: None,
+        confinement: None,
+        run_mode: RunMode::Agent,
+    };
+    for stage in Stage::all() {
+        if stage.is_gate() {
+            run.gate_states.insert(*stage, GateState::Pending);
+        }
+    }
+    // A map that claims later gates are already approved must not light them.
+    run.gate_states.insert(
+        Stage::GateB,
+        GateState::Approved {
+            by: device,
+            at: now,
+        },
+    );
+    run.gate_states.insert(
+        Stage::GateD,
+        GateState::Approved {
+            by: device,
+            at: now,
+        },
+    );
+
+    for stage in [
+        Stage::GateA,
+        Stage::Research,
+        Stage::GateB,
+        Stage::Code,
+        Stage::GateD,
+        Stage::Feedback,
+    ] {
+        let face = gate_card_face(&run, stage);
+        assert!(
+            !face.shows_approved(),
+            "{stage:?} shown approved while the run is still at {:?}: {face:?}",
+            run.current_stage
+        );
+        assert!(
+            !face.shows_done(),
+            "{stage:?} shown done while the run is still at {:?}: {face:?}",
+            run.current_stage
+        );
+        assert!(
+            !face.is_decidable(),
+            "{stage:?} shown decidable while the run is still at {:?}: {face:?}",
+            run.current_stage
+        );
+        assert_eq!(face, GateCardFace::Name);
+    }
+
+    // The stage the run stands on is Idea, which is not a gate decision.
+    let idea = gate_card_face(&run, Stage::Idea);
+    assert!(!idea.shows_approved());
+    assert!(!idea.shows_done());
+    assert!(!idea.is_decidable());
+
+    // Standing on Gate A makes only that pending gate decidable.
+    run.current_stage = Stage::GateA;
+    let gate_a = gate_card_face(&run, Stage::GateA);
+    assert!(
+        matches!(gate_a, GateCardFace::Decidable(GateState::Pending)),
+        "the gate the run stands on is the one decision: {gate_a:?}"
+    );
+    assert!(!gate_a.shows_approved());
+    assert!(!gate_a.shows_done());
+    assert!(gate_a.is_decidable());
+
+    for stage in [Stage::GateB, Stage::GateC, Stage::GateD, Stage::Release] {
+        let face = gate_card_face(&run, stage);
+        assert!(
+            !face.shows_approved() && !face.shows_done() && !face.is_decidable(),
+            "{stage:?} lit while the run still stands on {:?}: {face:?}",
+            run.current_stage
+        );
+        assert_eq!(face, GateCardFace::Name);
+    }
+
+    // The recorded approval of the current gate is shown, and is not offered again.
+    run.gate_states.insert(
+        Stage::GateA,
+        GateState::Approved {
+            by: device,
+            at: now,
+        },
+    );
+    let recorded = gate_card_face(&run, Stage::GateA);
+    assert!(recorded.shows_approved());
+    assert!(recorded.shows_done());
+    assert!(!recorded.is_decidable());
+    assert!(matches!(
+        recorded,
+        GateCardFace::Recorded(GateState::Approved { .. })
+    ));
+
+    // Later gates stay unlit names after the current gate is approved.
+    let still_ahead = gate_card_face(&run, Stage::GateB);
+    assert_eq!(still_ahead, GateCardFace::Name);
+    assert!(!still_ahead.shows_approved());
+    assert!(!still_ahead.shows_done());
+    assert!(!still_ahead.is_decidable());
 }

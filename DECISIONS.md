@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-GATES-1: Simple-mode gate cards show only the stage the run stands on
+- **Decision**: A Simple-mode gate card is a reading of the stage the run stands on, not a forecast of the walk. `gate_card_face` in `crates/warsha-pipeline/src/gate_integrity.rs` returns `GateCardFace::Name` for every stage after `Run.current_stage`, even when `gate_states` already holds `Pending` (what `start_run` seeds) or a stale `Approved`. The current stage is `Decidable` only while its recorded state is `Pending` and the stage is a gate; any other recorded state of the current stage is `Recorded` and is not offered again. Passed stages stay unlit names unless the daemon recorded a non-pending decision for that exact gate.
+- **Reason**: Cards were presentable as done or actionable for gates the run had not reached, because every gate is seeded `Pending` and a stored `Approved` was treated as a face on its own. A future pending gate is an unlit name, not an approval card.
+- **Proving test**: `crates/warsha-pipeline/src/gate_integrity.rs` `test_gate_card_shows_only_the_state_the_run_has` — fails if a helper reports a stage after `Run.current_stage` as approved, done, or decidable.
+- **Scope**: `crates/warsha-pipeline/src/gate_integrity.rs`, `crates/warsha-pipeline/src/lib.rs` (re-export only), `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-22 — D-R9-DRIVE-1: Practical UI Drive Proof for R9 (GAP-H3 Fast Failover + MISS-1 Greenfield Git Auto-Init)
 - **Decision**:
   1. Automated practical drive script `scripts/ui-drive-r9-failover-autoinit.mjs` orchestrating a real `warshad` daemon and headless Chromium in Arabic locale (`ar-EG`, RTL, dark theme) exercising both R9 fixes end-to-end:

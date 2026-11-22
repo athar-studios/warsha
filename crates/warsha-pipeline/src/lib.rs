@@ -134,7 +134,7 @@ pub use crate::command_policy::{
     DEFAULT_OUTPUT_CAP_BYTES, MINIMAL_CHILD_ENV, SHELL_COMMANDS,
 };
 pub use crate::evals::{blocks_change, run_suite, EvalCase, EvalError, EvalOutcome, EvalSuite};
-pub use crate::gate_integrity::artifacts_sha256;
+pub use crate::gate_integrity::{artifacts_sha256, gate_card_face, GateCardFace};
 pub use crate::guardrails::{
     classify_action, mask_secrets, wrap_untrusted, ApprovalRequest, Guardrails, InjectionSignal,
     InputOrigin, InspectionResult, SensitiveAction, REDACTED,

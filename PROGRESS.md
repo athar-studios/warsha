@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Simple-mode gate cards follow the run's recorded stage (D-R11-GATES-1)
+- **Scope**: `fix-r11-gates` worktree only. A gate card may show the state the daemon recorded for the stage the run stands on. Future pending gates stay unlit names. Local-only: no push, no tag, no publish, main untouched.
+- **Change**: `gate_card_face` / `GateCardFace` in `crates/warsha-pipeline/src/gate_integrity.rs`, re-exported from the pipeline crate. Stages after `Run.current_stage` are `Name` even if `gate_states` says `Pending` or `Approved`.
+- **Proving test**: `test_gate_card_shows_only_the_state_the_run_has`.
+- **Status**: implementation recorded; gates run in this same change.
+
 ## Run 2026-11-22 — Practical UI drive proof for R9 (GAP-H3 + MISS-1) (D-R9-DRIVE-1)
 - **Scope**: Practical end-to-end UI drive on `r-next/integration` for merged tip `db29346` (lane `5764fe8` GAP-H3 + lane `db29346` MISS-1), per permanent owner rule OD-PRACTICAL-REVIEW-1. Local-only: no push, no tag, no publish, main untouched.
 - **Drive implementation**:
