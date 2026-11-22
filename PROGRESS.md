@@ -1,5 +1,10 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — Intake-watchdog merge verification (D-UI-INTAKE-WATCHDOG-1)
+- **Scope**: Merge lane `200c848` as `1271c42` into `r-next/integration`. Local-only: no push, no tag, no publish, main untouched.
+- **Gates (merged tip `1271c42`)**: fmt FMT_OK; clippy 0; pipeline 586/0/7; warshad 315/0/4; policy 8/0; versions 0.3.1 aligned; arch 5/0; wire 11/0; actions 199/199/1 (single pre-existing factory.retry A6, base parity); i18n 1074/19 (base parity, native model names exempt).
+- **Status**: FIXES COMPLETE.
+
 ## Run 2026-11-22 — Fix HIGH intake hang in 0.3.1 (D-UI-INTAKE-WATCHDOG-1)
 - **Scope**: Fix HIGH intake hang in 0.3.1 on branch `fix-ui-intake-watchdog` (base `8a126db` on `r-next/integration`). Local-only: no push, no tag, no publish, main untouched.
 - **Changes**:
