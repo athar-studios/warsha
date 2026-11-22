@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Packet EX1 design registered (D-EX1-DESIGN-1)
+- **Scope**: Design only, on `r-next/integration` @ `eaa6839`. Local-only: no push, no tag, no publish, main untouched.
+- **Deliverable**: `docs/zadloop/packets/EX1-design.md` — data model (expert, team, roster, spec kit), staffing flow (assessment → HR proposal → inbox approval), pipeline generation from the approved roster, the core-team fallback preset, per-mode UX, and one proving test per piece.
+- **Constraint**: an expert maps to an existing `Role` (`crates/warsha-core/src/lib.rs:186`); no new role variant and no new harness.
+- **Status**: DESIGN REGISTERED. Implementation waits until the R11 fix round is merged or paused.
+
 ## Run 2026-11-23 — Stream killed-CLI capture to `.warsha/cli.log` (D-R11-POSTMORTEM-1)
 - **Scope**: Fix audit MISS-4 (LOW) on branch `fix-r11-postmortem` (base `7de0302`, worktree `.agents/worktrees/fix-r11-postmortem`, version 0.3.1). Local-only: no push, no tag, no publish, main untouched.
 - **Problem**: A CLI coding backend killed by SIGKILL/OOM lost its captured stdout/stderr when the child pipe broke before the in-memory buffers were assembled at the end of the run.

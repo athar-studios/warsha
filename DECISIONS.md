@@ -1,6 +1,11 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-EX1-DESIGN-1: Experts & Flexible Teams (design only)
+- **Decision**: Register packet EX1. Experts are data, not code: an expert record resolves to one of the 13 existing `Role` values (`crates/warsha-core/src/lib.rs:186`) for routing and budget, and carries its own persona. No new `Role` variant and no new harness. The pipeline is generated from the approved roster; the current fixed pipeline stays as the fallback preset for projects that skip staffing. The core team defaults to PM, Secretary, Reviewer and is owner-adjustable. HR is a mandatory built-in expert. Hiring beyond the approved roster always needs owner approval. Spec: `docs/zadloop/packets/EX1-design.md`.
+- **Reason**: Owner order 2026-11-23. The project is measured first, the Secretary consults HR, the roster and spec kit are approved, and only then does work start. A fixed pipeline hires roles the project does not need.
+- **Scope**: Design only. Implementation is sequenced after the current fix round. Local-only on `r-next/integration`; no main, no push, no tag, no publish.
+
 ## 2026-11-23 — D-R11-POSTMORTEM-1: Stream CLI capture to `.warsha/cli.log` (MISS-4)
 - **Decision**: In `crates/warsha-backends/src/lib.rs`, each stdout/stderr line captured from a CLI coding backend is appended and flushed to `<work_dir>/.warsha/cli.log` as it arrives (the `.warsha` directory is created if missing). The in-memory `captured_stdout` / `captured_stderr` buffers and the existing error reporting stay unchanged. The log records the child's own stream text only; secret values are not added. A SIGKILL/OOM that breaks the child pipe before the end-of-run assembly still leaves the lines printed before the kill on disk.
 - **Reason**: Audit MISS-4 (LOW). Previously the captured lines lived only in memory and were assembled after `child.wait()`, so a killed process lost its stdout/stderr when the pipe broke before draining.
