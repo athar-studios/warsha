@@ -1,5 +1,18 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Stream killed-CLI capture to `.warsha/cli.log` (D-R11-POSTMORTEM-1)
+- **Scope**: Fix audit MISS-4 (LOW) on branch `fix-r11-postmortem` (base `7de0302`, worktree `.agents/worktrees/fix-r11-postmortem`, version 0.3.1). Local-only: no push, no tag, no publish, main untouched.
+- **Problem**: A CLI coding backend killed by SIGKILL/OOM lost its captured stdout/stderr when the child pipe broke before the in-memory buffers were assembled at the end of the run.
+- **Changes**:
+  - `crates/warsha-backends/src/lib.rs`: `open_cli_log` creates `<work_dir>/.warsha/cli.log` (append) and `append_cli_log_line` writes each captured stdout/stderr line and flushes it as it arrives, in both the select loop and the post-exit drain. In-memory capture and existing `ExecutionFailed` reporting are unchanged. No secret values are written.
+  - Proving test `a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log`: a fake child prints one stdout line and one stderr line, then `kill -9`s itself; `.warsha/cli.log` must contain both.
+- **Gate matrix (CARGO_HOME=/tmp/cargo-home)**:
+  - `cargo fmt --all -- --check`: FMT_OK (exit code 0) after `cargo fmt --all` fixed the new helpers.
+  - `cargo clippy -p warsha-backends --all-targets -- -D warnings`: 0 warnings (exit code 0).
+  - `cargo test -p warsha-backends --lib`: 42 passed, 0 failed, 0 ignored (exit code 0), including `a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log`.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit code 0).
+- **Status**: COMPLETE.
+
 ## Run 2026-11-22 — Practical UI drive proof for R9 (GAP-H3 + MISS-1) (D-R9-DRIVE-1)
 - **Scope**: Practical end-to-end UI drive on `r-next/integration` for merged tip `db29346` (lane `5764fe8` GAP-H3 + lane `db29346` MISS-1), per permanent owner rule OD-PRACTICAL-REVIEW-1. Local-only: no push, no tag, no publish, main untouched.
 - **Drive implementation**:

@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-POSTMORTEM-1: Stream CLI capture to `.warsha/cli.log` (MISS-4)
+- **Decision**: In `crates/warsha-backends/src/lib.rs`, each stdout/stderr line captured from a CLI coding backend is appended and flushed to `<work_dir>/.warsha/cli.log` as it arrives (the `.warsha` directory is created if missing). The in-memory `captured_stdout` / `captured_stderr` buffers and the existing error reporting stay unchanged. The log records the child's own stream text only; secret values are not added. A SIGKILL/OOM that breaks the child pipe before the end-of-run assembly still leaves the lines printed before the kill on disk.
+- **Reason**: Audit MISS-4 (LOW). Previously the captured lines lived only in memory and were assembled after `child.wait()`, so a killed process lost its stdout/stderr when the pipe broke before draining.
+- **Proving test**: `crates/warsha-backends/src/lib.rs` `a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log` — a short fake child prints a stdout line and a stderr line, then `kill -9`s itself; the test asserts `.warsha/cli.log` contains both lines.
+- **Scope**: `crates/warsha-backends/src/lib.rs`, `DECISIONS.md`, `PROGRESS.md`. Local-only on `fix-r11-postmortem`; no main/push/tag/publish.
+
 ## 2026-11-22 — D-R9-DRIVE-1: Practical UI Drive Proof for R9 (GAP-H3 Fast Failover + MISS-1 Greenfield Git Auto-Init)
 - **Decision**:
   1. Automated practical drive script `scripts/ui-drive-r9-failover-autoinit.mjs` orchestrating a real `warshad` daemon and headless Chromium in Arabic locale (`ar-EG`, RTL, dark theme) exercising both R9 fixes end-to-end:
