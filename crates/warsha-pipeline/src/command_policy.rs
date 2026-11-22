@@ -33,7 +33,7 @@
 
 #![cfg_attr(test, allow(clippy::panic, clippy::expect_used, clippy::unwrap_used))]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -180,6 +180,7 @@ pub const MINIMAL_CHILD_ENV: &[(&str, &str)] = &[
     ("SYSTEMROOT", r"C:\Windows"),
     ("TERM", "dumb"),
     ("NO_COLOR", "1"),
+    ("GIT_CONFIG_NOSYSTEM", "1"),
 ];
 
 /// Fixed, minimal child environment set after `env_clear()` (Unix).
@@ -193,6 +194,7 @@ pub const MINIMAL_CHILD_ENV: &[(&str, &str)] = &[
     ("LC_ALL", "C.UTF-8"),
     ("TERM", "dumb"),
     ("NO_COLOR", "1"),
+    ("GIT_CONFIG_NOSYSTEM", "1"),
 ];
 
 /// The `PATH` a child receives: the daemon's own, or the fixed fallback.
@@ -534,21 +536,33 @@ impl CommandPolicy {
             return Err(CommandPolicyError::BlankCommand);
         }
 
+        let is_shell = SHELL_COMMANDS.contains(&program.as_str());
+
         // The allowlist is the hard floor: it is checked FIRST and a rule can
         // never widen it (B3 spec — rules only deny or add an ask on top).
-        // R6-H2, R7-H5: workspace-relative executables (`./npm`, `bin/tool`)
+        // R6-H2, R7-H5, R8-N3: workspace-relative executables (`./npm`, `bin/tool`)
         // and executables resolving inside the agent's workspace directory
-        // never match a bare allow-list entry via basename.
-        let is_in_ws = is_path_in_workspace(trimmed, working_dir);
-        let allowed = self.allowed.iter().any(|entry| {
-            if entry == trimmed {
-                return true;
-            }
-            if is_in_ws {
-                return false;
-            }
-            program_name(entry) == program
-        });
+        // never match a bare allow-list entry via basename. Furthermore, any
+        // path-spelled program containing '/' or '\' must be the canonical PATH tool.
+        let unquoted = trimmed.trim_matches('"').trim_matches('\'').trim();
+        let is_in_ws = is_path_in_workspace(unquoted, working_dir);
+        let has_separator = unquoted.contains('/') || unquoted.contains('\\');
+
+        let is_exact = self
+            .allowed
+            .iter()
+            .any(|entry| entry == trimmed || entry == unquoted);
+
+        let allowed = is_exact
+            || self.allowed.iter().any(|entry| {
+                if is_in_ws {
+                    return false;
+                }
+                if has_separator && working_dir.is_some() && !is_canonical_path_tool(unquoted) {
+                    return false;
+                }
+                program_name(entry) == program
+            });
         if !allowed {
             // A rule may still DENY a program the allowlist would refuse —
             // denial is recorded with the rule's reason, not the generic one.
@@ -559,9 +573,23 @@ impl CommandPolicy {
             }
             // Shells are refused by name, not by the missing list entry: the
             // refusal says "shell" so an edit that adds one reads as that.
-            if SHELL_COMMANDS.contains(&program.as_str()) {
+            if is_shell {
                 return Err(CommandPolicyError::ShellRefused { command: program });
             }
+            return Err(CommandPolicyError::NotAllowed { command: program });
+        }
+
+        // Even if allow-listed by name:
+        // Shells must still be refused unless explicitly in self.allowed
+        if is_shell
+            && !self
+                .allowed
+                .iter()
+                .any(|entry| entry == trimmed || program_name(entry) == program)
+        {
+            return Err(CommandPolicyError::ShellRefused { command: program });
+        }
+        if is_in_ws {
             return Err(CommandPolicyError::NotAllowed { command: program });
         }
 
@@ -998,6 +1026,54 @@ fn check_arguments_with_workdir(
         }
     }
 
+    // N-2: Refuse GIT_WORK_TREE / GIT_DIR / GIT_NAMESPACE env passthrough
+    for arg in args {
+        let a_low = arg
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim()
+            .to_ascii_lowercase();
+        if a_low.starts_with("git_work_tree=")
+            || a_low.starts_with("git_dir=")
+            || a_low.starts_with("git_namespace=")
+        {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: arg.clone(),
+                reason: "GIT_WORK_TREE/GIT_DIR/GIT_NAMESPACE environment variables are not allowed"
+                    .to_string(),
+            });
+        }
+    }
+
+    // N-3: Refuse --output, -o, --work-tree targets resolving outside workspace
+    for (i, arg) in args.iter().enumerate() {
+        let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+        let lowered = clean.to_ascii_lowercase();
+
+        let (flag, val) = if let Some((f, v)) = clean.split_once('=') {
+            (f.to_ascii_lowercase(), Some(v))
+        } else {
+            (lowered.clone(), None)
+        };
+
+        if flag == "--output" || flag == "-o" || flag == "--work-tree" {
+            let target_val = if let Some(v) = val {
+                Some(v)
+            } else {
+                args.get(i + 1).map(|s| s.as_str())
+            };
+            if let Some(tv) = target_val {
+                if is_outside_workspace_path(tv, working_dir) {
+                    return Err(CommandPolicyError::InvalidCommand {
+                        command: arg.clone(),
+                        reason: format!("argument `{tv}` resolves outside workspace"),
+                    });
+                }
+            }
+        }
+    }
+
     let prog = program_name(program);
     let is_git = prog == "git";
     let mut skip_next = false;
@@ -1110,6 +1186,17 @@ fn check_arguments_with_workdir(
         return Ok(());
     }
 
+    // N-1: Bare-repo-shaped workspace without .git dir refuses ANY git invocation
+    if let Some(wd) = working_dir {
+        if is_bare_repo_shape(wd) {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: format!("git {}", args.join(" ")),
+                reason: "git invocations in bare-repo-shaped workspace without .git directory are not allowed"
+                    .to_string(),
+            });
+        }
+    }
+
     let mut index = 0;
     let mut subcommand_found = false;
     while index < args.len() {
@@ -1141,6 +1228,82 @@ fn check_arguments_with_workdir(
             return Err(CommandPolicyError::InvalidCommand {
                 command: argument.to_string(),
                 reason: "git ext:: transport is not allowed".to_string(),
+            });
+        }
+
+        // Check for --git-dir anywhere (R8-N2)
+        if lowered == "--git-dir" {
+            if let Some(target) = args.get(index + 1) {
+                if !is_valid_git_dir(target, working_dir) {
+                    return Err(CommandPolicyError::InvalidCommand {
+                        command: argument.to_string(),
+                        reason: "git --git-dir with alternate git directory is not allowed"
+                            .to_string(),
+                    });
+                }
+                index += 2;
+                continue;
+            } else {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git --git-dir requires an argument".to_string(),
+                });
+            }
+        }
+        if lowered.starts_with("--git-dir=") {
+            let target = &argument["--git-dir=".len()..];
+            if !is_valid_git_dir(target, working_dir) {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git --git-dir with alternate git directory is not allowed".to_string(),
+                });
+            }
+            index += 1;
+            continue;
+        }
+
+        // Check for --work-tree anywhere (R8-N2)
+        if lowered == "--work-tree" {
+            if let Some(target) = args.get(index + 1) {
+                if !is_valid_work_tree(target, working_dir) {
+                    return Err(CommandPolicyError::InvalidCommand {
+                        command: argument.to_string(),
+                        reason: "git --work-tree with alternate work tree is not allowed"
+                            .to_string(),
+                    });
+                }
+                index += 2;
+                continue;
+            } else {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git --work-tree requires an argument".to_string(),
+                });
+            }
+        }
+        if lowered.starts_with("--work-tree=") {
+            let target = &argument["--work-tree=".len()..];
+            if !is_valid_work_tree(target, working_dir) {
+                return Err(CommandPolicyError::InvalidCommand {
+                    command: argument.to_string(),
+                    reason: "git --work-tree with alternate work tree is not allowed".to_string(),
+                });
+            }
+            index += 1;
+            continue;
+        }
+
+        // Check for --namespace / --super-prefix anywhere (R8-N2)
+        if lowered == "--namespace" || lowered.starts_with("--namespace=") {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: argument.to_string(),
+                reason: "git --namespace is not allowed".to_string(),
+            });
+        }
+        if lowered == "--super-prefix" || lowered.starts_with("--super-prefix=") {
+            return Err(CommandPolicyError::InvalidCommand {
+                command: argument.to_string(),
+                reason: "git --super-prefix is not allowed".to_string(),
             });
         }
 
@@ -1200,55 +1363,6 @@ fn check_arguments_with_workdir(
                 continue;
             }
 
-            if lowered == "--git-dir" {
-                if let Some(target) = args.get(index + 1) {
-                    let clean_target = target.trim().trim_matches('"').trim_matches('\'').trim();
-                    let norm = clean_target.replace('\\', "/");
-                    let is_git_dir =
-                        norm == ".git" || norm == "./.git" || norm == ".git/" || norm == "./.git/";
-                    let is_work_dir_git =
-                        working_dir.is_some_and(|wd| Path::new(clean_target) == wd.join(".git"));
-                    if !is_git_dir && !is_work_dir_git {
-                        return Err(CommandPolicyError::InvalidCommand {
-                            command: argument.to_string(),
-                            reason: "git --git-dir with alternate git directory is not allowed"
-                                .to_string(),
-                        });
-                    }
-                }
-                index += 2;
-                continue;
-            }
-            if lowered.starts_with("--git-dir=") {
-                let target = &argument["--git-dir=".len()..];
-                let clean_target = target.trim().trim_matches('"').trim_matches('\'').trim();
-                let norm = clean_target.replace('\\', "/");
-                let is_git_dir =
-                    norm == ".git" || norm == "./.git" || norm == ".git/" || norm == "./.git/";
-                let is_work_dir_git =
-                    working_dir.is_some_and(|wd| Path::new(clean_target) == wd.join(".git"));
-                if !is_git_dir && !is_work_dir_git {
-                    return Err(CommandPolicyError::InvalidCommand {
-                        command: argument.to_string(),
-                        reason: "git --git-dir with alternate git directory is not allowed"
-                            .to_string(),
-                    });
-                }
-                index += 1;
-                continue;
-            }
-
-            if lowered == "--work-tree" || lowered == "--namespace" || lowered == "--super-prefix" {
-                index += 2;
-                continue;
-            }
-            if lowered.starts_with("--work-tree=")
-                || lowered.starts_with("--namespace=")
-                || lowered.starts_with("--super-prefix=")
-            {
-                index += 1;
-                continue;
-            }
             if argument.starts_with('-') {
                 index += 1;
                 continue;
@@ -1526,6 +1640,11 @@ pub(crate) fn is_git_config_path(path: &str) -> bool {
             if rest_first.starts_with("config")
                 || rest_first == "hooks"
                 || rest_first == "worktrees"
+                || rest_first == "head"
+                || rest_first == "index"
+                || rest_first == "objects"
+                || rest_first == "refs"
+                || rest_first == "info"
             {
                 return true;
             }
@@ -1762,6 +1881,163 @@ pub fn is_path_in_workspace(path_str: &str, working_dir: Option<&Path>) -> bool 
         }
     }
     false
+}
+
+/// Returns true if `program_token` names the canonical PATH-resolved binary for its basename (R8-N3).
+pub(crate) fn is_canonical_path_tool(program_token: &str) -> bool {
+    let clean = program_token
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim();
+    let prog = program_name(clean);
+    if prog.is_empty() {
+        return false;
+    }
+    let Ok(token_canonical) = Path::new(clean).canonicalize() else {
+        return false;
+    };
+    for path_dir in std::env::split_paths(&child_path()) {
+        let candidate = path_dir.join(&prog);
+        #[cfg(windows)]
+        let candidates = [
+            candidate.clone(),
+            path_dir.join(format!("{prog}.exe")),
+            path_dir.join(format!("{prog}.cmd")),
+            path_dir.join(format!("{prog}.bat")),
+        ];
+        #[cfg(not(windows))]
+        let candidates = [candidate];
+
+        for cand in candidates {
+            if cand.is_file() {
+                if let Ok(cand_canonical) = cand.canonicalize() {
+                    if cand_canonical == token_canonical {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+    }
+    false
+}
+
+/// Returns true if `dir` has the layout of a bare repository (HEAD + objects/ + refs/)
+/// without a `.git/` directory (R8-N1).
+pub(crate) fn is_bare_repo_shape(dir: &Path) -> bool {
+    let has_dot_git = dir.join(".git").exists();
+    if has_dot_git {
+        return false;
+    }
+    let has_head = dir.join("HEAD").exists();
+    let has_objects = dir.join("objects").is_dir();
+    let has_refs = dir.join("refs").is_dir();
+    has_head && has_objects && has_refs
+}
+
+/// Returns true if `target` safely represents the workspace root itself (and not `.git` or outside) (R8-N2).
+pub(crate) fn is_valid_work_tree(target: &str, working_dir: Option<&Path>) -> bool {
+    let clean = target.trim().trim_matches('"').trim_matches('\'').trim();
+    if clean.is_empty() {
+        return false;
+    }
+    let norm = clean.replace('\\', "/");
+    if norm == ".git"
+        || norm == "./.git"
+        || norm == ".git/"
+        || norm == "./.git/"
+        || norm.split('/').any(|s| s == ".git")
+    {
+        return false;
+    }
+    if norm == "." || norm == "./" {
+        return true;
+    }
+    if let Some(wd) = working_dir {
+        if Path::new(clean) == wd {
+            return true;
+        }
+        if let (Ok(clean_can), Ok(wd_can)) = (Path::new(clean).canonicalize(), wd.canonicalize()) {
+            return clean_can == wd_can;
+        }
+    }
+    false
+}
+
+/// Returns true if `target` safely represents the standard `.git` directory for the workspace (R8-N2).
+pub(crate) fn is_valid_git_dir(target: &str, working_dir: Option<&Path>) -> bool {
+    let clean = target.trim().trim_matches('"').trim_matches('\'').trim();
+    if clean.is_empty() {
+        return false;
+    }
+    let norm = clean.replace('\\', "/");
+    if norm == ".git" || norm == "./.git" || norm == ".git/" || norm == "./.git/" {
+        return true;
+    }
+    if let Some(wd) = working_dir {
+        let expected = wd.join(".git");
+        if Path::new(clean) == expected {
+            return true;
+        }
+        if let (Ok(clean_can), Ok(exp_can)) =
+            (Path::new(clean).canonicalize(), expected.canonicalize())
+        {
+            return clean_can == exp_can;
+        }
+    }
+    false
+}
+
+/// Returns true if `path_str` is a path resolving outside the workspace working directory (R8-N3).
+pub(crate) fn is_outside_workspace_path(path_str: &str, working_dir: Option<&Path>) -> bool {
+    let clean = path_str.trim().trim_matches('"').trim_matches('\'').trim();
+    if clean.is_empty() {
+        return false;
+    }
+    let has_traversal = clean.contains("..");
+    let is_abs = clean.starts_with('/')
+        || clean.starts_with('\\')
+        || (clean.len() >= 2
+            && clean.as_bytes()[1] == b':'
+            && (clean.as_bytes()[0] as char).is_ascii_alphabetic());
+    if !is_abs && !has_traversal {
+        return false;
+    }
+    let p = Path::new(clean);
+    if let Some(wd) = working_dir {
+        let resolved = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            wd.join(p)
+        };
+        let mut normalized = PathBuf::new();
+        for component in resolved.components() {
+            match component {
+                std::path::Component::ParentDir => {
+                    normalized.pop();
+                }
+                std::path::Component::CurDir => {}
+                c => normalized.push(c),
+            }
+        }
+        let wd_norm: PathBuf = {
+            let mut n = PathBuf::new();
+            for c in wd.components() {
+                match c {
+                    std::path::Component::ParentDir => {
+                        n.pop();
+                    }
+                    std::path::Component::CurDir => {}
+                    comp => n.push(comp),
+                }
+            }
+            n
+        };
+        !normalized.starts_with(&wd_norm)
+    } else {
+        true
+    }
 }
 
 /// Whether the program token climbs with `..` under either separator convention.
