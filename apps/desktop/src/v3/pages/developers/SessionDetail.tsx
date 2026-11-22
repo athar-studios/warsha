@@ -66,7 +66,7 @@ const SessionDetail: React.FC<Props> = ({ session, events, projectId, runId }) =
       <header className="developers-detail-header">
         <h2>{t('developers.detail')}</h2>
         <p className="developers-detail-sub">
-          {session.role} · {session.model} · {session.provider} · {session.backend}
+          {session.role} · {session.model === '' || session.model === 'default' ? t('developers.not_routed_yet') : session.model} · {session.provider === '' || session.provider === 'routed' ? t('developers.not_routed_yet') : session.provider} · {session.backend}
         </p>
         <p className="developers-detail-now">
           {t('developers.detail.now', {
@@ -80,7 +80,11 @@ const SessionDetail: React.FC<Props> = ({ session, events, projectId, runId }) =
         <div>
           <dt>{t('developers.table.cost')}</dt>
           <dd data-testid="developers-detail-cost">
-            {metrics.costCents === null ? t('developers.unknown') : `${metrics.costCents} ¢`}
+            {session.provider === '' || session.provider === 'routed'
+              ? t('developers.not_routed_yet')
+              : metrics.costCents === null
+                ? t('developers.unknown')
+                : `${metrics.costCents} ¢`}
           </dd>
         </div>
         <div>

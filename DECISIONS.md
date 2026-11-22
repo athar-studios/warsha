@@ -1,6 +1,11 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-SESSIONS-1: Record the routed provider and model on the agent session
+- **Decision**: The native stage path in `crates/warsha-pipeline/src/lib.rs` reads `ProviderRouter::route(role)` before inserting the session and stores that `(provider_id, model_id)`. A role with no route stores an empty provider and model. SQL NULL was rejected: `sessions.provider` and `sessions.model` are `TEXT NOT NULL` (`008_sessions.sql`, rebuilt by `016_sessions_nullable_run_id.sql`), and changing that needs a migration plus `warsha_core::Session` and the client decoder, all outside this fix. Developer mode renders `developers.not_routed_yet` (ar+en) for an empty provider, an empty model, or the old placeholder pair, instead of `developers.unknown`.
+- **Reason**: Owner UI finding #5. Every agent session was inserted as `provider="routed"`, `model="default"`, so Developer mode showed the provider and cost as unknown.
+- **Scope**: `crates/warsha-pipeline/src/lib.rs`, `apps/desktop/src/v3/pages/developers/index.tsx`, `apps/desktop/src/v3/pages/developers/SessionDetail.tsx`, `apps/desktop/src/v3/components/developers/DevelopersList.tsx`, `packages/i18n/src/v3/{en,ar}/developers.ts`. No `router.rs` exists; routing stays in `warsha-providers`. `warshad` does not write this row.
+
 ## 2026-11-22 — D-R9-DRIVE-1: Practical UI Drive Proof for R9 (GAP-H3 Fast Failover + MISS-1 Greenfield Git Auto-Init)
 - **Decision**:
   1. Automated practical drive script `scripts/ui-drive-r9-failover-autoinit.mjs` orchestrating a real `warshad` daemon and headless Chromium in Arabic locale (`ar-EG`, RTL, dark theme) exercising both R9 fixes end-to-end:

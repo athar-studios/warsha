@@ -150,19 +150,25 @@ const DevelopersPage: React.FC = () => {
   }, [sessions, roleFilter, providerFilter]);
 
   const providers = useMemo(() => {
-    const names = new Set<string>((sessions ?? []).map((session) => session.provider));
+    const names = new Set<string>(
+      (sessions ?? []).map((session) => session.provider).filter((provider) => provider !== '')
+    );
     return [...names];
   }, [sessions]);
 
   const groups = useMemo(() => groupByParent(visibleSessions ?? []), [visibleSessions]);
   const figures = useMemo(() => {
-    const map: Record<string, { action: string; elapsed: string; cost: string }> = {};
+    const map: Record<string, { action: string; elapsed: string; cost: string; provider: string; model: string }> = {};
     for (const session of visibleSessions ?? []) {
       const metrics = sessionMetrics(session, events ?? []);
+      const notRouted = session.provider === '' || session.provider === 'routed';
       map[session.id] = {
         action: `${session.status}`,
         elapsed: formatMs(metrics.elapsedMs),
-        cost: metrics.costCents === null ? t('developers.unknown') : `${metrics.costCents} ¢`,
+        // No provider was chosen yet: say so instead of the "unknown" fallback.
+        cost: notRouted ? t('developers.not_routed_yet') : metrics.costCents === null ? t('developers.unknown') : `${metrics.costCents} ¢`,
+        provider: notRouted ? t('developers.not_routed_yet') : session.provider,
+        model: session.model === '' || session.model === 'default' ? t('developers.not_routed_yet') : session.model,
       };
     }
     return map;
@@ -276,7 +282,10 @@ const DevelopersPage: React.FC = () => {
           onChange={(event) => setProviderFilter(event.target.value)}
           options={[
             { value: 'all', label: t('developers.filter.all') },
-            ...providers.map((provider) => ({ value: provider, label: provider })),
+            ...providers.map((provider) => ({
+              value: provider,
+              label: provider === '' ? t('developers.not_routed_yet') : provider,
+            })),
           ]}
         />
         <Button data-action="developers.list.refresh" onClick={() => void refreshAction.run()}>

@@ -22,6 +22,7 @@ export default {
   'developers.table.elapsed': 'الوقت المنقضي',
   'developers.table.idle': 'بلا عمل',
   'developers.unknown': 'غير معروف',
+  'developers.not_routed_yet': 'لم يُوجَّه بعد',
   'developers.estimated': 'تقديري',
   'developers.list.refresh': 'تحديث',
   'developers.detail.nav_hint': 'افتح التفاصيل',

@@ -1047,14 +1047,22 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             Some(completion) => completion,
             None => {
                 let session_id = warsha_core::SessionId::new();
+                // The row names the provider and model the router has already chosen for
+                // this role. A role with no route yet stores an empty provider and model
+                // — the sessions table is NOT NULL, so a genuine "not routed yet" is an
+                // empty string rather than the placeholder pair "routed"/"default".
+                let (routed_provider, routed_model) = {
+                    let router = self.providers.read().await;
+                    router.route(role).unwrap_or_default()
+                };
                 let session = warsha_core::Session {
                     id: session_id,
                     run_id: Some(run.id),
                     project_id: run.project_id,
                     role,
                     backend: "native".to_string(),
-                    provider: "routed".to_string(),
-                    model: "default".to_string(),
+                    provider: routed_provider,
+                    model: routed_model,
                     status: warsha_core::SessionStatus::Working,
                     started_at: Utc::now(),
                     ended_at: None,
@@ -4111,6 +4119,126 @@ mod tests {
                 has_run_finished_failed,
                 "must emit run_finished failed event"
             );
+        }
+
+        /// D-R11-SESSIONS-1: a stage session row names the provider and model the
+        /// router selected, never the placeholder pair "routed"/"default".
+        #[tokio::test]
+        async fn routed_session_row_records_the_selected_provider_and_model() {
+            let store = temp_store().await;
+            let mut router = ProviderRouter::new();
+            router.register_provider(Box::new(MockProvider::new("selected-provider")));
+            // Gate A advances into Research. The producing role is PM and the
+            // stage also resolves a Researcher route, so both must be routed.
+            let target = RoutingTarget {
+                provider_id: "selected-provider".to_string(),
+                model_id: "selected-model".to_string(),
+                weight: 100,
+            };
+            for role in [Role::PM, Role::Researcher] {
+                router.set_role_routing(RoleRouting {
+                    role,
+                    targets: vec![target.clone()],
+                    fallback_enabled: false,
+                    budget_cents_per_run: None,
+                });
+            }
+            let providers = Arc::new(RwLock::new(router));
+            let settings = setup_settings();
+            let engine = PipelineEngine::new(store.clone(), providers, settings);
+
+            let project = Project {
+                id: ProjectId::new(),
+                name: "Routed Session".to_string(),
+                description: "Test".to_string(),
+                language: "en".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                ..Default::default()
+            };
+            store.create_project(&project).await.unwrap();
+
+            let run = engine
+                .start_run(project.id, "Build a routed session")
+                .await
+                .unwrap();
+
+            let mut updated_run = store.get_run(run.id).await.unwrap();
+            updated_run.current_stage = Stage::GateA;
+            updated_run.gate_states.insert(
+                Stage::GateA,
+                GateState::Approved {
+                    by: warsha_core::DeviceId::new(),
+                    at: Utc::now(),
+                },
+            );
+            store.update_run(&updated_run).await.unwrap();
+
+            let advanced = engine.advance_to_next_gate(run.id).await.unwrap();
+            assert_ne!(advanced.status, RunStatus::Failed);
+
+            let sessions = store.list_sessions_by_run(run.id).await.unwrap();
+            let session = sessions
+                .iter()
+                .find(|session| session.role == Role::PM)
+                .expect("the research stage records a session");
+            assert_eq!(session.provider, "selected-provider");
+            assert_eq!(session.model, "selected-model");
+            assert_ne!(session.provider, "routed");
+            assert_ne!(session.model, "default");
+        }
+
+        /// A role with no route yet stores no provider and no model, not the
+        /// placeholder pair.
+        #[tokio::test]
+        async fn unrouted_session_row_stores_no_provider_or_model() {
+            let store = temp_store().await;
+            let providers = Arc::new(RwLock::new(ProviderRouter::new()));
+            let settings = setup_settings();
+            let engine = PipelineEngine::new(store.clone(), providers, settings);
+
+            let project = Project {
+                id: ProjectId::new(),
+                name: "Unrouted Session".to_string(),
+                description: "Test".to_string(),
+                language: "en".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                ..Default::default()
+            };
+            store.create_project(&project).await.unwrap();
+
+            let run = engine
+                .start_run(project.id, "Build an unrouted session")
+                .await
+                .unwrap();
+
+            let mut updated_run = store.get_run(run.id).await.unwrap();
+            updated_run.current_stage = Stage::GateA;
+            updated_run.gate_states.insert(
+                Stage::GateA,
+                GateState::Approved {
+                    by: warsha_core::DeviceId::new(),
+                    at: Utc::now(),
+                },
+            );
+            store.update_run(&updated_run).await.unwrap();
+
+            let _ = engine.advance_to_next_gate(run.id).await;
+
+            let sessions = store.list_sessions_by_run(run.id).await.unwrap();
+            let session = sessions
+                .iter()
+                .find(|session| session.role == Role::Researcher)
+                .expect("the research stage still records a session");
+            assert!(
+                session.provider.is_empty(),
+                "an unrouted session stored {:?} instead of nothing",
+                session.provider
+            );
+            assert!(session.model.is_empty());
+            assert_ne!(session.provider, "routed");
+            assert_ne!(session.model, "default");
         }
 
         #[tokio::test]

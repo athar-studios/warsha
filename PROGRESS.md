@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — R11 agent session records the routed provider and model (D-R11-SESSIONS-1)
+- **Scope**: Owner UI finding #5 on branch `fix-r11-sessions` (base `7de0302`, version 0.3.1). The native stage session row stored `provider="routed"` and `model="default"`, so Developer mode showed the provider and cost as unknown. Local-only: no push, no tag, no publish, main untouched.
+- **Change**: `execute_stage_with_recovery` reads `ProviderRouter::route(role)` and writes that provider id and model id. No route stores an empty string, because the sessions columns are `TEXT NOT NULL` and a migration is outside this fix. Developer mode renders `developers.not_routed_yet` (ar `لم يُوجَّه بعد`, en `not routed yet`) for an empty or placeholder provider/model.
+- **Proving test**: `routed_session_row_records_the_selected_provider_and_model` and `unrouted_session_row_stores_no_provider_or_model` in `crates/warsha-pipeline/src/lib.rs`.
+- **Gates**: `cargo fmt --all -- --check` exit 0; `cargo clippy -p warsha-pipeline --all-targets -- -D warnings` exit 0; `cargo test -p warsha-pipeline --lib session` 8 passed, 0 failed.
+
 ## Run 2026-11-22 — Practical UI drive proof for R9 (GAP-H3 + MISS-1) (D-R9-DRIVE-1)
 - **Scope**: Practical end-to-end UI drive on `r-next/integration` for merged tip `db29346` (lane `5764fe8` GAP-H3 + lane `db29346` MISS-1), per permanent owner rule OD-PRACTICAL-REVIEW-1. Local-only: no push, no tag, no publish, main untouched.
 - **Drive implementation**:

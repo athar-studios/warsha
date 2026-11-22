@@ -15,7 +15,7 @@ interface Props {
   depth?: number;
   onSelect?: (sessionId: string) => void;
   /** Per-session on-screen figures (cost/tokens labels), computed by the page. */
-  figures?: Record<string, { action: string; elapsed: string; cost: string }>;
+  figures?: Record<string, { action: string; elapsed: string; cost: string; provider?: string; model?: string }>;
 }
 
 const DevelopersList: React.FC<Props> = ({ sessions, depth = 0, onSelect, figures }) => {
@@ -78,8 +78,12 @@ const DevelopersList: React.FC<Props> = ({ sessions, depth = 0, onSelect, figure
             }}
           >
             <span className="developers-cell" data-testid="developers-cell-role">{session.role}</span>
-            <span className="developers-cell" data-testid="developers-cell-model">{session.model}</span>
-            <span className="developers-cell" data-testid="developers-cell-provider">{session.provider}</span>
+            <span className="developers-cell" data-testid="developers-cell-model">
+              {figures?.[session.id]?.model ?? session.model}
+            </span>
+            <span className="developers-cell" data-testid="developers-cell-provider">
+              {figures?.[session.id]?.provider ?? session.provider}
+            </span>
             <span className="developers-cell" data-testid="developers-cell-backend">{session.backend}</span>
             <span className="developers-cell" data-testid="developers-cell-status">{session.status}</span>
             <span className="developers-cell developers-cell-action" data-testid="developers-cell-action">
