@@ -82,7 +82,7 @@ export function NewProjectDialog({
   onSubmit,
 }: NewProjectDialogProps): React.ReactElement {
   const t = useT();
-  const locale = useLocale();
+  const { locale } = useLocale();
   const client = useClient();
   const [name, setName] = useState('');
   const [idea, setIdea] = useState('');
@@ -97,11 +97,15 @@ export function NewProjectDialog({
     setError(null);
     try {
       const projectName = name.trim() || deriveProjectName(trimmedIdea);
-      const cleanRepo = repoPath.trim() || undefined;
+      const cleanRepo = repoPath.trim();
       if (onSubmit) {
-        await onSubmit(projectName, trimmedIdea, cleanRepo);
+        await onSubmit(projectName, trimmedIdea, cleanRepo || undefined);
       } else if (client) {
-        await client.createProject(projectName, trimmedIdea, locale, cleanRepo);
+        if (cleanRepo) {
+          await client.createProject(projectName, trimmedIdea, locale, cleanRepo);
+        } else {
+          await client.createProject(projectName, trimmedIdea, locale);
+        }
       }
       setName('');
       setIdea('');
@@ -681,12 +685,10 @@ export default function HomePage(): React.ReactElement {
   const startInterviewAction = useAction('home.interview.start', async () => {
     if (!client) throw new Error(t('common.error'));
     const projectName = deriveProjectName(idea.trim());
-    const project = await client.createProject(
-      projectName,
-      idea.trim(),
-      locale,
-      repoPath.trim() || undefined
-    );
+    const cleanRepo = repoPath.trim();
+    const project = cleanRepo
+      ? await client.createProject(projectName, idea.trim(), locale, cleanRepo)
+      : await client.createProject(projectName, idea.trim(), locale);
     projectsResult.reload();
     await client.interviewStart(project.id, idea.trim());
   });
@@ -704,12 +706,10 @@ export default function HomePage(): React.ReactElement {
     const budgetCents = Math.round(Number(defaultBudget) * 100);
 
     // 1. projects.create
-    const project = await client.createProject(
-      projectName,
-      trimmedIdea,
-      locale,
-      repoPath.trim() || undefined
-    );
+    const cleanRepo = repoPath.trim();
+    const project = cleanRepo
+      ? await client.createProject(projectName, trimmedIdea, locale, cleanRepo)
+      : await client.createProject(projectName, trimmedIdea, locale);
     projectsResult.reload();
 
     // 2. runs.start

@@ -22,8 +22,8 @@
 // the remote suite imports it by relative path and both apps are held to one definition.
 import { createRequire } from 'node:module';
 
-import type { AxeResults, RunOptions } from 'axe-core';
 import type { Page } from '@playwright/test';
+import type { AxeResults, RunOptions } from 'axe-core';
 
 /**
  * axe-core is CommonJS (`module.exports = axe`, browser bundle in `axe.source`), and Playwright loads
@@ -148,8 +148,22 @@ export async function runAxe(page: Page): Promise<A11yAudit> {
       options: RunOptions;
       wcagTags: string[];
     }): Promise<{
-      violations: { id: string; impact: string; help: string; href: string; wcag: boolean; nodes: string[] }[];
-      incomplete: { id: string; impact: string; help: string; href: string; wcag: boolean; nodes: string[] }[];
+      violations: {
+        id: string;
+        impact: string;
+        help: string;
+        href: string;
+        wcag: boolean;
+        nodes: string[];
+      }[];
+      incomplete: {
+        id: string;
+        impact: string;
+        help: string;
+        href: string;
+        wcag: boolean;
+        nodes: string[];
+      }[];
       inapplicable: number;
       passed: number;
     }> => {
@@ -212,8 +226,12 @@ export function describeAxe(audit: A11yAudit): string {
 /** The hints and undecidables, formatted for the evidence file rather than for a failure. */
 export function describeAxeReport(audit: A11yAudit): string {
   const parts = [
-    ...audit.advisories.map((finding) => `best-practice ${finding.id}: ${finding.nodes.length} node(s)`),
-    ...audit.incomplete.map((finding) => `incomplete ${finding.id}: ${finding.nodes.length} node(s)`),
+    ...audit.advisories.map(
+      (finding) => `best-practice ${finding.id}: ${finding.nodes.length} node(s)`
+    ),
+    ...audit.incomplete.map(
+      (finding) => `incomplete ${finding.id}: ${finding.nodes.length} node(s)`
+    ),
   ];
   return parts.length > 0 ? parts.join('; ') : `none (${audit.passed} checks passed)`;
 }
@@ -273,7 +291,10 @@ function describeFocusedStop(): { stop: RawStop | null; cycleComplete: boolean }
 
   let obscuredBy: string | null = null;
   if (visibleRight > visibleLeft && visibleBottom > visibleTop) {
-    const hit = document.elementFromPoint((visibleLeft + visibleRight) / 2, (visibleTop + visibleBottom) / 2);
+    const hit = document.elementFromPoint(
+      (visibleLeft + visibleRight) / 2,
+      (visibleTop + visibleBottom) / 2
+    );
     if (hit === null) {
       obscuredBy = '(nothing hit at that point)';
     } else if (hit !== active && !active.contains(hit) && !hit.contains(active)) {
@@ -289,7 +310,11 @@ function describeFocusedStop(): { stop: RawStop | null; cycleComplete: boolean }
   // exemption `./layout.ts` gives the overflow check, applied here so a tab stop in a scroller is not
   // reported as a control nobody can see. A box outside a scroller, however, really is off screen.
   const scrollsInside = ((): boolean => {
-    for (let node: HTMLElement | null = active.parentElement; node !== null; node = node.parentElement) {
+    for (
+      let node: HTMLElement | null = active.parentElement;
+      node !== null;
+      node = node.parentElement
+    ) {
       const ancestor = getComputedStyle(node);
       if (ancestor.overflowX === 'auto' || ancestor.overflowX === 'scroll') return true;
     }
@@ -297,7 +322,8 @@ function describeFocusedStop(): { stop: RawStop | null; cycleComplete: boolean }
   })();
 
   if (!scrollsInside && rect.width > 0 && rect.height > 0) {
-    if (rect.left < -tolerance) outside = `starts at ${Math.round(rect.left)}px, before the viewport`;
+    if (rect.left < -tolerance)
+      outside = `starts at ${Math.round(rect.left)}px, before the viewport`;
     else if (rect.right > window.innerWidth + tolerance)
       outside = `ends at ${Math.round(rect.right)}px, past the ${window.innerWidth}px viewport`;
     // §9 is about the ring being *seen*, not the whole box fitting. A tall region (a document body, a
@@ -349,13 +375,16 @@ export async function auditFocusWalk(
     stops.push({ ...stop, order });
   }
 
-  const label = (stop: FocusStop, reason: string): string => `#${stop.order} ${stop.element} ${reason}`;
+  const label = (stop: FocusStop, reason: string): string =>
+    `#${stop.order} ${stop.element} ${reason}`;
 
   return {
     stops,
     first: stops.length > 0 ? stops[0].element : null,
     invisible: stops.filter((stop) => !stop.ring).map((stop) => label(stop, 'has no focus ring')),
-    outside: stops.filter((stop) => stop.outside !== null).map((stop) => label(stop, stop.outside ?? '')),
+    outside: stops
+      .filter((stop) => stop.outside !== null)
+      .map((stop) => label(stop, stop.outside ?? '')),
     obscured: stops
       .filter((stop) => stop.obscuredBy !== null)
       .map((stop) => label(stop, `is covered by ${stop.obscuredBy ?? ''}`)),
@@ -405,7 +434,11 @@ export async function auditClipping(page: Page, rootSelector: string): Promise<C
       };
 
       const scrollsAbove = (element: Element): boolean => {
-        for (let node: Element | null = element.parentElement; node !== null; node = node.parentElement) {
+        for (
+          let node: Element | null = element.parentElement;
+          node !== null;
+          node = node.parentElement
+        ) {
           const style = getComputedStyle(node);
           if (
             style.overflowX === 'auto' ||
@@ -429,7 +462,8 @@ export async function auditClipping(page: Page, rootSelector: string): Promise<C
 
         // Hidden by an ancestor (`display: none` on a §10 disclosure) is hidden, whatever this box's own
         // computed `display` says.
-        if (typeof element.checkVisibility === 'function' ? !element.checkVisibility() : false) continue;
+        if (typeof element.checkVisibility === 'function' ? !element.checkVisibility() : false)
+          continue;
 
         const style = getComputedStyle(element);
         if (style.display === 'none' || style.visibility === 'hidden') continue;
@@ -449,7 +483,10 @@ export async function auditClipping(page: Page, rootSelector: string): Promise<C
         const clipsX = style.overflowX === 'hidden' || style.overflowX === 'clip';
         const clipsY = style.overflowY === 'hidden' || style.overflowY === 'clip';
 
-        if (((clipsX && cutHorizontally) || (clipsY && cutVertically)) && !namesFullValue(element)) {
+        if (
+          ((clipsX && cutHorizontally) || (clipsY && cutVertically)) &&
+          !namesFullValue(element)
+        ) {
           clipped.push(
             `${describe(element)} cut at ${element.scrollWidth}×${element.scrollHeight} inside ` +
               `${element.clientWidth}×${element.clientHeight} (overflow: ${style.overflowX}/${style.overflowY})`

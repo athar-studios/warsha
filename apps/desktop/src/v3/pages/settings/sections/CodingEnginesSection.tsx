@@ -1,5 +1,9 @@
 // apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.tsx
-import type { BackendRoutingsConfig, CodingBackendSummary } from '@warsha/client';
+import type {
+  BackendRoutingsConfig,
+  CodingBackendDiagnostics,
+  CodingBackendSummary,
+} from '@warsha/client';
 import { useT } from '@warsha/i18n/v3';
 import {
   Badge,
@@ -30,6 +34,38 @@ export function CodingEnginesSection(): React.ReactElement {
   const [currentConfig, setCurrentConfig] = useState<BackendRoutingsConfig | null>(null);
   const [selectedEngine, setSelectedEngine] = useState<string>('native');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [testingBackend, setTestingBackend] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<Record<string, CodingBackendDiagnostics>>({});
+
+  const handleTestBackend = useCallback(
+    async (name: string) => {
+      if (!client) return;
+      setTestingBackend(name);
+      try {
+        const diag = await client.testCodingBackend(name);
+        setDiagnostics((prev) => ({ ...prev, [name]: diag }));
+      } catch (err) {
+        setDiagnostics((prev) => ({
+          ...prev,
+          [name]: {
+            name,
+            command: name,
+            installed: false,
+            ready: false,
+            version: null,
+            status:
+              err instanceof Error
+                ? err.message
+                : t('settings.coding_engines.test_failed', { error: 'Unknown' }),
+            auth_required: false,
+          },
+        }));
+      } finally {
+        setTestingBackend(null);
+      }
+    },
+    [client, t]
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -68,8 +104,8 @@ export function CodingEnginesSection(): React.ReactElement {
     const defaultBackend = selectedEngine === 'native' ? null : selectedEngine;
     const updated: BackendRoutingsConfig = {
       default_backend: defaultBackend,
-      role_backends: currentConfig?.role_backends,
-      project_backends: currentConfig?.project_backends,
+      role_backends: currentConfig?.role_backends ?? {},
+      project_backends: currentConfig?.project_backends ?? {},
     };
     try {
       const saved = await client.setBackendRouting(updated);
@@ -96,9 +132,9 @@ export function CodingEnginesSection(): React.ReactElement {
         description={t('settings.coding_engines.description')}
       >
         <div style={{ padding: 'var(--w-space-4)' }}>
-          <Skeleton height="36px" />
+          <Skeleton height="var(--w-space-8)" />
           <div style={{ marginBlockStart: 'var(--w-space-4)' }}>
-            <Skeleton height="56px" />
+            <Skeleton height="var(--w-space-12)" />
           </div>
         </div>
       </SettingsSection>
@@ -194,14 +230,65 @@ export function CodingEnginesSection(): React.ReactElement {
                   title={backend.display_name}
                   subtitle={`${backend.command} · ${backend.tier}`}
                   actions={
-                    <Badge
-                      variant={backend.installed ? 'primary' : 'neutral'}
-                      data-testid={`backend-status-badge-${backend.name}`}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--w-space-2)',
+                      }}
                     >
-                      {backend.installed
-                        ? t('settings.coding_engines.installed')
-                        : t('settings.coding_engines.not_installed')}
-                    </Badge>
+                      {diagnostics[backend.name] ? (
+                        diagnostics[backend.name].ready ? (
+                          <Badge
+                            variant="primary"
+                            data-testid={`backend-diag-badge-${backend.name}`}
+                          >
+                            {diagnostics[backend.name].version
+                              ? t('settings.coding_engines.test_success', {
+                                  version: diagnostics[backend.name].version ?? '',
+                                })
+                              : t('settings.coding_engines.test_ready')}
+                          </Badge>
+                        ) : diagnostics[backend.name].auth_required ? (
+                          <Badge
+                            variant="attention"
+                            data-testid={`backend-diag-badge-${backend.name}`}
+                          >
+                            {t('settings.coding_engines.test_login_required')}
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="attention"
+                            data-testid={`backend-diag-badge-${backend.name}`}
+                          >
+                            {diagnostics[backend.name].status.toLowerCase().includes('time')
+                              ? t('settings.coding_engines.test_timeout')
+                              : !diagnostics[backend.name].installed
+                                ? t('settings.coding_engines.test_not_installed')
+                                : diagnostics[backend.name].status}
+                          </Badge>
+                        )
+                      ) : (
+                        <Badge
+                          variant={backend.installed ? 'primary' : 'neutral'}
+                          data-testid={`backend-status-badge-${backend.name}`}
+                        >
+                          {backend.installed
+                            ? t('settings.coding_engines.installed')
+                            : t('settings.coding_engines.not_installed')}
+                        </Badge>
+                      )}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        loading={testingBackend === backend.name}
+                        onClick={() => void handleTestBackend(backend.name)}
+                        data-action="settings.coding-engines.test"
+                        data-testid={`test-engine-btn-${backend.name}`}
+                      >
+                        {t('settings.coding_engines.test_engine_btn')}
+                      </Button>
+                    </div>
                   }
                   data-testid={`backend-row-${backend.name}`}
                 />

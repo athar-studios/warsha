@@ -1602,6 +1602,20 @@ export interface CodingBackendSummary {
   command: string;
   installed: boolean;
   tier: string;
+  version?: string | null;
+}
+
+/**
+ * Diagnostic health status of a coding engine CLI (R-NEXT MISS-3).
+ */
+export interface CodingBackendDiagnostics {
+  name: string;
+  command: string;
+  installed: boolean;
+  ready: boolean;
+  version?: string | null;
+  status: string;
+  auth_required: boolean;
 }
 
 /**
@@ -2594,17 +2608,23 @@ export class WarshaClient
     name: string,
     description: string,
     language: string,
-    confinement?: 'read-only' | 'workspace-write' | 'full-access',
+    confinementOrRepoPath?: 'read-only' | 'workspace-write' | 'full-access' | string,
     approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask',
     repoPath?: string
   ): Promise<ProjectSummary> {
+    const isConfinement =
+      confinementOrRepoPath === 'read-only' ||
+      confinementOrRepoPath === 'workspace-write' ||
+      confinementOrRepoPath === 'full-access';
+    const confinement = isConfinement ? confinementOrRepoPath : undefined;
+    const resolvedRepoPath = repoPath ?? (!isConfinement ? confinementOrRepoPath : undefined);
     const row = await this.rpc<unknown>('projects.create', {
       name,
       description,
       language,
       confinement,
       approval_mode: approvalMode,
-      repo_path: repoPath ?? null,
+      repo_path: resolvedRepoPath ?? null,
     });
     return decodeProjectSummary(row);
   }
@@ -2619,6 +2639,10 @@ export class WarshaClient
 
   async listCodingBackends(): Promise<CodingBackendSummary[]> {
     return this.rpc<CodingBackendSummary[]>('coding_backends.list');
+  }
+
+  async testCodingBackend(name: string): Promise<CodingBackendDiagnostics> {
+    return this.rpc<CodingBackendDiagnostics>('coding_backends.test', { name });
   }
 
   async getBackendRouting(): Promise<BackendRoutingsConfig> {

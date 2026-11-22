@@ -199,7 +199,8 @@ export async function auditUsedFonts(page: Page, rootSelector: string): Promise<
     if (markedProbe === null) {
       // Nothing on this screen declares the mono stack, so there is no machine data to verify. A
       // screen with no prose at all is different, and that one is a problem.
-      if (role === 'sans') problems.push(`no drawn text under ${rootSelector} asks for ${SANS_FAMILY}`);
+      if (role === 'sans')
+        problems.push(`no drawn text under ${rootSelector} asks for ${SANS_FAMILY}`);
       probes.push({
         role,
         matched: rootSelector,
@@ -215,12 +216,22 @@ export async function auditUsedFonts(page: Page, rootSelector: string): Promise<
     const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector });
     if (nodeId === 0) {
       problems.push(`${role}: the marked probe (${selector}) is gone from the document`);
-      probes.push({ role, matched: selector, text, fonts: [], usedDesignFace: false, absent: false });
+      probes.push({
+        role,
+        matched: selector,
+        text,
+        fonts: [],
+        usedDesignFace: false,
+        absent: false,
+      });
       continue;
     }
 
     const { fonts } = await cdp.send('CSS.getPlatformFontsForNode', { nodeId });
-    const used: UsedFont[] = fonts.map((font) => ({ family: font.familyName, glyphs: font.glyphCount }));
+    const used: UsedFont[] = fonts.map((font) => ({
+      family: font.familyName,
+      glyphs: font.glyphCount,
+    }));
     const wanted = role === 'sans' ? SANS_FAMILY : MONO_FAMILY;
     const usedDesignFace = used.some((font) => font.family.includes(wanted));
     probes.push({ role, matched: selector, text, fonts: used, usedDesignFace, absent: false });
@@ -246,7 +257,9 @@ export async function auditUsedFonts(page: Page, rootSelector: string): Promise<
     }
 
     const drawnWith = used.map((font) => `${font.family} ×${font.glyphs}`).join(', ');
-    const why = FALLBACK_FAMILIES.some((family) => used.some((font) => font.family.includes(family)))
+    const why = FALLBACK_FAMILIES.some((family) =>
+      used.some((font) => font.family.includes(family))
+    )
       ? 'a fallback from the token stack'
       : 'a face the token stack does not name';
     problems.push(
@@ -266,9 +279,10 @@ export async function auditUsedFonts(page: Page, rootSelector: string): Promise<
   // host" — which is what §11 needs the capture host to prove. The element
   // probes above still verify the app page itself was DRAWN with Plex (CDP).
   const metricsPage = await page.context().newPage();
+  let metrics: Record<string, number> = {};
   try {
     await metricsPage.goto('about:blank');
-    var metrics = await metricsPage.evaluate(
+    metrics = await metricsPage.evaluate(
       ({ probe, sans, mono }): Record<string, number> => {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
@@ -326,7 +340,9 @@ export function formatFonts(audit: FontAudit): string {
   const lines = audit.probes.map((probe) => {
     if (probe.absent) return `n/a  ${probe.role}: no element on this screen declares that stack`;
     return `${probe.usedDesignFace ? 'ok  ' : 'FAIL'} ${probe.role} (${probe.matched}) — ${
-      probe.fonts.length > 0 ? probe.fonts.map((font) => `${font.family} ×${font.glyphs}`).join(', ') : '(no text)'
+      probe.fonts.length > 0
+        ? probe.fonts.map((font) => `${font.family} ×${font.glyphs}`).join(', ')
+        : '(no text)'
     }`;
   });
   const metrics = Object.entries(audit.metrics).map(([family, width]) => `${family}=${width}px`);

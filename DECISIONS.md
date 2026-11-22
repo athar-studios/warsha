@@ -2947,6 +2947,51 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
   - CliBackend verification: `test_opencode_cli_backend_command_args_and_sandbox_execution` in `crates/warsha-backends/src/lib.rs`.
   - Frontend test: `apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.test.tsx`.
 
+## 2026-11-22 — D-R10-MEDIUM-1: R10 MEDIUM Batch (MISS-2, MISS-3, GAP-M1, GAP-M2, GAP-L2)
+
+- **Context**: R10 MEDIUM batch on `r-next/integration`, local-only. Worktree `.agents/worktrees/fix-r10-medium` at base `f0aba2c`. Items from `docs/zadloop/packets/AUDIT-V5-REALITY.md`.
+- **MISS-2 — Guided Recovery on Coder Contract Failure**:
+  - Added `BenchRecoveryCard` component (`apps/desktop/src/v3/pages/bench/components/BenchRecoveryCard.tsx`) with model select (9Router, OpenAI, Orchesterar) and engine select (opencode, Native LLM).
+  - Wired into `BenchPage` error state (`bench-error` block) and `OverviewTab` failed-run state.
+  - `handleRecoveryRetry` calls `client.setBackendRouting` then `client.startRun` to retry with the selected engine.
+  - i18n keys in `packages/i18n/src/v3/{en,ar}/bench.ts` (`bench.recovery.*`).
+  - Proving tests in `apps/desktop/src/v3/pages/bench/bench.test.tsx`: recovery card renders on bench error and on failed run, triggers `startRun`.
+- **MISS-3 — CLI Health/Version Diagnostics**:
+  - Added `CliHealthDiagnostics` struct and `check_cli_health` async function in `crates/warsha-backends/src/catalog.rs`. Runs `<command> --version` with 3s timeout, fail-closed on timeout.
+  - Added `CatalogEntry::check_health` and `CliBackend::check_health` in `crates/warsha-backends/src/lib.rs`.
+  - New RPC `coding_backends.test` in `crates/warshad/src/api.rs` and `lib.rs` (policy: `Session`/`Standard`).
+  - Client method `testCodingBackend` in `packages/client/src/index.ts`.
+  - "Test Engine" button in `CodingEnginesSection.tsx` with status badges (version, auth required, timeout, not installed).
+  - i18n keys in `packages/i18n/src/v3/{en,ar}/settings.ts` (`settings.coding_engines.test_*`).
+  - Proving tests: Rust unit tests in `catalog.rs` (missing binary, git `--version`, timeout); UI tests in `CodingEnginesSection.test.tsx` (6/6 passed).
+- **GAP-M2 — Desktop Lint Debt (15 ESLint errors)**:
+  - Fixed `no-fallthrough` in `apps/desktop/e2e/harness.ts:2009` (added `// falls through`).
+  - Fixed `import/order` in `apps/desktop/e2e/support/a11y.ts` (reordered `@playwright/test` before `axe-core`).
+  - Fixed `no-var` in `apps/desktop/e2e/support/fonts.ts` (replaced `var` with `let`).
+  - Removed unused `rpcUrl` in `apps/desktop/real-acceptance.cjs`.
+  - Added `globals.node` + `globals.browser` config block in `eslint.config.js` for `**/*.cjs`, `scripts/**/*.js`, `scripts/**/*.mjs`.
+  - Proving: `./node_modules/.bin/eslint apps/desktop` reports 0 errors.
+- **GAP-M1 — B2-report Placeholders**:
+  - Filled `docs/zadloop/packets/B2-report.md` deliveries (work protection, executor enforcement, permissions RPC, backend argv mapping) and gate results with verified outcomes from 2026-11-22 runs.
+- **GAP-L2 — A4 Checkbox**:
+  - Already checked off at `docs/zadloop/packets/A4-report.md:34` with implementation pointer to `crates/warshad/src/lib.rs:802-816`.
+- **Gate Matrix (2026-11-22)**:
+  - `cargo fmt --all -- --check`: pass (exit 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: pass (exit 0).
+  - `cargo test -p warsha-pipeline --lib`: 588 passed, 7 ignored (exit 0).
+  - `cargo test -p warshad --lib`: 320 passed, 4 ignored (exit 0).
+  - `cargo test -p warsha-providers --lib`: 71 passed (exit 0).
+  - `cargo test -p warsha-backends --lib`: 41 passed (exit 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit 0).
+  - `node scripts/check-versions.mjs --expect 0.3.1`: aligned (exit 0).
+  - `node scripts/check-arch.mjs`: 5 rules, 0 violations (exit 0).
+  - `node scripts/check-wire-contract.mjs`: 11 checks, 0 violations (exit 0).
+  - `node scripts/ci/actions-gate.mjs`: 201 registered, 201 used, 1 pre-existing violation (`factory.retry`).
+  - `node scripts/ci/i18n-gate.mjs`: 1089 keys, 19 pre-existing violations (none in new keys).
+  - `./node_modules/.bin/eslint apps/desktop`: 0 errors (exit 0).
+  - `./node_modules/.bin/tsc --noEmit -p apps/desktop/tsconfig.json`: 0 errors (exit 0).
+  - `node scripts/check-ds-v3.mjs apps/desktop/src/v3 packages/ui/src/v3`: 0 violations (exit 0).
+  - `vitest` (`bench.test.tsx`, `CodingEnginesSection.test.tsx`, `Home.test.tsx`, `Onboarding.test.tsx`): 4 test files, 86 passed (exit 0).
 
 
 

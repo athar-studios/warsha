@@ -36,6 +36,7 @@ import { useNavigate, useRoute } from '../../router';
 import { AdvancedComposer } from './components/AdvancedComposer';
 import { BenchHeader } from './components/BenchHeader';
 import { BenchRail } from './components/BenchRail';
+import { BenchRecoveryCard } from './components/BenchRecoveryCard';
 import { BenchTabs } from './components/BenchTabs';
 import { StageStrip } from './components/StageStrip';
 import { ArtifactsTab } from './tabs/ArtifactsTab';
@@ -232,6 +233,27 @@ export default function BenchPage(): React.ReactElement {
       navigate(`/p/${pId}/r/${newRun.id}/${activeTab}`);
     }
   );
+
+  const [isRetrying, setIsRetrying] = useState(false);
+
+  const handleRecoveryRetry = async (_model: string, engine: string) => {
+    if (!client) return;
+    setIsRetrying(true);
+    try {
+      if (engine) {
+        await client.setBackendRouting({
+          default_backend: engine === 'native' ? null : engine,
+        });
+      }
+      const pId = (effectiveProjectId || 'default') as ProjectId;
+      const newRun = await client.startRun(pId, t('bench.header.new_run'), 'agent');
+      runHook.reload();
+      activeProjectRunsHook.reload();
+      navigate(`/p/${pId}/r/${newRun.id}/${activeTab}`);
+    } finally {
+      setIsRetrying(false);
+    }
+  };
 
   const advanceRunAction = useAction('bench.run.advance', async (rId: string) => {
     if (!client) return;
@@ -445,7 +467,15 @@ export default function BenchPage(): React.ReactElement {
   // Error presentation
   if (runHook.status === 'error' && !run) {
     return (
-      <div style={{ padding: 'var(--w-space-4)' }} data-testid="bench-error">
+      <div
+        style={{
+          padding: 'var(--w-space-4)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--w-space-4)',
+        }}
+        data-testid="bench-error"
+      >
         <Banner
           variant="danger"
           action={
@@ -461,6 +491,7 @@ export default function BenchPage(): React.ReactElement {
         >
           {runHook.error?.message || t('bench.error')}
         </Banner>
+        <BenchRecoveryCard onRetry={handleRecoveryRetry} isRetrying={isRetrying} />
       </div>
     );
   }
@@ -566,6 +597,8 @@ export default function BenchPage(): React.ReactElement {
               changesPending={changesGateAction.pending}
               onRejectGate={(reason) => void rejectGateAction.run(run.id, run.stage, reason)}
               rejectPending={rejectGateAction.pending}
+              onRecoveryRetry={handleRecoveryRetry}
+              isRetrying={isRetrying}
             />
           )}
 

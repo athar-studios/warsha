@@ -8393,6 +8393,36 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 - **Decisions**: Logged `D-UI-DRIVE-REFINEMENTS-1` in `DECISIONS.md`.
 - **Verdict**: HIGH intake-hang defect is conclusively ELIMINATED across automated tests, production bundle packaging, and live end-to-end user UI workflows. All OD-PRACTICAL-REVIEW-1 requirements satisfied.
 
+## Run 2026-11-22 — R10 MEDIUM Batch (D-R10-MEDIUM-1)
+
+- **Scope**: MISS-2 (guided recovery), MISS-3 (CLI health diagnostics), GAP-M1 (B2-report), GAP-M2 (desktop lint debt), GAP-L2 (A4 checkbox). Local-only, worktree `.agents/worktrees/fix-r10-medium` at base `f0aba2c`.
+- **MISS-2**: `BenchRecoveryCard` component with model/engine select, wired into bench error state and failed-run overview. `handleRecoveryRetry` calls `setBackendRouting` + `startRun`. i18n ar+en. Proving: `bench.test.tsx` (45/45 passed).
+- **MISS-3**: `check_cli_health` in `warsha-backends` (timeout fail-closed), `coding_backends.test` RPC, "Test Engine" button in `CodingEnginesSection`. i18n ar+en. Proving: Rust unit tests (41 passed in `warsha-backends`), UI tests (6/6 in `CodingEnginesSection.test.tsx`).
+- **GAP-M2**: Fixed 15 ESLint errors (no-fallthrough, import/order, no-var, no-undef, no-unused-vars). Added `globals.node`+`globals.browser` config. Proving: `eslint apps/desktop` 0 errors.
+- **GAP-M1**: Filled `B2-report.md` deliveries and gate results with verified 2026-11-22 outcomes.
+- **GAP-L2**: A4 checkbox already checked at `A4-report.md:34` with pointer to `crates/warshad/src/lib.rs:802-816`.
+- **Gate Matrix**:
+  | Gate | Result |
+  |------|--------|
+  | `cargo fmt --all -- --check` | pass (exit 0) |
+  | `cargo clippy --workspace --all-targets -- -D warnings` | pass (exit 0) |
+  | `cargo test -p warsha-pipeline --lib` | 588 passed, 7 ignored (exit 0) |
+  | `cargo test -p warshad --lib` | 320 passed, 4 ignored (exit 0) |
+  | `cargo test -p warsha-providers --lib` | 71 passed (exit 0) |
+  | `cargo test -p warsha-backends --lib` | 41 passed (exit 0) |
+  | `node scripts/check-engineering-policy.mjs` | 8 checks, 0 failures (exit 0) |
+  | `node scripts/check-versions.mjs --expect 0.3.1` | aligned (exit 0) |
+  | `node scripts/check-arch.mjs` | 5 rules, 0 violations (exit 0) |
+  | `node scripts/check-wire-contract.mjs` | 11 checks, 0 violations (exit 0) |
+  | `node scripts/ci/actions-gate.mjs` | 201 registered, 201 used, 1 pre-existing violation |
+  | `node scripts/ci/i18n-gate.mjs` | 1089 keys, 19 pre-existing violations (0 new) |
+  | `eslint apps/desktop` | 0 errors (exit 0) |
+  | `tsc --noEmit -p apps/desktop/tsconfig.json` | 0 errors (exit 0) |
+  | `node scripts/check-ds-v3.mjs apps/desktop/src/v3 packages/ui/src/v3` | 0 violations (exit 0) |
+  | `vitest` (`bench`, `CodingEnginesSection`, `Home`, `Onboarding`) | 4 files, 86 passed (exit 0) |
+- **Decisions**: Logged `D-R10-MEDIUM-1` in `DECISIONS.md`.
+- **Unverified**: `actions-gate` has 1 pre-existing violation (`factory.retry`). `i18n-gate` has 19 pre-existing violations in `ar.ts` (none in new keys).
+
 
 
 

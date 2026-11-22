@@ -31,4 +31,4 @@
 - [x] Cooldown logic implemented.
 - [x] RunReceipt updated.
 - [x] Budget enforcement verified.
-- [x] Pre-run cost estimation (TODO: Finalize implementation as per lead).
+- [x] Pre-run cost estimation (implemented at crates/warshad/src/lib.rs:802-816; pending project budget applied to newly created run).

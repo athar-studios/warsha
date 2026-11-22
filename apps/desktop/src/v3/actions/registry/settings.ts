@@ -375,6 +375,12 @@ export const ACTIONS: readonly ActionDef[] = [
     effect: 'rpc',
     rpc: ['backend_routing.set'],
   },
+  {
+    id: 'settings.coding-engines.test',
+    labelKey: 'settings.coding_engines.test_engine_btn',
+    effect: 'rpc',
+    rpc: ['coding_backends.test'],
+  },
 
   // Shared dialog & error recovery actions
   { id: 'settings.dialog.cancel', labelKey: 'common.cancel', effect: 'state' },

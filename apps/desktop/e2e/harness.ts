@@ -111,6 +111,7 @@ export const RPC_METHODS = [
   'budget.set',
   'budget.show',
   'coding_backends.list',
+  'coding_backends.test',
   'devices.list',
   'devices.pair',
   'devices.pair-start',
@@ -2006,6 +2007,7 @@ export function rpcResult(
     // mount: `skills.list`, `plugins.list`, `integrations.list` and `files.tree`. All four decode
     // through `wave2List` (`packages/client/src/index.ts`), which accepts any array, so the stub
     // answers the empty catalogue and a case that needs rows overrides via fixtures.
+    // falls through
     case 'skills.list':
     case 'plugins.list':
     case 'integrations.list':
@@ -2458,6 +2460,22 @@ export function rpcResult(
       return { ok: true, result: null };
     case 'coding_backends.list':
       return { ok: true, result: [] };
+    case 'coding_backends.test': {
+      if (!paramEntry(params, 'name').found) return missingField('name');
+      const name = paramValue(params, 'name') ?? 'opencode';
+      return {
+        ok: true,
+        result: {
+          name,
+          command: name,
+          installed: true,
+          ready: true,
+          version: '1.0.0',
+          status: 'Ready',
+          auth_required: false,
+        },
+      };
+    }
     case 'backend_routing.get':
       return {
         ok: true,

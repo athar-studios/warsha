@@ -216,4 +216,11 @@ export default {
   'bench.runmode.swarm': 'سرب',
   'bench.runmode.picker_label': 'وضع التشغيل',
   'bench.runmode.picker_hint': 'تشغيلات الخطة وملف المواصفات تتوقف عند بوابة الخطة لموافقتك.',
+  'bench.recovery.title': 'إعادة المحاولة بنموذج أو محرك برمجي آخر',
+  'bench.recovery.description': 'اختر موفر نموذج بديلاً أو محرك برمجة خارجيًا للتعافي من فشل التشغيل.',
+  'bench.recovery.model_label': 'موفر النموذج',
+  'bench.recovery.engine_label': 'محرك البرمجة',
+  'bench.recovery.engine_native': 'النموذج المباشر',
+  'bench.recovery.retry_button': 'إعادة المحاولة بالاختيار المحدد',
+  'bench.recovery.retrying': 'جارٍ إعادة المحاولة…',
 };

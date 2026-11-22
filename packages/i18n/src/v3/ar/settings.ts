@@ -450,4 +450,12 @@ export default {
   'settings.coding_engines.not_installed': 'غير مثبّت',
   'settings.coding_engines.load_error': 'فشل تحميل محركات البرمجة.',
   'settings.coding_engines.save_error': 'فشل حفظ توجيه محرك البرمجة.',
+  'settings.coding_engines.test_engine_btn': 'اختبار المحرك',
+  'settings.coding_engines.testing': 'جارٍ الاختبار…',
+  'settings.coding_engines.test_success': 'المحرك جاهز: {version}',
+  'settings.coding_engines.test_ready': 'المحرك جاهز',
+  'settings.coding_engines.test_login_required': 'يتطلب المحرك تسجيل الدخول أو المصادقة',
+  'settings.coding_engines.test_not_installed': 'الملف التنفيذي غير موجود في مسار النظام',
+  'settings.coding_engines.test_timeout': 'انتهت مهلة فحص الجاهزية (مغلق احترازيًا)',
+  'settings.coding_engines.test_failed': 'فشل فحص الجاهزية: {error}',
 };

@@ -658,6 +658,9 @@ pub trait WarshaApi {
     #[method(name = "coding_backends.list", with_extensions)]
     async fn list_coding_backends(&self) -> RpcResult<Vec<CodingBackendSummary>>;
 
+    #[method(name = "coding_backends.test", with_extensions)]
+    async fn test_coding_backend(&self, name: String) -> RpcResult<CodingBackendDiagnostics>;
+
     #[method(name = "backend_routing.get", with_extensions)]
     async fn get_backend_routing(&self) -> RpcResult<crate::runtime::BackendRoutingsConfig>;
 
@@ -1184,4 +1187,19 @@ pub struct CodingBackendSummary {
     pub command: String,
     pub installed: bool,
     pub tier: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+/// Diagnostic health status of a coding engine CLI (R-NEXT MISS-3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodingBackendDiagnostics {
+    pub name: String,
+    pub command: String,
+    pub installed: bool,
+    pub ready: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    pub status: String,
+    pub auth_required: bool,
 }
