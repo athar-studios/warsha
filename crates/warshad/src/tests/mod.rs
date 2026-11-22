@@ -80,6 +80,32 @@ pub(super) async fn test_state_with_seams(
     secrets: Option<Arc<dyn SecretStore>>,
     mcp: Option<Arc<dyn McpManager>>,
 ) -> (Arc<DaemonState>, Arc<Store>) {
+    test_state_with_all_seams(data_dir, configure, custom_settings, secrets, mcp, None).await
+}
+
+pub(super) async fn test_state_with_router(
+    data_dir: &Path,
+    router: ProviderRouter,
+) -> (Arc<DaemonState>, Arc<Store>) {
+    test_state_with_all_seams(
+        data_dir,
+        |_| {},
+        None,
+        None,
+        None,
+        Some(Arc::new(RwLock::new(router))),
+    )
+    .await
+}
+
+pub(super) async fn test_state_with_all_seams(
+    data_dir: &Path,
+    configure: impl FnOnce(&mut DaemonConfig),
+    custom_settings: Option<Arc<SettingsStore>>,
+    secrets: Option<Arc<dyn SecretStore>>,
+    mcp: Option<Arc<dyn McpManager>>,
+    custom_providers: Option<Arc<RwLock<ProviderRouter>>>,
+) -> (Arc<DaemonState>, Arc<Store>) {
     std::fs::create_dir_all(data_dir).expect("the data directory is made");
     let mut config = DaemonConfig {
         data_dir: data_dir.to_path_buf(),
@@ -96,7 +122,8 @@ pub(super) async fn test_state_with_seams(
         .recover_interrupted_runs()
         .await
         .expect("interrupted runs recover");
-    let providers = Arc::new(RwLock::new(agent_router_with_mock()));
+    let providers =
+        custom_providers.unwrap_or_else(|| Arc::new(RwLock::new(agent_router_with_mock())));
     let settings = match custom_settings {
         Some(s) => s,
         None => {
@@ -7430,4 +7457,141 @@ async fn validate_token_for_config_tailscale_requires_long_token() {
     // 32-char token should pass
     config.auth_token = "a".repeat(32);
     assert!(crate::startup::validate_token_for_config(&config).is_ok());
+}
+
+/// Proving test for watchdog / intake hang: `runs.cancel` promptly interrupts a hung provider dispatch.
+#[tokio::test]
+async fn cancel_during_hung_stage_stops_promptly() {
+    let temp = crate::test_util::fresh_tempdir();
+    let data_dir = temp.path().join("data");
+
+    let mut router = ProviderRouter::new();
+    // Long stage timeout (60s) so it would definitely hang without prompt cancellation
+    router.set_dispatch_timeout(std::time::Duration::from_secs(60));
+    let hung = warsha_providers::MockProvider::new("hung-provider").with_hang();
+    router.register_provider(Box::new(hung));
+    router.set_role_routing(RoleRouting {
+        role: Role::Researcher,
+        targets: vec![RoutingTarget {
+            provider_id: "hung-provider".to_string(),
+            model_id: "mock-model".to_string(),
+            weight: 100,
+        }],
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    });
+
+    let (state, store) = test_state_with_router(&data_dir, router).await;
+    let rpc = WarshaRpc::new(state.clone());
+
+    let project = Project {
+        id: ProjectId::new(),
+        name: "Hung Stage Cancel Project".to_string(),
+        description: "Test".to_string(),
+        language: "en".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Default::default()
+    };
+    store
+        .create_project(&project)
+        .await
+        .expect("project created");
+
+    let run = rpc
+        .start_run(
+            &owner_ext(),
+            project.id,
+            "test cancel while hanging".to_string(),
+            None,
+            None,
+        )
+        .await
+        .expect("run starts");
+
+    // Approve GateA so advance_run will enter Research stage and execute hung provider
+    let mut updated_run = store.get_run(run.id).await.unwrap();
+    updated_run.current_stage = Stage::GateA;
+    updated_run.gate_states.insert(
+        Stage::GateA,
+        GateState::Approved {
+            by: DeviceId::new(),
+            at: Utc::now(),
+        },
+    );
+    store.update_run(&updated_run).await.unwrap();
+
+    let advance_rpc = WarshaRpc::new(state.clone());
+    let run_id = run.id;
+    let advance_handle =
+        tokio::spawn(async move { advance_rpc.advance_run(&owner_ext(), run_id).await });
+
+    // Wait until stage creates a working session
+    let mut working = false;
+    for _ in 0..50 {
+        if let Ok(sessions) = store.list_sessions_by_run(run_id).await {
+            if sessions
+                .iter()
+                .any(|s| s.status == warsha_core::SessionStatus::Working)
+            {
+                working = true;
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(working, "stage must have entered Working session");
+
+    // Cancel during hung stage: must return promptly and not wait for 60s timeout
+    let canceller = DeviceId::new();
+    let cancel_start = std::time::Instant::now();
+    let cancel_res = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        rpc.cancel_run(
+            &owner_ext_as(canceller),
+            run_id,
+            Some("hung stage cancelled".to_string()),
+        ),
+    )
+    .await
+    .expect("cancel_run must return promptly and not hang");
+
+    let cancelled_run = cancel_res.expect("cancel_run succeeds");
+    assert_eq!(cancelled_run.status, RunStatus::Cancelled);
+    assert!(
+        cancel_start.elapsed() < std::time::Duration::from_secs(2),
+        "cancellation took too long: {:?}",
+        cancel_start.elapsed()
+    );
+
+    // advance_run background task must also resolve promptly
+    let advance_outcome = tokio::time::timeout(std::time::Duration::from_secs(2), advance_handle)
+        .await
+        .expect("advance_run task must resolve promptly on cancellation");
+    // advance_run returns Err because the stage was cancelled
+    assert!(advance_outcome.unwrap().is_err());
+
+    // Verify stored state and events
+    let final_run = store.get_run(run_id).await.unwrap();
+    assert_eq!(final_run.status, RunStatus::Cancelled);
+
+    let sessions = store.list_sessions_by_run(run_id).await.unwrap();
+    assert!(!sessions.is_empty());
+    for s in sessions {
+        assert_ne!(
+            s.status,
+            warsha_core::SessionStatus::Working,
+            "no session should remain in Working status after cancel"
+        );
+    }
+
+    let events = store.get_events(run_id).await.unwrap();
+    let has_cancelled_event = events.iter().any(|ev| {
+        ev.kind == EventKind::RunFinished
+            && ev.payload.get("status").and_then(|s| s.as_str()) == Some("cancelled")
+    });
+    assert!(
+        has_cancelled_event,
+        "must emit run_finished cancelled event"
+    );
 }

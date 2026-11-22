@@ -107,7 +107,10 @@ export default function BenchPage(): React.ReactElement {
   const [runModes, setRunModes] = useState<RunModeConfig[]>([]);
   useEffect(() => {
     if (!client) return;
-    client.listRunModes().then(setRunModes).catch(() => {});
+    client
+      .listRunModes()
+      .then(setRunModes)
+      .catch(() => {});
   }, [client]);
 
   // D4: the chosen mode for the NEXT run (plan / spec-file stop at GateB for
@@ -171,6 +174,27 @@ export default function BenchPage(): React.ReactElement {
     }
   }, [client, projectsHook.data, effectiveProjectId]);
 
+  // Keep run and gate status in sync while a run is Running so stage timeouts,
+  // cancellations, and watchdog reaping surface promptly without requiring user action.
+  useEffect(() => {
+    if (!effectiveRunId || run?.status !== 'running') return;
+    const interval = setInterval(() => {
+      runHook.reload();
+      gatesHook.reload();
+      activeProjectRunsHook.reload();
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [effectiveRunId, run?.status, runHook, gatesHook, activeProjectRunsHook]);
+
+  const latestEventSeq = eventsHook.data?.[eventsHook.data.length - 1]?.seq;
+  useEffect(() => {
+    if (latestEventSeq !== undefined && run?.status === 'running') {
+      runHook.reload();
+      gatesHook.reload();
+      activeProjectRunsHook.reload();
+    }
+  }, [latestEventSeq, run?.status, runHook, gatesHook, activeProjectRunsHook]);
+
   // Primary loading & readiness contract (main[data-ready="true"])
   const isPrimarySettled =
     (projectsHook.status !== 'loading' && (runHook.status !== 'loading' || !routeRunId)) ||
@@ -184,7 +208,11 @@ export default function BenchPage(): React.ReactElement {
   // Actions wired to useAction
   const startNewRunAction = useAction(
     'bench.run.start',
-    async (pId: string, idea: string, runMode?: 'agent' | 'plan' | 'spec-file' | 'ask' | 'swarm') => {
+    async (
+      pId: string,
+      idea: string,
+      runMode?: 'agent' | 'plan' | 'spec-file' | 'ask' | 'swarm'
+    ) => {
       if (!client) return;
       // D5: a swarm run is an agent run in a swarm-enabled project — the
       // daemon's Code stage decomposes it into subtasks. There is no separate
@@ -193,12 +221,12 @@ export default function BenchPage(): React.ReactElement {
       const newRun = await client.startRun(
         pId as ProjectId,
         idea || t('bench.header.new_run'),
-        wireMode ?? 'agent',
+        wireMode ?? 'agent'
       );
       runHook.reload();
       activeProjectRunsHook.reload();
       navigate(`/p/${pId}/r/${newRun.id}/${activeTab}`);
-    },
+    }
   );
 
   const advanceRunAction = useAction('bench.run.advance', async (rId: string) => {
@@ -209,12 +237,15 @@ export default function BenchPage(): React.ReactElement {
     eventsHook.reload();
   });
 
-  const cancelRunAction = useAction('bench.run.cancel.confirm', async (rId: string, reason?: string) => {
-    if (!client) return;
-    await client.cancelRun(rId as RunId, reason);
-    runHook.reload();
-    eventsHook.reload();
-  });
+  const cancelRunAction = useAction(
+    'bench.run.cancel.confirm',
+    async (rId: string, reason?: string) => {
+      if (!client) return;
+      await client.cancelRun(rId as RunId, reason);
+      runHook.reload();
+      eventsHook.reload();
+    }
+  );
 
   const approveGateAction = useAction('bench.gate.approve', async (rId: string, stage: string) => {
     if (!client) return;
@@ -232,19 +263,25 @@ export default function BenchPage(): React.ReactElement {
     eventsHook.reload();
   });
 
-  const changesGateAction = useAction('bench.gate.changes.send', async (rId: string, stage: string, notes: string) => {
-    if (!client) return;
-    await client.requestChanges(rId as RunId, stage as never, notes);
-    gatesHook.reload();
-    eventsHook.reload();
-  });
+  const changesGateAction = useAction(
+    'bench.gate.changes.send',
+    async (rId: string, stage: string, notes: string) => {
+      if (!client) return;
+      await client.requestChanges(rId as RunId, stage as never, notes);
+      gatesHook.reload();
+      eventsHook.reload();
+    }
+  );
 
-  const rejectGateAction = useAction('bench.gate.reject.confirm', async (rId: string, stage: string, reason: string) => {
-    if (!client) return;
-    await client.rejectGate(rId as RunId, stage as never, reason);
-    gatesHook.reload();
-    eventsHook.reload();
-  });
+  const rejectGateAction = useAction(
+    'bench.gate.reject.confirm',
+    async (rId: string, stage: string, reason: string) => {
+      if (!client) return;
+      await client.rejectGate(rId as RunId, stage as never, reason);
+      gatesHook.reload();
+      eventsHook.reload();
+    }
+  );
 
   const followupAction = useAction('bench.followup.send', async (promptText: string) => {
     if (!client || !effectiveRunId) return;
@@ -453,7 +490,9 @@ export default function BenchPage(): React.ReactElement {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => void startNewRunAction.run(effectiveProjectId, t('bench.header.new_run'))}
+                onClick={() =>
+                  void startNewRunAction.run(effectiveProjectId, t('bench.header.new_run'))
+                }
                 data-action="bench.run.start"
               >
                 {t('bench.header.new_run')}
@@ -488,10 +527,7 @@ export default function BenchPage(): React.ReactElement {
         </Sheet>
       )}
 
-      <div
-        className="v3-bench-main"
-        data-testid="bench-main"
-      >
+      <div className="v3-bench-main" data-testid="bench-main">
         <BenchHeader
           project={projectHook.data}
           run={run}
@@ -529,9 +565,7 @@ export default function BenchPage(): React.ReactElement {
             />
           )}
 
-          {activeTab === 'plan' && (
-            <PlanTab artifacts={artifactsHook.data ?? []} />
-          )}
+          {activeTab === 'plan' && <PlanTab artifacts={artifactsHook.data ?? []} />}
 
           {activeTab === 'files' && (
             <FilesTab
@@ -564,9 +598,7 @@ export default function BenchPage(): React.ReactElement {
             />
           )}
 
-          {activeTab === 'terminal' && (
-            <TerminalTab events={eventsHook.data ?? []} />
-          )}
+          {activeTab === 'terminal' && <TerminalTab events={eventsHook.data ?? []} />}
 
           {activeTab === 'team' && (
             <TeamTab
@@ -602,9 +634,7 @@ export default function BenchPage(): React.ReactElement {
             />
           )}
 
-          {activeTab === 'artifacts' && (
-            <ArtifactsTab artifacts={artifactsHook.data ?? []} />
-          )}
+          {activeTab === 'artifacts' && <ArtifactsTab artifacts={artifactsHook.data ?? []} />}
 
           {activeTab === 'preview' && (
             <PreviewTab

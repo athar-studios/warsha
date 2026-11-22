@@ -241,6 +241,8 @@ pub struct MockProvider {
     /// Remaining failures that surface as [`ProviderError::RateLimited`] before
     /// the provider starts succeeding — what lets a test drive the retry loop.
     pub retryable_left: Arc<AtomicU32>,
+    /// Hang indefinitely during chat calls to simulate hung providers.
+    pub hang: bool,
 }
 
 impl MockProvider {
@@ -263,7 +265,13 @@ impl MockProvider {
             call_count: std::sync::atomic::AtomicU32::new(0),
             calls: Arc::new(AtomicU32::new(0)),
             retryable_left: Arc::new(AtomicU32::new(0)),
+            hang: false,
         }
+    }
+
+    pub fn with_hang(mut self) -> Self {
+        self.hang = true;
+        self
     }
 
     pub fn with_failure(mut self, err: ProviderError) -> Self {
@@ -323,6 +331,9 @@ impl ChatProvider for MockProvider {
         self.call_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.calls.fetch_add(1, Ordering::Relaxed);
+        if self.hang {
+            std::future::pending::<()>().await;
+        }
         // A finite run of retryable failures first, then normal behaviour.
         loop {
             let left = self.retryable_left.load(Ordering::Relaxed);
@@ -408,6 +419,10 @@ pub const DEFAULT_BASE_BACKOFF_MS: u64 = 250;
 pub const DEFAULT_MAX_BACKOFF_MS: u64 = 8_000;
 /// Default cap on paid provider calls a router keeps in flight at once.
 pub const DEFAULT_MAX_CONCURRENT_PAID_CALLS: usize = 4;
+/// Default timeout for a stage provider dispatch, in seconds (180s = 3 minutes).
+pub const DEFAULT_STAGE_TIMEOUT_SECS: u64 = 180;
+/// Default timeout for a stage provider dispatch.
+pub const DEFAULT_STAGE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_STAGE_TIMEOUT_SECS);
 
 /// Bounded retry/backoff policy for paid provider calls (H-07).
 ///
@@ -559,6 +574,7 @@ struct RouterCore {
     permits: std::sync::RwLock<Arc<Semaphore>>,
     in_flight: Arc<AtomicUsize>,
     max_concurrent_calls: AtomicUsize,
+    dispatch_timeout: std::sync::RwLock<Duration>,
 }
 
 /// The core printed as counts and a policy, because an adapter is a live client with the
@@ -582,6 +598,14 @@ impl fmt::Debug for RouterCore {
                 &self.max_concurrent_calls.load(Ordering::Acquire),
             )
             .field("in_flight", &self.in_flight.load(Ordering::Acquire))
+            .field(
+                "dispatch_timeout_secs",
+                &self
+                    .dispatch_timeout
+                    .read()
+                    .map(|d| d.as_secs())
+                    .unwrap_or(DEFAULT_STAGE_TIMEOUT_SECS),
+            )
             .finish()
     }
 }
@@ -652,6 +676,7 @@ impl fmt::Debug for ProviderRouter {
                 &self.max_concurrent_paid_calls(),
             )
             .field("paid_calls_in_flight", &self.paid_calls_in_flight())
+            .field("dispatch_timeout_secs", &self.dispatch_timeout().as_secs())
             .field("budgeted_projects", &self.budgeted_projects())
             .finish()
     }
@@ -663,11 +688,16 @@ impl ProviderRouter {
     }
 
     /// Build the router from the environment: the retry policy plus
-    /// `WARSHA_PROVIDER_MAX_CONCURRENT_CALLS` for the paid-call budget.
+    /// `WARSHA_PROVIDER_MAX_CONCURRENT_CALLS` for the paid-call budget,
+    /// and `WARSHA_STAGE_TIMEOUT_SECS` for the stage dispatch timeout.
     pub fn from_env() -> Self {
         let max_concurrent = env_number::<usize>("WARSHA_PROVIDER_MAX_CONCURRENT_CALLS")
             .unwrap_or(DEFAULT_MAX_CONCURRENT_PAID_CALLS);
-        Self::with_capacity_and_policy(max_concurrent, RetryPolicy::from_env())
+        let timeout_secs =
+            env_number::<u64>("WARSHA_STAGE_TIMEOUT_SECS").unwrap_or(DEFAULT_STAGE_TIMEOUT_SECS);
+        let mut router = Self::with_capacity_and_policy(max_concurrent, RetryPolicy::from_env());
+        router.set_dispatch_timeout(Duration::from_secs(timeout_secs));
+        router
     }
 
     fn with_capacity_and_policy(max_concurrent: usize, retry: RetryPolicy) -> Self {
@@ -689,6 +719,7 @@ impl ProviderRouter {
                 permits: std::sync::RwLock::new(Arc::new(Semaphore::new(max_concurrent))),
                 in_flight: Arc::new(AtomicUsize::new(0)),
                 max_concurrent_calls: AtomicUsize::new(max_concurrent),
+                dispatch_timeout: std::sync::RwLock::new(DEFAULT_STAGE_TIMEOUT),
             }),
             ledger: Arc::new(std::sync::Mutex::new(SpendLedger::default())),
             cooldowns: Arc::new(Mutex::new(HashMap::new())),
@@ -718,6 +749,25 @@ impl ProviderRouter {
             .read()
             .unwrap_or_else(PoisonError::into_inner);
         *guard
+    }
+
+    /// Replace the dispatch timeout for stage execution.
+    pub fn set_dispatch_timeout(&mut self, timeout: Duration) {
+        let mut guard = self
+            .core
+            .dispatch_timeout
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        *guard = timeout;
+    }
+
+    /// The current dispatch timeout for stage execution.
+    pub fn dispatch_timeout(&self) -> Duration {
+        *self
+            .core
+            .dispatch_timeout
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Replace the cap on simultaneous paid calls (at least one).

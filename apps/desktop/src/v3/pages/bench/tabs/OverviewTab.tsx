@@ -1,6 +1,6 @@
 import type { GateSummary, RunArtifact, RunSummary, WarshaEvent } from '@warsha/client';
 import { useLocale, useT } from '@warsha/i18n/v3';
-import { ActivityFeed, Card, EmptyState, IconSparkle } from '@warsha/ui/v3';
+import { ActivityFeed, Banner, Card, EmptyState, IconSparkle } from '@warsha/ui/v3';
 import React from 'react';
 
 import { getGateQuestionKey } from '../../../copy/stages';
@@ -43,14 +43,29 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const gateLetter = run.stage.startsWith('gate_') ? run.stage.slice(5) : '';
   const questionKey = gateLetter ? getGateQuestionKey(gateLetter) : 'gate.question.a';
 
-  const feedEvents = events.slice(-10).reverse().map((ev) => ({
-    id: ev.id,
-    time: formatEventTime(ev.createdAt, locale),
-    message: extractEventText(ev),
-    stageKey: ev.stage,
-    stageLabel: t(`bench.stage.${ev.stage}`),
-    icon: <IconSparkle size={14} />,
-  }));
+  const failureEvent = events
+    .slice()
+    .reverse()
+    .find(
+      (ev) =>
+        ev.kind === 'error' ||
+        (typeof ev.payload === 'object' &&
+          ev.payload !== null &&
+          (ev.payload as Record<string, unknown>).action === 'stage_failed')
+    );
+  const failureMessage = failureEvent ? extractEventText(failureEvent) : undefined;
+
+  const feedEvents = events
+    .slice(-10)
+    .reverse()
+    .map((ev) => ({
+      id: ev.id,
+      time: formatEventTime(ev.createdAt, locale),
+      message: extractEventText(ev),
+      stageKey: ev.stage,
+      stageLabel: t(`bench.stage.${ev.stage}`),
+      icon: <IconSparkle size={14} />,
+    }));
 
   return (
     <div
@@ -64,14 +79,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         gap: 'var(--w-space-4)',
       }}
     >
+      {run.status === 'failed' && (
+        <Banner variant="danger" data-testid="bench-run-failed-banner">
+          {failureMessage || t('bench.run_failed_banner')}
+        </Banner>
+      )}
+
       {pendingGate && (
         <BenchDecisionCard
           question={t(questionKey)}
           rationale={t('bench.gate.rationale')}
-          consequences={[
-            t('bench.gate.consequence_continue'),
-            t('bench.gate.consequence_review'),
-          ]}
+          consequences={[t('bench.gate.consequence_continue'), t('bench.gate.consequence_review')]}
           onApprove={() => void onApproveGate(pendingGate.stage)}
           approvePending={approvePending}
           onRequestChanges={onRequestChanges ? (notes) => void onRequestChanges(notes) : undefined}
@@ -88,12 +106,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           gap: 'var(--w-space-4)',
         }}
       >
-        <Card
-          title={t('bench.overview.events_title')}
-          style={{ flex: 1, minWidth: 0 }}
-        >
+        <Card title={t('bench.overview.events_title')} style={{ flex: 1, minWidth: 0 }}>
           {feedEvents.length === 0 ? (
-            <p style={{ margin: 0, color: 'var(--w-text-muted)', fontSize: 'var(--w-font-size-sm)' }}>
+            <p
+              style={{ margin: 0, color: 'var(--w-text-muted)', fontSize: 'var(--w-font-size-sm)' }}
+            >
               {t('bench.overview.no_events')}
             </p>
           ) : (
@@ -151,7 +168,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                       color: 'var(--w-text-muted)',
                     }}
                   >
-                    {t(`bench.stage.${art.stage}`)} · {t('bench.artifacts.version', { version: art.version })}
+                    {t(`bench.stage.${art.stage}`)} ·{' '}
+                    {t('bench.artifacts.version', { version: art.version })}
                   </span>
                 </li>
               ))}

@@ -541,6 +541,34 @@ pub(crate) async fn start_daemon_with_interfaces(
         );
     }
 
+    // Stale run watchdog: runs stuck in Running with a Working session older than
+    // dispatch_timeout are periodically swept and transitioned to Failed with stage_failed event.
+    {
+        let watchdog_state = Arc::clone(&state);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                match watchdog_state.pipeline.reap_stale_runs().await {
+                    Ok(reaped) => {
+                        for run in reaped {
+                            watchdog_state
+                                .mcp_approvals
+                                .purge_run(&run.id.0.to_string());
+                            watchdog_state
+                                .previews
+                                .stop_run(&run.id.0.to_string())
+                                .await;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("watchdog reap_stale_runs error: {e}");
+                    }
+                }
+            }
+        });
+    }
+
     // Start JSON-RPC server (TCP for cross-platform compatibility)
     //
     // The host is the configuration's, not a literal: a phone cannot dial `127.0.0.1` and

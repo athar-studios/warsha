@@ -49,13 +49,15 @@ export default {
   'bench.status.done': 'Done',
   'bench.status.failed': 'Failed',
   'bench.status.paused': 'Paused',
+  'bench.run_failed_banner': 'This run failed before completion. Check events or retry.',
   'bench.header.run_num': 'Run #{number}',
   'bench.header.gate_waiting': 'Decision waiting',
   'bench.header.advance': 'Advance',
   'bench.header.new_run': 'New run',
   'bench.header.cancel': 'Cancel',
   'bench.cancel_dialog.title': 'Cancel run',
-  'bench.cancel_dialog.description': 'Are you sure you want to cancel this run? All active tasks will be stopped.',
+  'bench.cancel_dialog.description':
+    'Are you sure you want to cancel this run? All active tasks will be stopped.',
   'bench.cancel_dialog.reason_label': 'Cancellation reason (optional)',
   'bench.cancel_dialog.reason_placeholder': 'Enter cancellation reason here',
   'bench.cancel_dialog.confirm': 'Yes, cancel run',
@@ -96,8 +98,10 @@ export default {
   'bench.role.release': 'Release',
   'bench.role.marketer': 'Marketer',
   'bench.role.feedback': 'Feedback',
-  'bench.gate.rationale': 'The run requires your approval at this gate to proceed to the next stage.',
-  'bench.gate.consequence_continue': 'Upon approval, the team automatically advances to the next stage.',
+  'bench.gate.rationale':
+    'The run requires your approval at this gate to proceed to the next stage.',
+  'bench.gate.consequence_continue':
+    'Upon approval, the team automatically advances to the next stage.',
   'bench.gate.consequence_review': 'You can inspect artifacts and events before making a decision.',
   'bench.gate.changes_placeholder': 'Describe the requested changes…',
   'bench.gate.changes_submit': 'Submit changes',
@@ -144,8 +148,7 @@ export default {
   'bench.evidence.tests_failing': 'Tests failed',
   'bench.evidence.tests_duration': 'Ran in {ms} ms',
   'bench.evidence.tests_exit_code': 'exit code {code}',
-  'bench.evidence.tests_truncated':
-    'The captured output hit the daemon’s cap, so it is truncated.',
+  'bench.evidence.tests_truncated': 'The captured output hit the daemon’s cap, so it is truncated.',
   'bench.evidence.preview_title': 'Preview',
   'bench.evidence.preview_absent': 'No dev server is up for this project right now.',
   'bench.evidence.preview_no_url': 'The server printed no URL.',
@@ -154,8 +157,7 @@ export default {
   'bench.evidence.preview_status': 'Status: {status}',
   'bench.evidence.error_policy':
     'The command policy refused this program, so nothing ran in the worktree.',
-  'bench.evidence.error_owner':
-    'This device is not the owner, so it may not spend a test run.',
+  'bench.evidence.error_owner': 'This device is not the owner, so it may not spend a test run.',
   'bench.evidence.error_no_worktree':
     'This run has no worktree, and Gate C evidence needs a repository-backed run.',
   'bench.evidence.error_failed': 'The evidence could not be collected.',
@@ -175,8 +177,10 @@ export default {
   'bench.assistant.title': 'AI Assistant',
   'bench.assistant.placeholder': 'Write your message to the assistant here…',
   'bench.assistant.send': 'Send',
-  'bench.assistant.plan_notice': 'Plan mode: The assistant proposes steps without directly editing files.',
-  'bench.assistant.agent_notice': 'Agent mode: The assistant is approved to execute tasks and edit files.',
+  'bench.assistant.plan_notice':
+    'Plan mode: The assistant proposes steps without directly editing files.',
+  'bench.assistant.agent_notice':
+    'Agent mode: The assistant is approved to execute tasks and edit files.',
   'bench.assistant.model_unwired': 'No model is wired to the assistant yet',
   'bench.assistant.todos_title': 'Task list',
   'bench.assistant.empty': 'Start the conversation with the AI assistant',

@@ -1,5 +1,24 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — Fix HIGH intake hang in 0.3.1 (D-UI-INTAKE-WATCHDOG-1)
+- **Scope**: Fix HIGH intake hang in 0.3.1 on branch `fix-ui-intake-watchdog` (base `8a126db` on `r-next/integration`). Local-only: no push, no tag, no publish, main untouched.
+- **Changes**:
+  - Provider timeout config (`crates/warsha-providers/src/lib.rs`): Added `DEFAULT_STAGE_TIMEOUT_SECS = 180`, `dispatch_timeout` in `RouterCore` and `ProviderRouter`, `WARSHA_STAGE_TIMEOUT_SECS` env override support, and `MockProvider::with_hang` for non-network testing.
+  - Stage timeout & reaping (`crates/warsha-pipeline/src/lib.rs`): Wrapped `Self::dispatch_chat` and `followup_run` in `tokio::time::timeout(stage_timeout, ...)`. On timeout, calls `finish_session(session_id, SessionStatus::Failed)` and `record_stage_failure` with clear timeout message, setting run to `RunStatus::Failed` and emitting `stage_failed` + `run_finished{failed}` events. In `cancel_run_with_device`, finished open working sessions as `SessionStatus::Stopped`. Added `check_stale_run` and `reap_stale_runs`.
+  - Watchdog & Stale detection (`crates/warshad/src/lib.rs`, `crates/warshad/src/startup.rs`): Wired `check_stale_run` into `runs.get` and `runs.list`, and added periodic background watchdog task (every 10s) invoking `reap_stale_runs`.
+  - Bench UI status polling & failure banner (`apps/desktop/src/v3/pages/bench/index.tsx`, `tabs/OverviewTab.tsx`, `packages/i18n`): Added periodic status polling (2.5s) and event reload while `run.status === 'running'`. Added danger failure banner with stage failure message or localized fallback (`bench.run_failed_banner`) in Arabic and English.
+  - Proving tests:
+    - `crates/warsha-pipeline/src/lib.rs`: `test_hung_provider_dispatch_times_out_and_fails_stage` and `test_watchdog_reaps_stale_running_run`.
+    - `crates/warshad/src/tests/mod.rs`: `cancel_during_hung_stage_stops_promptly`.
+- **Gate matrix**:
+  - `cargo fmt --all -- --check`: clean (exit code 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (exit code 0).
+  - `cargo test -p warsha-pipeline --lib`: 586 passed, 0 failed, 7 ignored (exit code 0).
+  - `cargo test -p warshad --lib`: 315 passed, 0 failed, 4 ignored (exit code 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit code 0).
+  - `node scripts/check-versions.mjs --expect 0.3.1`: versions aligned 0.3.1 (exit code 0).
+- **Status**: COMPLETE.
+
 ## Run 2026-11-22 — Harness activation opencode-first merged (D-HARNESS-OPENCODE-1)
 - **Scope**: Activate external coding harness opencode-first on `r-next/integration` (lane `7d661fa` merged as `6067109`). Local-only: no push, no tag, no publish, main untouched.
 - **Deliverable**: `create_project` accepts validated `repo_path`; `start_run` creates run worktree; new RPCs `coding_backends.list` / `backend_routing.get` / `backend_routing.set`; client `attachProject`/`listCodingBackends`/`getBackendRouting`/`setBackendRouting`; Desktop repo inputs + CodingEnginesSection + ar/en i18n; proving tests `harness_opencode.rs` + section tests; actions hyphen ids + registry + e2e refs.
