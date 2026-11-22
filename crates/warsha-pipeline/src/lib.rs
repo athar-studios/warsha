@@ -3792,5 +3792,79 @@ mod tests {
                 "a template was read out of an unreadable harness row: {prompt}"
             );
         }
+
+        #[tokio::test]
+        async fn test_code_stage_completion_unknown_backend_errors_fail_loud() {
+            let store = temp_store().await;
+            let providers = Arc::new(RwLock::new(ProviderRouter::new()));
+            let settings = setup_settings();
+            let engine = PipelineEngine::new(store.clone(), providers, settings);
+
+            let project = Project {
+                id: ProjectId::new(),
+                name: "Test Backend Fail Loud".to_string(),
+                description: "Testing fail loud on code stage".to_string(),
+                language: "en".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                repo_path: None,
+                repo_url: None,
+                ..Default::default()
+            };
+            store.create_project(&project).await.unwrap();
+
+            let run = Run {
+                id: RunId::new(),
+                project_id: project.id,
+                current_stage: Stage::Code,
+                gate_states: HashMap::new(),
+                artifacts: HashMap::new(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                status: warsha_core::RunStatus::Running,
+                budget_cents: None,
+                spent_cents: 0,
+                confinement: None,
+                worktree_path: None,
+                worktree_branch: None,
+                run_mode: warsha_core::RunMode::Agent,
+            };
+
+            // 1. With routing set to unknown backend name -> returns Err, no silent fallback (Ok(None))
+            engine
+                .backend_registry()
+                .set_default_backend(Some("unknown-cli-engine-xyz".to_string()));
+            let res = engine
+                .code_stage_completion(&run, Stage::Code, "prompt", "en")
+                .await;
+            assert!(
+                res.is_err(),
+                "code_stage_completion must error fail-loud when backend is unknown"
+            );
+            let err_msg = res.err().unwrap().to_string();
+            assert!(
+                err_msg.contains("unknown-cli-engine-xyz")
+                    && err_msg.contains("refusing to fall back"),
+                "error must name unknown backend and refuse fallback: {err_msg}"
+            );
+
+            // 2. Clear default routing, set WARSHA_CODING_BACKEND env var
+            engine.backend_registry().set_default_backend(None);
+            std::env::set_var("WARSHA_CODING_BACKEND", "env-unknown-backend-123");
+            let res_env = engine
+                .code_stage_completion(&run, Stage::Code, "prompt", "en")
+                .await;
+            std::env::remove_var("WARSHA_CODING_BACKEND");
+            assert!(
+                res_env.is_err(),
+                "code_stage_completion must error fail-loud with WARSHA_CODING_BACKEND unknown"
+            );
+            let env_err_msg = res_env.err().unwrap().to_string();
+            assert!(
+                env_err_msg.contains("env-unknown-backend-123")
+                    && env_err_msg.contains("refusing to fall back"),
+                "error must name env backend and refuse fallback: {env_err_msg}"
+            );
+        }
     }
 }

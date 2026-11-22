@@ -1,0 +1,215 @@
+// apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.tsx
+import type { BackendRoutingsConfig, CodingBackendSummary } from '@warsha/client';
+import { useT } from '@warsha/i18n/v3';
+import {
+  Badge,
+  Banner,
+  Button,
+  EmptyState,
+  IconTerminal,
+  ListRow,
+  Select,
+  type SelectOption,
+  SettingsSection,
+  Skeleton,
+} from '@warsha/ui/v3';
+import React, { useCallback, useEffect, useState } from 'react';
+
+import { useAction } from '../../../actions';
+import { useClient } from '../../../app/ClientContext';
+import { useDataReady } from '../../../app/DataReadyContext';
+
+export function CodingEnginesSection(): React.ReactElement {
+  const t = useT();
+  const client = useClient();
+  const { setReady } = useDataReady();
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [backends, setBackends] = useState<CodingBackendSummary[]>([]);
+  const [currentConfig, setCurrentConfig] = useState<BackendRoutingsConfig | null>(null);
+  const [selectedEngine, setSelectedEngine] = useState<string>('native');
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setReady(false);
+    setLoadError(null);
+    if (!client) {
+      setLoading(false);
+      setReady(true);
+      return;
+    }
+    try {
+      const [list, routing] = await Promise.all([
+        client.listCodingBackends(),
+        client.getBackendRouting(),
+      ]);
+      setBackends(list);
+      setCurrentConfig(routing);
+      const configured = routing.default_backend;
+      setSelectedEngine(configured && configured.trim() ? configured : 'native');
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : t('settings.coding_engines.load_error'));
+    } finally {
+      setLoading(false);
+      setReady(true);
+    }
+  }, [client, setReady, t]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  const saveAction = useAction('settings.coding-engines.save', async () => {
+    if (!client) return;
+    setStatusMessage(null);
+    setLoadError(null);
+    const defaultBackend = selectedEngine === 'native' ? null : selectedEngine;
+    const updated: BackendRoutingsConfig = {
+      default_backend: defaultBackend,
+      role_backends: currentConfig?.role_backends,
+      project_backends: currentConfig?.project_backends,
+    };
+    try {
+      const saved = await client.setBackendRouting(updated);
+      setCurrentConfig(saved);
+      const configured = saved.default_backend;
+      setSelectedEngine(configured && configured.trim() ? configured : 'native');
+      setStatusMessage(t('settings.coding_engines.saved'));
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : t('settings.coding_engines.save_error'));
+    }
+  });
+
+  const engineOptions: SelectOption[] = [
+    { value: 'native', label: t('settings.coding_engines.engine_native') },
+    { value: 'opencode', label: 'OpenCode' },
+    { value: 'claude-code', label: 'Claude Code' },
+    { value: 'codex', label: 'Codex' },
+  ];
+
+  if (loading) {
+    return (
+      <SettingsSection
+        title={t('settings.coding_engines.title')}
+        description={t('settings.coding_engines.description')}
+      >
+        <div style={{ padding: 'var(--w-space-4)' }}>
+          <Skeleton height="36px" />
+          <div style={{ marginBlockStart: 'var(--w-space-4)' }}>
+            <Skeleton height="56px" />
+          </div>
+        </div>
+      </SettingsSection>
+    );
+  }
+
+  return (
+    <SettingsSection
+      title={t('settings.coding_engines.title')}
+      description={t('settings.coding_engines.description')}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--w-space-4)',
+          padding: 'var(--w-space-4)',
+        }}
+      >
+        {loadError && (
+          <Banner variant="danger" title={t('common.error')}>
+            {loadError}
+          </Banner>
+        )}
+
+        {statusMessage && <Banner variant="success">{statusMessage}</Banner>}
+
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--w-space-3)',
+            backgroundColor: 'var(--w-sunken)',
+            padding: 'var(--w-space-4)',
+            borderRadius: 'var(--w-radius-md)',
+          }}
+        >
+          <Select
+            label={t('settings.coding_engines.default_engine_label')}
+            hint={t('settings.coding_engines.default_engine_hint')}
+            options={engineOptions}
+            value={selectedEngine}
+            onChange={(e) => setSelectedEngine(e.target.value)}
+            data-testid="coding-engine-default-select"
+          />
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              marginBlockStart: 'var(--w-space-2)',
+            }}
+          >
+            <Button
+              variant="primary"
+              loading={saveAction.pending}
+              onClick={() => void saveAction.run()}
+              data-action="settings.coding-engines.save"
+              data-testid="coding-engine-save-button"
+            >
+              {t('settings.coding_engines.save_btn')}
+            </Button>
+          </div>
+        </div>
+
+        <div style={{ marginBlockStart: 'var(--w-space-4)' }}>
+          <h3
+            style={{
+              marginBlockEnd: 'var(--w-space-3)',
+              fontSize: 'var(--w-font-size-md)',
+              fontWeight: 'var(--w-font-weight-semibold)',
+            }}
+          >
+            {t('settings.coding_engines.list_title')}
+          </h3>
+          {backends.length === 0 ? (
+            <EmptyState
+              icon={<IconTerminal size={32} />}
+              title={t('settings.coding_engines.load_error')}
+            />
+          ) : (
+            <div
+              style={{
+                border: 'var(--w-border-width) solid var(--w-line)',
+                borderRadius: 'var(--w-radius-md)',
+                overflow: 'hidden',
+              }}
+              data-testid="coding-engines-list"
+            >
+              {backends.map((backend) => (
+                <ListRow
+                  key={backend.name}
+                  icon={<IconTerminal size={18} />}
+                  title={backend.display_name}
+                  subtitle={`${backend.command} · ${backend.tier}`}
+                  actions={
+                    <Badge
+                      variant={backend.installed ? 'primary' : 'neutral'}
+                      data-testid={`backend-status-badge-${backend.name}`}
+                    >
+                      {backend.installed
+                        ? t('settings.coding_engines.installed')
+                        : t('settings.coding_engines.not_installed')}
+                    </Badge>
+                  }
+                  data-testid={`backend-row-${backend.name}`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </SettingsSection>
+  );
+}

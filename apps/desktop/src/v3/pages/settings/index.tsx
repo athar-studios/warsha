@@ -10,6 +10,7 @@ import { SettingsNav, type SettingsLayer } from './SettingsNav';
 import { AboutSection } from './sections/AboutSection';
 import { BackendSection } from './sections/BackendSection';
 import { BudgetsSection } from './sections/BudgetsSection';
+import { CodingEnginesSection } from './sections/CodingEnginesSection';
 import { ConnectionsSection } from './sections/ConnectionsSection';
 import { DevicesSection } from './sections/DevicesSection';
 import { GeneralSection } from './sections/GeneralSection';
@@ -25,11 +26,7 @@ import { SkillsSection } from './sections/SkillsSection';
 import { SwarmSection } from './sections/SwarmSection';
 import { UsageSection } from './sections/UsageSection';
 import { WorkflowsSection } from './sections/WorkflowsSection';
-import {
-  isSettingsSectionId,
-  SETTINGS_SECTIONS,
-  type SettingsSectionId,
-} from './types';
+import { isSettingsSectionId, SETTINGS_SECTIONS, type SettingsSectionId } from './types';
 import './settings.css';
 
 export default function SettingsPage(): React.ReactElement {
@@ -42,15 +39,13 @@ export default function SettingsPage(): React.ReactElement {
   const narrow = useNarrowViewport();
 
   const rawSection = params.section ?? 'general';
-  const activeSection: SettingsSectionId = isSettingsSectionId(rawSection)
-    ? rawSection
-    : 'general';
+  const activeSection: SettingsSectionId = isSettingsSectionId(rawSection) ? rawSection : 'general';
 
   const activeMeta = SETTINGS_SECTIONS.find((s) => s.id === activeSection) ?? SETTINGS_SECTIONS[0];
   const [layer, setLayer] = useState<SettingsLayer>('developers');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [advancedExpanded, setAdvancedExpanded] = useState<boolean>(
-    () => Boolean(activeMeta?.isAdvanced)
+  const [advancedExpanded, setAdvancedExpanded] = useState<boolean>(() =>
+    Boolean(activeMeta?.isAdvanced)
   );
 
   useEffect(() => {
@@ -97,6 +92,8 @@ export default function SettingsPage(): React.ReactElement {
         return <PostLaunchSection />;
       case 'backend':
         return <BackendSection />;
+      case 'coding-engines':
+        return <CodingEnginesSection />;
       case 'export':
         return <SettingsExportSection />;
       case 'about':

@@ -12,11 +12,13 @@ import {
   BudgetField,
   Button,
   DataTable,
+  Dialog,
   IconSend,
   Sheet,
   Skeleton,
   StatusPill,
   TextArea,
+  TextField,
   type DataTableColumn,
   type StatusPillState,
 } from '@warsha/ui/v3';
@@ -27,7 +29,11 @@ import { useCapabilities } from '../../app/CapabilitiesContext';
 import { useClient } from '../../app/ClientContext';
 import { useDataReady } from '../../app/DataReadyContext';
 import { useDensity } from '../../app/DensityContext';
-import { MAX_DEFAULT_BUDGET_USD, parseDefaultBudget, writeDefaultBudget } from '../../app/defaultBudget';
+import {
+  MAX_DEFAULT_BUDGET_USD,
+  parseDefaultBudget,
+  writeDefaultBudget,
+} from '../../app/defaultBudget';
 import { notify } from '../../app/toast';
 import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../copy/stages';
 import { useDefaultBudget, useModels, useProjects, useQuotaGauge, useRoles } from '../../data';
@@ -37,7 +43,14 @@ import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 import { countPendingGatesAtCurrentStage } from '../frame/Frame';
 import SecretaryChat from '../project/SecretaryChat';
 
-import { ownerAlerts, raisedKeysAfter, type OwnerAlert, GATE_WAIT_THRESHOLD_MINUTES, QUOTA_NEAR_PERCENT, SPEND_NEAR_PERCENT } from './alerts';
+import {
+  ownerAlerts,
+  raisedKeysAfter,
+  type OwnerAlert,
+  GATE_WAIT_THRESHOLD_MINUTES,
+  QUOTA_NEAR_PERCENT,
+  SPEND_NEAR_PERCENT,
+} from './alerts';
 
 import './home.css';
 
@@ -57,6 +70,120 @@ export function deriveProjectName(idea: string): string {
   return firstLine.slice(0, 60);
 }
 
+export interface NewProjectDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onSubmit?: (name: string, idea: string, repoPath?: string) => Promise<void>;
+}
+
+export function NewProjectDialog({
+  open,
+  onClose,
+  onSubmit,
+}: NewProjectDialogProps): React.ReactElement {
+  const t = useT();
+  const locale = useLocale();
+  const client = useClient();
+  const [name, setName] = useState('');
+  const [idea, setIdea] = useState('');
+  const [repoPath, setRepoPath] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    const trimmedIdea = idea.trim();
+    if (!trimmedIdea) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const projectName = name.trim() || deriveProjectName(trimmedIdea);
+      const cleanRepo = repoPath.trim() || undefined;
+      if (onSubmit) {
+        await onSubmit(projectName, trimmedIdea, cleanRepo);
+      } else if (client) {
+        await client.createProject(projectName, trimmedIdea, locale, cleanRepo);
+      }
+      setName('');
+      setIdea('');
+      setRepoPath('');
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t('home.new_project_dialog_title')}
+      description={t('home.new_project_dialog_desc')}
+      closeLabel={t('common.close')}
+      data-testid="new-project-dialog"
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
+        {error && (
+          <Banner variant="danger" title={t('common.error')}>
+            {error}
+          </Banner>
+        )}
+        <TextField
+          label={t('home.project_name_label')}
+          placeholder={t('home.project_name_placeholder')}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          data-testid="new-project-name-input"
+        />
+        <TextArea
+          label={t('home.idea_label')}
+          placeholder={t('home.idea_placeholder')}
+          value={idea}
+          onChange={(e) => setIdea(e.target.value)}
+          rows={3}
+          data-testid="new-project-idea-input"
+        />
+        <TextField
+          label={t('home.repo_path_label')}
+          placeholder={t('home.repo_path_placeholder')}
+          hint={t('home.repo_path_hint')}
+          value={repoPath}
+          onChange={(e) => setRepoPath(e.target.value)}
+          data-testid="new-project-repo-path-input"
+        />
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 'var(--w-space-2)',
+            marginBlockStart: 'var(--w-space-2)',
+          }}
+        >
+          <Button
+            variant="secondary"
+            data-action="home.new-project.cancel"
+            onClick={onClose}
+            disabled={submitting}
+          >
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            data-action="home.new-project.submit"
+            onClick={() => void handleSubmit()}
+            disabled={!idea.trim() || submitting}
+            loading={submitting}
+            data-testid="new-project-submit-btn"
+          >
+            {t('home.new_project_submit')}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
 export function findCoordinatorModel(
   roles: readonly RoleRouting[] | null | undefined,
   models: readonly { modelId: string; displayName: string | null }[] | null | undefined
@@ -65,9 +192,7 @@ export function findCoordinatorModel(
     return models?.[0]?.displayName || models?.[0]?.modelId || null;
   }
   const coordinatorRole =
-    roles.find((r) => r.role === 'intake') ??
-    roles.find((r) => r.role === 'pm') ??
-    roles[0];
+    roles.find((r) => r.role === 'intake') ?? roles.find((r) => r.role === 'pm') ?? roles[0];
   const target = coordinatorRole?.targets?.[0];
   if (!target) {
     return models?.[0]?.displayName || models?.[0]?.modelId || null;
@@ -206,10 +331,25 @@ export interface NeedsYouRow {
 export function buildNeedsYou(
   t: (key: string) => string,
   runs: readonly RunSummary[],
-  gatesByRun: Readonly<Record<string, { runId: string;
-  projectId: ProjectId; runUpdatedAt: string; stage: string; pending: boolean }[]>>,
-  asks: readonly { id: string; runId: string;
-  projectId: ProjectId | null; tool: string; requestedAt: string }[],
+  gatesByRun: Readonly<
+    Record<
+      string,
+      {
+        runId: string;
+        projectId: ProjectId;
+        runUpdatedAt: string;
+        stage: string;
+        pending: boolean;
+      }[]
+    >
+  >,
+  asks: readonly {
+    id: string;
+    runId: string;
+    projectId: ProjectId | null;
+    tool: string;
+    requestedAt: string;
+  }[],
   projects: readonly ProjectSummary[] = []
 ): NeedsYouRow[] {
   const rows: NeedsYouRow[] = [];
@@ -221,7 +361,8 @@ export function buildNeedsYou(
         kind: 'failed',
         labelKey: 'home.status_failed',
         subject: projectNames.get(run.projectId) ?? t('home.project_unnamed'),
-        runId: run.id, projectId: run.projectId,
+        runId: run.id,
+        projectId: run.projectId,
         since: run.updatedAt,
         href: `/p/${run.projectId}/r/${run.id}`,
       });
@@ -235,7 +376,8 @@ export function buildNeedsYou(
         kind: 'gate',
         labelKey: 'home.needsyou.gate',
         subject: t(`bench.stage.${gate.stage}`),
-        runId: run.id, projectId: run.projectId,
+        runId: run.id,
+        projectId: run.projectId,
         since: gate.runUpdatedAt,
         href: `/p/${run.projectId}/r/${run.id}/${gate.stage}`,
       });
@@ -247,7 +389,8 @@ export function buildNeedsYou(
       kind: 'ask',
       labelKey: 'home.needsyou.ask',
       subject: ask.tool,
-      runId: ask.runId, projectId: ask.projectId ?? null,
+      runId: ask.runId,
+      projectId: ask.projectId ?? null,
       since: ask.requestedAt,
       href: '/inbox',
     });
@@ -285,6 +428,8 @@ export default function HomePage(): React.ReactElement {
   const capabilities = useCapabilities();
 
   const [idea, setIdea] = useState('');
+  const [repoPath, setRepoPath] = useState('');
+  const [newProjectDialogOpen, setNewProjectDialogOpen] = useState(false);
   const [defaultsSheetOpen, setDefaultsSheetOpen] = useState(false);
   const [runsByProject, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
   const [waitingGatesByProject, setWaitingGatesByProject] = useState<Record<string, number>>({});
@@ -305,7 +450,11 @@ export default function HomePage(): React.ReactElement {
   const defaultBudgetResult = useDefaultBudget();
 
   const quotaGauge = useQuotaGauge();
-  const [alertSnapshot, setAlertSnapshot] = useState<{ oldestWaitingGateAt: string | null; failedRuns: RunSummary[]; maxSpendPercent: number | null }>({ oldestWaitingGateAt: null, failedRuns: [], maxSpendPercent: null });
+  const [alertSnapshot, setAlertSnapshot] = useState<{
+    oldestWaitingGateAt: string | null;
+    failedRuns: RunSummary[];
+    maxSpendPercent: number | null;
+  }>({ oldestWaitingGateAt: null, failedRuns: [], maxSpendPercent: null });
 
   // M5: Dedicated effect for alert evaluation to avoid re-fetching project runs/gates/budgets on quota poll.
   const [alertTick, setAlertTick] = useState(0);
@@ -317,14 +466,23 @@ export default function HomePage(): React.ReactElement {
       spendPercent: alertSnapshot.maxSpendPercent,
       raised: raisedRef.current,
     });
-    
+
     // Compute currently active condition keys
     const now = Date.now();
     const activeConditionKeys = new Set<string>();
-    if (alertSnapshot.oldestWaitingGateAt !== null && (now - Date.parse(alertSnapshot.oldestWaitingGateAt)) / 60_000 >= GATE_WAIT_THRESHOLD_MINUTES) activeConditionKeys.add("gate_waiting");
-    if (alertSnapshot.failedRuns.length > 0) activeConditionKeys.add("run_failed");
-    if (quotaGauge.percentage !== null && quotaGauge.percentage >= QUOTA_NEAR_PERCENT) activeConditionKeys.add("quota_near");
-    if (alertSnapshot.maxSpendPercent !== null && alertSnapshot.maxSpendPercent >= SPEND_NEAR_PERCENT) activeConditionKeys.add("spend_near");
+    if (
+      alertSnapshot.oldestWaitingGateAt !== null &&
+      (now - Date.parse(alertSnapshot.oldestWaitingGateAt)) / 60_000 >= GATE_WAIT_THRESHOLD_MINUTES
+    )
+      activeConditionKeys.add('gate_waiting');
+    if (alertSnapshot.failedRuns.length > 0) activeConditionKeys.add('run_failed');
+    if (quotaGauge.percentage !== null && quotaGauge.percentage >= QUOTA_NEAR_PERCENT)
+      activeConditionKeys.add('quota_near');
+    if (
+      alertSnapshot.maxSpendPercent !== null &&
+      alertSnapshot.maxSpendPercent >= SPEND_NEAR_PERCENT
+    )
+      activeConditionKeys.add('spend_near');
 
     // Retain only currently active keys in raisedRef
     const nextRaised: Record<string, string> = {};
@@ -337,7 +495,7 @@ export default function HomePage(): React.ReactElement {
     if (alertList.length > 0) {
       for (const alert of alertList) {
         notify({
-          type: "warning",
+          type: 'warning',
           message: t(alert.messageKey, alert.params),
         });
       }
@@ -372,7 +530,6 @@ export default function HomePage(): React.ReactElement {
     setSheetBudgetValue(defaultBudget);
   }, [defaultBudget]);
 
-
   useEffect(() => {
     const interval = setInterval(() => {
       setAlertTick((t) => t + 1);
@@ -399,8 +556,16 @@ export default function HomePage(): React.ReactElement {
       let totalWaiting = 0;
       let oldestWaitingGateAt: string | null = null;
       const failedRuns: RunSummary[] = [];
-      const gateRows: Record<string, { runId: string;
-  projectId: ProjectId; runUpdatedAt: string; stage: string; pending: boolean }[]> = {};
+      const gateRows: Record<
+        string,
+        {
+          runId: string;
+          projectId: ProjectId;
+          runUpdatedAt: string;
+          stage: string;
+          pending: boolean;
+        }[]
+      > = {};
 
       await Promise.all(
         projectList.map(async (project: ProjectSummary) => {
@@ -411,8 +576,12 @@ export default function HomePage(): React.ReactElement {
             let projectWaiting = 0;
             for (const run of runs) {
               if (run.status === 'failed') failedRuns.push(run);
-              
-              if (run.status === 'completed' || run.status === 'cancelled' || run.status === 'failed') {
+
+              if (
+                run.status === 'completed' ||
+                run.status === 'cancelled' ||
+                run.status === 'failed'
+              ) {
                 continue;
               }
 
@@ -424,14 +593,18 @@ export default function HomePage(): React.ReactElement {
                 projectWaiting += countPendingGatesAtCurrentStage(gates, run.stage);
 
                 gateRows[run.id] = gates.map((g) => ({
-                  runId: run.id, projectId: run.projectId,
+                  runId: run.id,
+                  projectId: run.projectId,
                   runUpdatedAt: run.updatedAt,
                   stage: g.stage,
                   pending: g.state.state === 'pending',
                 }));
-                
+
                 for (const row of gateRows[run.id]) {
-                  if (row.pending && (oldestWaitingGateAt === null || row.runUpdatedAt < oldestWaitingGateAt)) {
+                  if (
+                    row.pending &&
+                    (oldestWaitingGateAt === null || row.runUpdatedAt < oldestWaitingGateAt)
+                  ) {
                     oldestWaitingGateAt = row.runUpdatedAt;
                   }
                 }
@@ -448,14 +621,20 @@ export default function HomePage(): React.ReactElement {
       );
 
       const allRuns = projectList.flatMap((project) => runsMap[project.id] ?? []);
-      let asks: { id: string; runId: string;
-  projectId: ProjectId | null; tool: string; requestedAt: string }[] = [];
+      let asks: {
+        id: string;
+        runId: string;
+        projectId: ProjectId | null;
+        tool: string;
+        requestedAt: string;
+      }[] = [];
       try {
         const approvals = await client.mcpApprovalsList();
         asks = approvals.map((ask) => ({
           id: ask.id,
           runId: ask.runId,
-          projectId: (allRuns.find((r) => r.id === ask.runId)?.projectId ?? null) as ProjectId | null,
+          projectId: (allRuns.find((r) => r.id === ask.runId)?.projectId ??
+            null) as ProjectId | null,
           tool: ask.tool,
           requestedAt: ask.requestedAt,
         }));
@@ -467,13 +646,7 @@ export default function HomePage(): React.ReactElement {
         setRunsByProject(runsMap);
         setWaitingGatesByProject(waitingMap);
         setTotalWaitingGates(totalWaiting);
-        setNeedsYou(buildNeedsYou(
-          t,
-          allRuns,
-          gateRows,
-          asks,
-          projectList
-        ));
+        setNeedsYou(buildNeedsYou(t, allRuns, gateRows, asks, projectList));
         // Calculate max spend percent
         let maxSpendPercent: number | null = null;
         await Promise.all(
@@ -494,7 +667,7 @@ export default function HomePage(): React.ReactElement {
 
         // E2: Once-per-condition alerts snapshot.
         setAlertSnapshot({ oldestWaitingGateAt, failedRuns, maxSpendPercent });
-        }
+      }
     };
 
     void loadRunsAndGates();
@@ -508,7 +681,12 @@ export default function HomePage(): React.ReactElement {
   const startInterviewAction = useAction('home.interview.start', async () => {
     if (!client) throw new Error(t('common.error'));
     const projectName = deriveProjectName(idea.trim());
-    const project = await client.createProject(projectName, idea.trim(), locale);
+    const project = await client.createProject(
+      projectName,
+      idea.trim(),
+      locale,
+      repoPath.trim() || undefined
+    );
     projectsResult.reload();
     await client.interviewStart(project.id, idea.trim());
   });
@@ -526,7 +704,12 @@ export default function HomePage(): React.ReactElement {
     const budgetCents = Math.round(Number(defaultBudget) * 100);
 
     // 1. projects.create
-    const project = await client.createProject(projectName, trimmedIdea, locale);
+    const project = await client.createProject(
+      projectName,
+      trimmedIdea,
+      locale,
+      repoPath.trim() || undefined
+    );
     projectsResult.reload();
 
     // 2. runs.start
@@ -595,7 +778,7 @@ export default function HomePage(): React.ReactElement {
         ? client.estimateRun('*' as ProjectId, idea)
         : Promise.resolve(null),
     () => false,
-    [client, idea],
+    [client, idea]
   );
   const estimate = estimateResult.data ?? null;
 
@@ -720,16 +903,34 @@ export default function HomePage(): React.ReactElement {
     <div className="v3-home-root">
       <div className="v3-home-narrow">
         <div className="v3-home-header">
-           <h1 className="v3-home-title">{t('home.greeting')}</h1>
-           <Button
-             data-action="home.secretary.open"
-             data-testid="home-secretary-open"
-             onClick={() => setSecretarySheetOpen(true)}
-           >
-             {t('secretary.title')}
-           </Button>
+          <h1 className="v3-home-title">{t('home.greeting')}</h1>
+          <div style={{ display: 'flex', gap: 'var(--w-space-2)' }}>
+            <Button
+              variant="secondary"
+              data-action="home.new-project.open"
+              data-testid="home-new-project-open"
+              onClick={() => setNewProjectDialogOpen(true)}
+            >
+              {t('home.new_project_btn')}
+            </Button>
+            <Button
+              data-action="home.secretary.open"
+              data-testid="home-secretary-open"
+              onClick={() => setSecretarySheetOpen(true)}
+            >
+              {t('secretary.title')}
+            </Button>
+          </div>
         </div>
         <p className="v3-home-help">{t('home.help')}</p>
+
+        <NewProjectDialog
+          open={newProjectDialogOpen}
+          onClose={() => {
+            setNewProjectDialogOpen(false);
+            projectsResult.reload();
+          }}
+        />
 
         <Sheet
           open={secretarySheetOpen}
@@ -749,11 +950,7 @@ export default function HomePage(): React.ReactElement {
             className="v3-home-error-wrap"
             data-testid="home-error-banner"
           >
-            <Banner
-              variant="danger"
-              title={t('home.error_title')}
-              action={retryButtonElement}
-            >
+            <Banner variant="danger" title={t('home.error_title')} action={retryButtonElement}>
               {projectsResult.error?.message || t('common.error')}
             </Banner>
           </div>
@@ -767,7 +964,11 @@ export default function HomePage(): React.ReactElement {
                 <li key={row.key} className="v3-home-needsyou-row">
                   <span className="v3-home-needsyou-label">{t(row.labelKey)}</span>
                   <span className="v3-home-needsyou-subject">{row.subject}</span>
-                  <span className="v3-home-needsyou-wait">{t('home.needsyou.since', { since: new Date(row.since).toLocaleString(locale === 'ar' ? 'ar' : 'en') })}</span>
+                  <span className="v3-home-needsyou-wait">
+                    {t('home.needsyou.since', {
+                      since: new Date(row.since).toLocaleString(locale === 'ar' ? 'ar' : 'en'),
+                    })}
+                  </span>
                   {row.kind === 'failed' && (
                     <Button
                       variant="primary"
@@ -814,6 +1015,16 @@ export default function HomePage(): React.ReactElement {
             rows={4}
             data-testid="home-idea-input"
           />
+          <div style={{ marginBlockStart: 'var(--w-space-2)' }}>
+            <TextField
+              label={t('home.repo_path_label')}
+              placeholder={t('home.repo_path_placeholder')}
+              hint={t('home.repo_path_hint')}
+              value={repoPath}
+              onChange={(e) => setRepoPath(e.target.value)}
+              data-testid="home-repo-path-input"
+            />
+          </div>
 
           <div className="v3-home-composer-footer">
             <span className="v3-home-defaults-line">
@@ -886,10 +1097,7 @@ export default function HomePage(): React.ReactElement {
                 max: (estimate.maxCents / 100).toFixed(2),
               })}
               {estimate.warnings.length > 0 && (
-                <span className="home-estimate-warnings">
-                  {' '}
-                  {estimate.warnings.join(' · ')}
-                </span>
+                <span className="home-estimate-warnings"> {estimate.warnings.join(' · ')}</span>
               )}
             </p>
           )}
@@ -924,10 +1132,7 @@ export default function HomePage(): React.ReactElement {
             className="v3-home-banner-wrap"
             data-testid="home-inbox-banner"
           >
-            <Banner
-              variant="attention"
-              action={inboxReviewButtonElement}
-            >
+            <Banner variant="attention" action={inboxReviewButtonElement}>
               <strong>
                 {totalWaitingGates === 1
                   ? t('home.inbox_single')
@@ -1036,7 +1241,13 @@ export default function HomePage(): React.ReactElement {
                             {project.name || t('home.project_unnamed')}
                           </bdi>
                         </h3>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 'var(--w-space-2)',
+                          }}
+                        >
                           {runs?.[0]?.runMode && toRunModeChip(runs[0].runMode) !== 'agent' ? (
                             <RunModeChip runMode={runs[0].runMode} />
                           ) : null}

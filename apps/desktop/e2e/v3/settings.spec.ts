@@ -9,7 +9,15 @@ import {
   runAxe,
 } from '../support/a11y';
 
-import { act, expectRpc, openV3, rpcCalls, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
+import {
+  act,
+  expectRpc,
+  openV3,
+  rpcCalls,
+  auditViewportFit,
+  describeViewportFit,
+  viewportFitIsClean,
+} from './support';
 
 const VIEWPORTS = [
   { name: '1280x800', width: 1280, height: 800 },
@@ -181,9 +189,7 @@ test.describe('Settings v3', () => {
   // ---------------------------------------------------------------------------
   // Journeys
   // ---------------------------------------------------------------------------
-  test('navigation journey: Simple mode disclosure and switching sections', async ({
-    page,
-  }) => {
+  test('navigation journey: Simple mode disclosure and switching sections', async ({ page }) => {
     await openV3(page, '/settings/general', { lang: 'ar', mode: 'simple' });
 
     const nav = page.locator('nav.v3-settings-nav');
@@ -222,20 +228,14 @@ test.describe('Settings v3', () => {
     await expect(page.getByRole('switch', { name: 'تنبيهات صوتية' })).toBeVisible();
     await expect(soundSwitch).toHaveAttribute('aria-checked', 'false');
 
-    await page
-      .locator('[data-action="settings.language.set"][data-value="en"]')
-      .click();
+    await page.locator('[data-action="settings.language.set"][data-value="en"]').click();
     await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
     await expect(page.getByRole('switch', { name: 'Sound cues' })).toBeVisible();
 
-    await page
-      .locator('[data-action="settings.theme.set"][data-value="dark"]')
-      .click();
+    await page.locator('[data-action="settings.theme.set"][data-value="dark"]').click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
-    await page
-      .locator('[data-action="settings.mode-default.set"][data-value="advanced"]')
-      .click();
+    await page.locator('[data-action="settings.mode-default.set"][data-value="advanced"]').click();
     await expect(page.locator('html')).toHaveAttribute('data-mode', /developers|advanced/);
 
     const input = page.locator('[data-testid="general-default-budget-input"] input');
@@ -310,10 +310,7 @@ test.describe('Settings v3', () => {
     await expect(removeModelDialog).not.toBeVisible();
 
     // 7. Save role route (select first routed row with enabled save button)
-    await page
-      .locator('[data-action="settings.role.route.set"]:not([disabled])')
-      .first()
-      .click();
+    await page.locator('[data-action="settings.role.route.set"]:not([disabled])').first().click();
     await expectRpc(page, 'roles.set');
   });
 
@@ -487,16 +484,10 @@ test.describe('Settings v3', () => {
     await act(page, 'settings.routine.run-now');
     await expectRpc(page, 'routines.run_now');
 
-    await page
-      .locator('[data-action="settings.routine.pause"]:not([disabled])')
-      .first()
-      .click();
+    await page.locator('[data-action="settings.routine.pause"]:not([disabled])').first().click();
     await expectRpc(page, 'routines.pause');
 
-    await page
-      .locator('[data-action="settings.routine.resume"]:not([disabled])')
-      .first()
-      .click();
+    await page.locator('[data-action="settings.routine.resume"]:not([disabled])').first().click();
     await expectRpc(page, 'routines.resume');
 
     await act(page, 'settings.routine.view');
@@ -515,9 +506,7 @@ test.describe('Settings v3', () => {
     });
     await expect(page.locator('[data-testid="settings-section-budgets"]')).toBeVisible();
 
-    await page
-      .locator('[data-testid="project-budget-input-proj-1"] input')
-      .fill('40');
+    await page.locator('[data-testid="project-budget-input-proj-1"] input').fill('40');
     await act(page, 'settings.budget.save');
     await expectRpc(page, 'budget.set');
     await expect(page.locator('.w-banner--success')).toBeVisible();
@@ -547,9 +536,7 @@ test.describe('Settings v3', () => {
     await openV3(page, '/settings/backend', { lang: 'ar', mode: 'advanced' });
     await expect(page.locator('[data-testid="settings-section-backend"]')).toBeVisible();
 
-    await page
-      .locator('[data-action="settings.backend.kind.set"][data-value="supabase"]')
-      .click();
+    await page.locator('[data-action="settings.backend.kind.set"][data-value="supabase"]').click();
     await expectRpc(page, 'backend.set');
 
     await page
@@ -676,10 +663,7 @@ test.describe('Settings v3', () => {
 
   test('action: settings.role.route.set', async ({ page }) => {
     await openV3(page, '/settings/models', { lang: 'ar' });
-    await page
-      .locator('[data-action="settings.role.route.set"]:not([disabled])')
-      .first()
-      .click();
+    await page.locator('[data-action="settings.role.route.set"]:not([disabled])').first().click();
     await expectRpc(page, 'roles.set');
   });
 
@@ -927,10 +911,7 @@ test.describe('Settings v3', () => {
       mode: 'advanced',
       fixtures: ROUTINES_FIXTURE,
     });
-    await page
-      .locator('[data-action="settings.routine.pause"]:not([disabled])')
-      .first()
-      .click();
+    await page.locator('[data-action="settings.routine.pause"]:not([disabled])').first().click();
     await expectRpc(page, 'routines.pause');
   });
 
@@ -940,10 +921,7 @@ test.describe('Settings v3', () => {
       mode: 'advanced',
       fixtures: ROUTINES_FIXTURE,
     });
-    await page
-      .locator('[data-action="settings.routine.resume"]:not([disabled])')
-      .first()
-      .click();
+    await page.locator('[data-action="settings.routine.resume"]:not([disabled])').first().click();
     await expectRpc(page, 'routines.resume');
   });
 
@@ -964,9 +942,7 @@ test.describe('Settings v3', () => {
       mode: 'advanced',
       fixtures: BUDGETS_FIXTURE,
     });
-    await page
-      .locator('[data-testid="project-budget-input-proj-1"] input')
-      .fill('50');
+    await page.locator('[data-testid="project-budget-input-proj-1"] input').fill('50');
     await act(page, 'settings.budget.save');
     await expectRpc(page, 'budget.set');
   });
@@ -993,9 +969,7 @@ test.describe('Settings v3', () => {
 
   test('action: settings.backend.kind.set', async ({ page }) => {
     await openV3(page, '/settings/backend', { lang: 'ar', mode: 'advanced' });
-    await page
-      .locator('[data-action="settings.backend.kind.set"][data-value="supabase"]')
-      .click();
+    await page.locator('[data-action="settings.backend.kind.set"][data-value="supabase"]').click();
     await expectRpc(page, 'backend.set');
   });
 
@@ -1022,6 +996,11 @@ test.describe('Settings v3', () => {
     await expect(dialog).not.toBeVisible();
   });
 
+  test('action: settings.coding-engines.save', async ({ page }) => {
+    await openV3(page, '/settings/coding-engines', { lang: 'ar' });
+    await act(page, 'settings.coding-engines.save');
+  });
+
   test('action: settings.error.retry', async ({ page }) => {
     await openV3(page, '/settings/general', {
       lang: 'ar',
@@ -1031,10 +1010,14 @@ test.describe('Settings v3', () => {
     });
     const errorBanner = page.locator('.w-banner--danger');
     await expect(errorBanner).toBeVisible();
-    const beforeCalls = (await rpcCalls(page)).filter((c) => c.method === 'preferences.list').length;
+    const beforeCalls = (await rpcCalls(page)).filter(
+      (c) => c.method === 'preferences.list'
+    ).length;
     await act(page, 'settings.error.retry');
     await expect
-      .poll(async () => (await rpcCalls(page)).filter((c) => c.method === 'preferences.list').length)
+      .poll(
+        async () => (await rpcCalls(page)).filter((c) => c.method === 'preferences.list').length
+      )
       .toBeGreaterThan(beforeCalls);
   });
 
@@ -1044,13 +1027,19 @@ test.describe('Settings v3', () => {
   test('actions: settings.layer.quick', async ({ page }) => {
     await openV3(page, '/settings/general', { lang: 'en' });
     await act(page, 'settings.layer.quick');
-    await expect(page.locator('[data-action="settings.layer.quick"]')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('[data-action="settings.layer.quick"]')).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
   });
 
   test('actions: settings.layer.advanced', async ({ page }) => {
     await openV3(page, '/settings/general', { lang: 'en' });
     await act(page, 'settings.layer.advanced');
-    await expect(page.locator('[data-action="settings.layer.advanced"]')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('[data-action="settings.layer.advanced"]')).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
   });
 
   test('actions: settings.provider.disconnect', async ({ page }) => {
@@ -1070,8 +1059,12 @@ test.describe('Settings v3', () => {
 
   test('actions: settings.usage.dimension.set', async ({ page }) => {
     await openV3(page, '/settings/usage', { lang: 'en' });
-    const model = page.locator('[data-action="settings.usage.dimension.set"][data-dimension="model_id"]');
-    const provider = page.locator('[data-action="settings.usage.dimension.set"][data-dimension="provider_id"]');
+    const model = page.locator(
+      '[data-action="settings.usage.dimension.set"][data-dimension="model_id"]'
+    );
+    const provider = page.locator(
+      '[data-action="settings.usage.dimension.set"][data-dimension="provider_id"]'
+    );
     await expect(provider).toHaveAttribute('data-variant', 'primary');
     await expect(model).toHaveAttribute('data-variant', 'secondary');
     await model.click();
@@ -1081,8 +1074,12 @@ test.describe('Settings v3', () => {
 
   test('actions: settings.usage.granularity.set', async ({ page }) => {
     await openV3(page, '/settings/usage', { lang: 'en' });
-    const month = page.locator('[data-action="settings.usage.granularity.set"][data-granularity="month"]');
-    const day = page.locator('[data-action="settings.usage.granularity.set"][data-granularity="day"]');
+    const month = page.locator(
+      '[data-action="settings.usage.granularity.set"][data-granularity="month"]'
+    );
+    const day = page.locator(
+      '[data-action="settings.usage.granularity.set"][data-granularity="day"]'
+    );
     await expect(day).toHaveAttribute('data-variant', 'primary');
     await expect(month).toHaveAttribute('data-variant', 'secondary');
     await month.click();
@@ -1106,20 +1103,21 @@ test.describe('Settings v3', () => {
           await expect(page.locator(`[data-testid="settings-section-${section}"]`)).toBeVisible();
 
           const axe = await runAxe(page);
-          expect(axeIsClean(axe), `axe failed on ${section} (${locale}, ${theme}):\n${describeAxe(axe)}`).toBe(
-            true
-          );
+          expect(
+            axeIsClean(axe),
+            `axe failed on ${section} (${locale}, ${theme}):\n${describeAxe(axe)}`
+          ).toBe(true);
 
           const focus = await auditFocusWalk(page);
-          expect(focusIsClean(focus), `focus failed on ${section} (${locale}, ${theme}):\n${describeFocus(focus)}`).toBe(
-            true
-          );
+          expect(
+            focusIsClean(focus),
+            `focus failed on ${section} (${locale}, ${theme}):\n${describeFocus(focus)}`
+          ).toBe(true);
           expect(focus.stops.length).toBeGreaterThan(0);
         }
       });
     }
   }
-
 
   // ---------------------------------------------------------------------------
   // Additional Visual checks (@visual) for new E5 surfaces
@@ -1138,7 +1136,9 @@ test.describe('Settings v3', () => {
             });
             await expect(page.locator(`[data-testid="settings-section-${section}"]`)).toBeVisible();
             const fit = await auditViewportFit(page);
-            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+            expect
+              .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+              .toBe(true);
             await expect(page).toHaveScreenshot(
               `settings-${section}-ready-${viewport.name}-${locale}-${theme}.png`
             );
@@ -1158,7 +1158,9 @@ test.describe('Settings v3', () => {
             });
             await expect(page.locator('[data-testid^="provider-row-"]').first()).toBeVisible();
             const fit = await auditViewportFit(page);
-            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+            expect
+              .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+              .toBe(true);
             await expect(page).toHaveScreenshot(
               `settings-provider-auth-${authKind}-${viewport.name}-${locale}-${theme}.png`
             );
@@ -1181,7 +1183,9 @@ test.describe('Settings v3', () => {
               'true'
             );
             const fit = await auditViewportFit(page);
-            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+            expect
+              .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+              .toBe(true);
             await expect(page).toHaveScreenshot(
               `settings-nav-${layerId}-${viewport.name}-${locale}-${theme}.png`
             );
@@ -1208,7 +1212,9 @@ test.describe('Settings v3', () => {
             });
             await expect(page.locator(`[data-testid="settings-section-${section}"]`)).toBeVisible();
             const fit = await auditViewportFit(page);
-            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+            expect
+              .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+              .toBe(true);
             await expect(page).toHaveScreenshot(
               `settings-${section}-ready-${viewport.name}-${locale}-${theme}.png`
             );
@@ -1235,7 +1241,9 @@ test.describe('Settings v3', () => {
           });
           await expect(page.locator('[data-testid="settings-section-models"]')).toBeVisible();
           const fit = await auditViewportFit(page);
-          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+          expect
+            .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+            .toBe(true);
           await expect(page).toHaveScreenshot(
             `settings-models-empty-${viewport.name}-${locale}-${theme}.png`
           );
@@ -1254,7 +1262,9 @@ test.describe('Settings v3', () => {
           });
           await expect(page.locator('[data-testid="settings-section-devices"]')).toBeVisible();
           const fit = await auditViewportFit(page);
-          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+          expect
+            .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+            .toBe(true);
           await expect(page).toHaveScreenshot(
             `settings-devices-empty-${viewport.name}-${locale}-${theme}.png`
           );
@@ -1273,7 +1283,9 @@ test.describe('Settings v3', () => {
           });
           await expect(page.locator('.w-banner--danger')).toBeVisible();
           const fit = await auditViewportFit(page);
-          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+          expect
+            .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+            .toBe(true);
           await expect(page).toHaveScreenshot(
             `settings-general-error-${viewport.name}-${locale}-${theme}.png`
           );

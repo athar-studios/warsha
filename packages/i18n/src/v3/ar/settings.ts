@@ -12,9 +12,11 @@ export default {
   'settings.search.placeholder': 'ابحث في الإعدادات…',
   'settings.search.empty': 'لا توجد نتائج مطابقة',
   'settings.export.title': 'الإعدادات المُصدَّرة',
-  'settings.export.desc': 'صدِّر تفضيلاتك كملف يمكنك استيراده على جهاز آخر. الأسرار لا تترك خزنة النظام مطلقًا؛ الخدمات المرتبطة تظهر كمراجع فقط.',
+  'settings.export.desc':
+    'صدِّر تفضيلاتك كملف يمكنك استيراده على جهاز آخر. الأسرار لا تترك خزنة النظام مطلقًا؛ الخدمات المرتبطة تظهر كمراجع فقط.',
   'settings.export.export': 'تصدير الإعدادات',
-  'settings.export.import_desc': 'الصق ملف الإعدادات المُصدَّر بالأسفل لاستعادته. العناصر التي تفتقد بياناتها على هذا الجهاز تُوسَم لإعادة الإدخال.',
+  'settings.export.import_desc':
+    'الصق ملف الإعدادات المُصدَّر بالأسفل لاستعادته. العناصر التي تفتقد بياناتها على هذا الجهاز تُوسَم لإعادة الإدخال.',
   'settings.export.import_placeholder': 'الصق ملف الإعدادات بصيغة JSON هنا',
   'settings.export.import_success': 'استُوردت الإعدادات. العناصر التي تحتاج إعادة إدخال موسومة.',
   'settings.export.import_error': 'هذا الملف ليس ملف إعدادات صالحًا. لم يتغيّر شيء.',
@@ -103,7 +105,8 @@ export default {
   'settings.providers.live_models_title': 'النماذج المكتشفة',
   'settings.providers.remove': 'حذف المزوّد',
   'settings.providers.remove.title': 'حذف المزوّد {name}',
-  'settings.providers.remove.desc': 'سيُحذف المزوّد {name} ومفتاحه من سلسلة المفاتيح، وستتوقّف الأدوار الموجّهة إليه.',
+  'settings.providers.remove.desc':
+    'سيُحذف المزوّد {name} ومفتاحه من سلسلة المفاتيح، وستتوقّف الأدوار الموجّهة إليه.',
   'settings.providers.status.enabled': 'يعمل',
   'settings.providers.status.disabled': 'متوقّف',
   'settings.providers.key_saved_hint': 'يُحفظ في سلسلة مفاتيح النظام ولا يغادر جهازك.',
@@ -169,7 +172,8 @@ export default {
   'settings.devices.status.revoked': 'ملغى',
   'settings.devices.revoke': 'إلغاء الوصول',
   'settings.devices.revoke.title': 'إلغاء وصول {name}',
-  'settings.devices.revoke.desc': 'سيفقد الجهاز {name} إمكانية الوصول الفوري إلى خادم ورشة ولن يتمكّن من اعتماد القرارات.',
+  'settings.devices.revoke.desc':
+    'سيفقد الجهاز {name} إمكانية الوصول الفوري إلى خادم ورشة ولن يتمكّن من اعتماد القرارات.',
   'settings.devices.pair.title': 'امسح رمز QR للاقتران',
   'settings.devices.pair.desc': 'افتح تطبيق ورشة على هاتفك وامسح هذا الرمز لإتمام الاقتران الآمن.',
   'settings.devices.pair.origin': 'عنوان الخادم',
@@ -226,7 +230,6 @@ export default {
   'settings.connections.disconnect.desc': 'سيتوقّف {name} وتتوقّف أدواته حتى تربطه من جديد.',
   'settings.connections.disconnected': 'قُطع اتصال الخادم.',
 
-
   'settings.workflows.import_label': 'استيراد مسار عمل بصيغة JSON',
   'settings.workflows.import_btn': 'استيراد مسار العمل',
   'settings.workflows.import_empty': 'أدخل تعريف مسار العمل بصيغة JSON أولًا.',
@@ -239,7 +242,8 @@ export default {
   'settings.workflows.view': 'عرض التفاصيل',
   'settings.workflows.delete': 'حذف المسار',
   'settings.workflows.delete.title': 'حذف مسار العمل {name}',
-  'settings.workflows.delete.desc': 'سيتمّ حذف مسار العمل {name} نهائيًا ولن يتوفّر للتشغيلات الجديدة.',
+  'settings.workflows.delete.desc':
+    'سيتمّ حذف مسار العمل {name} نهائيًا ولن يتوفّر للتشغيلات الجديدة.',
   'settings.workflows.detail.title': 'تفاصيل مسار العمل',
   'settings.workflows.detail.stages': 'المراحل',
   'settings.workflows.detail.max_repairs': 'الحدّ الأقصى للإصلاحات',
@@ -279,7 +283,8 @@ export default {
   'settings.integrations.test': 'اختبر',
   'settings.integrations.disconnect': 'قطع الاتصال',
   'settings.integrations.disconnect.title': 'قطع اتصال {name}',
-  'settings.integrations.disconnect.desc': 'سيتمّ قطع اتصال {name} وإزالة مفاتيح الوصول المرتبطة من سلسلة المفاتيح.',
+  'settings.integrations.disconnect.desc':
+    'سيتمّ قطع اتصال {name} وإزالة مفاتيح الوصول المرتبطة من سلسلة المفاتيح.',
   'settings.integrations.form.title': 'ربط تكامل',
   'settings.integrations.form.id': 'معرّف التكامل',
   'settings.integrations.form.token': 'رمز الوصول',
@@ -404,7 +409,8 @@ export default {
   'settings.catalog.diff.desc': 'تمت إضافة نماذج جديدة: {added}. تم تحديث الأسعار لـ: {updated}.',
   'settings.catalog.apply': 'تطبيق التحديث',
   'settings.catalog.prices_estimated': 'جميع الأسعار تقديرية من دليل النماذج المرجعي.',
-  'settings.permissions.honest_copy': 'أدوات ورشة محصورة بفحص المسارات؛ وتُحصر مراحل سطر الأوامر بواسطة بيئة العزل والخيارات الخاصة بها؛ لا يوجد عزل على مستوى نظام التشغيل حول ورشة نفسها؛ ويعني «وصول كامل» عدم وجود حصر للمسارات لأدوات ورشة وتشغيل سطر الأوامر بدون بيئة العزل.',
+  'settings.permissions.honest_copy':
+    'أدوات ورشة محصورة بفحص المسارات؛ وتُحصر مراحل سطر الأوامر بواسطة بيئة العزل والخيارات الخاصة بها؛ لا يوجد عزل على مستوى نظام التشغيل حول ورشة نفسها؛ ويعني «وصول كامل» عدم وجود حصر للمسارات لأدوات ورشة وتشغيل سطر الأوامر بدون بيئة العزل.',
   'settings.permissions.confinement_label': 'حصر الصلاحيات',
   'settings.permissions.confinement.read_only': 'قراءة فقط',
   'settings.permissions.confinement.workspace_write': 'كتابة في مساحة العمل',
@@ -424,9 +430,24 @@ export default {
   'settings.section.swarm': 'السرب',
   'settings.section.swarm.desc': 'تنفيذ مرحلة الكود كوكلاء فرعيين متوازيين لكل منهم شجرة عمل خاصة.',
   'swarm.enable': 'تمكين السرب',
-  'swarm.enable.description': 'يشغّل السرب عدة وكلاء معًا، فيستهلك رموزًا وميزانية أكثر. يناسب إعادة الهيكلة الكبيرة والتغييرات الممتدّة على ملفات كثيرة. ميزة تجريبية.',
+  'swarm.enable.description':
+    'يشغّل السرب عدة وكلاء معًا، فيستهلك رموزًا وميزانية أكثر. يناسب إعادة الهيكلة الكبيرة والتغييرات الممتدّة على ملفات كثيرة. ميزة تجريبية.',
   'swarm.max_agents': 'أقصى عدد من الوكلاء المتوازين',
   'swarm.max_agents.capped': 'الحدّ الأقصى 20',
   'swarm.select_project': 'المشروع',
   'swarm.saved': 'حُفظت إعدادات السرب.',
+  'settings.section.coding_engines': 'محركات البرمجة',
+  'settings.section.coding_engines.desc': 'ضبط بيئات البرمجة الخارجية ومحركات سطر الأوامر.',
+  'settings.coding_engines.title': 'محركات البرمجة',
+  'settings.coding_engines.description': 'إدارة محركات البرمجة الخارجية وبيئة التنفيذ الافتراضية.',
+  'settings.coding_engines.default_engine_label': 'محرك البرمجة الافتراضي',
+  'settings.coding_engines.default_engine_hint': 'اختر المحرك الافتراضي لتنفيذ مهام البرمجة.',
+  'settings.coding_engines.engine_native': 'النموذج المباشر',
+  'settings.coding_engines.save_btn': 'حفظ التوجيه',
+  'settings.coding_engines.saved': 'تم حفظ توجيه محرك البرمجة بنجاح.',
+  'settings.coding_engines.list_title': 'المحركات المتاحة',
+  'settings.coding_engines.installed': 'مثبّت',
+  'settings.coding_engines.not_installed': 'غير مثبّت',
+  'settings.coding_engines.load_error': 'فشل تحميل محركات البرمجة.',
+  'settings.coding_engines.save_error': 'فشل حفظ توجيه محرك البرمجة.',
 };

@@ -212,7 +212,7 @@ impl CodingBackendRegistry {
                 .read()
                 .unwrap_or_else(|e| e.into_inner());
 
-            if let Some(pid) = project_id {
+            let name = if let Some(pid) = project_id {
                 pr_map
                     .get(&(pid, role))
                     .or_else(|| p_map.get(&pid))
@@ -221,7 +221,14 @@ impl CodingBackendRegistry {
                     .cloned()
             } else {
                 r_map.get(&role).or(def.as_ref()).cloned()
-            }
+            };
+
+            name.or_else(|| {
+                std::env::var("WARSHA_CODING_BACKEND")
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            })
         };
 
         match configured_name {

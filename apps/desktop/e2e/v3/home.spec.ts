@@ -1,14 +1,15 @@
 import { expect, test } from '@playwright/test';
 
-import {
-  auditFocusWalk,
-  describeAxe,
-  describeFocus,
-  focusIsClean,
-  runAxe,
-} from '../harness';
+import { auditFocusWalk, describeAxe, describeFocus, focusIsClean, runAxe } from '../harness';
 
-import { act, expectRpc, openV3, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
+import {
+  act,
+  expectRpc,
+  openV3,
+  auditViewportFit,
+  describeViewportFit,
+  viewportFitIsClean,
+} from './support';
 
 const LOCALES = ['ar', 'en'] as const;
 const THEMES = ['light', 'dark'] as const;
@@ -140,15 +141,15 @@ test.describe('Home journeys', () => {
             result: (params: unknown) =>
               JSON.stringify(params).includes('proj-ui')
                 ? [
-              {
-                id: 'run-failed',
-                projectId: 'proj-ui',
-                stage: 'code',
-                status: 'failed',
-                startedAt: '2026-10-05T09:00:00.000Z',
-                updatedAt: '2026-10-05T09:45:00.000Z',
-                run_mode: 'agent',
-              },
+                    {
+                      id: 'run-failed',
+                      projectId: 'proj-ui',
+                      stage: 'code',
+                      status: 'failed',
+                      startedAt: '2026-10-05T09:00:00.000Z',
+                      updatedAt: '2026-10-05T09:45:00.000Z',
+                      run_mode: 'agent',
+                    },
                   ]
                 : [],
           },
@@ -268,6 +269,18 @@ test.describe('Home action ids', () => {
     await act(page, 'home.secretary.open');
     await expect(page.locator('[data-testid="home-secretary-sheet"]')).toBeVisible();
   });
+
+  test('home.new-project.open opens the new project dialog and can cancel', async ({ page }) => {
+    await openV3(page, '/');
+    await act(page, 'home.new-project.open');
+    await act(page, 'home.new-project.cancel');
+  });
+
+  test('home.new-project.submit submits new project from dialog', async ({ page }) => {
+    await openV3(page, '/');
+    await act(page, 'home.new-project.open');
+    await act(page, 'home.new-project.submit');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -277,9 +290,7 @@ test.describe('Home action ids', () => {
 test.describe('Home accessibility (@a11y)', () => {
   for (const locale of LOCALES) {
     for (const theme of THEMES) {
-      test(`axe AA clean and keyboard complete in ${locale} ${theme} @a11y`, async ({
-        page,
-      }) => {
+      test(`axe AA clean and keyboard complete in ${locale} ${theme} @a11y`, async ({ page }) => {
         await openV3(page, '/', { lang: locale, theme });
 
         const axe = await runAxe(page);
@@ -383,10 +394,10 @@ test.describe('Home visual baselines (@visual)', () => {
             }
 
             const fit = await auditViewportFit(page);
-            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
-            await expect(page).toHaveScreenshot(
-              `home-${state}-${vp.name}-${locale}-${theme}.png`
-            );
+            expect
+              .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+              .toBe(true);
+            await expect(page).toHaveScreenshot(`home-${state}-${vp.name}-${locale}-${theme}.png`);
           });
         }
       }

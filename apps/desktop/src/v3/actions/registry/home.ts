@@ -92,4 +92,20 @@ export const ACTIONS: readonly ActionDef[] = [
     labelKey: 'secretary.title',
     effect: 'state',
   },
+  {
+    id: 'home.new-project.open',
+    labelKey: 'home.new_project_btn',
+    effect: 'state',
+  },
+  {
+    id: 'home.new-project.cancel',
+    labelKey: 'common.cancel',
+    effect: 'state',
+  },
+  {
+    id: 'home.new-project.submit',
+    labelKey: 'home.new_project_submit',
+    effect: 'rpc',
+    rpc: ['projects.create'],
+  },
 ];

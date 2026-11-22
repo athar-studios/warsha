@@ -58,4 +58,7 @@ export default {
   'onboarding.manual_model_fallback': 'أو أدخل معرّف النموذج يدويًا',
   'onboarding.idea_required': 'اكتب فكرة مشروعك أولًا',
   'onboarding.provider_configured_badge': 'متصل',
+  'onboarding.repo_path_label': 'مسار مستودع Git (اختياري)',
+  'onboarding.repo_path_placeholder': 'مسار المجلد المحلي',
+  'onboarding.repo_path_hint': 'مسار مستودع Git محلي موجود للعمل عليه.',
 };
