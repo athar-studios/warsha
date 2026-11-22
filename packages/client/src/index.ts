@@ -1051,17 +1051,53 @@ const ROLE_VALUES: readonly Role[] = [
   'release',
   'marketer',
   'feedback',
+  'secretary',
 ];
 
 /**
  * Every role the pipeline can staff, in the order `roles.list`/`roles.set` name them.
  *
- * Exported because three screens need the same twelve rows: Settings → Models draws one
+ * Exported because three screens need the same thirteen rows: Settings → Models draws one
  * routing row per role, and both custom-endpoint flows (onboarding and Settings → Providers)
  * route the whole team to the model the owner just registered. A second copy of this list in
- * a screen is a role the screen silently stops routing.
+ * a screen is a role the screen silently stops routing. `secretary` is `Role::Secretary` in
+ * `crates/warsha-core` (`rename_all = "snake_case"`), the same variant the daemon routes.
  */
 export const ALL_ROLES: readonly Role[] = ROLE_VALUES;
+
+/**
+ * Stored routing keys that are not the table's short id, keyed with `_` and `-` removed.
+ *
+ * `warsha_core::Role` serialises with `rename_all = "snake_case"`, so `PM` is stored and
+ * answered as `p_m` and `QA` as `q_a`. Older rows also used the long names
+ * `product_manager` / `qa`. The Settings table (and `setRoleConfig`) speak the short ids
+ * `pm` / `qa`, so a saved route only reaches its row when the key is folded first.
+ * Hyphens are treated like underscores (`product-manager` is the same role as `p_m`).
+ * `qa` already equals its table id once separators are stripped, so it needs no alias.
+ */
+const ROLE_KEY_ALIASES: Readonly<Record<string, Role>> = {
+  pm: 'pm',
+  productmanager: 'pm',
+  qa: 'qa',
+};
+
+/**
+ * The table role a stored routing key names, or `null` when it names nothing we staff.
+ *
+ * Underscores and hyphens are stripped before the alias table and the canonical ids are
+ * consulted, so `p_m`, `p-m`, `product_manager` and `pm` all land on the Product Manager
+ * row, and `q_a` / `q-a` / `qa` all land on QA.
+ */
+export function canonicalRoleKey(stored: string): Role | null {
+  const folded = stored.trim().toLowerCase().replace(/[-_]/g, '');
+  if (folded.length === 0) return null;
+  const aliased = ROLE_KEY_ALIASES[folded];
+  if (aliased !== undefined) return aliased;
+  for (const role of ROLE_VALUES) {
+    if (role.replace(/[-_]/g, '') === folded) return role;
+  }
+  return null;
+}
 
 const REDACTED = '[redacted]';
 const EVENT_FRAME_ERROR = 'Malformed event frame';

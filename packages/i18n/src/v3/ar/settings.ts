@@ -162,6 +162,7 @@ export default {
   'settings.role.release': 'الإصدار',
   'settings.role.marketer': 'التسويق',
   'settings.role.feedback': 'المتابعة',
+  'settings.role.secretary': 'سكرتير',
 
   'settings.devices.pair': 'اقتران جهاز جديد',
   'settings.devices.empty.title': 'لا توجد أجهزة مقترنة',

@@ -1,5 +1,12 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Role routing reads the stored key shapes (D-R11-ROLES-1)
+
+- **Scope**: Owner UI finding #2 on branch `fix-r11-roles` (base `7de0302`). Local-only: no push, no tag, no publish, main untouched.
+- **Change**: `canonicalRoleKey` folds hyphens and underscores. The Secretary row is rendered from the routing table.
+- **Proving test**: `shows the routed model for snake_case product_manager and qa keys, not "No model"` in `ModelsSection.test.tsx`. Run inside the integration tree: 13 passed, 0 failed.
+- **Status**: green, ready to merge.
+
 ## Run 2026-11-23 — A cancelled run keeps its own label (D-R11-STATUS-1)
 
 - **Scope**: Owner UI finding #8 on branch `fix-r11-status` (base `7de0302`). Local-only: no push, no tag, no publish, main untouched.

@@ -1,6 +1,11 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-ROLES-1: Role routing accepts the stored key shapes
+
+- **Decision**: `canonicalRoleKey` strips hyphens and underscores before the alias table and the canonical ids. `product_manager`, `p_m`, `p-m` and `pm` all select the Product Manager row; `q_a`, `q-a` and `qa` select QA. The Secretary row is part of the routing table, with native labels `settings.role.secretary` (ar `سكرتير`, en `Secretary`).
+- **Reason**: Owner UI finding #2. The directives table stored snake_case keys the client never matched, so a routed role rendered "No model" and the Secretary row was missing.
+- **Scope**: `packages/client/src/index.ts`, `apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx` and its test, `packages/i18n/src/v3/{en,ar}/settings.ts`. Local-only; no main/push/tag/publish.
 ## 2026-11-23 — D-R11-STATUS-1: A cancelled run is not a failed run
 
 - **Decision**: `mapRunStatusToPill('cancelled')` returns the new `cancelled` state on `StatusPill`, and `getStatusLabelKey` maps it to `bench.status.cancelled` (ar `ملغاة`, en `Cancelled`). The Home and Projects lists use the same key. The pill is neutral, not danger. `failed` stays danger.
