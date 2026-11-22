@@ -79,6 +79,9 @@ impl ProviderError {
     /// authentication failure, a 4xx client rejection (400, 401, 403, 404, 422),
     /// or a budget we have already crossed.
     pub fn is_retryable(&self) -> bool {
+        if self.is_server_downtime() {
+            return true;
+        }
         match self {
             ProviderError::RateLimited(_)
             | ProviderError::QuotaExhausted(_)
@@ -91,6 +94,9 @@ impl ProviderError {
     }
 
     pub fn should_failover(&self) -> bool {
+        if self.is_server_downtime() {
+            return true;
+        }
         matches!(
             self,
             ProviderError::RateLimited(_)
@@ -100,6 +106,33 @@ impl ProviderError {
                 | ProviderError::Http(401 | 403 | 500..=599, _)
                 | ProviderError::Other(_)
         )
+    }
+
+    /// Persistent server-downtime signals: 503 Service Unavailable, 502 Bad Gateway,
+    /// 504 Gateway Timeout, 5xx server errors, or `Other` messages carrying a 5xx
+    /// server-error message.
+    ///
+    /// Distinct from genuine transient signals (429 rate limit, 402 quota, timeout)
+    /// which warrant full retry loops with backoff. Server downtime signals fail over
+    /// immediately after at most 1 fast retry and engage a 60s cooldown (GAP-H3).
+    pub fn is_server_downtime(&self) -> bool {
+        match self {
+            ProviderError::Http(status, _) => matches!(*status, 500..=599),
+            ProviderError::Other(msg) => {
+                let m = msg.to_ascii_lowercase();
+                if m.contains("rate limit") || m.contains("too many requests") {
+                    return false;
+                }
+                m.contains("server error")
+                    || m.contains("service unavailable")
+                    || m.contains("bad gateway")
+                    || m.contains("gateway timeout")
+                    || m.contains("502")
+                    || m.contains("503")
+                    || m.contains("504")
+            }
+            _ => false,
+        }
     }
 }
 
@@ -972,6 +1005,20 @@ impl ProviderRouter {
         cooldowns.remove(provider_id);
     }
 
+    /// Check whether a provider is currently in cooldown.
+    ///
+    /// Expired entries are pruned lazily on inspection.
+    pub fn is_in_cooldown(&self, provider_id: &str) -> bool {
+        let mut cooldowns = self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(until) = cooldowns.get(provider_id) {
+            if Instant::now() < *until {
+                return true;
+            }
+            cooldowns.remove(provider_id);
+        }
+        false
+    }
+
     /// Get the best provider/model for a role
     pub fn route(&self, role: Role) -> Option<(String, String)> {
         let routings = self
@@ -1154,14 +1201,28 @@ impl ProviderRouter {
                     Err(err) => {
                         let retryable = err.is_retryable();
                         let failover = err.should_failover();
+                        let server_downtime = err.is_server_downtime();
                         last_error = Some(err);
 
+                        // GAP-H3: server downtime signals (503/502/504, 5xx) allow at most 1 fast
+                        // retry (zero backoff delay). Genuine transient signals (429/402/timeout)
+                        // use the configured max_retries_per_target and exponential backoff.
+                        let max_target_retries = if server_downtime {
+                            retry.max_retries_per_target.min(1)
+                        } else {
+                            retry.max_retries_per_target
+                        };
+
                         if retryable
-                            && target_retries < retry.max_retries_per_target
+                            && target_retries < max_target_retries
                             && total_attempts < retry.max_total_attempts
                             && !self.budget_exhausted(project_id)
                         {
-                            let delay = backoff_delay_ms(&retry, target_retries, entropy_seed());
+                            let delay = if server_downtime {
+                                0
+                            } else {
+                                backoff_delay_ms(&retry, target_retries, entropy_seed())
+                            };
                             target_retries = target_retries.saturating_add(1);
                             if delay > 0 {
                                 tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -1169,18 +1230,16 @@ impl ProviderRouter {
                             continue;
                         }
 
-                        // Failover trigger: move to next target
-                        if failover {
-                            // Update cooldown for this provider
-                            {
-                                let mut cooldowns =
-                                    self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
-                                // Basic cooldown implementation: 60s
-                                cooldowns.insert(
-                                    target.provider_id.clone(),
-                                    Instant::now() + Duration::from_secs(60),
-                                );
-                            }
+                        // Target retries exhausted or non-retryable error.
+                        // Engage 60s cooldown for failover or server downtime on the downed
+                        // provider, regardless of whether fallback_enabled is true for this role.
+                        if failover || server_downtime {
+                            let mut cooldowns =
+                                self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
+                            cooldowns.insert(
+                                target.provider_id.clone(),
+                                Instant::now() + Duration::from_secs(60),
+                            );
                             break;
                         }
 
@@ -1965,5 +2024,47 @@ mod tests {
         let printed = format!("{handle:?}");
         assert!(printed.contains("ProviderRouter"));
         assert!(!printed.contains("sk-"), "a router Debug printed a key");
+    }
+
+    #[test]
+    fn server_downtime_classification() {
+        assert!(ProviderError::Http(503, "Service Unavailable".into()).is_server_downtime());
+        assert!(ProviderError::Http(502, "Bad Gateway".into()).is_server_downtime());
+        assert!(ProviderError::Http(504, "Gateway Timeout".into()).is_server_downtime());
+        assert!(ProviderError::Http(500, "Internal Server Error".into()).is_server_downtime());
+        assert!(ProviderError::Other("Server error: 503".into()).is_server_downtime());
+        assert!(ProviderError::Other("503 Service Unavailable".into()).is_server_downtime());
+        assert!(ProviderError::Other("Bad Gateway 502".into()).is_server_downtime());
+        assert!(ProviderError::Other("Gateway Timeout 504".into()).is_server_downtime());
+
+        // Genuine transient or non-server errors are NOT server downtime
+        assert!(!ProviderError::RateLimited("too many requests".into()).is_server_downtime());
+        assert!(!ProviderError::QuotaExhausted("quota".into()).is_server_downtime());
+        assert!(!ProviderError::Timeout("deadline passed".into()).is_server_downtime());
+        assert!(!ProviderError::Auth("unauthorized".into()).is_server_downtime());
+        assert!(!ProviderError::Http(429, "Too Many Requests".into()).is_server_downtime());
+        assert!(!ProviderError::Http(401, "Unauthorized".into()).is_server_downtime());
+        assert!(!ProviderError::Http(404, "Not Found".into()).is_server_downtime());
+        assert!(!ProviderError::Other("rate limit exceeded (429)".into()).is_server_downtime());
+    }
+
+    #[test]
+    fn cooldown_status_and_reset() {
+        let router = ProviderRouter::new();
+        assert!(!router.is_in_cooldown("openai"));
+
+        // Put provider in cooldown
+        {
+            let mut cooldowns = router.cooldowns.lock().unwrap();
+            cooldowns.insert(
+                "openai".to_string(),
+                Instant::now() + Duration::from_secs(60),
+            );
+        }
+        assert!(router.is_in_cooldown("openai"));
+
+        // Reset cooldown
+        router.reset_cooldown("openai");
+        assert!(!router.is_in_cooldown("openai"));
     }
 }
