@@ -1,5 +1,12 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — A cancelled run keeps its own label (D-R11-STATUS-1)
+
+- **Scope**: Owner UI finding #8 on branch `fix-r11-status` (base `7de0302`). Local-only: no push, no tag, no publish, main untouched.
+- **Change**: `cancelled` is its own `StatusPill` state and its own i18n key. Home and Projects no longer reuse the paused label for it.
+- **Proving test**: `renders a cancelled run with the cancelled label, not the failed one` in `apps/desktop/src/v3/pages/bench/bench.test.tsx`. Run inside the integration tree because the lane vitest shim points at the workspace-root pnpm store: 46 passed, 0 failed.
+- **Status**: green, ready to merge.
+
 ## Run 2026-11-22 — Practical UI drive proof for R9 (GAP-H3 + MISS-1) (D-R9-DRIVE-1)
 - **Scope**: Practical end-to-end UI drive on `r-next/integration` for merged tip `db29346` (lane `5764fe8` GAP-H3 + lane `db29346` MISS-1), per permanent owner rule OD-PRACTICAL-REVIEW-1. Local-only: no push, no tag, no publish, main untouched.
 - **Drive implementation**:

@@ -48,6 +48,7 @@ export default {
   'bench.status.waiting': 'ينتظرك',
   'bench.status.done': 'مكتمل',
   'bench.status.failed': 'فشل',
+  'bench.status.cancelled': 'ملغاة',
   'bench.status.paused': 'موقوف',
   'bench.run_failed_banner': 'تعثّر هذا التشغيل قبل الاكتمال. تحقق من الأحداث أو أعِد المحاولة.',
   'bench.header.run_num': 'التشغيل #{number}',

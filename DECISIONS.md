@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-STATUS-1: A cancelled run is not a failed run
+
+- **Decision**: `mapRunStatusToPill('cancelled')` returns the new `cancelled` state on `StatusPill`, and `getStatusLabelKey` maps it to `bench.status.cancelled` (ar `ملغاة`, en `Cancelled`). The Home and Projects lists use the same key. The pill is neutral, not danger. `failed` stays danger.
+- **Reason**: Owner UI finding #8. A cancelled run was rendered with the failed label and the danger colour, so the owner could not tell a cancellation from a failure.
+- **Scope**: `apps/desktop/src/v3/pages/bench/helpers.ts`, `apps/desktop/src/v3/pages/bench/bench.test.tsx`, `apps/desktop/src/v3/pages/home/index.tsx`, `apps/desktop/src/v3/pages/projects/index.tsx`, `packages/ui/src/v3/primitives/StatusPill.tsx`, `packages/ui/src/v3/primitives/StatusPill.stories.tsx`, `packages/i18n/src/v3/{en,ar}/bench.ts`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-22 — D-R9-DRIVE-1: Practical UI Drive Proof for R9 (GAP-H3 Fast Failover + MISS-1 Greenfield Git Auto-Init)
 - **Decision**:
   1. Automated practical drive script `scripts/ui-drive-r9-failover-autoinit.mjs` orchestrating a real `warshad` daemon and headless Chromium in Arabic locale (`ar-EG`, RTL, dark theme) exercising both R9 fixes end-to-end:

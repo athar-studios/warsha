@@ -44,6 +44,7 @@ import { PlanTab } from './tabs/PlanTab';
 import { PreviewTab } from './tabs/PreviewTab';
 import { TeamTab } from './tabs/TeamTab';
 import { TerminalTab } from './tabs/TerminalTab';
+import { getStatusLabelKey, mapRunStatusToPill } from './helpers';
 
 const SAMPLE_PROJECT: ProjectSummary = {
   id: 'proj-1' as ProjectId,
@@ -371,6 +372,47 @@ describe('Advanced Workbench (U4)', () => {
     );
     expect(screen.getByRole('button', { name: /التشغيل #1/ })).toBeInTheDocument();
     expect(screen.queryByText('لا توجد تشغيلات لهذا المشروع')).toBeNull();
+  });
+
+  it('renders a cancelled run with the cancelled label, not the failed one (D-R11-STATUS-1)', () => {
+    expect(mapRunStatusToPill('cancelled')).toBe('cancelled');
+    expect(mapRunStatusToPill('failed')).toBe('failed');
+
+    const { unmount } = renderWithProviders(
+      <BenchHeader
+        project={SAMPLE_PROJECT}
+        run={{ ...SAMPLE_RUN, status: 'cancelled' }}
+        gates={[]}
+        onAdvance={vi.fn()}
+        onStartNewRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onReconnect={vi.fn()}
+      />,
+      undefined,
+      'en'
+    );
+    const cancelled = screen.getByText('Cancelled');
+    expect(cancelled.closest('.w-status-pill')).toHaveAttribute('data-status', 'cancelled');
+    expect(screen.queryByText('Failed')).toBeNull();
+    unmount();
+
+    renderWithProviders(
+      <BenchHeader
+        project={SAMPLE_PROJECT}
+        run={{ ...SAMPLE_RUN, status: 'failed' }}
+        gates={[]}
+        onAdvance={vi.fn()}
+        onStartNewRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onReconnect={vi.fn()}
+      />,
+      undefined,
+      'en'
+    );
+    const failed = screen.getByText('Failed');
+    expect(failed.closest('.w-status-pill')).toHaveAttribute('data-status', 'failed');
+    expect(getStatusLabelKey('failed')).toBe('bench.status.failed');
+    expect(getStatusLabelKey('cancelled')).toBe('bench.status.cancelled');
   });
 
   it('BenchHeader hides gate pill when pending gate is NOT at current stage (Amendment b)', () => {

@@ -291,6 +291,7 @@ export default function ProjectsPage(): React.ReactElement {
       waiting: t('projects.status_waiting'),
       done: t('projects.status_done'),
       failed: t('projects.status_failed'),
+      cancelled: t('bench.status.cancelled'),
       paused: t('projects.status_paused'),
     }),
     [t]

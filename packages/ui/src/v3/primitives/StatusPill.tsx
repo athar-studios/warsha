@@ -1,5 +1,5 @@
 // packages/ui/src/v3/primitives/StatusPill.tsx — Design System v3 StatusPill (DS v3 §3.1)
-// Statuses: idle, running, waiting (attention), done, failed, paused.
+// Statuses: idle, running, waiting (attention), done, failed, cancelled, paused.
 // Always renders icon + word (never colour alone).
 
 import React from 'react';
@@ -20,6 +20,7 @@ export type StatusPillState =
   | 'waiting'
   | 'done'
   | 'failed'
+  | 'cancelled'
   | 'paused';
 
 export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
@@ -75,6 +76,14 @@ const STATUS_CONFIG: Record<
     style: {
       backgroundColor: 'var(--w-danger-soft)',
       color: 'var(--w-danger)',
+    },
+  },
+  cancelled: {
+    defaultLabel: 'ملغاة',
+    icon: <IconX size={14} />,
+    style: {
+      backgroundColor: 'var(--w-sunken)',
+      color: 'var(--w-text-muted)',
     },
   },
   paused: {
