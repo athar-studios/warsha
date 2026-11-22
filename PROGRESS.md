@@ -1,5 +1,19 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — V5 plan-vs-reality audit recorded (D-AUDIT-V5-REALITY-1)
+- **Scope**: Record completed V5 plan-vs-reality audit report into `r-next/integration` at base `84cd6a2` (worktree `.agents/worktrees/r-next-integration`) as part of goal-50268409 rev2. Local-only: no push, no tag, no publish, main untouched.
+- **Report**: `docs/zadloop/packets/AUDIT-V5-REALITY.md` (281 lines).
+- **Verdict Counts (Section 1)**: 33 packets audited across Phase-0 and Release Run (A11 order): 25 PASS, 7 PARTIAL (F3, FIN4, A1, A2, B2, N3, E2), 1 FAIL (N2).
+- **Gap List**:
+  - `GAP-H1`: External coding harnesses unreachable & inoperable in real daemon path (0 JSON-RPC endpoints, fallback to native LLM, crash on `repo_path: None`).
+  - `GAP-H2`: `runs.worktree` returns `null` for all GUI-created projects (`create_project` hardcodes `repo_path: None`).
+  - `GAP-H3`: HTTP 503 Server Unavailable incurs exhaustive retry backoff before failover.
+  - Medium/Low Gaps: `GAP-M1`..`GAP-M4`, `GAP-L1`..`GAP-L2`.
+  - Missing Items: `MISS-1`..`MISS-4`.
+  - Explicit NOT-CHECKED: 7 items (live OAuth, live provider balances, physical mobile/Tailscale pairing, Windows MSVC build, desktop release binary self-check, live CLI token execution, fast-forward of `main`).
+  - Recommended Activation Path: OpenCode-first (repo attachment, JSON-RPC endpoints, Desktop settings section, CLI execution).
+- **Status**: COMPLETE.
+
 ## Run 2026-11-22 — Fix 0.3.1 Code-stage silent-success + Gate-C rerun loop (D-CODE-FAILLOUD-1, D-CODE-GATEC-RERUN-1)
 - **Scope**: Fix Code-stage silent success on empty/DSML-leaked output and Gate-C rerun loop on branch `fix-code-stage` (base `543844c`, worktree `.agents/worktrees/fix-code-stage`). Local-only: no push, no tag, no publish, main untouched.
 - **Changes**:

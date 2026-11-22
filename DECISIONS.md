@@ -1,5 +1,19 @@
 
 
+## 2026-11-22 — D-AUDIT-V5-REALITY-1: Plan-vs-Reality Audit of Warsha R-NEXT v5 Recorded
+- **Decision**: Recorded and committed the comprehensive plan-vs-reality audit report (`docs/zadloop/packets/AUDIT-V5-REALITY.md`) into `r-next/integration` at base commit `84cd6a2`. The audit systematically evaluated all 33 packets across Phase-0 (14 packets) and Release Run (19 packets in A11 order), concluding:
+  1. **33-Packet Table & Verdicts**: 25 PASS, 7 PARTIAL (F3, FIN4, A1, A2, B2, N3, E2), 1 FAIL (N2 coding-engine catalog disconnected from RPC/UI).
+  2. **High Gaps (GAP-H1..H3)**:
+     - `GAP-H1`: External coding harnesses unreachable & inoperable in real daemon path (0 JSON-RPC endpoints in `warshad`, silent fallback to native LLM, hard error on `repo_path: None`).
+     - `GAP-H2`: `runs.worktree` returns `null` for all GUI-created projects (`create_project` hardcodes `repo_path: None`, GUI never calls `projects.attach`).
+     - `GAP-H3`: HTTP 503 Server Unavailable incurs exhaustive retry backoff before failing over.
+  3. **Medium & Low Gaps**: `GAP-M1` (`B2-report.md` template markers), `GAP-M2` (desktop linting debt on path aliases), `GAP-M3` (wire contract violations on unimplemented catalog stubs), `GAP-M4` (`cargo deny` TLS/OAuth advisories); `GAP-L1` (OpenCode unprompted under WorkspaceWrite), `GAP-L2` (A4 pre-run cost estimation checklist TODO).
+  4. **Out-of-Plan Missing Items (MISS-1..4)**: `MISS-1` (no greenfield Git auto-init), `MISS-2` (no guided recovery on coder contract failure), `MISS-3` (no CLI health/version diagnostics), `MISS-4` (no post-mortem crash capture for CLI aborts).
+  5. **Explicit NOT-CHECKED List**: 7 items constrained by missing owner hardware, external cloud accounts, or autonomy boundaries (live OAuth sign-in, live provider balances, physical mobile/Tailscale pairing, Windows MSVC build, desktop release binary self-check on owner PC, live CLI token execution, fast-forward of `main`).
+  6. **Activation Path (OpenCode-First)**: Surgical 4-step sequence (wire repo attachment into project creation, implement `coding_backends.list` and `backend_routing.get/set` RPCs, add Desktop "Coding Engines" settings section, and verify non-interactive `opencode run` execution).
+- **Reason**: Formalize and preserve audit evidence and actionable remediation scope on `r-next/integration` as part of goal-50268409 rev2.
+- **Scope**: Documentation only (`docs/zadloop/packets/AUDIT-V5-REALITY.md`, `DECISIONS.md`, `PROGRESS.md`). Read-only scope: no product code edited. Local-only: no push, no tag, no publish, `main` untouched.
+
 ## 2026-11-22 — D-CODE-FAILLOUD-1: Code-Stage Quality Validation and Loud Stage Failure
 - **Decision**: In `crates/warsha-pipeline/src/lib.rs` (`execute_stage_with_feedback`), added explicit output-quality validation (`validate_code_stage_content`) for `Stage::Code` before artifact commit. The validator rejects:
   1. Empty or whitespace-only content.
