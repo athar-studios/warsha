@@ -2782,4 +2782,32 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
     * `test_r7_h6_cmake_configure_forms_risky`: tests `cmake -L`/`-LAH` without `-N` classify `Risky`, while `-N` combinations classify `Safe`.
     * `test_r7_h7_cargo_tree_metadata_risky`: confirms `cargo tree` and `cargo metadata` classify `Risky`, while `cargo --version` and `cargo locate-project` classify `Safe`.
 
+## 2026-11-22 — D-R8-APPROVAL-1: Fix Round-8 Approval Bypasses (N-1 through N-4)
+
+- **Context & Scope**: Closes the 4 HIGH blockers from `/tmp/warsha-round8-2026-11-22.md` (N-1, N-2, N-3, N-4) in `crates/warsha-pipeline/src/work_protection.rs` and `crates/warsha-pipeline/src/command_policy.rs`:
+  - **N-1: Bare-repo-shaped workspace + allow-listed git (H-2 class)**:
+    * Root cause: Workspace root containing `HEAD`, `objects/`, and `refs/` with no `.git/` directory was treated by git as a bare repository. Allow-listed read-only git commands (`git status`, `git add`, `git diff`) would consult the workspace-root `config` file, executing agent-controlled binaries via `core.fsmonitor`, `filter.*.clean`, `diff.*.command`.
+    * Fix: Added `is_bare_repo_shape` check in `crates/warsha-pipeline/src/command_policy.rs` and `crates/warsha-pipeline/src/work_protection.rs`. Any `git` invocation targeting a bare-repo-shaped workspace root is classified as `Risky` in `classify_command_with_workdir` and rejected with `CommandPolicyError::InvalidCommand` in `check_arguments_with_workdir`. Normal repositories with a `.git/` directory remain unaffected. Spawned git processes also pin `GIT_CONFIG_NOSYSTEM=1` in `MINIMAL_CHILD_ENV`.
+  - **N-2: `--work-tree=.git` / `--git-dir` / `GIT_WORK_TREE` defeat (H-4/.git class)**:
+    * Root cause: Running `git --work-tree=.git checkout HEAD -- hooks/pre-commit` or `git --work-tree=.git checkout HEAD:cfg -- config` allowed writing executable hooks into `.git/hooks` or overwriting `.git/config` because `--work-tree=.git` set the working tree to `.git`, redirecting checkout/restore targets.
+    * Fix: Refused `--work-tree` and `--git-dir` if they point to `.git` or anything other than the workspace root (`is_valid_work_tree`, `is_valid_git_dir`); refused `--namespace` and `--super-prefix`; refused `GIT_WORK_TREE=`, `GIT_DIR=`, and `GIT_NAMESPACE=` env passthrough (in both `classify_command_with_workdir` and `check_arguments_with_workdir`). Extended `is_git_config_path` segment checks in `command_policy.rs` to cover all sensitive `.git` metadata paths (`head`, `index`, `objects`, `refs`, `info`).
+  - **N-3: Outside-workspace writes and execution (H-5 class)**:
+    * Root cause:
+      1. Program classification checked only that path-spelled binaries did not resolve inside the workspace, allowing an external executable (e.g. `/abs/outside/npm --version`) to masquerade as an allow-listed tool via basename matching.
+      2. Argument checking only inspected tokens where `arg.starts_with('/')`, missing `--flag=/outside` or `--flag /outside` targets (such as `git --work-tree=/abs/outside`, `git log --output=/abs/outside`, `git diff -o /abs/outside`).
+    * Fix:
+      1. In `command_policy.rs:545-565` and `work_protection.rs:397-408`: Any path-spelled program token containing a path separator (`/` or `\`) that resolves outside the workspace must match an explicit allow-list entry (`is_exact`) or, when matching a known safe toolchain tool by basename, must resolve identically to the canonical PATH-resolved binary (`is_canonical_path_tool`). Otherwise, it is classified `Risky` and refused.
+      2. In `command_policy.rs` and `work_protection.rs`: Extended the outside-workspace path scanner to split on `=` for `--flag=value` tokens and check the target for `--output=`, `--work-tree=`, `-o`, `--upload-pack=`. Any destination outside the workspace root is classified `Risky` and refused.
+  - **N-4: `cmake -HN` configure bypass (H-6 class)**:
+    * Root cause: Letter-combination check allowed any combination of `-`, `L`, `A`, `H`, `N`, allowing `-HN` which CMake interprets as `-H <dir>` (setting legacy source directory to `N`), running the configure stage on `N/CMakeLists.txt`.
+    * Fix: Replaced letter-combination rule in `crates/warsha-pipeline/src/work_protection.rs` with exact token requirements: only separate exact tokens `-N`, `-L`, `-LA`, `-LH`, `-LAH` are permitted, and at least one separate exact `-N` view flag is required. Any compound or `-H...` flags (`-HN`, `-HLN`, `-HAN`, etc.) classify as `Risky`.
+- **Proving Tests (M-6 Requirement)**:
+  - Added 4 end-to-end proving tests driving `FilesystemToolExecutor` in `AskForRisky` mode in `crates/warsha-pipeline/src/verification_tests_impl.rs`:
+    * `test_r8_n1_bare_shape_fsmonitor_refused_e2e`: reproduces bare-shape workspace root with `HEAD`, `objects/`, `refs/`, `config` (`core.fsmonitor`); proves `git status` is refused and marker file is ABSENT.
+    * `test_r8_n2_worktree_dotgit_hook_and_config_refused_e2e`: reproduces `git --work-tree=.git checkout` attempting to write `.git/hooks/pre-commit` or overwrite `.git/config`; proves commands are refused and hook marker is ABSENT.
+    * `test_r8_n3_outside_workspace_writes_and_exec_refused_e2e`: reproduces `git --work-tree=<outside>` checkout, `git log --output=<outside>`, and outside `/tmp/.../npm` execution; proves commands are refused and outside markers are ABSENT.
+    * `test_r8_n4_cmake_hn_configure_refused_e2e`: reproduces `cmake -HN` legacy configure form; proves command is refused and build/marker file is ABSENT.
+  - Existing tests updated deliberately: `test_r6_h4_cmake_allow_list`, `test_r7_h5_absolute_path_workspace_confinement`, `test_r7_h6_cmake_configure_forms_risky`.
+
+
 

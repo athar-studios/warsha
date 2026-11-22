@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — Round-8 Fix 4 HIGH Approval-Bypass Blockers (D-R8-APPROVAL-1) + FIXES COMPLETE — AWAITING CLAUDE VERIFICATION
+- **Scope**: Fix all 4 HIGH blockers from `/tmp/warsha-round8-2026-11-22.md` (N-1..N-4) on `r-next/integration` (`a79a506`), worktree `.agents/worktrees/fix-r8-approval`. Local-only: no push, no tag, no publish, main untouched.
+- **Changes**: N-1 bare-repo shape detection for git (Risky / Err) + GIT_CONFIG_NOSYSTEM=1; N-2 refuse --work-tree/.git-dir outside ws root, refuse env passthrough (GIT_WORK_TREE/GIT_DIR/GIT_NAMESPACE), extend is_git_config_path; N-3 check flag values (--output=, --work-tree=, -o) for outside paths + require canonical PATH tool for path-spelled safe programs; N-4 cmake exact tokens only (-N, -L, -LA, -LH, -LAH with separate -N). Proving tests: `test_r8_n1_bare_shape_fsmonitor_refused_e2e`, `test_r8_n2_worktree_dotgit_hook_and_config_refused_e2e`, `test_r8_n3_outside_workspace_writes_and_exec_refused_e2e`, `test_r8_n4_cmake_hn_configure_refused_e2e` (4/4 pass).
+- **Gate matrix**: `cargo fmt --check` clean; `cargo clippy --workspace --all-targets` clean (0 warnings); full `cargo test --workspace` (all 57 binaries, 0 failures); `pnpm -r test` (all packages pass, 1,496 tests passed); desktop `pnpm lint` (0 errors); `pnpm -r run typecheck` (0 errors); `node scripts/check-engineering-policy.mjs` (8/0). `cargo deny check` expected FAIL only on owner-accepted chrono RUSTSEC-2026-0543 (no ignore entry).
+- FIXES COMPLETE — AWAITING CLAUDE VERIFICATION.
+
 ## Run 2026-11-22 — Round-7 Fix 5 HIGH Approval-Bypass Blockers (D-R7-APPROVAL-1) + FIXES COMPLETE — AWAITING CLAUDE VERIFICATION
 - **Scope**: Fix all 5 HIGH blockers from `/tmp/warsha-round7-2026-11-22.md` on `r-next/integration` (base `a4c12ba`), branch `fix-r7-approval-lane` (`4c148bd`) merged as `c1af54a`. Local-only: no push, no tag, no publish, main untouched.
 - **Changes**: H-1 parity (ProcessPolicy refuses relative paths; git info flags Safe; parity tests updated deliberately); H-2/H-3/H-4 git subcommand + `-c` key allow-lists; H-5 workspace-confinement for path-spelled programs + plumbing excluded; H-6 cmake `-L` needs `-N`; H-7 cargo `tree`/`metadata` → Risky. Proving tests: `test_r7_h1_git_info_flags_safe`, `test_r7_h2_h3_h4_git_subcommand_and_config_allow_list`, `test_r7_h5_absolute_path_workspace_confinement`, `test_r7_h6_cmake_configure_forms_risky`, `test_r7_h7_cargo_tree_metadata_risky` (5/5 pass).
@@ -8115,6 +8121,40 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
   - `node scripts/check-engineering-policy.mjs`: PASSED (8 checks, 0 failures, exit 0).
   - `cargo deny check`: PASSED (only expected owner-accepted `RUSTSEC-2026-0543` for chrono v0.4.45; no ignore entry added; bans ok, licenses ok, sources ok).
 - **Decisions**: Logged `D-R7-APPROVAL-1` in `DECISIONS.md`.
+
+## Run 2026-11-22 — FIX-R8-APPROVAL (Round-8 4 HIGH blockers: N-1, N-2, N-3, N-4)
+- **Problem**: 4 HIGH blockers identified in round-8 Claude verification report (`/tmp/warsha-round8-2026-11-22.md`):
+  - N-1: Bare-repo-shaped workspace (root has `HEAD`, `objects/`, `refs/`, no `.git/` dir): git executes agent code via workspace-root `config` (`core.fsmonitor`, `filter.*.clean`, `diff.*.command`).
+  - N-2: `--work-tree=.git` / `--git-dir` / `GIT_WORK_TREE` defeat: `git --work-tree=.git checkout HEAD -- hooks/pre-commit` installs executable hooks into `.git/hooks`; `git --work-tree=.git checkout HEAD:cfg -- config` overwrites `.git/config`.
+  - N-3: Outside-workspace writes and execution: `git --work-tree=/abs/outside checkout HEAD -- npm` then `/abs/outside/npm --version` executes outside binaries via basename matching; `git log/diff --output=/abs/...` writes outside workspace without detection.
+  - N-4: `cmake -HN` configure bypass: letter-combination rule allowed `-HN`, which CMake interprets as `-H <dir>`, configuring `N/CMakeLists.txt`.
+- **Delivered**:
+  - `crates/warsha-pipeline/src/command_policy.rs`:
+    * Pinned `("GIT_CONFIG_NOSYSTEM", "1")` in `MINIMAL_CHILD_ENV`.
+    * Added `is_bare_repo_shape`, `is_canonical_path_tool`, `is_valid_work_tree`, `is_valid_git_dir`, `is_outside_workspace_path` helpers.
+    * In `check_program_with_workdir`: path-spelled program tokens containing `/` or `\` must either be an exact allow-list entry or, when matching a known tool by basename, resolve outside the workspace and match the canonical PATH tool.
+    * In `check_arguments_with_workdir`: rejected `GIT_WORK_TREE=`, `GIT_DIR=`, `GIT_NAMESPACE=` env passthrough; enforced `is_bare_repo_shape` for git; restricted `--work-tree` and `--git-dir` to workspace root; rejected `--namespace` and `--super-prefix`; inspected flag values for `--output=`, `-o=`, `--work-tree=`.
+    * Extended `is_git_config_path` to guard `.git` metadata segments (`head`, `index`, `objects`, `refs`, `info`).
+  - `crates/warsha-pipeline/src/work_protection.rs`:
+    * In `classify_command_with_workdir`: path-spelled known tools outside the workspace classify as `Risky` unless matching the canonical PATH tool; bare-repo-shaped workspace root classifies git as `Risky`.
+    * Rejected `GIT_WORK_TREE=`, `GIT_DIR=`, `GIT_NAMESPACE=` env passthrough as `Risky`.
+    * Restrict `--work-tree` and `--git-dir` to workspace root; rejected `--namespace` and `--super-prefix`.
+    * Inspected flag values (`--output=`, `-o=`, `--work-tree=`, `--upload-pack=`) for outside-workspace paths.
+    * Replaced CMake letter-combination rule with exact tokens (`-N`, `-L`, `-LA`, `-LH`, `-LAH` requiring separate `-N`).
+  - `crates/warsha-pipeline/src/verification_tests_impl.rs`:
+    * Added 4 executor-driven proving tests (`test_r8_n1_bare_shape_fsmonitor_refused_e2e`, `test_r8_n2_worktree_dotgit_hook_and_config_refused_e2e`, `test_r8_n3_outside_workspace_writes_and_exec_refused_e2e`, `test_r8_n4_cmake_hn_configure_refused_e2e`).
+    * Updated existing tests for R8 invariants (`test_r6_h4_cmake_allow_list`, `test_r7_h5_absolute_path_workspace_confinement`, `test_r7_h6_cmake_configure_forms_risky`).
+- **Gate Matrix Verification**:
+  - `cargo fmt --all -- --check`: PASSED (clean, exit 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: PASSED (0 warnings, exit 0).
+  - `cargo test --workspace` (all 57 test binaries): PASSED (1,308 passed, 0 failed, 9 ignored, exit 0).
+  - `pnpm -r test`: PASSED across all workspace packages (1,496 passed, 0 failed, exit 0).
+  - Desktop lint (`pnpm --filter warsha-desktop lint`): PASSED (0 errors, 0 warnings).
+  - Typecheck (`pnpm -r --if-present run typecheck` across all packages): PASSED (0 errors, exit 0).
+  - `node scripts/check-engineering-policy.mjs`: PASSED (8 checks, 0 failures, exit 0).
+  - `cargo deny check`: PASSED (expected FAIL only on owner-accepted `RUSTSEC-2026-0543` for chrono v0.4.45; no ignore entry added).
+- **Decisions**: Logged `D-R8-APPROVAL-1` in `DECISIONS.md`.
+
 
 
 

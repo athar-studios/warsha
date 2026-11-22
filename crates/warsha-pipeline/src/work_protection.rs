@@ -394,11 +394,24 @@ pub fn classify_command_with_workdir(
     args: &[String],
     working_dir: Option<&Path>,
 ) -> RiskClass {
-    // R6-H2, R7-H5: workspace-relative executables (e.g. `./npm`, `bin/tool`)
-    // and executables resolving inside the agent's workspace directory
-    // must never match safe commands by basename — treat as Risky.
-    if crate::command_policy::is_path_in_workspace(program, working_dir) {
-        return RiskClass::Risky;
+    // R6-H2, R7-H5, R8-N3: workspace-relative executables (e.g. `./npm`, `bin/tool`),
+    // executables resolving inside the agent's workspace directory,
+    // or path-spelled executables matching safe commands by basename that are not
+    // the canonical PATH-resolved tool must never match safe commands — treat as Risky.
+    let clean_prog = program.trim().trim_matches('"').trim_matches('\'').trim();
+    if clean_prog.contains('/') || clean_prog.contains('\\') {
+        if crate::command_policy::is_path_in_workspace(clean_prog, working_dir) {
+            return RiskClass::Risky;
+        }
+        let prog_base = crate::command_policy::program_name(clean_prog);
+        const KNOWN_SAFE_TOOLS: &[&str] = &[
+            "git", "cargo", "npm", "pnpm", "yarn", "node", "cmake", "python", "python3", "ruby",
+        ];
+        if KNOWN_SAFE_TOOLS.contains(&prog_base.as_str())
+            && !crate::command_policy::is_canonical_path_tool(clean_prog)
+        {
+            return RiskClass::Risky;
+        }
     }
 
     let program_name = crate::command_policy::program_name(program);
@@ -406,6 +419,22 @@ pub fn classify_command_with_workdir(
     // Shell commands are blanket-Risky.
     if crate::command_policy::is_shell_command(&program_name) {
         return RiskClass::Risky;
+    }
+
+    // N-2: Refuse GIT_WORK_TREE / GIT_DIR / GIT_NAMESPACE env passthrough
+    for arg in args {
+        let a_low = arg
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim()
+            .to_ascii_lowercase();
+        if a_low.starts_with("git_work_tree=")
+            || a_low.starts_with("git_dir=")
+            || a_low.starts_with("git_namespace=")
+        {
+            return RiskClass::Risky;
+        }
     }
 
     for risky in RISKY_COMMANDS {
@@ -434,6 +463,13 @@ pub fn classify_command_with_workdir(
 
     // Git subcommands, config overrides and flags
     if program_name == "git" {
+        // N-1: Bare-repo-shaped workspace without .git dir classifies ANY git invocation Risky
+        if let Some(wd) = working_dir {
+            if crate::command_policy::is_bare_repo_shape(wd) {
+                return RiskClass::Risky;
+            }
+        }
+
         // R6-H1: refuse any ext:: transport target
         if args.iter().any(|a| {
             let clean = a.trim().trim_matches('"').trim_matches('\'').trim();
@@ -539,14 +575,7 @@ pub fn classify_command_with_workdir(
 
                 if lowered == "--git-dir" {
                     if let Some(target) = args.get(index + 1) {
-                        let clean_target =
-                            target.trim().trim_matches('"').trim_matches('\'').trim();
-                        let norm = clean_target.replace('\\', "/");
-                        if norm != ".git"
-                            && norm != "./.git"
-                            && norm != ".git/"
-                            && norm != "./.git/"
-                        {
+                        if !crate::command_policy::is_valid_git_dir(target, working_dir) {
                             return RiskClass::Risky;
                         }
                     } else {
@@ -557,32 +586,39 @@ pub fn classify_command_with_workdir(
                 }
                 if lowered.starts_with("--git-dir=") {
                     let target = &arg["--git-dir=".len()..];
-                    let clean_target = target.trim().trim_matches('"').trim_matches('\'').trim();
-                    let norm = clean_target.replace('\\', "/");
-                    if norm != ".git" && norm != "./.git" && norm != ".git/" && norm != "./.git/" {
+                    if !crate::command_policy::is_valid_git_dir(target, working_dir) {
                         return RiskClass::Risky;
                     }
                     index += 1;
                     continue;
                 }
 
-                if lowered == "--work-tree"
-                    || lowered == "--namespace"
-                    || lowered == "--super-prefix"
-                {
-                    if args.get(index + 1).is_some() {
-                        index += 2;
-                        continue;
+                if lowered == "--work-tree" {
+                    if let Some(target) = args.get(index + 1) {
+                        if !crate::command_policy::is_valid_work_tree(target, working_dir) {
+                            return RiskClass::Risky;
+                        }
                     } else {
                         return RiskClass::Risky;
                     }
+                    index += 2;
+                    continue;
                 }
-                if lowered.starts_with("--work-tree=")
-                    || lowered.starts_with("--namespace=")
-                    || lowered.starts_with("--super-prefix=")
-                {
+                if lowered.starts_with("--work-tree=") {
+                    let target = &arg["--work-tree=".len()..];
+                    if !crate::command_policy::is_valid_work_tree(target, working_dir) {
+                        return RiskClass::Risky;
+                    }
                     index += 1;
                     continue;
+                }
+
+                if lowered == "--namespace"
+                    || lowered.starts_with("--namespace=")
+                    || lowered == "--super-prefix"
+                    || lowered.starts_with("--super-prefix=")
+                {
+                    return RiskClass::Risky;
                 }
 
                 // R6-H1 structural direction: any git global option NOT on the known-safe list
@@ -763,21 +799,15 @@ pub fn classify_command_with_workdir(
         return RiskClass::Risky;
     }
 
-    // CMake: safe allow-list of read-only introspection (R6-H4, R7-H6)
+    // CMake: safe allow-list of read-only introspection (R6-H4, R7-H6, R8-N4)
     if program_name == "cmake" {
         if args.is_empty() {
             return RiskClass::Risky;
         }
-        let has_view_flag = args.iter().any(|arg| {
-            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
-            clean.starts_with('-') && clean.len() > 1 && clean[1..].contains('N')
-        });
-        for arg in args {
-            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
 
-            // Safe read-only introspection:
-            // --version / -v / -V / --help / -h / --system-information / --help-*
-            if clean == "--version"
+        let is_pure_introspection = args.iter().all(|arg| {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            clean == "--version"
                 || clean == "-v"
                 || clean == "-V"
                 || clean == "--help"
@@ -785,22 +815,41 @@ pub fn classify_command_with_workdir(
                 || clean == "--system-information"
                 || clean.starts_with("--system-information=")
                 || clean.starts_with("--help-")
-            {
-                continue;
+        });
+
+        if !is_pure_introspection {
+            // Require at least one separate exact "-N" view flag (R8-N4)
+            let has_exact_n = args.iter().any(|arg| {
+                let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+                clean == "-N"
+            });
+            if !has_exact_n {
+                return RiskClass::Risky;
             }
 
-            // Safe cache-list flags: combinations of -L, -A, -H, -N, but MUST contain N or be accompanied by -N (R7-H6)
-            if clean.starts_with('-')
-                && clean.len() > 1
-                && clean[1..]
-                    .chars()
-                    .all(|c| matches!(c, 'L' | 'A' | 'H' | 'N'))
-                && (clean[1..].contains('N') || has_view_flag)
-            {
-                continue;
-            }
+            // Only exact tokens -N, -L, -LA, -LH, -LAH or pure introspection flags allowed
+            const SAFE_CMAKE_CACHE_FLAGS: &[&str] = &["-N", "-L", "-LA", "-LH", "-LAH"];
+            for arg in args {
+                let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
 
-            return RiskClass::Risky;
+                if clean == "--version"
+                    || clean == "-v"
+                    || clean == "-V"
+                    || clean == "--help"
+                    || clean == "-h"
+                    || clean == "--system-information"
+                    || clean.starts_with("--system-information=")
+                    || clean.starts_with("--help-")
+                {
+                    continue;
+                }
+
+                if SAFE_CMAKE_CACHE_FLAGS.contains(&clean) {
+                    continue;
+                }
+
+                return RiskClass::Risky;
+            }
         }
     }
 
@@ -1248,10 +1297,47 @@ pub fn classify_command_with_workdir(
         }
     }
 
-    // Writes outside the workspace or deleting >20 files (conservative).
-    for arg in args {
+    // Writes outside the workspace or deleting >20 files (conservative). (R8-N2, R8-N3)
+    for (i, arg) in args.iter().enumerate() {
         let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
-        if clean.starts_with('/') || clean.contains("..") {
+
+        // Check value part of --flag=value
+        if let Some((_, val)) = clean.split_once('=') {
+            let val_clean = val.trim().trim_matches('"').trim_matches('\'').trim();
+            if crate::command_policy::is_outside_workspace_path(val_clean, working_dir) {
+                return RiskClass::Risky;
+            }
+        }
+
+        // Check --output, -o, --work-tree targets
+        let lowered = clean.to_ascii_lowercase();
+        let (flag, val) = if let Some((f, v)) = clean.split_once('=') {
+            (f.to_ascii_lowercase(), Some(v))
+        } else {
+            (lowered.clone(), None)
+        };
+
+        if flag == "--work-tree" {
+            let target = val.or_else(|| args.get(i + 1).map(|s| s.as_str()));
+            if let Some(t) = target {
+                if !crate::command_policy::is_valid_work_tree(t, working_dir) {
+                    return RiskClass::Risky;
+                }
+            } else {
+                return RiskClass::Risky;
+            }
+        }
+
+        if flag == "--output" || flag == "-o" {
+            let target = val.or_else(|| args.get(i + 1).map(|s| s.as_str()));
+            if let Some(t) = target {
+                if crate::command_policy::is_outside_workspace_path(t, working_dir) {
+                    return RiskClass::Risky;
+                }
+            }
+        }
+
+        if crate::command_policy::is_outside_workspace_path(clean, working_dir) {
             return RiskClass::Risky;
         }
     }

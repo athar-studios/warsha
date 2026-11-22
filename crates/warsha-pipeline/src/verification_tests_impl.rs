@@ -2846,8 +2846,18 @@ mod tests {
             classify_command("cmake", &["-LH".to_string()]),
             RiskClass::Risky
         );
+        // Under R8-N4, compound letter combinations like -LN are Risky;
+        // only exact separate tokens (-N, -L, -LA, -LH, -LAH) with -N are Safe.
         assert_eq!(
             classify_command("cmake", &["-LN".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-N".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-N".to_string(), "-L".to_string()]),
             RiskClass::Safe
         );
 
@@ -3391,7 +3401,9 @@ mod tests {
             "workspace-resolving path `{tool_str}` was classified Safe"
         );
 
-        // 2. Absolute path outside workspace is admitted by basename
+        // 2. Absolute path outside workspace: under R8-N3, any path-spelled program outside
+        // the workspace that does not resolve to the canonical PATH tool is refused (Err in check)
+        // and classifies Risky.
         let other_dir_res = tempfile::tempdir();
         assert!(other_dir_res.is_ok());
         let Ok(other_dir) = other_dir_res else {
@@ -3407,8 +3419,13 @@ mod tests {
             Some(ws_path),
         );
         assert!(
-            check_ext.is_ok(),
-            "external tool `{ext_str}` outside workspace should be admitted"
+            check_ext.is_err(),
+            "external tool `{ext_str}` outside workspace not on PATH must be refused (R8-N3)"
+        );
+        assert_eq!(
+            classify_command_with_workdir(&ext_str, &["--version".to_string()], Some(ws_path),),
+            RiskClass::Risky,
+            "external tool `{ext_str}` outside workspace not on PATH must classify Risky (R8-N3)"
         );
 
         // 3. Git plumbing exec bit vectors all classify Risky
@@ -3483,11 +3500,26 @@ mod tests {
             RiskClass::Risky
         );
 
-        // Safe -N bearing forms
+        // R8-N4: compound letter combinations like -LN, -HN, -HLN are Risky;
+        // only exact separate tokens (-N, -L, -LA, -LH, -LAH) with -N are Safe.
         assert_eq!(
             classify_command("cmake", &["-LN".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
+        assert_eq!(
+            classify_command("cmake", &["-HN".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-HLN".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-HAN".to_string()]),
+            RiskClass::Risky
+        );
+
+        // Safe -N bearing forms (separate exact tokens)
         assert_eq!(
             classify_command("cmake", &["-N".to_string()]),
             RiskClass::Safe
@@ -3498,6 +3530,10 @@ mod tests {
         );
         assert_eq!(
             classify_command("cmake", &["-LA".to_string(), "-N".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-N".to_string(), "-LAH".to_string()]),
             RiskClass::Safe
         );
 
@@ -3562,6 +3598,384 @@ mod tests {
         );
         assert_eq!(
             classify_command("cargo", &["report".to_string()]),
+            RiskClass::Safe
+        );
+    }
+
+    // =========================================================================
+    // Round-8 Proving Tests (R8-N1 through R8-N4) driving FilesystemToolExecutor
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_r8_n1_bare_shape_fsmonitor_refused_e2e() {
+        // N-1: bare-repo-shaped workspace (root has HEAD, objects/, refs/, no .git/)
+        // and allow-listed git status runs agent-controlled config (core.fsmonitor).
+        // Under R8-N1, bare-repo workspaces classify ANY git invocation as Risky,
+        // command policy refuses git, and GIT_CONFIG_NOSYSTEM=1 prevents system config escapes.
+        let td_res = tempfile::tempdir();
+        assert!(td_res.is_ok());
+        let Ok(td) = td_res else {
+            return;
+        };
+        let dir = td.path();
+
+        // Build bare repo layout in workspace root
+        assert!(std::fs::write(dir.join("HEAD"), "ref: refs/heads/main\n").is_ok());
+        assert!(std::fs::create_dir_all(dir.join("objects")).is_ok());
+        assert!(std::fs::create_dir_all(dir.join("refs")).is_ok());
+        assert!(
+            !dir.join(".git").exists(),
+            "workspace must not have .git dir"
+        );
+
+        let marker = dir.join("pwned-bare-fsmonitor-status.txt");
+        assert!(!marker.exists());
+
+        // Agent writes config with core.fsmonitor pointing to a marker creator
+        let config_content = format!(
+            "[core]\n\tbare = false\n\tfsmonitor = \"touch {}\"\n",
+            marker.to_string_lossy()
+        );
+        assert!(std::fs::write(dir.join("config"), config_content).is_ok());
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let policy = WorkProtectionPolicy {
+            mode: PermissionMode::AskForRisky,
+            snapshot_before_edit: false,
+            worktree_isolation: false,
+            read_before_write: false,
+        };
+        let executor = FilesystemToolExecutor::new(dir)
+            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
+            .with_protection(Some(policy))
+            .with_mcp_approvals(approvals.clone(), Some("run-r8-n1".to_string()));
+
+        // In AskForRisky mode, git status must be classified Risky and refused
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git".to_string(),
+                args: vec!["status".to_string()],
+            })
+            .await;
+
+        assert!(
+            !res.success,
+            "git status in bare-repo shape must fail/be refused under AskForRisky"
+        );
+        assert_eq!(
+            approvals.pending().len(),
+            1,
+            "approval request must be queued for git in bare shape"
+        );
+        assert!(
+            !marker.exists(),
+            "marker must NOT be created: fsmonitor must not have executed"
+        );
+
+        // Classification and policy checks
+        assert_eq!(
+            classify_command_with_workdir("git", &["status".to_string()], Some(dir)),
+            RiskClass::Risky,
+            "git status in bare repo must classify Risky"
+        );
+        let cmd_policy = CommandPolicy::from_config(&["git".to_string()]);
+        assert!(
+            cmd_policy
+                .check_invocation_with_workdir("git", &["status".to_string()], Some(dir))
+                .is_err(),
+            "git status in bare repo must be refused by command policy"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r8_n2_worktree_dotgit_hook_and_config_refused_e2e() {
+        // N-2: git --work-tree=.git checkout HEAD -- hooks/pre-commit or config writes
+        // into .git/ directory. Under R8-N2, --work-tree pointing at .git (or not matching ws)
+        // is classified Risky, refused by policy, and GIT_WORK_TREE env passthrough is refused.
+        let td_res = tempfile::tempdir();
+        assert!(td_res.is_ok());
+        let Ok(td) = td_res else {
+            return;
+        };
+        let dir = td.path();
+        let dot_git = dir.join(".git");
+        assert!(std::fs::create_dir_all(dot_git.join("hooks")).is_ok());
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let policy = WorkProtectionPolicy {
+            mode: PermissionMode::AskForRisky,
+            snapshot_before_edit: false,
+            worktree_isolation: false,
+            read_before_write: false,
+        };
+        let executor = FilesystemToolExecutor::new(dir)
+            .with_command_policy(CommandPolicy::from_config(&["git".to_string()]))
+            .with_protection(Some(policy))
+            .with_mcp_approvals(approvals.clone(), Some("run-r8-n2".to_string()));
+
+        let hook_file = dot_git.join("hooks").join("pre-commit");
+        let marker = dir.join("pwned-worktree-dotgit-pre-commit.txt");
+
+        // Agent writes an agent-controlled hook inside workspace working directory
+        let write_res = executor
+            .execute(&AgentTool::WriteFile {
+                path: "hooks/pre-commit".to_string(),
+                content: format!("#!/bin/sh\ntouch {}\nexit 0\n", marker.to_string_lossy()),
+            })
+            .await;
+        assert!(write_res.success, "writing hooks/pre-commit should succeed");
+
+        // Attempt git --work-tree=.git checkout HEAD -- hooks/pre-commit
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git".to_string(),
+                args: vec![
+                    "--work-tree=.git".to_string(),
+                    "checkout".to_string(),
+                    "HEAD".to_string(),
+                    "--".to_string(),
+                    "hooks/pre-commit".to_string(),
+                ],
+            })
+            .await;
+
+        assert!(
+            !res.success,
+            "git --work-tree=.git checkout must be refused"
+        );
+        assert_eq!(
+            approvals.pending().len(),
+            1,
+            "approval must be queued for --work-tree=.git"
+        );
+        assert!(
+            !hook_file.exists(),
+            ".git/hooks/pre-commit must NOT have been written via checkout"
+        );
+        assert!(!marker.exists(), "marker must NOT be created");
+
+        // Also verify --git-dir and GIT_WORK_TREE env forms classify Risky
+        assert_eq!(
+            classify_command_with_workdir(
+                "git",
+                &[
+                    "--work-tree=.git".to_string(),
+                    "checkout".to_string(),
+                    "HEAD".to_string(),
+                    "--".to_string(),
+                    "hooks/pre-commit".to_string()
+                ],
+                Some(dir)
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command_with_workdir(
+                "git",
+                &[
+                    "--work-tree=.git".to_string(),
+                    "checkout".to_string(),
+                    "HEAD:cfg".to_string(),
+                    "--".to_string(),
+                    "config".to_string()
+                ],
+                Some(dir)
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command_with_workdir(
+                "git",
+                &[
+                    "checkout".to_string(),
+                    "HEAD".to_string(),
+                    "--".to_string(),
+                    ".git/config".to_string()
+                ],
+                Some(dir)
+            ),
+            RiskClass::Risky
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r8_n3_outside_workspace_writes_and_exec_refused_e2e() {
+        // N-3: outside workspace writes via --work-tree=/outside or --output=/outside
+        // and execution of path-spelled programs outside the workspace not on PATH.
+        let td_ws_res = tempfile::tempdir();
+        assert!(td_ws_res.is_ok());
+        let Ok(td_ws) = td_ws_res else {
+            return;
+        };
+        let ws_dir = td_ws.path();
+        let td_out_res = tempfile::tempdir();
+        assert!(td_out_res.is_ok());
+        let Ok(td_out) = td_out_res else {
+            return;
+        };
+        let outside_dir = td_out.path();
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let policy = WorkProtectionPolicy {
+            mode: PermissionMode::AskForRisky,
+            snapshot_before_edit: false,
+            worktree_isolation: false,
+            read_before_write: false,
+        };
+        let executor = FilesystemToolExecutor::new(ws_dir)
+            .with_command_policy(CommandPolicy::from_config(&[
+                "git".to_string(),
+                "npm".to_string(),
+            ]))
+            .with_protection(Some(policy))
+            .with_mcp_approvals(approvals.clone(), Some("run-r8-n3".to_string()));
+
+        // 1. Outside --work-tree checkout is refused
+        let outside_work_tree = format!("--work-tree={}", outside_dir.display());
+        let res_wt = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git".to_string(),
+                args: vec![
+                    outside_work_tree,
+                    "checkout".to_string(),
+                    "HEAD".to_string(),
+                    "--".to_string(),
+                    "npm".to_string(),
+                ],
+            })
+            .await;
+        assert!(!res_wt.success, "git --work-tree=/outside must be refused");
+
+        // 2. Outside --output write is refused
+        let outside_output_file = outside_dir.join("outside_log.txt");
+        let res_out = executor
+            .execute(&AgentTool::RunCommand {
+                command: "git".to_string(),
+                args: vec![
+                    "log".to_string(),
+                    format!("--output={}", outside_output_file.display()),
+                ],
+            })
+            .await;
+        assert!(
+            !res_out.success,
+            "git log --output=/outside must be refused"
+        );
+        assert!(
+            !outside_output_file.exists(),
+            "outside log file must not be written"
+        );
+
+        // 3. Execution of outside non-canonical executable is refused
+        let outside_binary = outside_dir.join("npm");
+        let marker = outside_dir.join("pwned-outside-npm.txt");
+        assert!(std::fs::write(
+            &outside_binary,
+            format!("#!/bin/sh\ntouch {}\nexit 0\n", marker.display()),
+        )
+        .is_ok());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&outside_binary) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o755);
+                assert!(std::fs::set_permissions(&outside_binary, perms).is_ok());
+            }
+        }
+
+        let res_exec = executor
+            .execute(&AgentTool::RunCommand {
+                command: outside_binary.to_string_lossy().to_string(),
+                args: vec!["--version".to_string()],
+            })
+            .await;
+        assert!(
+            !res_exec.success,
+            "running outside non-canonical program must be refused"
+        );
+        assert!(!marker.exists(), "outside binary must NOT have executed");
+    }
+
+    #[tokio::test]
+    async fn test_r8_n4_cmake_hn_configure_refused_e2e() {
+        // N-4: cmake -HN legacy source dir configuration was treated as Safe view flag.
+        // Under R8-N4, letter-combination rule is replaced by exact tokens (-N, -L, -LA, -LH, -LAH)
+        // requiring at least one separate exact -N flag. -HN is Risky and refused in AskForRisky.
+        let td_res = tempfile::tempdir();
+        assert!(td_res.is_ok());
+        let Ok(td) = td_res else {
+            return;
+        };
+        let dir = td.path();
+
+        let approvals = Arc::new(McpApprovals::new(None));
+        let policy = WorkProtectionPolicy {
+            mode: PermissionMode::AskForRisky,
+            snapshot_before_edit: false,
+            worktree_isolation: false,
+            read_before_write: false,
+        };
+        let executor = FilesystemToolExecutor::new(dir)
+            .with_command_policy(CommandPolicy::from_config(&["cmake".to_string()]))
+            .with_protection(Some(policy))
+            .with_mcp_approvals(approvals.clone(), Some("run-r8-n4".to_string()));
+
+        let marker = dir.join("pwned-cmake-HN.txt");
+        // Create N/CMakeLists.txt that executes a process to create the marker
+        let n_dir = dir.join("N");
+        assert!(std::fs::create_dir_all(&n_dir).is_ok());
+        let cmakelists = format!(
+            "cmake_minimum_required(VERSION 3.10)\nproject(Pwned)\nexecute_process(COMMAND touch \"{}\")\n",
+            marker.to_string_lossy()
+        );
+        assert!(std::fs::write(n_dir.join("CMakeLists.txt"), cmakelists).is_ok());
+
+        // Drive cmake -HN through executor
+        let res = executor
+            .execute(&AgentTool::RunCommand {
+                command: "cmake".to_string(),
+                args: vec!["-HN".to_string()],
+            })
+            .await;
+
+        assert!(
+            !res.success,
+            "cmake -HN must be refused under AskForRisky mode"
+        );
+        assert_eq!(
+            approvals.pending().len(),
+            1,
+            "approval must be queued for cmake -HN"
+        );
+        assert!(
+            !marker.exists(),
+            "marker must NOT be created: cmake -HN must not configure/execute"
+        );
+
+        // Verify classification of compound vs separate exact tokens
+        assert_eq!(
+            classify_command("cmake", &["-HN".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-HAN".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-L".to_string(), "-HLN".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-N".to_string(), "-HN".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-N".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-N".to_string(), "-L".to_string()]),
             RiskClass::Safe
         );
     }
