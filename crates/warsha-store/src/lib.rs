@@ -40,6 +40,7 @@ pub use settings::{
     StoredPairing, StoredPlugin, StoredPreference, StoredProjectSwarmSettings, StoredProvider,
     StoredRunMode, StoredSkill,
 };
+// `StoredDevice` is defined beside `Store::save_device` in this module.
 
 /// Errors raised by the persistence layer.
 #[derive(Debug, Error)]
@@ -1528,6 +1529,53 @@ impl Store {
         Ok((requests, total))
     }
 
+    // ---------------------------------------------------------------- devices
+    //
+    // `devices` is the table migration 001 created for paired-device identity
+    // (id, name, X25519 public key, paired/revoked timestamps). The in-memory
+    // registry is rebuilt from these rows on every start; the pairing *secret*
+    // stays in `pairing_devices` and is never written here.
+
+    /// Insert or replace one paired device's public identity.
+    ///
+    /// Replacing is how a re-pair and a revocation land: the row keeps the
+    /// device id and takes the name, key and revoked flag the caller just sent.
+    /// `last_seen_at` is left untouched — this write records identity, not a
+    /// heartbeat.
+    pub async fn save_device(&self, device: &StoredDevice) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO devices (id, name, public_key, paired_at, revoked, revoked_at) \
+             VALUES (?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET \
+             name = excluded.name, public_key = excluded.public_key, \
+             paired_at = excluded.paired_at, revoked = excluded.revoked, \
+             revoked_at = excluded.revoked_at",
+        )
+        .bind(device.id.0.as_bytes().as_slice())
+        .bind(&device.name)
+        .bind(device.public_key.as_slice())
+        .bind(device.paired_at.to_rfc3339())
+        .bind(i64::from(device.revoked))
+        .bind(device.revoked_at.map(|at| at.to_rfc3339()))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Every stored device identity, oldest pairing first.
+    ///
+    /// The local server device is not a row: it is minted at startup and has no
+    /// pairing to survive. What comes back is every device an owner paired.
+    pub async fn load_devices(&self) -> Result<Vec<StoredDevice>> {
+        let rows = sqlx::query(
+            "SELECT id, name, public_key, paired_at, revoked, revoked_at FROM devices \
+             ORDER BY paired_at ASC, id ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(stored_device_from_row).collect()
+    }
+
     // -------------------------------------------------------------- artifacts
 
     /// Directory holding a project's generated artifacts.
@@ -1644,6 +1692,54 @@ fn parse_uuid(field: &'static str, bytes: &[u8]) -> Result<Uuid> {
 fn column_blob(row: &sqlx::sqlite::SqliteRow, field: &'static str) -> Result<Vec<u8>> {
     row.try_get::<Vec<u8>, _>(field)
         .map_err(|_| StoreError::UnexpectedType(field))
+}
+
+/// One paired device's public identity, as the `devices` table stores it.
+///
+/// This is the row `devices.list` is rebuilt from after a restart. It carries
+/// no pairing secret: that credential lives in `pairing_devices`, and a device
+/// row that could hold it is a row a backup could leak.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredDevice {
+    /// Stable device id, the same value the pairing record is keyed by.
+    pub id: DeviceId,
+    /// The name the owner paired the device under.
+    pub name: String,
+    /// The device's X25519 public key (32 bytes).
+    pub public_key: [u8; 32],
+    /// When the device was paired.
+    pub paired_at: DateTime<Utc>,
+    /// True once the owner revoked it; a revoked device keeps its row.
+    pub revoked: bool,
+    /// When the device was revoked, if it was.
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+fn stored_device_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<StoredDevice> {
+    let id_bytes = column_blob(row, "id")?;
+    let id = DeviceId(parse_uuid("devices.id", &id_bytes)?);
+    let public_key_bytes = column_blob(row, "public_key")?;
+    let public_key: [u8; 32] =
+        public_key_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| StoreError::CorruptId {
+                field: "devices.public_key",
+                value: format!("{} bytes", public_key_bytes.len()),
+            })?;
+    let paired_at = parse_time("devices.paired_at", &column_text(row, "paired_at")?)?;
+    let revoked = column_int(row, "revoked")? != 0;
+    let revoked_at = column_opt_text(row, "revoked_at")?
+        .map(|value| parse_time("devices.revoked_at", &value))
+        .transpose()?;
+    Ok(StoredDevice {
+        id,
+        name: column_text(row, "name")?,
+        public_key,
+        paired_at,
+        revoked,
+        revoked_at,
+    })
 }
 
 fn parse_ulid(field: &'static str, value: &str) -> Result<ulid::Ulid> {

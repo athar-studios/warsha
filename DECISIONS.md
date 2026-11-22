@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-DEVICES-1: Persist paired device identities across a daemon restart
+
+- **Decision**: Paired device identities are written to the `devices` table migration 001 already created (`id`, `name`, `public_key`, `paired_at`, `revoked`, `revoked_at`) and reloaded into `DeviceRegistry` whenever daemon state is built — both `start_daemon` and the in-process `test_state` builder a restart test uses. The write happens before the in-memory registry changes, in `devices.pair`, `devices.pair-start`, and `devices.revoke`. The local server identity stays minted per process and is not a row; `devices.list` still returns it because the registry inserts it on construction. A revoked row is restored revoked through `DeviceRegistry::restore_stored`, because `add_device` refuses a revoked identity. `last_seen_at` is left untouched. The pairing secret stays in `pairing_devices` and is never copied onto the device row.
+- **Reason**: Owner UI finding #6. `devices.list` reads only the in-memory registry, and nothing wrote the `devices` table, so a restart listed the freshly generated server device and nothing the owner had paired. Re-pairing was the only way back to a gate approval. A new table was refused: 001 already matches `DeviceIdentity`, and putting the public identity next to the pairing secret would put a backup one leak away from a bearer token.
+- **Scope**: `crates/warsha-store/src/lib.rs`, `crates/warsha-remote/src/lib.rs`, `crates/warshad/src/lib.rs`, `crates/warshad/src/rpc/mod.rs`, `crates/warshad/src/startup.rs`, `crates/warshad/src/tests/mod.rs`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-22 — D-R9-DRIVE-1: Practical UI Drive Proof for R9 (GAP-H3 Fast Failover + MISS-1 Greenfield Git Auto-Init)
 - **Decision**:
   1. Automated practical drive script `scripts/ui-drive-r9-failover-autoinit.mjs` orchestrating a real `warshad` daemon and headless Chromium in Arabic locale (`ar-EG`, RTL, dark theme) exercising both R9 fixes end-to-end:

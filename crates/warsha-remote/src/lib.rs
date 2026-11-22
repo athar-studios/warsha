@@ -676,6 +676,19 @@ impl DeviceRegistry {
         self.devices.lock().await.values().cloned().collect()
     }
 
+    /// Put a stored identity back, revocation included.
+    ///
+    /// `add_device` refuses a revoked device, which is right for a fresh pair and
+    /// wrong for a restart: a device the owner already cut off has to come back
+    /// cut off, or the next start would forget the revocation. The local identity
+    /// is never replaced — it was minted for this process and is not a row.
+    pub async fn restore_stored(&self, device: DeviceIdentity) {
+        if device.device_id == self.local_identity.device_id {
+            return;
+        }
+        self.devices.lock().await.insert(device.device_id, device);
+    }
+
     pub async fn is_revoked(&self, device_id: DeviceId) -> bool {
         self.devices
             .lock()

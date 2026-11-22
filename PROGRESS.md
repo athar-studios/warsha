@@ -1,5 +1,18 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Persist paired devices across a daemon restart (D-R11-DEVICES-1)
+
+- **Scope**: Owner UI finding #6 on branch `fix-r11-devices` (base `7de0302`, worktree `.agents/worktrees/fix-r11-devices`). Local-only: no push, no tag, no publish, main untouched.
+- **Changes**:
+  - `crates/warsha-store/src/lib.rs`: `Store::save_device` / `Store::load_devices` over the existing `devices` table, via `StoredDevice`. No pairing secret on the row.
+  - `crates/warsha-remote/src/lib.rs`: `DeviceRegistry::restore_stored` puts a stored identity back, revocation included, without replacing the local server device.
+  - `crates/warshad/src/rpc/mod.rs`: `WarshaRpc::persist_device` writes the identity before the registry mutates.
+  - `crates/warshad/src/lib.rs`: `devices.pair`, `devices.pair-start`, and `devices.revoke` persist first.
+  - `crates/warshad/src/startup.rs`: `load_device_registry` mints the local identity and reloads every stored device; `start_daemon` uses it.
+  - `crates/warshad/src/tests/mod.rs`: `test_state` reloads the same way, and `paired_device_survives_rebuilding_daemon_state_from_the_same_data_dir` pairs a phone, rebuilds state from the same data dir, and asserts `devices.list` still returns it beside the server device.
+- **Gates**: `cargo fmt --all -- --check` exit 0; `cargo clippy -p warshad -p warsha-store -p warsha-remote --all-targets -- -D warnings` exit 0; `cargo test -p warshad --lib devices` 2 passed, 0 failed.
+- **Status**: green, ready to merge.
+
 ## Run 2026-11-22 — Practical UI drive proof for R9 (GAP-H3 + MISS-1) (D-R9-DRIVE-1)
 - **Scope**: Practical end-to-end UI drive on `r-next/integration` for merged tip `db29346` (lane `5764fe8` GAP-H3 + lane `db29346` MISS-1), per permanent owner rule OD-PRACTICAL-REVIEW-1. Local-only: no push, no tag, no publish, main untouched.
 - **Drive implementation**:

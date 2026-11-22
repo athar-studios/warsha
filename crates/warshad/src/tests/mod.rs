@@ -150,8 +150,15 @@ pub(super) async fn test_state_with_all_seams(
         pipeline = pipeline.with_coding_backend(Arc::from(backend));
     }
     let pipeline = Arc::new(pipeline);
-    let identity = warsha_remote::DeviceIdentity::generate("test daemon".to_string())
-        .expect("a device identity");
+    // The same reload a real start performs: the local identity is minted for
+    // this process, and every phone already paired into this data dir comes back
+    // with it. A test that rebuilds state over the same directory is a restart.
+    let devices = Arc::new(
+        crate::startup::load_device_registry(&store)
+            .await
+            .expect("paired devices reload"),
+    );
+    let identity = devices.local_identity().clone();
 
     let routines = Arc::new(RwLock::new(RoutineRegistry::new()));
     #[derive(Debug, Default)]
@@ -219,7 +226,7 @@ pub(super) async fn test_state_with_all_seams(
         pipeline,
         backends: BackendFactory::all_available(),
         github: None,
-        devices: Arc::new(DeviceRegistry::new(identity)),
+        devices,
         backend_kits: Arc::new(RwLock::new(HashMap::new())),
         crash_reports: Arc::new(RwLock::new(InMemoryCrashReportStore::new())),
         store_reviews: Arc::new(RwLock::new(InMemoryStoreReviewStore::new())),
@@ -716,6 +723,45 @@ async fn revoke_device_still_removes_access_on_the_next_request() {
             .is_none(),
         "a revoked pairing still authenticated on the next request"
     );
+}
+
+/// Owner UI finding #6: a paired device is a row, not a memory entry. Dropping
+/// the daemon and rebuilding its state from the same data dir is a restart, and
+/// `devices.list` still names the phone — plus the local server device this
+/// process minted, which is not itself a row.
+#[tokio::test]
+async fn paired_device_survives_rebuilding_daemon_state_from_the_same_data_dir() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+
+    let data = fresh_pairing_data();
+    let device_id = data.device_id;
+    let public_key = data.static_public;
+    rpc.pair_device(&owner_ext(), data)
+        .await
+        .expect("the owner paired a phone");
+    drop(rpc);
+
+    let (restarted, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(restarted);
+    let listed = rpc
+        .list_devices(&owner_ext())
+        .await
+        .expect("devices.list answers after a restart");
+
+    let paired = listed
+        .iter()
+        .find(|device| device.device_id == device_id)
+        .expect("the paired device is missing after a restart");
+    assert_eq!(paired.name, "Paired Device");
+    assert_eq!(paired.static_public, public_key);
+    assert!(!paired.revoked);
+    assert!(
+        listed.iter().any(|device| device.name == "Warsha Daemon"),
+        "the internal server device is no longer listed"
+    );
+    assert!(listed.len() >= 2, "devices.list returned only {listed:?}");
 }
 
 #[tokio::test]
