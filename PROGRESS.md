@@ -1,5 +1,12 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Role routing reads the stored key shapes (D-R11-ROLES-1)
+
+- **Scope**: Owner UI finding #2 on branch `fix-r11-roles` (base `7de0302`). Local-only: no push, no tag, no publish, main untouched.
+- **Change**: `canonicalRoleKey` folds hyphens and underscores. The Secretary row is rendered from the routing table.
+- **Proving test**: `shows the routed model for snake_case product_manager and qa keys, not "No model"` in `ModelsSection.test.tsx`. Run inside the integration tree: 13 passed, 0 failed.
+- **Status**: green, ready to merge.
+
 ## Run 2026-11-22 — Practical UI drive proof for R9 (GAP-H3 + MISS-1) (D-R9-DRIVE-1)
 - **Scope**: Practical end-to-end UI drive on `r-next/integration` for merged tip `db29346` (lane `5764fe8` GAP-H3 + lane `db29346` MISS-1), per permanent owner rule OD-PRACTICAL-REVIEW-1. Local-only: no push, no tag, no publish, main untouched.
 - **Drive implementation**:

@@ -1,6 +1,7 @@
 // apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx
 import {
   ALL_ROLES,
+  canonicalRoleKey,
   type AuthStatus,
   type CustomModelRecord,
   type ModelCatalogDiff,
@@ -174,8 +175,10 @@ export function ModelsSection(): React.ReactElement {
       const nextDrafts: Partial<Record<Role, string>> = {};
       for (const r of rotList) {
         const primary = r.targets[0];
-        if (primary) {
-          nextDrafts[r.role] = `${primary.provider_id}::${primary.model_id}`;
+        // `roles.list` answers snake_case (`p_m`, `q_a`); the table rows are short ids.
+        const role = canonicalRoleKey(r.role);
+        if (primary && role) {
+          nextDrafts[role] = `${primary.provider_id}::${primary.model_id}`;
         }
       }
       setRoleDrafts(nextDrafts);
@@ -368,7 +371,7 @@ export function ModelsSection(): React.ReactElement {
     if (sepIdx <= 0) return;
     const providerId = chosen.slice(0, sepIdx);
     const modelId = chosen.slice(sepIdx + 2);
-    const existing = roleRoutings.find((r) => r.role === role);
+    const existing = roleRoutings.find((r) => canonicalRoleKey(r.role) === role);
     await client.setRoleConfig({
       role,
       targets: [{ provider_id: providerId, model_id: modelId, weight: 100 }],

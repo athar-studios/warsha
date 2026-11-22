@@ -417,6 +417,46 @@ describe('ModelsSection - Model Discovery & Live List Diff', () => {
     });
   });
 
+  it('shows the routed model for snake_case product_manager and qa keys, not "No model"', async () => {
+    const client = createClient({
+      listRoleRoutings: vi.fn().mockResolvedValue([
+        {
+          role: 'product_manager',
+          targets: [{ provider_id: 'mock-provider', model_id: 'gpt-4o', weight: 100 }],
+          fallback_enabled: true,
+          budget_cents_per_run: 0,
+          daily_spend_cap_cents: null,
+        },
+        {
+          role: 'qa',
+          targets: [{ provider_id: 'mock-provider', model_id: 'gpt-4o-mini', weight: 100 }],
+          fallback_enabled: true,
+          budget_cents_per_run: null,
+          daily_spend_cap_cents: null,
+        },
+      ] as unknown as RoleRouting[]),
+    });
+
+    renderSection(client, 'en');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('role-route-select-pm')).toBeDefined();
+    });
+
+    const pmSelect = screen.getByTestId('role-route-select-pm').querySelector('select');
+    const qaSelect = screen.getByTestId('role-route-select-qa').querySelector('select');
+    expect(pmSelect).not.toBeNull();
+    expect(qaSelect).not.toBeNull();
+    expect(pmSelect).toHaveValue('mock-provider::gpt-4o');
+    expect(qaSelect).toHaveValue('mock-provider::gpt-4o-mini');
+    expect(pmSelect).not.toHaveValue('');
+    expect(qaSelect).not.toHaveValue('');
+
+    const secretaryRow = screen.getByTestId('role-route-select-secretary').closest('tr');
+    expect(secretaryRow).not.toBeNull();
+    expect(secretaryRow).toHaveTextContent('Secretary');
+  });
+
   it('resets save button loading state on failure when adding a provider', async () => {
     const client = createClient({
       addProvider: vi.fn().mockRejectedValue(new Error('HTTP 401: HTTP 401: {"error":{"message":"Unauthorized key"}}')),

@@ -167,6 +167,7 @@ export default {
   'settings.role.release': 'Release',
   'settings.role.marketer': 'Marketer',
   'settings.role.feedback': 'Feedback',
+  'settings.role.secretary': 'Secretary',
 
   'settings.devices.pair': 'Pair new device',
   'settings.devices.empty.title': 'No paired devices',

@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-ROLES-1: Role routing accepts the stored key shapes
+
+- **Decision**: `canonicalRoleKey` strips hyphens and underscores before the alias table and the canonical ids. `product_manager`, `p_m`, `p-m` and `pm` all select the Product Manager row; `q_a`, `q-a` and `qa` select QA. The Secretary row is part of the routing table, with native labels `settings.role.secretary` (ar `سكرتير`, en `Secretary`).
+- **Reason**: Owner UI finding #2. The directives table stored snake_case keys the client never matched, so a routed role rendered "No model" and the Secretary row was missing.
+- **Scope**: `packages/client/src/index.ts`, `apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx` and its test, `packages/i18n/src/v3/{en,ar}/settings.ts`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-22 — D-R9-DRIVE-1: Practical UI Drive Proof for R9 (GAP-H3 Fast Failover + MISS-1 Greenfield Git Auto-Init)
 - **Decision**:
   1. Automated practical drive script `scripts/ui-drive-r9-failover-autoinit.mjs` orchestrating a real `warshad` daemon and headless Chromium in Arabic locale (`ar-EG`, RTL, dark theme) exercising both R9 fixes end-to-end:
