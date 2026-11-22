@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — Harness activation opencode-first merged (D-HARNESS-OPENCODE-1)
+- **Scope**: Activate external coding harness opencode-first on `r-next/integration` (lane `7d661fa` merged as `6067109`). Local-only: no push, no tag, no publish, main untouched.
+- **Deliverable**: `create_project` accepts validated `repo_path`; `start_run` creates run worktree; new RPCs `coding_backends.list` / `backend_routing.get` / `backend_routing.set`; client `attachProject`/`listCodingBackends`/`getBackendRouting`/`setBackendRouting`; Desktop repo inputs + CodingEnginesSection + ar/en i18n; proving tests `harness_opencode.rs` + section tests; actions hyphen ids + registry + e2e refs.
+- **Gates (merged tip)**: fmt FMT_OK; clippy 0; pipeline 584/0/7; warshad 314/0/4; policy 8/0; versions 0.3.1 aligned; arch 5/0; wire 11/0; actions 199/199/1 (single pre-existing factory.retry A6, base parity); i18n 1073/19 (base parity, native model names exempt).
+- **Status**: FIXES COMPLETE — HARNESS ACTIVATED.
+
 ## Run 2026-11-22 — V5 plan-vs-reality audit recorded (D-AUDIT-V5-REALITY-1)
 - **Scope**: Record completed V5 plan-vs-reality audit report into `r-next/integration` at base `84cd6a2` (worktree `.agents/worktrees/r-next-integration`) as part of goal-50268409 rev2. Local-only: no push, no tag, no publish, main untouched.
 - **Report**: `docs/zadloop/packets/AUDIT-V5-REALITY.md` (281 lines).
