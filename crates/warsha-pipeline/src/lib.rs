@@ -134,7 +134,7 @@ pub use crate::command_policy::{
     DEFAULT_OUTPUT_CAP_BYTES, MINIMAL_CHILD_ENV, SHELL_COMMANDS,
 };
 pub use crate::evals::{blocks_change, run_suite, EvalCase, EvalError, EvalOutcome, EvalSuite};
-pub use crate::gate_integrity::artifacts_sha256;
+pub use crate::gate_integrity::{artifacts_sha256, gate_card_face, GateCardFace};
 pub use crate::guardrails::{
     classify_action, mask_secrets, wrap_untrusted, ApprovalRequest, Guardrails, InjectionSignal,
     InputOrigin, InspectionResult, SensitiveAction, REDACTED,
@@ -4308,4 +4308,136 @@ mod tests {
             assert!(has_stage_failed);
         }
     }
+}
+
+/// A Simple-mode card may describe only the stage the run stands on.
+///
+/// `start_run` seeds every gate `Pending`, and a stale map can even say a later
+/// gate is `Approved`. Neither fact lights a card for a stage `Run.current_stage`
+/// has not reached: that card stays an unlit name, not approved, done, or decidable.
+///
+/// This test lives at the crate root. A `#[test]` inside `gate_integrity` is
+/// registered as `gate_integrity::…`, and `cargo test -- --exact` compares the
+/// whole harness name, so the bare name would match nothing.
+#[cfg(test)]
+#[test]
+fn test_gate_card_shows_only_the_state_the_run_has() {
+    use warsha_core::{DeviceId, ProjectId, Run, RunId, RunMode, RunStatus};
+
+    let now = Utc::now();
+    let device = DeviceId::new();
+    let mut run = Run {
+        id: RunId::new(),
+        project_id: ProjectId::new(),
+        current_stage: Stage::Idea,
+        gate_states: HashMap::new(),
+        artifacts: HashMap::new(),
+        created_at: now,
+        updated_at: now,
+        status: RunStatus::Running,
+        budget_cents: None,
+        spent_cents: 0,
+        worktree_path: None,
+        worktree_branch: None,
+        confinement: None,
+        run_mode: RunMode::Agent,
+    };
+    for stage in Stage::all() {
+        if stage.is_gate() {
+            run.gate_states.insert(*stage, GateState::Pending);
+        }
+    }
+    // A map that claims later gates are already approved must not light them.
+    run.gate_states.insert(
+        Stage::GateB,
+        GateState::Approved {
+            by: device,
+            at: now,
+        },
+    );
+    run.gate_states.insert(
+        Stage::GateD,
+        GateState::Approved {
+            by: device,
+            at: now,
+        },
+    );
+
+    for stage in [
+        Stage::GateA,
+        Stage::Research,
+        Stage::GateB,
+        Stage::Code,
+        Stage::GateD,
+        Stage::Feedback,
+    ] {
+        let face = gate_card_face(&run, stage);
+        assert!(
+            !face.shows_approved(),
+            "{stage:?} shown approved while the run is still at {:?}: {face:?}",
+            run.current_stage
+        );
+        assert!(
+            !face.shows_done(),
+            "{stage:?} shown done while the run is still at {:?}: {face:?}",
+            run.current_stage
+        );
+        assert!(
+            !face.is_decidable(),
+            "{stage:?} shown decidable while the run is still at {:?}: {face:?}",
+            run.current_stage
+        );
+        assert_eq!(face, GateCardFace::Name);
+    }
+
+    // The stage the run stands on is Idea, which is not a gate decision.
+    let idea = gate_card_face(&run, Stage::Idea);
+    assert!(!idea.shows_approved());
+    assert!(!idea.shows_done());
+    assert!(!idea.is_decidable());
+
+    // Standing on Gate A makes only that pending gate decidable.
+    run.current_stage = Stage::GateA;
+    let gate_a = gate_card_face(&run, Stage::GateA);
+    assert!(
+        matches!(gate_a, GateCardFace::Decidable(GateState::Pending)),
+        "the gate the run stands on is the one decision: {gate_a:?}"
+    );
+    assert!(!gate_a.shows_approved());
+    assert!(!gate_a.shows_done());
+    assert!(gate_a.is_decidable());
+
+    for stage in [Stage::GateB, Stage::GateC, Stage::GateD, Stage::Release] {
+        let face = gate_card_face(&run, stage);
+        assert!(
+            !face.shows_approved() && !face.shows_done() && !face.is_decidable(),
+            "{stage:?} lit while the run still stands on {:?}: {face:?}",
+            run.current_stage
+        );
+        assert_eq!(face, GateCardFace::Name);
+    }
+
+    // The recorded approval of the current gate is shown, and is not offered again.
+    run.gate_states.insert(
+        Stage::GateA,
+        GateState::Approved {
+            by: device,
+            at: now,
+        },
+    );
+    let recorded = gate_card_face(&run, Stage::GateA);
+    assert!(recorded.shows_approved());
+    assert!(recorded.shows_done());
+    assert!(!recorded.is_decidable());
+    assert!(matches!(
+        recorded,
+        GateCardFace::Recorded(GateState::Approved { .. })
+    ));
+
+    // Later gates stay unlit names after the current gate is approved.
+    let still_ahead = gate_card_face(&run, Stage::GateB);
+    assert_eq!(still_ahead, GateCardFace::Name);
+    assert!(!still_ahead.shows_approved());
+    assert!(!still_ahead.shows_done());
+    assert!(!still_ahead.is_decidable());
 }

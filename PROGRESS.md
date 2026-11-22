@@ -58,6 +58,12 @@
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit code 0).
 - **Status**: COMPLETE.
 
+## Run 2026-11-23 — Simple-mode gate cards follow the run's recorded stage (D-R11-GATES-1)
+- **Scope**: merged from `fix-r11-gates` `e470055` (over `621fa74`). A gate card shows the state the daemon recorded for the stage the run stands on. Future pending gates stay unlit names. Local-only: no push, no tag, no publish, main untouched.
+- **Change**: `gate_card_face` / `GateCardFace` in `crates/warsha-pipeline/src/gate_integrity.rs`. Stages after `Run.current_stage` are `Name` even if `gate_states` says `Pending` or `Approved`.
+- **Proving test**: `test_gate_card_shows_only_the_state_the_run_has` at crate root of `crates/warsha-pipeline/src/lib.rs`. In-lane: `1 passed; 0 failed; 595 filtered out`. `cargo fmt --all -- --check` exit 0. `cargo clippy -p warsha-pipeline --all-targets -- -D warnings` exit 0.
+- **Status**: green, merged.
+
 ## Run 2026-11-22 — Practical UI drive proof for R9 (GAP-H3 + MISS-1) (D-R9-DRIVE-1)
 - **Scope**: Practical end-to-end UI drive on `r-next/integration` for merged tip `db29346` (lane `5764fe8` GAP-H3 + lane `db29346` MISS-1), per permanent owner rule OD-PRACTICAL-REVIEW-1. Local-only: no push, no tag, no publish, main untouched.
 - **Drive implementation**:
