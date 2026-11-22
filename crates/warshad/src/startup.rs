@@ -232,6 +232,10 @@ pub(crate) async fn start_daemon_with_interfaces(
         .register_provider(Box::new(warsha_providers::MockProvider::new(
             MOCK_PROVIDER_ID,
         )));
+    providers
+        .write()
+        .await
+        .register_provider(Box::new(warsha_providers::MockProvider::new("mock-503")));
     // W5's deterministic fake provider: unrouted pipeline stages already answer
     // through it inside the pipeline's dispatch, and registering it here makes it
     // visible to `providers.list` and routable by the owner like any provider.

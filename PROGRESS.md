@@ -1,5 +1,39 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — Practical UI drive proof for R9 (GAP-H3 + MISS-1) (D-R9-DRIVE-1)
+- **Scope**: Practical end-to-end UI drive on `r-next/integration` for merged tip `db29346` (lane `5764fe8` GAP-H3 + lane `db29346` MISS-1), per permanent owner rule OD-PRACTICAL-REVIEW-1. Local-only: no push, no tag, no publish, main untouched.
+- **Drive implementation**:
+  - `scripts/ui-drive-r9-failover-autoinit.mjs`: headless Chromium + Playwright in Arabic locale (`ar-EG`, RTL, dark theme), static desktop frontend server, isolated temporary daemon data directory, and spawned `warshad` daemon.
+  - Minimal product edits for deterministic offline proof per AGENTS.md: `MockProvider::new("mock-503")` simulating HTTP 503; tracing logs in `chat_with_fallback` recording fast retry on server downtime, cooldown engagement, failover execution, and cooldown skipping; pre-registered in `warshad::startup` and whitelisted in `lib.rs` / `runtime.rs`.
+- **Drive results & evidence**:
+  - MISS-1 Greenfield Git Auto-Init: `projects.create` without `repo_path` auto-initialized git repo at `<data_dir>/projects/<id>/repo` with `.gitignore` and `README.md`; passed `validate_repository` (`git rev-parse`); `runs.start` returned non-null `worktree_path` containing checkout files; bench overview rendered in UI. Screenshot: `artifacts/ui-drive-r9/01-miss1-greenfield-bench-overview.png`.
+  - GAP-H3 Fast Failover on 503: Routed researcher role to primary `mock-503` + fallback `mock`. Attempt 1 triggered fast retry (attempt 1, delay 0), engaged 60s cooldown on `mock-503`, failed over immediately to `mock`, completing Research stage in 1034ms. Screenshot: `artifacts/ui-drive-r9/02-h3-failover-research-success.png`.
+  - GAP-H3 Cooldown Skip: Subsequent run (Run 2) immediately skipped `mock-503` in cooldown, routing directly to `mock` in 1057ms. Screenshot: `artifacts/ui-drive-r9/03-h3-cooldown-skip-success.png`.
+  - GAP-H3 Fail-Fast Without Fallback: Disabled fallback; Run 3 failed fast in 544ms without retry burn, rendering localized Arabic failure banner in bench UI. Screenshot: `artifacts/ui-drive-r9/04-h3-failfast-cooldown-banner.png`.
+  - Daemon log: `artifacts/ui-drive-r9/warshad.log` (lines 12, 13, 14, 22, 31).
+  - Packet report: `docs/zadloop/packets/UI-DRIVE-R9-FAILOVER-AUTOINIT.md`.
+- **Gate matrix (CARGO_HOME=/tmp/cargo-home)**:
+  - `cargo fmt --all -- --check`: FMT_OK (0 diffs, exit code 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, finished in 8.45s (exit code 0).
+  - `cargo test -p warsha-pipeline --lib`: 588 passed, 0 failed, 7 ignored (exit code 0).
+  - `cargo test -p warsha-providers --lib`: 71 passed, 0 failed, 0 ignored (exit code 0).
+  - `cargo test -p warsha-providers --test failover`: 9 passed, 0 failed, 0 ignored (exit code 0).
+  - `cargo test -p warshad --lib`: 319 passed, 0 failed, 4 ignored (exit code 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failed (exit code 0).
+  - `node scripts/check-versions.mjs --expect 0.3.1`: 0.3.1 aligned (exit code 0).
+  - `node scripts/check-arch.mjs`: 5 rules, 0 violations (exit code 0).
+  - `node scripts/check-wire-contract.mjs`: 11 checks, 0 violations (exit code 0).
+  - `node scripts/ci/actions-gate.mjs`: 199 registered, 199 used, 1 violation (pre-existing factory.retry A6, lane/base parity) (exit code 0).
+  - `node scripts/ci/i18n-gate.mjs`: 1074 keys, 19 violations (pre-existing base parity) (exit code 0).
+  - `node scripts/ui-drive-r9-failover-autoinit.mjs`: exit code 0, all assertions passed.
+- **Status**: FIXES COMPLETE for the R9 round.
+
+## Run 2026-11-22 — R9 H3+MISS-1 merge verification (D-R9-FAILOVER-1 + D-R9-AUTOINIT-1)
+- **Scope**: Merge lane `1ede04a` (GAP-H3 failover) as `5764fe8` + lane `e5b714c` (MISS-1 autoinit) as `db29346` into `r-next/integration`. Local-only: no push, no tag, no publish, main untouched.
+- **Conflict resolution**: `DECISIONS.md` + `PROGRESS.md` both-lanes-prepend conflict; resolved by keeping both decision/Run blocks whole (H3 then MISS-1), markers removed, `git diff --check` clean.
+- **Gates (merged tip `db29346`)**: fmt FMT_OK; clippy 0; pipeline lib 588/0/7; providers lib 71/0 + failover integration 9/9; warshad lib 319/0/4; policy 8/0; versions 0.3.1 aligned; arch 5/0; wire 11/0; actions 199/199/1 (single pre-existing factory.retry A6, lane/base parity); i18n 1074/19 (base parity).
+- **Status**: MERGED — practical drive proof pending per OD-PRACTICAL-REVIEW-1 before FIXES COMPLETE.
+
 ## Run 2026-11-22 — Fix GAP-H3: Fast failover and universal cooldown on 503/5xx server downtime (D-R9-FAILOVER-1)
 - **Scope**: Fix GAP-H3 on branch `fix-r9-failover` (base `750934c`, worktree `.agents/worktrees/fix-r9-failover`). Local-only: no push, no tag, no publish, main untouched.
 - **Changes**:

@@ -371,10 +371,13 @@ pub(crate) async fn register_configured_providers(
         if !provider.enabled {
             continue;
         }
-        if provider.name == MOCK_PROVIDER_ID {
+        if provider.name == MOCK_PROVIDER_ID || provider.name == "mock-503" {
             // The daemon's own offline provider owns this id; a row that tries to take
             // it is refused rather than silently replacing what every test routes to.
-            warn!("a stored provider is named {MOCK_PROVIDER_ID} and was not registered");
+            warn!(
+                "a stored provider is named {} and was not registered",
+                provider.name
+            );
             continue;
         }
         let deferred = DeferredProvider::new(provider.clone(), Arc::clone(factory));

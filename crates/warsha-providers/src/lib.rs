@@ -283,6 +283,21 @@ impl MockProvider {
         let hang = std::env::var("WARSHA_MOCK_HANG")
             .map(|v| v == "1" || v == "true")
             .unwrap_or(false);
+        let fail_503 = std::env::var("WARSHA_MOCK_503")
+            .map(|v| {
+                let v = v.trim();
+                v == "1" || v == "true" || v.split(',').any(|s| s.trim() == id)
+            })
+            .unwrap_or(false)
+            || id == "mock-503";
+        let (should_fail, fail_with) = if fail_503 {
+            (
+                true,
+                Some(ProviderError::Http(503, "Service Unavailable".to_string())),
+            )
+        } else {
+            (false, None)
+        };
         Self {
             id: id.to_string(),
             models: vec![ModelInfo {
@@ -296,8 +311,8 @@ impl MockProvider {
                     output_per_million_cents: 200,
                 },
             }],
-            should_fail: false,
-            fail_with: None,
+            should_fail,
+            fail_with,
             call_count: std::sync::atomic::AtomicU32::new(0),
             calls: Arc::new(AtomicU32::new(0)),
             retryable_left: Arc::new(AtomicU32::new(0)),
@@ -1150,6 +1165,10 @@ impl ProviderRouter {
                 let mut cooldowns = self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(until) = cooldowns.get(&target.provider_id) {
                     if Instant::now() < *until {
+                        tracing::info!(
+                            provider = %target.provider_id,
+                            "skipping provider in cooldown"
+                        );
                         continue;
                     }
                     cooldowns.remove(&target.provider_id);
@@ -1219,6 +1238,11 @@ impl ProviderRouter {
                             && !self.budget_exhausted(project_id)
                         {
                             let delay = if server_downtime {
+                                tracing::warn!(
+                                    provider = %target.provider_id,
+                                    attempt = target_retries + 1,
+                                    "server downtime (503/5xx) on provider, attempting fast retry"
+                                );
                                 0
                             } else {
                                 backoff_delay_ms(&retry, target_retries, entropy_seed())
@@ -1234,6 +1258,11 @@ impl ProviderRouter {
                         // Engage 60s cooldown for failover or server downtime on the downed
                         // provider, regardless of whether fallback_enabled is true for this role.
                         if failover || server_downtime {
+                            tracing::warn!(
+                                provider = %target.provider_id,
+                                cooldown_secs = 60,
+                                "engaging cooldown for provider after server downtime or failover error"
+                            );
                             let mut cooldowns =
                                 self.cooldowns.lock().unwrap_or_else(|e| e.into_inner());
                             cooldowns.insert(
@@ -1263,6 +1292,10 @@ impl ProviderRouter {
             if !last_failover {
                 break;
             }
+            tracing::info!(
+                failed_provider = %target.provider_id,
+                "failing over to next routing target"
+            );
         }
 
         Err(last_error

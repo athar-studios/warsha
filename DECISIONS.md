@@ -1,4 +1,22 @@
 
+# DECISIONS.md — Architecture and Design Decisions
+
+## 2026-11-22 — D-R9-DRIVE-1: Practical UI Drive Proof for R9 (GAP-H3 Fast Failover + MISS-1 Greenfield Git Auto-Init)
+- **Decision**:
+  1. Automated practical drive script `scripts/ui-drive-r9-failover-autoinit.mjs` orchestrating a real `warshad` daemon and headless Chromium in Arabic locale (`ar-EG`, RTL, dark theme) exercising both R9 fixes end-to-end:
+     - MISS-1: `projects.create` without `repo_path` auto-initializes repository at `<data_dir>/projects/<id>/repo`, passes `validate_repository` (`git rev-parse`), and `runs.start` returns non-null `worktree_path` with checked-out `.gitignore` and `README.md`.
+     - GAP-H3: Configured `researcher` role with primary `mock-503` and fallback `mock`. Proved fast retry (at most 1 fast retry with 0 delay), immediate failover to `mock` (Research stage completed in 1034ms), universal 60s cooldown engagement, subsequent call cooldown skipping (Run 2 completed in 1057ms skipping downed provider), and fail-fast when fallback is disabled (Run 3 failed fast in 544ms displaying localized failure banner in UI).
+  2. Minimal product edits to support deterministic offline drive proof per AGENTS.md (zero external network calls):
+     - In `crates/warsha-providers/src/lib.rs`: Enabled `MockProvider::new` to simulate HTTP 503 Service Unavailable when initialized with id `"mock-503"` or matching `WARSHA_MOCK_503` env var; added structured tracing logs (`tracing::warn!` / `tracing::info!`) in `chat_with_fallback` recording fast retry attempts on server downtime, cooldown engagement, failover execution, and cooldown skipping.
+     - In `crates/warshad/src/startup.rs`: Pre-registered offline `MockProvider::new("mock-503")` at startup alongside `"mock"` and `"fake"`.
+     - In `crates/warshad/src/lib.rs` and `crates/warshad/src/runtime.rs`: Added `"mock-503"` to the whitelist of daemon built-in mock providers accepted in `set_role`, `add_provider`, and `register_configured_providers`.
+  3. Artifacts and reporting:
+     - Daemon log saved to `artifacts/ui-drive-r9/warshad.log`.
+     - UI screenshots captured in Arabic RTL: `01-miss1-greenfield-bench-overview.png`, `02-h3-failover-research-success.png`, `03-h3-cooldown-skip-success.png`, and `04-h3-failfast-cooldown-banner.png`.
+     - Verification packet report committed to `docs/zadloop/packets/UI-DRIVE-R9-FAILOVER-AUTOINIT.md`.
+- **Reason**: Fulfills permanent owner rule OD-PRACTICAL-REVIEW-1 (every FIXES COMPLETE requires real installable build and end-to-end UI drive on top of automated tests).
+- **Scope**: `scripts/ui-drive-r9-failover-autoinit.mjs`, `crates/warsha-providers/src/lib.rs`, `crates/warshad/src/startup.rs`, `crates/warshad/src/lib.rs`, `crates/warshad/src/runtime.rs`, `artifacts/ui-drive-r9/`, `docs/zadloop/packets/UI-DRIVE-R9-FAILOVER-AUTOINIT.md`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-22 — D-R9-FAILOVER-1: Fast Failover and Universal Cooldown on HTTP 503/5xx Server Downtime (GAP-H3)
 - **Decision**:
   1. In `crates/warsha-providers/src/lib.rs`: Added `ProviderError::is_server_downtime(&self) -> bool` classifying persistent server-downtime signals (HTTP 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout, and all 500..=599 status codes, plus `Other` errors containing 5xx/server error/service unavailable/bad gateway/gateway timeout strings, excluding rate-limit strings). Updated `is_retryable` and `should_failover` to recognize server downtime.

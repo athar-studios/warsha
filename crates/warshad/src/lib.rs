@@ -1318,13 +1318,13 @@ impl WarshaApiServer for WarshaRpc {
         if name.is_empty() {
             return Err(provider_refusal("a provider needs a name"));
         }
-        if name == MOCK_PROVIDER_ID {
+        if name == MOCK_PROVIDER_ID || name == "mock-503" {
             // The daemon's own offline adapter holds this id, and every automated test
             // routes to it. A row that claimed it would be registered now and skipped
             // at the next start (`register_configured_providers` leaves the id to the
             // mock), which is a provider that works until it quietly does not.
             return Err(provider_refusal(format!(
-                "{MOCK_PROVIDER_ID} is the daemon's own offline provider; choose another name"
+                "{name} is the daemon's own offline provider; choose another name"
             )));
         }
         let kind = kind.trim().to_string();
@@ -2047,7 +2047,10 @@ impl WarshaApiServer for WarshaRpc {
         stored.daily_spend_cap_cents = config.daily_spend_cap_cents;
 
         for target in &stored.targets {
-            if target.provider_id == MOCK_PROVIDER_ID {
+            if target.provider_id == MOCK_PROVIDER_ID
+                || target.provider_id == "mock-503"
+                || target.provider_id == "fake"
+            {
                 continue;
             }
             let configured = self
