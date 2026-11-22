@@ -1,4 +1,8 @@
 
+## 2026-11-22 — OD-PRACTICAL-REVIEW-1: Practical UI drive required for every FIXES COMPLETE (permanent owner rule)
+- **Decision**: From now on, review of any fix is not code reading + automated tests only. Every fix round must be reviewed by a real usage test of the built app as an ordinary user — actually driving the UI (same style as the last UI inspection that surfaced intake/settings faults), exercising the scenario end-to-end, and proving the defect is gone in real usage. Every FIXES COMPLETE announcement must ship with an installable build from `r-next/integration` so the practical review can run on it. Automated proving tests remain required as before — the practical review is an addition on top, not a replacement. Any fix not provable by real usage is rejected.
+- **Scope**: Process rule for all future rounds on `r-next/integration`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-22 — D-UI-INTAKE-WATCHDOG-1: Native Stage Timeout and Intake Watchdog
 - **Decision**:
   1. In `crates/warsha-providers/src/lib.rs`: Added configurable `dispatch_timeout` to `RouterCore` and `ProviderRouter` with default `DEFAULT_STAGE_TIMEOUT = Duration::from_secs(180)` (configurable via `WARSHA_STAGE_TIMEOUT_SECS` env override and `set_dispatch_timeout`). Added `MockProvider::with_hang` to support hang-simulation testing without network.
