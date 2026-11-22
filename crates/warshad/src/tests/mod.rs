@@ -3887,6 +3887,151 @@ mod runs_resume {
     }
 
     #[tokio::test]
+    async fn runs_resume_gate_c_changes_requested_reruns_coder_then_reviewer() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+
+        for &role in Role::all() {
+            state.providers.write().await.set_role_routing(RoleRouting {
+                role,
+                targets: vec![RoutingTarget {
+                    provider_id: "mock".to_string(),
+                    model_id: "mock-model".to_string(),
+                    weight: 100,
+                }],
+                fallback_enabled: false,
+                budget_cents_per_run: None,
+            });
+        }
+
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Gate C Resume Project".to_string(),
+                "Test Gate C change-request resume".to_string(),
+                "en".to_string(),
+                None,
+                None,
+            )
+            .await
+            .expect("project created");
+        let run = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "Web application".to_string(),
+                None,
+                None,
+            )
+            .await
+            .expect("run started");
+
+        // Advance to GateA -> Approve GateA
+        let at_gate_a = rpc
+            .advance_run(&owner, run.id)
+            .await
+            .expect("advance to GateA");
+        assert_eq!(at_gate_a.current_stage, Stage::GateA);
+        rpc.approve_gate(&owner, run.id, Stage::GateA, None)
+            .await
+            .expect("approve GateA");
+
+        // Advance to GateB -> Approve GateB
+        let at_gate_b = rpc
+            .advance_run(&owner, run.id)
+            .await
+            .expect("advance to GateB");
+        assert_eq!(at_gate_b.current_stage, Stage::GateB);
+        rpc.approve_gate(&owner, run.id, Stage::GateB, None)
+            .await
+            .expect("approve GateB");
+
+        // Advance through Design -> Plan -> Code -> Review -> GateC
+        let at_gate_c = rpc
+            .advance_run(&owner, run.id)
+            .await
+            .expect("advance to GateC");
+        assert_eq!(at_gate_c.current_stage, Stage::GateC);
+        assert_eq!(at_gate_c.gate_states[&Stage::GateC], GateState::Pending);
+
+        // Count sessions for Coder and Reviewer before resume
+        let sessions_before = store
+            .list_sessions_by_run(run.id)
+            .await
+            .expect("list sessions");
+        let coder_sessions_before = sessions_before
+            .iter()
+            .filter(|s| s.role == Role::Coder)
+            .count();
+        let reviewer_sessions_before = sessions_before
+            .iter()
+            .filter(|s| s.role == Role::Reviewer)
+            .count();
+        assert_eq!(coder_sessions_before, 1, "coder ran once before Gate-C");
+        assert_eq!(
+            reviewer_sessions_before, 1,
+            "reviewer ran once before Gate-C"
+        );
+
+        // Request changes at GateC
+        let paused = rpc
+            .request_changes(
+                &owner,
+                run.id,
+                Stage::GateC,
+                "Missing core implementation".to_string(),
+                None,
+            )
+            .await
+            .expect("request_changes succeeds");
+        assert_eq!(paused.status, RunStatus::Paused);
+
+        // Resume via runs.resume -> re-runs Coder, then re-runs Reviewer, then stops at GateC
+        let resumed = rpc
+            .resume_run(&owner, run.id)
+            .await
+            .expect("runs.resume succeeds");
+        assert_eq!(resumed.status, RunStatus::Running);
+        assert_eq!(resumed.current_stage, Stage::GateC);
+        assert_eq!(resumed.gate_states[&Stage::GateC], GateState::Pending);
+
+        // Verify Coder and Reviewer both re-executed
+        let sessions_after = store
+            .list_sessions_by_run(run.id)
+            .await
+            .expect("list sessions");
+        let coder_sessions_after = sessions_after
+            .iter()
+            .filter(|s| s.role == Role::Coder)
+            .count();
+        let reviewer_sessions_after = sessions_after
+            .iter()
+            .filter(|s| s.role == Role::Reviewer)
+            .count();
+        assert_eq!(
+            coder_sessions_after, 2,
+            "coder must re-run on Gate-C resume"
+        );
+        assert_eq!(
+            reviewer_sessions_after, 2,
+            "reviewer must re-run on Gate-C resume"
+        );
+
+        // Approving GateC now succeeds
+        let approved = rpc
+            .approve_gate(&owner, run.id, Stage::GateC, None)
+            .await
+            .expect("approve GateC succeeds");
+        assert!(matches!(
+            approved.gate_states[&Stage::GateC],
+            GateState::Approved { .. }
+        ));
+    }
+
+    #[tokio::test]
     async fn runs_resume_budget_paused_run_succeeds_after_budget_set() {
         let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
