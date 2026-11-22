@@ -2738,3 +2738,48 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
   - `CARGO_HOME=/tmp/cargo-home cargo test -p warsha-pipeline --lib`: 571 passed, 0 failed, 7 ignored (exit 0).
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit 0).
 
+## 2026-11-22 — D-R7-APPROVAL-1: Fix Round-7 Approval Bypasses (R7-H1 through R7-H7)
+
+- **Context & Scope**: Closes the 5 HIGH blockers from `/tmp/warsha-round7-2026-11-22.md` (H-1, H-2+H-3+H-4, H-5, H-6, H-7):
+  - **H-1: CI red parity and agent-turn git classification**:
+    * Root causes:
+      1. `CommandPolicy::check_command` refused relative-path executables (`./npm`, `bin/npm`) to prevent uncontained execution while daemon `ProcessPolicy::check_command` still admitted relative paths matching an allow-listed basename. Parity test failed at `crates/warshad/src/auth.rs:2063`.
+      2. `git --version` classified `Risky` because `work_protection.rs` git global flag parser only allowed a limited set (`-C`, `--git-dir`, `--work-tree`, `--namespace`, `--super-prefix`, `-c`) and treated `--version` as an unknown flag. Agent turn path returned "needs approval" instead of reaching daemon allow-list refusal in test `agent_command_execution_obeys_daemon_allowed_commands_policy`.
+    * Fixes:
+      1. Updated `ProcessPolicy::check_command` (`crates/warshad/src/auth.rs:1327`) to refuse any program token containing a path separator (`/` or `\`) that does not resolve inside the daemon `data_dir`. Relative paths like `./npm` are refused by both policies.
+      2. Added known safe informational git global flags (`--version`, `-v`, `-V`, `--help`, `-h`, `--no-pager`, `-P`, `-p`, `--paginate`, `--literal-pathspecs`, `--no-replace-objects`, `--no-optional-locks`) to `crates/warsha-pipeline/src/work_protection.rs`. Bare `git --version` classifies `Safe` again.
+      3. Updated `auth::policy_parity_tests::process_policy_and_pipeline_policy_refuse_and_admit_the_same_programs` and `auth_tests.rs:262` deliberately: bare names admitted by both; relative paths `./npm` refused by both.
+  - **H-2 + H-3 + H-4: Git open class & config override**:
+    * Root causes:
+      1. Git subcommands used a denylist allowing dangerous execution-enabling subcommands (`clone`, `pull`, `submodule`, `worktree`, `archive`, `bundle`, `init`, `alias`, `commit-graph`, `credential`, `daemon`, `http-backend`, `remote`, `instaweb`, `send-email`, `format-patch`, `request-pull`, `fast-import`, `fast-export`, `filter-repo`, `rebase`, `merge`, `reset`, `clean`, `gc`, `prune`, `fsck`, `maintenance`).
+      2. `git -c` used a denylist (`is_risky_git_config`), allowing dangerous configuration overrides such as `core.editor`, `core.pager`, `core.sshCommand`, `sequence.editor`, `merge.tool`, `diff.tool`, `credential.helper`, `browser.*.cmd`, etc.
+    * Fixes:
+      1. Converted `SAFE_GIT_SUBCOMMANDS` in `crates/warsha-pipeline/src/work_protection.rs` to an explicit safe allow-list: `status`, `log`, `diff` (without `--ext-diff`), `show`, `branch`, `checkout`, `commit`, `add`, `restore`, `switch`, `rev-parse`, `describe`, `shortlog`, `check-ref-format`, `ls-files`, `cat-file`, `merge-base`, `grep` (without `-O`/`--open-files-in-pager`), `bisect` (without `run`), `stash` (only `list`/`show`), `help` (without external viewer flags `-m`/`-w`/`-i`/`--man`/`--web`/`--info`), `version`.
+      2. Converted `is_risky_git_config` in `crates/warsha-pipeline/src/command_policy.rs` to an explicit allow-list `is_allowed_git_config_key` permitting only inert configuration keys (`user.*`, `color.*`, `status.*`, `log.*`, `i18n.*`, `advice.*`, `core.quotepath`, `core.abbrev`, `core.autocrlf`, `core.filemode`, `core.eol`, `core.safecrlf`, `core.ignorecase`, `push.default`, `pull.ff`, `pull.rebase`, `init.defaultbranch`, `diff.renames`, `diff.algorithm`, `diff.mnemonicprefix`, `merge.conflictstyle`, `format.pretty`), with empty values neutralised. All other keys classify as `Risky`.
+  - **H-5: Absolute-path match & plumbing exec bypass**:
+    * Root causes:
+      1. Basename-only matching in `CommandPolicy` admitted workspace-relative or workspace-contained absolute paths (e.g. `/path/to/workspace/npm`) against bare allow-list entries like `npm`.
+      2. Plumbing commands (`update-index`, `checkout-index`, `am`, `hash-object`, `read-tree`) could modify files or index with execute bits.
+    * Fixes:
+      1. Updated `CommandPolicy::check_invocation_with_workdir` and `CommandPolicy::check_program_with_workdir` to verify whether an executable path resolves inside the workspace/working directory. Any path (relative or absolute) resolving inside the workspace does NOT match bare allow-list entries by basename and is refused. System toolchains outside the workspace (e.g. `/usr/bin/npm`) remain admitted by basename.
+      2. Updated `classify_command_with_workdir` in `work_protection.rs` to classify any program token resolving inside the workspace as `Risky`.
+      3. Git plumbing commands (`update-index`, `checkout-index`, `am`, `hash-object`, `read-tree`) are excluded from `SAFE_GIT_SUBCOMMANDS` and classify as `Risky`.
+  - **H-6: CMake configure mode classification**:
+    * Root cause: `cmake -L`/`-LAH` without `-N` executes `CMakeLists.txt` configure stage.
+    * Fix: In `crates/warsha-pipeline/src/work_protection.rs`, `-L`/`-LA`/`-LH`/`-LAH` require `-N` (non-configuring view mode) to classify as `Safe`. Without `-N`, they configure cwd and classify as `Risky`. Updated `test_r6_h4_cmake_allow_list` in `crates/warsha-pipeline/src/verification_tests_impl.rs:2804`.
+  - **H-7: Cargo tree and metadata classification**:
+    * Root cause: `cargo metadata` and `cargo tree` invoke `rustc -vV`, executing `.cargo/config.toml` target-runner, `build.rustc`, or `build.rustc-wrapper`.
+    * Fix: Removed `tree` and `metadata` from `KNOWN_SAFE_CARGO_SUBCOMMANDS` in `crates/warsha-pipeline/src/work_protection.rs`. Only pure query/report commands (`--version`, `-V`, `--help`, `-h`, `help`, `version`, `locate-project`, `read-manifest`, `verify-project`, `report`) remain safe. Updated test at `verification_tests_impl.rs:2901`.
+- **Deliberately Updated Tests**:
+  - `crates/warshad/src/auth.rs:2056`: Parity test assertions updated to enforce that relative paths (`./npm`, `bin/npm`) are refused by both `ProcessPolicy` and `CommandPolicy`, while bare names (`npm`) are admitted by both.
+  - `crates/warshad/src/auth_tests.rs:262`: Assertion for `./npm` updated from `is_ok()` to `is_err()` reflecting the shared refusal invariant.
+  - `crates/warsha-pipeline/src/verification_tests_impl.rs:2804`: `cmake -L` without `-N` now asserted `Risky`, `cmake -LN` asserted `Safe`.
+  - `crates/warsha-pipeline/src/verification_tests_impl.rs:2901`: `cargo tree --version` now asserted `Risky`.
+  - Added new proving tests in `crates/warsha-pipeline/src/verification_tests_impl.rs`:
+    * `test_r7_h1_git_info_flags_safe`: confirms git informational flags (`--version`, `--help`, `-P`, etc.) classify `Safe`.
+    * `test_r7_h2_h3_h4_git_subcommand_and_config_allow_list`: confirms unlisted git subcommands and arbitrary `-c` configs classify `Risky`.
+    * `test_r7_h5_absolute_path_workspace_confinement`: proves workspace-contained absolute paths cannot match bare allow-list entries, while external tools can; verifies git plumbing classifies `Risky`.
+    * `test_r7_h6_cmake_configure_forms_risky`: tests `cmake -L`/`-LAH` without `-N` classify `Risky`, while `-N` combinations classify `Safe`.
+    * `test_r7_h7_cargo_tree_metadata_risky`: confirms `cargo tree` and `cargo metadata` classify `Risky`, while `cargo --version` and `cargo locate-project` classify `Safe`.
+
+

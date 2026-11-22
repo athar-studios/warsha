@@ -26,7 +26,7 @@ use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 use warsha_core::DeviceId;
-use warsha_pipeline::{PhonePairing, SHELL_COMMANDS};
+use warsha_pipeline::{is_workspace_relative_path, PhonePairing, SHELL_COMMANDS};
 use warsha_remote::constant_time_eq;
 use warsha_remote::rate_limit::{Quota, RateLimiter, RefusalMeter};
 
@@ -1334,13 +1334,25 @@ impl ProcessPolicy {
             return Ok(());
         }
 
+        // Relative paths containing a path separator must never match bare allow-list entries by basename (R6-H2, R7-H1).
+        let is_relative = is_workspace_relative_path(command);
         let program = program_name(command);
-        let allowed = self
-            .allowed
-            .iter()
-            .any(|entry| entry == command || program_name(entry) == program);
+        let allowed = self.allowed.iter().any(|entry| {
+            if entry == command {
+                return true;
+            }
+            if is_relative {
+                return false;
+            }
+            program_name(entry) == program
+        });
         if allowed {
             return Ok(());
+        }
+        if is_relative {
+            return Err(format!(
+                "`{command}` is a relative path; allowed commands must be named by bare executable name or rooted path"
+            ));
         }
         // The shell branch the pipeline policy has and this one did not (KEEL
         // checkpoint finding L12): a shell that is not allow-listed is refused for
@@ -2053,9 +2065,9 @@ mod policy_parity_tests {
             );
         }
 
-        // The allow-listed program both admit — bare, dotted and path-spelled (the
-        // basename rule of R-KEEL row 10 lives on both sides).
-        for admitted in ["npm", "./npm", "/tmp/whatever/npm"] {
+        // The allow-listed program both admit — bare and rooted path-spelled outside data dir
+        // (the basename rule of R-KEEL row 10 lives on both sides for non-relative paths).
+        for admitted in ["npm", "/tmp/whatever/npm"] {
             assert!(
                 daemon.check_command(admitted).is_ok(),
                 "the daemon refused the allowed `{admitted}`"
@@ -2063,6 +2075,19 @@ mod policy_parity_tests {
             assert!(
                 pipeline.check_command(admitted).is_ok(),
                 "the pipeline refused the allowed `{admitted}`"
+            );
+        }
+
+        // Relative paths containing a path separator are refused by both:
+        // they must never match bare allow-list entries by basename (R6-H2, R7-H1).
+        for relative in ["./npm", "bin/npm"] {
+            assert!(
+                daemon.check_command(relative).is_err(),
+                "the daemon admitted the relative path `{relative}`"
+            );
+            assert!(
+                pipeline.check_command(relative).is_err(),
+                "the pipeline admitted the relative path `{relative}`"
             );
         }
 

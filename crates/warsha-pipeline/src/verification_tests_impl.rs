@@ -6,7 +6,8 @@ mod tests {
     use crate::command_policy::CommandPolicy;
     use crate::mcp_approval::McpApprovals;
     use crate::work_protection::{
-        classify_command, PermissionMode, RiskClass, WorkProtectionPolicy,
+        classify_command, classify_command_with_workdir, PermissionMode, RiskClass,
+        WorkProtectionPolicy,
     };
 
     #[test]
@@ -2831,17 +2832,19 @@ mod tests {
             classify_command("cmake", &["--help-commands".to_string()]),
             RiskClass::Safe
         );
+        // Corrected in R7-H6: -L/-LA/-LH configure the cwd and execute CMakeLists.txt (Risky);
+        // only -N-bearing combos are inert cache-listing views (Safe).
         assert_eq!(
             classify_command("cmake", &["-L".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("cmake", &["-LA".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("cmake", &["-LH".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("cmake", &["-LN".to_string()]),
@@ -2897,9 +2900,10 @@ mod tests {
             classify_command("cargo", &["-v".to_string(), "package".to_string()]),
             RiskClass::Risky
         );
+        // Corrected in R7-H7: cargo tree/metadata trigger rustc-wrapper via .cargo/config.toml (Risky)
         assert_eq!(
             classify_command("cargo", &["tree".to_string(), "--version".to_string()]),
-            RiskClass::Safe
+            RiskClass::Risky
         );
         assert_eq!(
             classify_command("cargo", &["--version".to_string()]),
@@ -3071,5 +3075,494 @@ mod tests {
             RiskClass::Risky
         );
         assert_eq!(classify_command("yarn", &[]), RiskClass::Risky);
+    }
+
+    #[test]
+    fn test_r7_h1_git_info_flags_safe() {
+        // H-1: info-only git global flags classify Safe
+        assert_eq!(
+            classify_command("git", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["-v".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["-V".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["--help".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["-h".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["--no-pager".to_string(), "--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["-P".to_string(), "--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &["--literal-pathspecs".to_string(), "--version".to_string()]
+            ),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["-p".to_string(), "--version".to_string()]),
+            RiskClass::Safe
+        );
+    }
+
+    #[test]
+    fn test_r7_h2_h3_h4_git_subcommand_and_config_allow_list() {
+        let policy = CommandPolicy::from_config(&["git".to_string()]);
+
+        // Repro 1: unknown/arbitrary git subcommand (git zz) in bare repo or workspace
+        assert_eq!(
+            classify_command("git", &["zz".to_string()]),
+            RiskClass::Risky
+        );
+
+        // Repro 2: one-command shells via non-allowlisted -c keys
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "man.viewer=zz".to_string(),
+                    "-c".to_string(),
+                    "man.zz.cmd=sh".to_string(),
+                    "help".to_string(),
+                    "-m".to_string(),
+                    "status".to_string(),
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "remote.origin.url=.".to_string(),
+                    "-c".to_string(),
+                    "remote.origin.uploadpack=sh".to_string(),
+                    "ls-remote".to_string(),
+                    "origin".to_string(),
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "difftool.y.cmd=sh".to_string(),
+                    "difftool".to_string(),
+                    "-y".to_string(),
+                    "-t".to_string(),
+                    "y".to_string(),
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "web.browser=zz".to_string(),
+                    "-c".to_string(),
+                    "browser.zz.cmd=sh".to_string(),
+                    "web--browse".to_string(),
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "diff.x.command=sh".to_string(),
+                    "diff".to_string(),
+                ]
+            ),
+            RiskClass::Risky
+        );
+
+        // Repro 3: templateDir hook injection
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "-c".to_string(),
+                    "init.templateDir=tpl".to_string(),
+                    "init".to_string(),
+                ]
+            ),
+            RiskClass::Risky
+        );
+
+        // Repro 4: git hook run
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "hook".to_string(),
+                    "run".to_string(),
+                    "pre-commit".to_string(),
+                ]
+            ),
+            RiskClass::Risky
+        );
+
+        // Repro 5: git plumbing execution/staging subcommands are all Risky
+        assert_eq!(
+            classify_command("git", &["am".to_string(), "patch.mbox".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "update-index".to_string(),
+                    "--chmod=+x".to_string(),
+                    "x/npm".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "checkout-index".to_string(),
+                    "-f".to_string(),
+                    "x/npm".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "hash-object".to_string(),
+                    "-w".to_string(),
+                    "payload".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "read-tree".to_string(),
+                    "-u".to_string(),
+                    "HEAD".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+
+        // Stash list-level read-only vs write
+        assert_eq!(
+            classify_command("git", &["stash".to_string(), "list".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["stash".to_string(), "show".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("git", &["stash".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("git", &["stash".to_string(), "pop".to_string()]),
+            RiskClass::Risky
+        );
+
+        // Bisect run vs start
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "bisect".to_string(),
+                    "run".to_string(),
+                    "./test.sh".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("git", &["bisect".to_string(), "start".to_string()]),
+            RiskClass::Safe
+        );
+
+        // Grep -O vs pure grep
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "grep".to_string(),
+                    "-O/bin/sh".to_string(),
+                    "pattern".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("git", &["grep".to_string(), "pattern".to_string()]),
+            RiskClass::Safe
+        );
+
+        // CommandPolicy verifies that non-allowlisted -c keys fail closed
+        assert!(policy
+            .check_command("git -c man.viewer=zz help -m status")
+            .is_err());
+        assert!(policy
+            .check_command("git -c remote.origin.uploadpack=sh ls-remote origin")
+            .is_err());
+        assert!(policy
+            .check_command("git -c difftool.y.cmd=sh difftool -y")
+            .is_err());
+        assert!(policy
+            .check_command("git -c diff.x.command=sh diff")
+            .is_err());
+        assert!(policy
+            .check_command("git -c init.templateDir=tpl init")
+            .is_err());
+
+        // Inert allowed -c keys remain admitted
+        assert!(policy
+            .check_command("git -c user.name=Alice commit")
+            .is_ok());
+        assert!(policy.check_command("git -c color.ui=always log").is_ok());
+        assert!(policy.check_command("git -c core.fsmonitor= diff").is_ok());
+        assert!(policy
+            .check_command("git -c core.autocrlf=false status")
+            .is_ok());
+    }
+
+    #[test]
+    fn test_r7_h5_absolute_path_workspace_confinement() {
+        let temp_dir_res = tempfile::tempdir();
+        assert!(temp_dir_res.is_ok());
+        let Ok(temp_dir) = temp_dir_res else {
+            return;
+        };
+        let ws_path = temp_dir.path();
+        let tool_dir = ws_path.join("x");
+        assert!(std::fs::create_dir_all(&tool_dir).is_ok());
+        let tool_path = tool_dir.join("npm");
+        assert!(std::fs::write(&tool_path, "#!/bin/sh\necho evil\n").is_ok());
+
+        let policy = CommandPolicy::from_config(&["npm".to_string()]);
+        let tool_str = tool_path.to_string_lossy().to_string();
+
+        // 1. Absolute path resolving inside workspace must NOT match allow-list "npm" by basename
+        let check_res = policy.check_invocation_with_workdir(
+            &tool_str,
+            &["--version".to_string()],
+            Some(ws_path),
+        );
+        assert!(
+            check_res.is_err(),
+            "workspace-resolving path `{tool_str}` was admitted by CommandPolicy"
+        );
+
+        let risk =
+            classify_command_with_workdir(&tool_str, &["--version".to_string()], Some(ws_path));
+        assert_eq!(
+            risk,
+            RiskClass::Risky,
+            "workspace-resolving path `{tool_str}` was classified Safe"
+        );
+
+        // 2. Absolute path outside workspace is admitted by basename
+        let other_dir_res = tempfile::tempdir();
+        assert!(other_dir_res.is_ok());
+        let Ok(other_dir) = other_dir_res else {
+            return;
+        };
+        let external_tool = other_dir.path().join("npm");
+        assert!(std::fs::write(&external_tool, "#!/bin/sh\n").is_ok());
+        let ext_str = external_tool.to_string_lossy().to_string();
+
+        let check_ext = policy.check_invocation_with_workdir(
+            &ext_str,
+            &["--version".to_string()],
+            Some(ws_path),
+        );
+        assert!(
+            check_ext.is_ok(),
+            "external tool `{ext_str}` outside workspace should be admitted"
+        );
+
+        // 3. Git plumbing exec bit vectors all classify Risky
+        assert_eq!(
+            classify_command("git", &["am".to_string(), "patch.mbox".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "update-index".to_string(),
+                    "--chmod=+x".to_string(),
+                    "x/npm".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "checkout-index".to_string(),
+                    "-f".to_string(),
+                    "x/npm".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "hash-object".to_string(),
+                    "-w".to_string(),
+                    "payload".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "git",
+                &[
+                    "read-tree".to_string(),
+                    "-u".to_string(),
+                    "HEAD".to_string()
+                ]
+            ),
+            RiskClass::Risky
+        );
+    }
+
+    #[test]
+    fn test_r7_h6_cmake_configure_forms_risky() {
+        // H-6: cmake configure forms (-L, -LA, -LH, -LAH) without -N are Risky;
+        // only -N-bearing forms or inert info flags are Safe.
+        assert_eq!(
+            classify_command("cmake", &["-L".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-LA".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-LH".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cmake", &["-LAH".to_string()]),
+            RiskClass::Risky
+        );
+
+        // Safe -N bearing forms
+        assert_eq!(
+            classify_command("cmake", &["-LN".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-N".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-N".to_string(), "-L".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["-LA".to_string(), "-N".to_string()]),
+            RiskClass::Safe
+        );
+
+        // Safe introspection
+        assert_eq!(
+            classify_command("cmake", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["--help".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cmake", &["--system-information".to_string()]),
+            RiskClass::Safe
+        );
+    }
+
+    #[test]
+    fn test_r7_h7_cargo_tree_metadata_risky() {
+        // H-7: cargo tree & cargo metadata invoke rustc/rustc-wrapper and must classify Risky
+        assert_eq!(
+            classify_command("cargo", &["tree".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command("cargo", &["metadata".to_string()]),
+            RiskClass::Risky
+        );
+        assert_eq!(
+            classify_command(
+                "cargo",
+                &["metadata".to_string(), "--format-version=1".to_string()]
+            ),
+            RiskClass::Risky
+        );
+
+        // Inert cargo commands remain Safe
+        assert_eq!(
+            classify_command("cargo", &["--version".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cargo", &["-V".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cargo", &["--help".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cargo", &["verify-project".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cargo", &["locate-project".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cargo", &["read-manifest".to_string()]),
+            RiskClass::Safe
+        );
+        assert_eq!(
+            classify_command("cargo", &["report".to_string()]),
+            RiskClass::Safe
+        );
     }
 }

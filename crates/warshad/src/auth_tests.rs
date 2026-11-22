@@ -259,7 +259,8 @@ fn a_command_is_allowed_only_by_the_policy_and_no_shell_syntax_passes() {
     // The default list admits build tools and refuses the shells that would make
     // the list a formality.
     assert!(policy.check_command("npm").is_ok());
-    assert!(policy.check_command("./npm").is_ok());
+    // Relative paths containing a separator are refused by both policies
+    assert!(policy.check_command("./npm").is_err());
     assert!(
         policy.check_command("NPM.CMD").is_ok(),
         "a case-insensitive program name was not matched"
