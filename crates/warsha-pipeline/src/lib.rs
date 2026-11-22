@@ -1079,6 +1079,8 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 };
 
                 let dispatch_project_id = run.project_id.0.to_string();
+                let stage_timeout = providers.dispatch_timeout();
+                let stage_start = std::time::Instant::now();
                 let response = tokio::select! {
                     biased;
                     _ = cancel_rx.changed() => {
@@ -1087,14 +1089,30 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                             "Run cancelled during stage execution".to_string(),
                         ));
                     }
-                    res = Self::dispatch_chat(&providers, role, &dispatch_project_id, request) => {
-                        match res {
-                            Ok(response) => {
+                    timed_res = tokio::time::timeout(
+                        stage_timeout,
+                        Self::dispatch_chat(&providers, role, &dispatch_project_id, request),
+                    ) => {
+                        match timed_res {
+                            Ok(Ok(response)) => {
                                 let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Done, Utc::now()).await;
                                 response
                             }
-                            Err(error) => {
+                            Ok(Err(error)) => {
                                 let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Failed, Utc::now()).await;
+                                return Err(self
+                                    .record_stage_failure(run, *version, ctrl, stage, role, error)
+                                    .await);
+                            }
+                            Err(_elapsed) => {
+                                let elapsed_secs = stage_start.elapsed().as_secs();
+                                let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Failed, Utc::now()).await;
+                                let error = PipelineError::Provider(warsha_providers::ProviderError::Timeout(format!(
+                                    "Stage {} timed out after {}s (limit {}s)",
+                                    stage_to_string(stage),
+                                    elapsed_secs,
+                                    stage_timeout.as_secs(),
+                                )));
                                 return Err(self
                                     .record_stage_failure(run, *version, ctrl, stage, role, error)
                                     .await);
@@ -1895,6 +1913,19 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             self.store.append_event(&finished).await?;
         }
 
+        // Finish any open working sessions as stopped
+        if let Ok(sessions) = self.store.list_sessions_by_run(run_id).await {
+            let now = Utc::now();
+            for s in sessions {
+                if s.status == warsha_core::SessionStatus::Working {
+                    let _ = self
+                        .store
+                        .finish_session(s.id, warsha_core::SessionStatus::Stopped, now)
+                        .await;
+                }
+            }
+        }
+
         info!("Run {} cancelled: {:?}", run_id.0, reason);
         Ok(run)
     }
@@ -2107,6 +2138,113 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             .map_err(Into::into)
     }
 
+    /// Check whether a run in `Running` state has a working session older than
+    /// the dispatch timeout. If so, reaps the stale run by marking the session failed,
+    /// transitioning the run to `Failed`, and appending stage_failed and run_finished events.
+    pub async fn check_stale_run(&self, run_id: RunId) -> Result<Run> {
+        let (run, _version) = self.store.get_run_versioned(run_id).await?;
+        if run.status != RunStatus::Running {
+            return Ok(run);
+        }
+
+        let sessions = self.store.list_sessions_by_run(run_id).await?;
+        let timeout = self.providers.read().await.dispatch_timeout();
+        let now = Utc::now();
+        let timeout_chrono = match chrono::Duration::from_std(timeout) {
+            Ok(d) => d,
+            Err(_) => chrono::Duration::seconds(180),
+        };
+
+        let mut stale_session: Option<warsha_core::Session> = None;
+        for s in &sessions {
+            if s.status == warsha_core::SessionStatus::Working {
+                let elapsed = now.signed_duration_since(s.started_at);
+                if elapsed > timeout_chrono {
+                    stale_session = Some(s.clone());
+                    break;
+                }
+            }
+        }
+
+        let Some(stale) = stale_session else {
+            return Ok(run);
+        };
+
+        // Mark working sessions failed
+        for s in &sessions {
+            if s.status == warsha_core::SessionStatus::Working {
+                let _ = self
+                    .store
+                    .finish_session(s.id, warsha_core::SessionStatus::Failed, now)
+                    .await;
+            }
+        }
+
+        let ctrl = self.control_for(run_id).await;
+        let _guard = ctrl.state_lock.lock().await;
+
+        let (mut current_run, current_version) = self.store.get_run_versioned(run_id).await?;
+        if current_run.status == RunStatus::Running {
+            current_run.status = RunStatus::Failed;
+            current_run.updated_at = now;
+            self.store
+                .update_run_cas(&current_run, current_version)
+                .await?;
+
+            let elapsed_secs = now
+                .signed_duration_since(stale.started_at)
+                .num_seconds()
+                .max(timeout.as_secs() as i64);
+            let role = stale.role;
+            let stage_str = stage_to_string(current_run.current_stage);
+            let error_event = Event {
+                id: Ulid::new(),
+                run_id: current_run.id,
+                stage: current_run.current_stage,
+                role: Some(role),
+                kind: EventKind::Error,
+                payload: serde_json::json!({
+                    "action": "stage_failed",
+                    "stage": stage_str,
+                    "role": role,
+                    "message": format!(
+                        "Stage {} timed out after {}s (watchdog)",
+                        stage_str,
+                        elapsed_secs,
+                    ),
+                }),
+                cost_cents: None,
+                tokens: None,
+                created_at: now,
+                device_id: None,
+            };
+            let _ = self.store.append_event(&error_event).await;
+
+            let finished =
+                run_finished_event(current_run.id, current_run.current_stage, "failed", None);
+            let _ = self.store.append_event(&finished).await;
+
+            return Ok(current_run);
+        }
+
+        Ok(current_run)
+    }
+
+    /// Sweep all running runs and reap any that are stale (Working session older than timeout).
+    pub async fn reap_stale_runs(&self) -> Result<Vec<Run>> {
+        let all_runs = self.store.list_all_runs().await?;
+        let mut reaped = Vec::new();
+        for r in all_runs {
+            if r.status == RunStatus::Running {
+                let checked = self.check_stale_run(r.id).await?;
+                if checked.status == RunStatus::Failed {
+                    reaped.push(checked);
+                }
+            }
+        }
+        Ok(reaped)
+    }
+
     /// Answer a follow-up prompt on an existing run without moving its stage.
     pub async fn followup_run(&self, run_id: RunId, prompt: &str) -> Result<Run> {
         let ctrl = self.control_for(run_id).await;
@@ -2148,13 +2286,28 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             return Err(PipelineError::Other("Run is cancelled".to_string()));
         }
         let dispatch_project_id = run.project_id.0.to_string();
+        let followup_timeout = providers.dispatch_timeout();
+        let followup_start = std::time::Instant::now();
         let response = tokio::select! {
             biased;
             _ = cancel_rx.changed() => {
                 return Err(PipelineError::Other("Run cancelled during followup".to_string()));
             }
-            res = Self::dispatch_chat(&providers, role, &dispatch_project_id, request) => {
-                res?
+            timed_res = tokio::time::timeout(
+                followup_timeout,
+                Self::dispatch_chat(&providers, role, &dispatch_project_id, request),
+            ) => {
+                match timed_res {
+                    Ok(res) => res?,
+                    Err(_) => {
+                        let elapsed_secs = followup_start.elapsed().as_secs();
+                        return Err(PipelineError::Provider(warsha_providers::ProviderError::Timeout(format!(
+                            "Followup timed out after {}s (limit {}s)",
+                            elapsed_secs,
+                            followup_timeout.as_secs(),
+                        ))));
+                    }
+                }
             }
         };
         let answer = response
@@ -3865,6 +4018,165 @@ mod tests {
                     && env_err_msg.contains("refusing to fall back"),
                 "error must name env backend and refuse fallback: {env_err_msg}"
             );
+        }
+
+        #[tokio::test]
+        async fn test_hung_provider_dispatch_times_out_and_fails_stage() {
+            let store = temp_store().await;
+            let mut router = ProviderRouter::new();
+            // Short timeout for test so it completes quickly (100ms)
+            router.set_dispatch_timeout(std::time::Duration::from_millis(100));
+            let hung = MockProvider::new("hung-provider").with_hang();
+            router.register_provider(Box::new(hung));
+            router.set_role_routing(RoleRouting {
+                role: Role::Researcher,
+                targets: vec![RoutingTarget {
+                    provider_id: "hung-provider".to_string(),
+                    model_id: "mock-model".to_string(),
+                    weight: 100,
+                }],
+                fallback_enabled: false,
+                budget_cents_per_run: None,
+            });
+
+            let providers = Arc::new(RwLock::new(router));
+            let settings = setup_settings();
+            let engine = PipelineEngine::new(store.clone(), providers, settings);
+
+            let project = Project {
+                id: ProjectId::new(),
+                name: "Test Project".to_string(),
+                description: "Test".to_string(),
+                language: "en".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                ..Default::default()
+            };
+            store.create_project(&project).await.unwrap();
+
+            let run = engine
+                .start_run(project.id, "Build a hang test")
+                .await
+                .unwrap();
+
+            // Approve GateA so advance_to_next_gate will advance into Research stage
+            let mut updated_run = store.get_run(run.id).await.unwrap();
+            updated_run.current_stage = Stage::GateA;
+            updated_run.gate_states.insert(
+                Stage::GateA,
+                GateState::Approved {
+                    by: warsha_core::DeviceId::new(),
+                    at: Utc::now(),
+                },
+            );
+            store.update_run(&updated_run).await.unwrap();
+
+            // Advance from GateA into Research stage: dispatches Researcher role to hung provider.
+            // Bounded by 5s test timeout; stage dispatch timeout is 100ms.
+            let advance_res = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                engine.advance_to_next_gate(run.id),
+            )
+            .await
+            .expect("advance_to_next_gate must not hang indefinitely");
+
+            let run_after_advance = advance_res.expect("advance_to_next_gate returns the run");
+            assert_eq!(
+                run_after_advance.status,
+                RunStatus::Failed,
+                "run must be marked Failed on timeout"
+            );
+
+            let final_run = store.get_run(run.id).await.unwrap();
+            assert_eq!(final_run.status, RunStatus::Failed);
+
+            let sessions = store.list_sessions_by_run(run.id).await.unwrap();
+            assert!(!sessions.is_empty(), "must have created a session");
+            for s in sessions {
+                assert_eq!(s.status, warsha_core::SessionStatus::Failed);
+            }
+
+            let events = store.get_events(run.id).await.unwrap();
+            let has_stage_failed = events.iter().any(|ev| {
+                ev.payload.get("action").and_then(|a| a.as_str()) == Some("stage_failed")
+            });
+            assert!(has_stage_failed, "must emit stage_failed event");
+
+            let has_run_finished_failed = events.iter().any(|ev| {
+                ev.kind == EventKind::RunFinished
+                    && ev.payload.get("status").and_then(|s| s.as_str()) == Some("failed")
+            });
+            assert!(
+                has_run_finished_failed,
+                "must emit run_finished failed event"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_watchdog_reaps_stale_running_run() {
+            let store = temp_store().await;
+            let mut router = ProviderRouter::new();
+            router.set_dispatch_timeout(std::time::Duration::from_millis(50));
+            let providers = Arc::new(RwLock::new(router));
+            let settings = setup_settings();
+            let engine = PipelineEngine::new(store.clone(), providers, settings);
+
+            let project = Project {
+                id: ProjectId::new(),
+                name: "Test Watchdog".to_string(),
+                description: "Test".to_string(),
+                language: "en".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                ..Default::default()
+            };
+            store.create_project(&project).await.unwrap();
+
+            let run = Run {
+                id: RunId::new(),
+                project_id: project.id,
+                current_stage: Stage::Idea,
+                gate_states: HashMap::new(),
+                artifacts: HashMap::new(),
+                created_at: Utc::now() - chrono::Duration::seconds(10),
+                updated_at: Utc::now() - chrono::Duration::seconds(10),
+                status: RunStatus::Running,
+                budget_cents: None,
+                spent_cents: 0,
+                confinement: None,
+                worktree_path: None,
+                worktree_branch: None,
+                run_mode: warsha_core::RunMode::Agent,
+            };
+            store.create_run(&run).await.unwrap();
+
+            let session = warsha_core::Session {
+                id: warsha_core::SessionId(Ulid::new()),
+                run_id: Some(run.id),
+                project_id: project.id,
+                role: Role::Intake,
+                backend: "native".to_string(),
+                provider: "test".to_string(),
+                model: "test-model".to_string(),
+                status: warsha_core::SessionStatus::Working,
+                started_at: Utc::now() - chrono::Duration::seconds(10),
+                ended_at: None,
+                parent_session_id: None,
+                cli_session_id: None,
+            };
+            store.create_session(&session).await.unwrap();
+
+            let checked = engine.check_stale_run(run.id).await.unwrap();
+            assert_eq!(checked.status, RunStatus::Failed);
+
+            let sessions = store.list_sessions_by_run(run.id).await.unwrap();
+            assert_eq!(sessions[0].status, warsha_core::SessionStatus::Failed);
+
+            let events = store.get_events(run.id).await.unwrap();
+            let has_stage_failed = events.iter().any(|ev| {
+                ev.payload.get("action").and_then(|a| a.as_str()) == Some("stage_failed")
+            });
+            assert!(has_stage_failed);
         }
     }
 }

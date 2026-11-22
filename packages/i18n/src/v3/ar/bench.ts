@@ -49,13 +49,15 @@ export default {
   'bench.status.done': 'مكتمل',
   'bench.status.failed': 'فشل',
   'bench.status.paused': 'موقوف',
+  'bench.run_failed_banner': 'تعثّر هذا التشغيل قبل الاكتمال. تحقق من الأحداث أو أعِد المحاولة.',
   'bench.header.run_num': 'التشغيل #{number}',
   'bench.header.gate_waiting': 'قرار ينتظرك',
   'bench.header.advance': 'متابعة المرحلة',
   'bench.header.new_run': 'تشغيل جديد',
   'bench.header.cancel': 'إلغاء',
   'bench.cancel_dialog.title': 'إلغاء التشغيل',
-  'bench.cancel_dialog.description': 'هل أنت متأكد من إلغاء هذا التشغيل؟ سيتم إيقاف جميع المهام الجارية.',
+  'bench.cancel_dialog.description':
+    'هل أنت متأكد من إلغاء هذا التشغيل؟ سيتم إيقاف جميع المهام الجارية.',
   'bench.cancel_dialog.reason_label': 'سبب الإلغاء (اختياري)',
   'bench.cancel_dialog.reason_placeholder': 'أدخل سبب الإلغاء هنا',
   'bench.cancel_dialog.confirm': 'نعم، ألغِ التشغيل',
@@ -144,18 +146,15 @@ export default {
   'bench.evidence.tests_failing': 'فشلت الاختبارات',
   'bench.evidence.tests_duration': 'استغرق {ms} مللي ثانية',
   'bench.evidence.tests_exit_code': 'رمز الخروج {code}',
-  'bench.evidence.tests_truncated':
-    'بلغت المخرجات المجموعة حدّ الخادم، لذا هي مقتطعة.',
+  'bench.evidence.tests_truncated': 'بلغت المخرجات المجموعة حدّ الخادم، لذا هي مقتطعة.',
   'bench.evidence.preview_title': 'المعاينة',
   'bench.evidence.preview_absent': 'لا يوجد خادم تطوير يعمل لهذا المشروع الآن.',
   'bench.evidence.preview_no_url': 'لم يطبع الخادم أي رابط.',
   'bench.evidence.preview_project_note':
     'هذه معاينة المشروع كما هي قائمة الآن — جمع الأدلة لا يبدأ معاينة أبدًا.',
   'bench.evidence.preview_status': 'الحالة: {status}',
-  'bench.evidence.error_policy':
-    'رفضت سياسة الأوامر هذا البرنامج، فلم يُشغَّل شيء في مساحة العمل.',
-  'bench.evidence.error_owner':
-    'هذا الجهاز ليس المالك، لذا لا يجوز له إنفاق تشغيل اختبارات.',
+  'bench.evidence.error_policy': 'رفضت سياسة الأوامر هذا البرنامج، فلم يُشغَّل شيء في مساحة العمل.',
+  'bench.evidence.error_owner': 'هذا الجهاز ليس المالك، لذا لا يجوز له إنفاق تشغيل اختبارات.',
   'bench.evidence.error_no_worktree':
     'لا توجد مساحة عمل لهذا التشغيل، وأدلة بوابة ج تحتاج تشغيلًا مرتبطًا بمستودع.',
   'bench.evidence.error_failed': 'تعذّر جمع الأدلة.',

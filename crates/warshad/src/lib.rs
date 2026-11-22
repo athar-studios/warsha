@@ -856,20 +856,51 @@ impl WarshaApiServer for WarshaRpc {
 
     async fn get_run(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Run> {
         self.authorize(ext, "runs.get").await?;
-        self.state
-            .store
-            .get_run(run_id)
+        let run = self
+            .state
+            .pipeline
+            .check_stale_run(run_id)
             .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        if run.status == RunStatus::Failed {
+            self.state.mcp_approvals.purge_run(&run.id.0.to_string());
+            self.state.previews.stop_run(&run.id.0.to_string()).await;
+        }
+        Ok(run)
     }
 
     async fn list_runs(&self, ext: &RpcExtensions, project_id: ProjectId) -> RpcResult<Vec<Run>> {
         self.authorize(ext, "runs.list").await?;
-        self.state
+        let runs = self
+            .state
             .store
             .list_runs(project_id)
             .await
-            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        let mut checked_runs = Vec::with_capacity(runs.len());
+        for run in runs {
+            if run.status == RunStatus::Running {
+                let checked = self
+                    .state
+                    .pipeline
+                    .check_stale_run(run.id)
+                    .await
+                    .unwrap_or(run);
+                if checked.status == RunStatus::Failed {
+                    self.state
+                        .mcp_approvals
+                        .purge_run(&checked.id.0.to_string());
+                    self.state
+                        .previews
+                        .stop_run(&checked.id.0.to_string())
+                        .await;
+                }
+                checked_runs.push(checked);
+            } else {
+                checked_runs.push(run);
+            }
+        }
+        Ok(checked_runs)
     }
 
     async fn get_events(&self, ext: &RpcExtensions, run_id: RunId) -> RpcResult<Vec<Event>> {
