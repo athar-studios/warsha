@@ -7,6 +7,7 @@ use async_trait::async_trait;
 pub use catalog::CliHealthDiagnostics;
 use chrono::Utc;
 use std::collections::HashMap;
+use std::io::Write;
 use stream::*;
 use tokio::io::AsyncBufReadExt;
 use warsha_core::{EventKind, Role, Stage};
@@ -375,6 +376,9 @@ impl CodingBackend for CliBackend {
         let mut session_ended_emitted = false;
         let mut captured_stdout = Vec::new();
         let mut captured_stderr = Vec::new();
+        // D-R11-POSTMORTEM-1: a SIGKILL/OOM drops the pipe before the in-memory
+        // buffers are assembled. Each line is also appended to disk as it arrives.
+        let mut cli_log = open_cli_log(&sandbox.work_dir)?;
         let exit_status;
 
         let cli_timeout = task
@@ -503,6 +507,7 @@ impl CodingBackend for CliBackend {
                             if is_streaming {
                                 process_line(&l, &mut usage, &mut session_ended_emitted);
                             }
+                            append_cli_log_line(&mut cli_log, "stdout", &l)?;
                             captured_stdout.push(l);
                         }
                         Ok(None) | Err(_) => {
@@ -516,6 +521,7 @@ impl CodingBackend for CliBackend {
                             if let Some(mgr) = &live_sessions {
                                 mgr.push_tail_line(session_id, &l).await;
                             }
+                            append_cli_log_line(&mut cli_log, "stderr", &l)?;
                             captured_stderr.push(l);
                         }
                         Ok(None) | Err(_) => {
@@ -570,12 +576,14 @@ impl CodingBackend for CliBackend {
             if is_streaming {
                 process_line(&l, &mut usage, &mut session_ended_emitted);
             }
+            append_cli_log_line(&mut cli_log, "stdout", &l)?;
             captured_stdout.push(l);
         }
         while let Ok(Some(l)) = stderr_reader.next_line().await {
             if let Some(mgr) = &live_sessions {
                 mgr.push_tail_line(session_id, &l).await;
             }
+            append_cli_log_line(&mut cli_log, "stderr", &l)?;
             captured_stderr.push(l);
         }
 
@@ -674,6 +682,29 @@ impl CodingBackend for CliBackend {
             duration_ms: duration,
         })
     }
+}
+
+/// `<work_dir>/.warsha/cli.log`, created on demand. Lines are appended as the
+/// child emits them so a SIGKILL/OOM still leaves a partial log on disk.
+fn open_cli_log(work_dir: &std::path::Path) -> Result<std::fs::File> {
+    let dir = work_dir.join(".warsha");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| BackendError::Sandbox(format!("failed to create {}: {e}", dir.display())))?;
+    let path = dir.join("cli.log");
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| BackendError::Sandbox(format!("failed to open {}: {e}", path.display())))
+}
+
+/// Append one already-captured line and flush it. The line text is the child's
+/// own stdout/stderr; secret values are not added here.
+fn append_cli_log_line(log: &mut std::fs::File, stream: &str, line: &str) -> Result<()> {
+    writeln!(log, "{stream}: {line}")
+        .map_err(|e| BackendError::Sandbox(format!("failed to write .warsha/cli.log: {e}")))?;
+    log.flush()
+        .map_err(|e| BackendError::Sandbox(format!("failed to flush .warsha/cli.log: {e}")))
 }
 
 /// The diff and changed paths a run left in `work_dir`, or an empty pair when it
@@ -1048,6 +1079,40 @@ mod tests {
             let prompt = std::fs::read_to_string(temp.path().join("prompt.txt"))
                 .expect("the prompt is recorded");
             assert!(prompt.contains("Add a page"), "{prompt}");
+        }
+
+        /// MISS-4: a SIGKILL drops the child pipe before the in-memory capture is
+        /// assembled. Lines printed before the kill must already be on disk.
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log() {
+            let temp = tempfile::tempdir().expect("a temp dir");
+            let cli = fake_cli(
+                temp.path(),
+                "echo 'line-before-kill'\necho 'err-before-kill' >&2\nkill -9 $$",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let error = backend
+                .execute(task("T", "D"), &sandbox)
+                .await
+                .expect_err("the CLI was killed");
+            assert!(
+                matches!(error, BackendError::ExecutionFailed(_)),
+                "{error:?}"
+            );
+
+            let log = std::fs::read_to_string(temp.path().join(".warsha/cli.log"))
+                .expect("the partial cli log survives the kill");
+            assert!(
+                log.contains("stdout: line-before-kill"),
+                "stdout line missing from partial log: {log}"
+            );
+            assert!(
+                log.contains("stderr: err-before-kill"),
+                "stderr line missing from partial log: {log}"
+            );
         }
 
         #[cfg(unix)]
