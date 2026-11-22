@@ -8,31 +8,73 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-FFD60A.svg" alt="License: PolyForm Noncommercial 1.0.0"></a>
+  <img src="https://img.shields.io/badge/version-0.3.1-0E0E0E.svg" alt="Version 0.3.1">
+  <a href="https://github.com/athar-studios/warsha/releases"><img src="https://img.shields.io/github/v/release/athar-studios/warsha?color=0E0E0E&label=release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/status-early%20development-0E0E0E.svg" alt="Status: early development">
 </p>
 
+<p align="center">
+  <b>Website:</b> <a href="https://warsha-dev.pages.dev/">warsha-dev.pages.dev</a> ·
+  <b>Download:</b> <a href="https://github.com/athar-studios/warsha/releases/tag/v0.3.1">Warsha 0.3.1</a>
+</p>
+
 > [!WARNING]
-> **Status: built and verified locally; no published release.** The daemon, the desktop app and the phone
-> app build and run from source, and the automated suites pass: 725 Rust tests, 1001 TypeScript tests and
-> 785 Playwright end-to-end cases. `warsha-desktop.exe --self-check` passes 11 of 11 checks, including a
-> full project → run → Gate A → advance cycle on a zero-key provider. There is still **no release to
-> download**: nothing is tagged or published. See [Verified today](#verified-today) and the
-> [Roadmap](#roadmap).
+> **Status: version 0.3.1 is published — and it is an early preview.** You can
+> [download it](https://github.com/athar-studios/warsha/releases/tag/v0.3.1) for Windows, macOS and
+> Linux. Please know before you install: the installers are **not signed yet**, and there is **no
+> in-app auto-update yet** — you will download the next version by hand. See
+> [Verified today](#verified-today) and the [Roadmap](#roadmap).
 
 ## What is Warsha?
 
-Warsha ("workshop" in Arabic) is an app that works like a small software team. You describe an idea in plain words, in Arabic or English. A team of AI agents researches it, writes the spec, designs, plans, proposes code changes, tests and reviews it, and prepares a release, while you approve each important step. The current build is `v0.3.0` (bumped 2026-11-15), an early preview: the planning, review and gate surfaces work; autonomous end-to-end code writing is not yet delivered — see `PLAN.md`.
+Warsha ("workshop" in Arabic) is a local-first desktop app that works like a small software team. You describe an idea in plain words, in Arabic or English. A team of AI agents researches it, writes the spec, designs, plans, writes the code, tests and reviews it, and prepares a release, while you approve each important step. Everything runs on your own computer: your projects, history and keys stay on your machine.
 
 - **Arabic first.** Full Arabic interface (right to left) and English.
 - **You stay in control.** Nothing is merged, published or posted without your approval.
 - **Use the AI you already pay for.** Plug in your own AI provider instead of buying a new subscription.
 - **Follow from anywhere.** Watch progress and approve steps from your phone.
 
+## Download
+
+**[Warsha 0.3.1 — download page](https://github.com/athar-studios/warsha/releases/tag/v0.3.1)**
+
+All builds are 64-bit (x86_64 / amd64):
+
+| Your system | File to download |
+|---|---|
+| Windows | `Warsha_0.3.1_x64-setup.exe` (or the `.msi` installer) |
+| macOS (Intel) | `Warsha_0.3.1_x64.dmg` |
+| Linux | `Warsha_0.3.1_amd64.AppImage` (portable), `.deb` (Debian/Ubuntu), or `.rpm` (Fedora/RHEL) |
+| Command line only | the standalone `warsha` and `warshad` binaries for Linux, macOS and Windows |
+
+The installers are **not signed yet**, so Windows and macOS may warn you during install — that is
+expected for this release. There is **no automatic update yet**: when a new version comes out,
+download it again from the [releases page](https://github.com/athar-studios/warsha/releases).
+You can check your download against the fingerprints in `checksums.sha256` on the release page.
+
+Prefer to build it yourself? Building from source is documented in
+[docs/DEVELOPERS.md](docs/DEVELOPERS.md).
+
 ## Who is it for?
 
 - People with an app idea who are not programmers.
 - Founders and small teams who want to go from idea to a first version faster.
 - Developers who want a team of agents doing the routine work while they review.
+
+## Three views, one app
+
+The same work, shown three ways — switch at any time:
+
+- **Simple** — a secretary-style view. You talk to one assistant, see plain summaries, and only
+  make decisions.
+- **Factory** — a top-down, game-like factory floor. Your agents sit at their stations; click one
+  to see what it is doing and what it did last.
+- **Developers** — dense detail for people who want it all: per-agent and per-session activity,
+  tokens, speed, and estimated cost.
+
+Runs themselves have their own modes — Plan, Agent, Ask, and **Swarm**, which lets several agents
+work in parallel in isolated worktrees. Swarm is **off by default** (up to 20 agents, 4 unless you
+change it).
 
 ## The journey: from idea to release
 
@@ -72,15 +114,11 @@ flowchart TB
 <p align="center"><img src="docs/assets/concept-team-panel.svg" alt="Concept mockup of the Warsha window with the agent team panel" width="760"></p>
 <p align="center"><i>Concept mockup of the shipped layout — not a screenshot of the running app.</i></p>
 
-## How to use it
+## Quick start
 
-Nothing is published for download yet, so the first step is a build you make yourself. Building from
-source is documented in [docs/DEVELOPERS.md](docs/DEVELOPERS.md), and the same release build produces an
-installer bundle.
-
-1. **Install from your own build.** Build the release bundle on your platform and run its installer.
-   *(Verified on Windows; macOS and Linux bundles come from the same command but were not built in this
-   round. No download is published — see the [Roadmap](#roadmap).)*
+1. **Download and install.** Get the file for your system from the
+   [0.3.1 download page](https://github.com/athar-studios/warsha/releases/tag/v0.3.1) and run it.
+   The installers are unsigned, so your system may ask you to confirm before installing.
 2. **Pick your language** (Arabic or English) when the app opens for the first time.
 3. **Connect your AI.** Add the AI you already have: an API key — one-click defaults for OpenRouter, DeepSeek, Kimi, GLM and Qwen, or any other endpoint (OpenAI, Anthropic) entered by its own URL — or a model running on your own computer (Ollama, LM Studio; the local adapter ignores the key field, but the form still asks for one). Official coding tools you already use (Claude Code, Codex CLI, Gemini CLI, Cursor CLI) are detected on your PATH but not yet driven by the pipeline. Keys are kept in your system's secure keychain — see the [FAQ](#which-ai-subscriptions-work) for what does and does not work today.
 4. **Connect GitHub.** Give Warsha a GitHub token so it can prepare a repository for your project. The GitHub
@@ -103,27 +141,21 @@ without it every command answers `Not connected to daemon`. The exact verbs and 
 
 ## Verified today
 
-Measured on 2026-11-05–08 on a Windows host plus a Linux x86_64 capture host with pinned fonts:
+Measured on 2026-11-22, during the checks that gated the 0.3.1 release:
 
-| Gate | Command | Result |
-|---|---|---|
-| Rust tests | `cargo test --workspace --no-fail-fast` | 725 passed, 0 failed |
-| TypeScript tests | `pnpm -r test` | 1001 passed |
-| Lint, types and build | `pnpm -r lint` · `pnpm -r typecheck` · `pnpm -r build` | exit 0 for each |
-| Accessibility | Playwright `screens.a11y` | 188 listed, 180 passed, 8 failed — all on the `settings` screen (axe `aria-required-children`) |
-| UI states | Playwright `states` | 252 passed |
-| Visual regression | Playwright `screens.visual` | 308 passed |
-| Behavioral flows | Playwright `flows`, `layout`, `onboarding` | 45 passed |
-| Desktop shell | `warsha-desktop.exe --self-check` | 11/11 PASS |
+| Check | Result |
+|---|---|
+| Rust tests (workspace) | 1,368 passed, 0 failed, 12 ignored |
+| TypeScript suites (desktop, remote, client, UI, i18n, crypto) | all passed — 665 + 229 + 200 + 383 + 58 + 22 |
+| Format, lint, types, architecture and wire-contract checks | passed |
 
-This does **not** cover: visual baselines were captured on Linux x86_64 only, so Windows and macOS rendering
-is unverified; the end-to-end encrypted relay is not implemented; routine authoring and Backend Kit export
-are not wired to their screens; and no Android APK is built in this tree.
+This does **not** cover: the end-to-end encrypted relay is not implemented; no Android APK is built
+in this tree; and the installers are unsigned (see [Download](#download)).
 
 ## Roadmap
 
-The desktop app is versioned **0.3.0** (`apps/desktop/src-tauri/tauri.conf.json`) and the Rust crates **0.3.0**
-(`Cargo.toml`); neither is tagged and no version has been released. No dates are set.
+Warsha is versioned **0.3.1** — the desktop app and the Rust crates alike — and tagged
+[v0.3.1](https://github.com/athar-studios/warsha/releases/tag/v0.3.1). No dates are set.
 
 | Milestone | What it delivers | Status |
 |---|---|---|
@@ -136,11 +168,11 @@ The desktop app is versioned **0.3.0** (`apps/desktop/src-tauri/tauri.conf.json`
 | M6 | Phone app with secure pairing | 🟡 Pairing delivered; the end-to-end relay is not implemented |
 | M7 | Coding agents and GitHub integration | 🟡 Backends delivered; the GitHub client exists but no screen or command drives it |
 | M8 | Full Arabic and English, right-to-left layout | ✅ Delivered |
-| M9 | Installers, releases and documentation | 🟡 A local installer is built; no published release |
+| M9 | Installers, releases and documentation | ✅ 0.3.1 published on 2026-11-22 with installers for Windows, macOS and Linux — unsigned; signing and in-app updates are the next steps |
 | M10 | Orchestrator agent and the discovery interview | ✅ Delivered |
 | M11 | Skills system and per-role packs | ✅ Delivered |
 | M12 | MCP servers and the skill/MCP scout | ✅ Delivered |
-| M13 | Desktop app, Simple and Advanced modes behind one toggle | ✅ Delivered |
+| M13 | Desktop app, Simple / Factory / Developers view modes | ✅ Delivered |
 | M14 | Agent safety and quality: guardrails, model router, traces, evals | ✅ Delivered |
 | M15 | Marketing, social and launch assets | ✅ Delivered |
 | M16 | Continuous development loop: updates, routines, automations | ✅ Delivered; owner-only steps remain (updater keys, Renovate app) |
@@ -168,7 +200,7 @@ What works today, from `crates/warsha-providers/src/` and the daemon's provider 
 
 - **Any OpenAI-compatible endpoint with an API key.** The adapter takes a base URL and posts to `{base}/chat/completions` with a bearer token. The setup wizard ships a default URL and model for **OpenRouter, DeepSeek, Kimi (Moonshot), GLM (Zhipu) and Qwen (DashScope)**, plus a `custom` row for any other URL — which is how OpenAI itself and any compatible gateway are reached.
 - **Anthropic (Claude)** through its own messages API, and **a local Ollama or LM Studio server**, which needs no real key — its adapter ignores the key field, though the add form still asks for one.
-- **The `WARSHA_LLM_*` environment path** for an OpenAI-compatible endpoint, used when a role has no routing. With no key, a deterministic fake provider runs the whole pipeline offline. This path reads its key from the environment, so it is the one connection whose key is not in the keychain; `WARSHA_LLM_BASE_URL` must be set to an OpenAI-compatible endpoint before exporting a key.
+- **The `WARSHA_LLM_*` environment path** for an OpenAI-compatible endpoint, used when a role has no routing. With no key, a deterministic fake provider runs the whole pipeline offline. This path reads its key from the environment, so it is the one connection whose key is not in the keychain — set the base URL explicitly before exporting a key.
 - **Official coding tools as separate backends**, not chat providers: Claude Code, Codex CLI, Gemini CLI, Cursor CLI, opencode and OpenHands. The daemon detects each one on your PATH at start-up, but their adapters are still being built: an install is recorded, not yet handed coding work.
 
 What does not: **Google Gemini has no native adapter.** The live factory recognises three protocols — OpenAI-compatible, Anthropic and Ollama — so a `gemini` row is treated as a custom OpenAI-compatible endpoint and needs a URL that speaks that protocol; Gemini's own API is not implemented. **Azure OpenAI** has no native adapter either: it is reached the same way, so it works only where the endpoint accepts a bearer token at `{base}/chat/completions`, not through Azure's deployment-scoped `api-key` form. Warsha only uses official, permitted ways to connect, and every key you add in the app stays in your system keychain.
@@ -177,14 +209,17 @@ What does not: **Google Gemini has no native adapter.** The live factory recogni
 Yes, for personal and other noncommercial use.
 
 **What does the license mean in plain words?**
-Warsha uses the PolyForm Noncommercial 1.0.0 license. You can read the code, use it, change it and share it, as long as it is not for commercial purposes. For commercial use, contact Athar Studio at contact@atharapp.download. *This address is a placeholder the owner has not confirmed — the published contact address is an owner decision, and Warsha currently publishes no verified one.* This makes Warsha "source-available", not open source in the official sense.
+Warsha uses the PolyForm Noncommercial 1.0.0 license. You can read the code, use it, change it and share it, as long as it is not for commercial purposes. For commercial use, please open an issue on this repository to reach Athar Studio. This makes Warsha "source-available", not open source in the official sense.
 
 **Can I use it now?**
-Not as a download. There is no published release, but you can build it from source today — see
-[docs/DEVELOPERS.md](docs/DEVELOPERS.md). Watch this repository for the first release.
+Yes — [download 0.3.1](https://github.com/athar-studios/warsha/releases/tag/v0.3.1) for Windows, macOS
+or Linux. The installers are unsigned and there is no auto-update yet, so you will download the next
+version by hand. You can also build it from source — see [docs/DEVELOPERS.md](docs/DEVELOPERS.md).
 
 ---
 
 Developers: build instructions, architecture and contributing are in [docs/DEVELOPERS.md](docs/DEVELOPERS.md).
+
+**Website:** https://warsha-dev.pages.dev/
 
 Made by **Athar Studio**. License: [PolyForm Noncommercial 1.0.0](LICENSE).
