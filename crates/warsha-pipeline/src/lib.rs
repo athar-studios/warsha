@@ -128,8 +128,9 @@ pub use crate::build_cache::{
     BuildCache, BuildCacheEntry, BuildCacheKey, BuildCacheStats, InMemoryBuildCache,
 };
 pub use crate::command_policy::{
-    CommandOutput, CommandPolicy, CommandPolicyError, DEFAULT_ALLOWED_COMMANDS,
-    DEFAULT_COMMAND_TIMEOUT, DEFAULT_OUTPUT_CAP_BYTES, MINIMAL_CHILD_ENV, SHELL_COMMANDS,
+    is_path_in_workspace, is_workspace_relative_path, CommandOutput, CommandPolicy,
+    CommandPolicyError, DEFAULT_ALLOWED_COMMANDS, DEFAULT_COMMAND_TIMEOUT,
+    DEFAULT_OUTPUT_CAP_BYTES, MINIMAL_CHILD_ENV, SHELL_COMMANDS,
 };
 pub use crate::evals::{blocks_change, run_suite, EvalCase, EvalError, EvalOutcome, EvalSuite};
 pub use crate::gate_integrity::artifacts_sha256;
@@ -194,9 +195,9 @@ pub use crate::skills::{
     SkillError, SkillManifest, SkillRegistry, SkillSource, SkillsLockEntry, SkillsLockfile,
 };
 pub use crate::work_protection::{
-    classify_command, policy_for_permissions, InMemorySnapshotStore, PermissionMode,
-    ReadBeforeWriteGuard, RiskClass, Snapshot, SnapshotFile, SnapshotStore, UndoEntry, UndoStack,
-    WorkProtectionError, WorkProtectionPolicy, MAX_UNDO_ENTRIES,
+    classify_command, classify_command_with_workdir, policy_for_permissions, InMemorySnapshotStore,
+    PermissionMode, ReadBeforeWriteGuard, RiskClass, Snapshot, SnapshotFile, SnapshotStore,
+    UndoEntry, UndoStack, WorkProtectionError, WorkProtectionPolicy, MAX_UNDO_ENTRIES,
 };
 
 /// The one event a run's end appends (R-EXT-2 A2).

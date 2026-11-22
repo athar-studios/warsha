@@ -8078,5 +8078,38 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit 0).
 - **Decisions**: Logged `D-R5-APPROVAL-1` in `DECISIONS.md`.
 
+## Run 2026-11-22 — FIX-R7-APPROVAL (Round-7 5 HIGH blockers: H-1, H-2+H-3+H-4, H-5, H-6, H-7)
+- **Problem**: 5 HIGH blockers identified in round-7 Claude verification report (`/tmp/warsha-round7-2026-11-22.md`):
+  - H-1: CI red: `auth::policy_parity_tests::process_policy_and_pipeline_policy_refuse_and_admit_the_same_programs` failed because daemon `ProcessPolicy` admitted `./npm` while pipeline `CommandPolicy` refused; `agent_command_execution_obeys_daemon_allowed_commands_policy` failed because `git --version` classified `Risky` on unknown global flags.
+  - H-2 + H-3 + H-4: Git open class & config override: unlisted git subcommands and arbitrary `-c` configs escaped approval checks.
+  - H-5: Absolute path matching & plumbing exec bypass: basename matching admitted workspace-contained tools, and git plumbing commands (`update-index`, `checkout-index`, `am`, etc.) allowed setting execute bits.
+  - H-6: CMake configure mode: `cmake -L`/`-LAH` without `-N` executed `CMakeLists.txt` configure stage.
+  - H-7: Cargo tree & metadata: `cargo metadata` and `cargo tree` executed arbitrary build scripts / compiler wrappers from `.cargo/config.toml`.
+- **Delivered**:
+  - `crates/warshad/src/auth.rs`: Refused program tokens with path separators not resolving inside daemon `data_dir` in `ProcessPolicy::check_command`.
+  - `crates/warsha-pipeline/src/work_protection.rs`:
+    * Added safe informational git global flags (`--version`, `-v`, `-V`, `--help`, `-h`, `--no-pager`, `-P`, `-p`, `--paginate`, `--literal-pathspecs`, `--no-replace-objects`, `--no-optional-locks`).
+    * Converted git subcommands to safe allow-list `SAFE_GIT_SUBCOMMANDS` (`status`, `log`, `diff`, `show`, `branch`, `checkout`, `commit`, `add`, `restore`, `switch`, `rev-parse`, `describe`, `shortlog`, `check-ref-format`, `ls-files`, `cat-file`, `merge-base`, `grep`, `bisect`, `stash`, `help`, `version`) with subcommand-specific guards.
+    * Added workspace confinement check in `classify_command_with_workdir`: programs resolving inside workspace classify as `Risky`.
+    * Enforced `-N` requirement for `cmake -L`/`-LAH` read-only cache listing; non-`-N` invocations classify as `Risky`.
+    * Removed `tree` and `metadata` from `KNOWN_SAFE_CARGO_SUBCOMMANDS`.
+  - `crates/warsha-pipeline/src/command_policy.rs`:
+    * Converted `is_risky_git_config` to allow-list `is_allowed_git_config_key` for inert keys, neutralising empty values.
+    * In `check_invocation_with_workdir` and `check_arguments_with_workdir`, enforced that program tokens resolving inside workspace do not match bare allow-list entries by basename.
+  - `crates/warsha-pipeline/src/agent_tools.rs`: Passed `working_dir` into `classify_command_with_workdir`.
+  - `crates/warsha-pipeline/src/verification_tests_impl.rs`: Added proving tests (`test_r7_h1_git_info_flags_safe`, `test_r7_h2_h3_h4_git_subcommand_and_config_allow_list`, `test_r7_h5_absolute_path_workspace_confinement`, `test_r7_h6_cmake_configure_forms_risky`, `test_r7_h7_cargo_tree_metadata_risky`) and updated existing assertions.
+  - `crates/warshad/src/auth_tests.rs`: Updated `./npm` parity and refusal assertions.
+- **Gate Matrix Verification**:
+  - `cargo test --workspace` (all 57 test binaries): PASSED (1,304 passed, 0 failed, 9 ignored, 0 measured).
+  - `pnpm -r test`: PASSED across all workspace packages (apps/desktop [86 files, 737 tests], apps/remote, packages/client, packages/crypto, packages/i18n, packages/ui, docs).
+  - Desktop lint (`pnpm -r run lint`): PASSED (0 errors, 0 warnings).
+  - Typecheck (`pnpm -r run typecheck` across all 7 workspace packages): PASSED (0 errors).
+  - `cargo fmt --all -- --check`: PASSED (clean, exit 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: PASSED (clean, 0 warnings, exit 0).
+  - `node scripts/check-engineering-policy.mjs`: PASSED (8 checks, 0 failures, exit 0).
+  - `cargo deny check`: PASSED (only expected owner-accepted `RUSTSEC-2026-0543` for chrono v0.4.45; no ignore entry added; bans ok, licenses ok, sources ok).
+- **Decisions**: Logged `D-R7-APPROVAL-1` in `DECISIONS.md`.
+
+
 
 

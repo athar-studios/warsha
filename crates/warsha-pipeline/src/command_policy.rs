@@ -455,7 +455,7 @@ impl CommandPolicy {
         args: &[String],
         working_dir: Option<&Path>,
     ) -> Result<(), CommandPolicyError> {
-        self.check_program(program_token)?;
+        self.check_program_with_workdir(program_token, working_dir)?;
         check_arguments_with_workdir(program_token, args, working_dir)?;
 
         let mut current_prog = program_token;
@@ -470,7 +470,7 @@ impl CommandPolicy {
                     reason: "nested wrapper depth exceeded".to_string(),
                 });
             }
-            self.check_program(inner_prog)?;
+            self.check_program_with_workdir(inner_prog, working_dir)?;
             check_arguments_with_workdir(inner_prog, inner_args, working_dir)?;
             current_prog = inner_prog;
             current_args = inner_args;
@@ -501,6 +501,15 @@ impl CommandPolicy {
     /// finding L10); the behaviour here is pinned by
     /// `allowed_commands_and_paths_pass_policy_check`.
     pub fn check_program(&self, program_token: &str) -> Result<(), CommandPolicyError> {
+        self.check_program_with_workdir(program_token, None)
+    }
+
+    /// Check a program token against the policy with workspace-confinement awareness (R7-H5).
+    pub fn check_program_with_workdir(
+        &self,
+        program_token: &str,
+        working_dir: Option<&Path>,
+    ) -> Result<(), CommandPolicyError> {
         let trimmed = program_token.trim();
         if trimmed.is_empty() {
             return Err(CommandPolicyError::BlankCommand);
@@ -527,14 +536,15 @@ impl CommandPolicy {
 
         // The allowlist is the hard floor: it is checked FIRST and a rule can
         // never widen it (B3 spec — rules only deny or add an ask on top).
-        // R6-H2: workspace-relative executables (`./npm`, `./bin/tool`, `sub/tool`)
+        // R6-H2, R7-H5: workspace-relative executables (`./npm`, `bin/tool`)
+        // and executables resolving inside the agent's workspace directory
         // never match a bare allow-list entry via basename.
-        let is_relative = is_workspace_relative_path(trimmed);
+        let is_in_ws = is_path_in_workspace(trimmed, working_dir);
         let allowed = self.allowed.iter().any(|entry| {
             if entry == trimmed {
                 return true;
             }
-            if is_relative {
+            if is_in_ws {
                 return false;
             }
             program_name(entry) == program
@@ -977,6 +987,17 @@ fn check_arguments_with_workdir(
     args: &[String],
     working_dir: Option<&Path>,
 ) -> Result<(), CommandPolicyError> {
+    // Programs containing path separators that resolve inside the agent's workspace directory
+    // must never run without approval (R7-H5).
+    if let Some(wd) = working_dir {
+        let clean = program.trim().trim_matches('"').trim_matches('\'').trim();
+        if (clean.contains('/') || clean.contains('\\')) && path_resolves_inside_dir(clean, wd) {
+            return Err(CommandPolicyError::NotAllowed {
+                command: program.to_string(),
+            });
+        }
+    }
+
     let prog = program_name(program);
     let is_git = prog == "git";
     let mut skip_next = false;
@@ -1532,7 +1553,72 @@ pub(crate) fn git_config_override_value(argument: &str) -> Option<&str> {
     None
 }
 
+/// Whether a git config key is on the safe allow-list of inert keys (R7-H2/H3/H4).
+///
+/// Only pure display, formatting, metadata and inert configuration options are admitted.
+/// Command-executing keys, template directories, transport/hook configurations, and include
+/// directives are excluded and classify as Risky.
+pub fn is_allowed_git_config_key(key: &str) -> bool {
+    let normalized = key.trim().to_ascii_lowercase();
+
+    // Exact inert display / formatting / safety keys
+    const EXACT_SAFE_KEYS: &[&str] = &[
+        "core.quotepath",
+        "core.abbrev",
+        "core.autocrlf",
+        "core.filemode",
+        "core.eol",
+        "core.safecrlf",
+        "core.ignorecase",
+        "core.checkstat",
+        "core.trustctime",
+        "core.precomposeunicode",
+        "core.symlinks",
+        "push.default",
+        "pull.ff",
+        "pull.rebase",
+        "init.defaultbranch",
+        "diff.renames",
+        "diff.algorithm",
+        "diff.mnemonicprefix",
+        "merge.conflictstyle",
+        "format.pretty",
+    ];
+
+    if EXACT_SAFE_KEYS.contains(&normalized.as_str()) {
+        return true;
+    }
+
+    // Prefixes for namespaces known to be pure display or metadata:
+    if normalized.starts_with("user.") {
+        return true;
+    }
+
+    if normalized.starts_with("color.") {
+        return true;
+    }
+
+    if normalized.starts_with("status.") {
+        return true;
+    }
+
+    if normalized.starts_with("log.") {
+        return true;
+    }
+
+    if normalized.starts_with("i18n.") {
+        return true;
+    }
+
+    if normalized.starts_with("advice.") {
+        return true;
+    }
+
+    false
+}
+
 /// Whether a git config key can execute programs (alias, fsmonitor, proxies, hooks, textconv, drivers, etc.).
+#[allow(dead_code)]
 pub(crate) fn is_program_running_key(normalized_key: &str) -> bool {
     normalized_key.starts_with("alias.")
         || normalized_key.starts_with("include.")
@@ -1549,7 +1635,10 @@ pub(crate) fn is_program_running_key(normalized_key: &str) -> bool {
             .any(|prefix| normalized_key.starts_with(prefix))
 }
 
-/// Check whether a git config string `key=value` overrides a program-executing key with a non-empty value.
+/// Check whether a git config string `key=value` overrides a non-allowlisted key with a non-empty value (R7-H2/H3/H4).
+///
+/// An **empty** value neutralises the setting (e.g. `core.fsmonitor=`), which is safe.
+/// Any non-empty value for a key not on the allow-list is considered risky.
 pub(crate) fn is_risky_git_config(value: &str) -> bool {
     let clean = value.trim().trim_matches('"').trim_matches('\'').trim();
     let Some((key, config_value)) = clean.split_once('=') else {
@@ -1564,26 +1653,7 @@ pub(crate) fn is_risky_git_config(value: &str) -> bool {
         return false;
     }
     let key = key.trim().trim_matches('"').trim_matches('\'').trim();
-    let normalized = key.to_ascii_lowercase();
-
-    // R6-H1: refuse include.*, includeIf.*, and protocol.* overrides
-    if normalized.starts_with("include.")
-        || normalized.starts_with("includeif.")
-        || normalized.starts_with("protocol.")
-    {
-        return true;
-    }
-
-    // R5-L2: only treat '!' values as risky for program-running keys, not user.name=!x
-    if config_val_trimmed.starts_with('!') {
-        return is_program_running_key(&normalized);
-    }
-
-    if is_program_running_key(&normalized) {
-        return true;
-    }
-
-    false
+    !is_allowed_git_config_key(key)
 }
 
 /// Refuse a `git` config override whose key names a program and whose value is set.
@@ -1615,12 +1685,49 @@ fn check_git_config_override(value: &str) -> Result<(), CommandPolicyError> {
     Ok(())
 }
 
+/// Check if a path resolves inside the given directory using canonicalization.
+pub(crate) fn path_resolves_inside_dir(path_str: &str, dir: &Path) -> bool {
+    let clean = path_str.trim().trim_matches('"').trim_matches('\'').trim();
+    if clean.is_empty() {
+        return false;
+    }
+    let p = Path::new(clean);
+    let resolved = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        dir.join(p)
+    };
+    let canonical_dir = match dir.canonicalize() {
+        Ok(cd) => cd,
+        Err(_) => return false,
+    };
+    let to_check = if resolved.exists() {
+        resolved.canonicalize().ok()
+    } else {
+        resolved
+            .parent()
+            .and_then(|parent| parent.canonicalize().ok())
+            .map(|parent| {
+                if let Some(file_name) = resolved.file_name() {
+                    parent.join(file_name)
+                } else {
+                    parent
+                }
+            })
+    };
+    if let Some(target) = to_check {
+        target.starts_with(&canonical_dir)
+    } else {
+        false
+    }
+}
+
 /// Whether a program token represents a workspace-relative path (e.g. `./npm`, `bin/tool`, `sub/tool`).
 ///
 /// Workspace-relative paths never match bare allow-list entries by basename (R6-H2)
 /// because an agent could author executable files in the workspace (e.g. via `git apply`)
 /// and invoke them without approval.
-pub(crate) fn is_workspace_relative_path(path: &str) -> bool {
+pub fn is_workspace_relative_path(path: &str) -> bool {
     let clean = path.trim().trim_matches('"').trim_matches('\'').trim();
     if !clean.contains('/') && !clean.contains('\\') {
         return false;
@@ -1638,6 +1745,23 @@ pub(crate) fn is_workspace_relative_path(path: &str) -> bool {
         return false;
     }
     true
+}
+
+/// Whether a program token represents a path that resolves inside the workspace (R7-H5).
+///
+/// Workspace-relative paths (`./npm`, `bin/tool`) and absolute paths resolving inside
+/// the agent's workspace directory must never match bare allow-list entries by basename.
+pub fn is_path_in_workspace(path_str: &str, working_dir: Option<&Path>) -> bool {
+    if is_workspace_relative_path(path_str) {
+        return true;
+    }
+    let clean = path_str.trim().trim_matches('"').trim_matches('\'').trim();
+    if clean.contains('/') || clean.contains('\\') {
+        if let Some(wd) = working_dir {
+            return path_resolves_inside_dir(clean, wd);
+        }
+    }
+    false
 }
 
 /// Whether the program token climbs with `..` under either separator convention.

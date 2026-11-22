@@ -22,6 +22,7 @@
 //! existing diff viewer for that, and no second diff engine is introduced.
 
 use std::collections::{HashSet, VecDeque};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -384,9 +385,19 @@ fn is_safe_pure_flag(lowered: &str) -> bool {
 
 /// Classifies a command as safe or risky.
 pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
-    // R6-H2: workspace-relative executables (e.g. `./npm`, `./bin/tool`, `sub/tool`)
+    classify_command_with_workdir(program, args, None)
+}
+
+/// Classifies a command as safe or risky with workspace-confinement awareness (R7-H5).
+pub fn classify_command_with_workdir(
+    program: &str,
+    args: &[String],
+    working_dir: Option<&Path>,
+) -> RiskClass {
+    // R6-H2, R7-H5: workspace-relative executables (e.g. `./npm`, `bin/tool`)
+    // and executables resolving inside the agent's workspace directory
     // must never match safe commands by basename — treat as Risky.
-    if crate::command_policy::is_workspace_relative_path(program) {
+    if crate::command_policy::is_path_in_workspace(program, working_dir) {
         return RiskClass::Risky;
     }
 
@@ -433,6 +444,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
 
         let mut index = 0;
         let mut subcommand_found = false;
+        let mut has_info_flag = false;
         while index < args.len() {
             let arg = args[index]
                 .trim()
@@ -475,6 +487,31 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                 // R6-H1: refuse --bare anywhere before the subcommand
                 if lowered == "--bare" {
                     return RiskClass::Risky;
+                }
+
+                // Known-safe info flags (R7-H1)
+                if lowered == "--version"
+                    || lowered == "-v"
+                    || lowered == "-V"
+                    || lowered == "--help"
+                    || lowered == "-h"
+                {
+                    has_info_flag = true;
+                    index += 1;
+                    continue;
+                }
+
+                // Inert global display/paging/pathspec flags (R7-H1)
+                if lowered == "--no-pager"
+                    || lowered == "-p"
+                    || lowered == "-P"
+                    || lowered == "--paginate"
+                    || lowered == "--literal-pathspecs"
+                    || lowered == "--no-replace-objects"
+                    || lowered == "--no-optional-locks"
+                {
+                    index += 1;
+                    continue;
                 }
 
                 if arg == "-C" {
@@ -557,50 +594,42 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                 subcommand_found = true;
                 let remaining = &args[index + 1..];
 
-                if matches!(
-                    lowered.as_str(),
-                    "push"
-                        | "pull"
-                        | "fetch"
-                        | "clone"
-                        | "submodule"
-                        | "rebase"
-                        | "filter-branch"
-                        | "apply"
-                ) {
+                // R7-H2/H3/H4 structural direction: git subcommands are an ALLOW-LIST.
+                // Enumerate safe subcommands: status, log, diff, show, branch, checkout, commit,
+                // add, restore, switch, rev-parse, describe, shortlog, check-ref-format, ls-files,
+                // cat-file, merge-base, grep, bisect, stash, help, version.
+                // Everything else (zz, hook, am, update-index, checkout-index, hash-object, read-tree,
+                // filter-branch, apply, submodule, rebase, clone, push, pull, fetch, fetch-pack,
+                // upload-pack, difftool, archive, etc.) is Risky.
+                const SAFE_GIT_SUBCOMMANDS: &[&str] = &[
+                    "status",
+                    "log",
+                    "diff",
+                    "show",
+                    "branch",
+                    "checkout",
+                    "commit",
+                    "add",
+                    "restore",
+                    "switch",
+                    "rev-parse",
+                    "describe",
+                    "shortlog",
+                    "check-ref-format",
+                    "ls-files",
+                    "cat-file",
+                    "merge-base",
+                    "grep",
+                    "bisect",
+                    "stash",
+                    "help",
+                    "version",
+                ];
+
+                if !SAFE_GIT_SUBCOMMANDS.contains(&lowered.as_str()) {
                     return RiskClass::Risky;
                 }
-                if (lowered == "ls-remote" || lowered == "fetch" || lowered == "clone")
-                    && remaining.iter().any(|a| {
-                        let clean_a = a.trim().trim_matches('"').trim_matches('\'').trim();
-                        clean_a == "-u"
-                            || (clean_a.starts_with("-u") && clean_a.len() > 2)
-                            || clean_a.starts_with("--upload-pack")
-                    })
-                {
-                    return RiskClass::Risky;
-                }
-                if lowered == "fetch-pack"
-                    && remaining.iter().any(|a| {
-                        let clean_a = a.trim().trim_matches('"').trim_matches('\'').trim();
-                        let a_low = clean_a.to_ascii_lowercase();
-                        a_low == "--exec"
-                            || a_low.starts_with("--exec=")
-                            || a_low.starts_with("--upload-pack")
-                            || clean_a == "-u"
-                    })
-                {
-                    return RiskClass::Risky;
-                }
-                if (lowered == "init" || lowered == "clone")
-                    && remaining.iter().any(|a| {
-                        let clean_a = a.trim().trim_matches('"').trim_matches('\'').trim();
-                        let a_low = clean_a.to_ascii_lowercase();
-                        a_low == "--template" || a_low.starts_with("--template=")
-                    })
-                {
-                    return RiskClass::Risky;
-                }
+
                 if lowered == "grep"
                     && remaining.iter().any(|a| {
                         let a_clean = a.trim().trim_matches('"').trim_matches('\'').trim();
@@ -613,18 +642,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                 {
                     return RiskClass::Risky;
                 }
-                if lowered == "difftool"
-                    && remaining.iter().any(|a| {
-                        let a_clean = a.trim().trim_matches('"').trim_matches('\'').trim();
-                        let a_low = a_clean.to_ascii_lowercase();
-                        a_clean == "-x"
-                            || (a_clean.starts_with("-x") && a_clean.len() > 2)
-                            || a_low == "--extcmd"
-                            || a_low.starts_with("--extcmd=")
-                    })
-                {
-                    return RiskClass::Risky;
-                }
+
                 if lowered == "bisect"
                     && remaining.iter().any(|a| {
                         a.trim()
@@ -635,46 +653,63 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                 {
                     return RiskClass::Risky;
                 }
-                if lowered == "rebase"
+
+                if lowered == "stash" {
+                    let op = remaining.iter().find(|a| {
+                        let clean = a.trim().trim_matches('"').trim_matches('\'').trim();
+                        !clean.starts_with('-')
+                    });
+                    match op {
+                        Some(sub_op) => {
+                            let sub_low = sub_op
+                                .trim()
+                                .trim_matches('"')
+                                .trim_matches('\'')
+                                .to_ascii_lowercase();
+                            if sub_low != "list" && sub_low != "show" {
+                                return RiskClass::Risky;
+                            }
+                        }
+                        None => {
+                            return RiskClass::Risky;
+                        }
+                    }
+                }
+
+                if lowered == "help"
+                    && remaining.iter().any(|a| {
+                        let a_clean = a.trim().trim_matches('"').trim_matches('\'').trim();
+                        let a_low = a_clean.to_ascii_lowercase();
+                        a_clean == "-m"
+                            || a_clean == "-w"
+                            || a_clean == "-i"
+                            || a_low == "--man"
+                            || a_low == "--web"
+                            || a_low == "--info"
+                    })
+                {
+                    return RiskClass::Risky;
+                }
+
+                if lowered == "diff"
                     && remaining.iter().any(|a| {
                         let a_low = a
                             .trim()
                             .trim_matches('"')
                             .trim_matches('\'')
                             .to_ascii_lowercase();
-                        a_low == "-x" || a_low == "--exec" || a_low.starts_with("--exec=")
+                        a_low == "--ext-diff"
                     })
                 {
-                    return RiskClass::Risky;
-                }
-                if lowered == "submodule"
-                    && remaining.iter().any(|a| {
-                        a.trim()
-                            .trim_matches('"')
-                            .trim_matches('\'')
-                            .eq_ignore_ascii_case("foreach")
-                    })
-                {
-                    return RiskClass::Risky;
-                }
-                if lowered == "archive"
-                    && remaining.iter().any(|a| {
-                        let a_low = a
-                            .trim()
-                            .trim_matches('"')
-                            .trim_matches('\'')
-                            .to_ascii_lowercase();
-                        a_low == "--exec" || a_low.starts_with("--exec=")
-                    })
-                {
-                    return RiskClass::Risky;
-                }
-                if lowered == "config" && is_risky_git_config_subcommand(remaining) {
                     return RiskClass::Risky;
                 }
             }
 
             index += 1;
+        }
+
+        if !subcommand_found && !has_info_flag && !args.is_empty() {
+            return RiskClass::Risky;
         }
     }
 
@@ -728,11 +763,15 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         return RiskClass::Risky;
     }
 
-    // CMake: safe allow-list of read-only introspection (R6-H4)
+    // CMake: safe allow-list of read-only introspection (R6-H4, R7-H6)
     if program_name == "cmake" {
         if args.is_empty() {
             return RiskClass::Risky;
         }
+        let has_view_flag = args.iter().any(|arg| {
+            let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
+            clean.starts_with('-') && clean.len() > 1 && clean[1..].contains('N')
+        });
         for arg in args {
             let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
 
@@ -750,12 +789,13 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
                 continue;
             }
 
-            // Safe cache-list flags: combinations of -L, -A, -H, -N
+            // Safe cache-list flags: combinations of -L, -A, -H, -N, but MUST contain N or be accompanied by -N (R7-H6)
             if clean.starts_with('-')
                 && clean.len() > 1
                 && clean[1..]
                     .chars()
                     .all(|c| matches!(c, 'L' | 'A' | 'H' | 'N'))
+                && (clean[1..].contains('N') || has_view_flag)
             {
                 continue;
             }
@@ -905,7 +945,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         }
     }
 
-    // Cargo: scans all args against safe allow-list; -v removed (R6-H5)
+    // Cargo: scans all args against safe allow-list; -v removed (R6-H5); tree/metadata removed (R7-H7)
     if program_name == "cargo" {
         if args.is_empty() {
             return RiskClass::Risky;
@@ -917,8 +957,6 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
             "-h",
             "help",
             "version",
-            "tree",
-            "metadata",
             "locate-project",
             "read-manifest",
             "verify-project",
@@ -927,7 +965,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
         for arg in args {
             let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();
             let lowered = clean.to_ascii_lowercase();
-            if KNOWN_SAFE_CARGO_SUBCOMMANDS.contains(&lowered.as_str()) {
+            if clean == "-V" || KNOWN_SAFE_CARGO_SUBCOMMANDS.contains(&lowered.as_str()) {
                 continue;
             }
             if is_safe_pure_flag(&lowered) {
@@ -1221,6 +1259,7 @@ pub fn classify_command(program: &str, args: &[String]) -> RiskClass {
     RiskClass::Safe
 }
 
+#[allow(dead_code)]
 fn is_risky_git_config_subcommand(args: &[String]) -> bool {
     for arg in args {
         let clean = arg.trim().trim_matches('"').trim_matches('\'').trim();

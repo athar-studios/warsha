@@ -28,7 +28,8 @@ use thiserror::Error;
 
 use crate::command_policy::{CommandPolicy, CommandPolicyError};
 use crate::work_protection::{
-    classify_command, PermissionMode, ReadBeforeWriteGuard, RiskClass, WorkProtectionPolicy,
+    classify_command_with_workdir, PermissionMode, ReadBeforeWriteGuard, RiskClass,
+    WorkProtectionPolicy,
 };
 
 /// One tool call.
@@ -661,7 +662,12 @@ impl FilesystemToolExecutor {
             match policy.mode {
                 PermissionMode::FullAccess => {}
                 PermissionMode::AutoInsideProject => {
-                    if classify_command(&program, &effective_args) == RiskClass::Risky {
+                    if classify_command_with_workdir(
+                        &program,
+                        &effective_args,
+                        Some(&self.working_dir),
+                    ) == RiskClass::Risky
+                    {
                         return Err(ToolError::CommandRefused {
                             command: format!("{command} {}", args.join(" ")),
                             reason:
@@ -677,7 +683,11 @@ impl FilesystemToolExecutor {
                     });
                 }
                 PermissionMode::AskAlways | PermissionMode::AskForRisky => {
-                    let risky = classify_command(&program, &effective_args) == RiskClass::Risky;
+                    let risky = classify_command_with_workdir(
+                        &program,
+                        &effective_args,
+                        Some(&self.working_dir),
+                    ) == RiskClass::Risky;
                     if risky || policy.mode == PermissionMode::AskAlways {
                         let command_line = format!("{command} {}", args.join(" "));
                         // One shared ask-queue (B3): register the native ask so
