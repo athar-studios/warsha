@@ -27,6 +27,7 @@
 // is a tracked PLAN.md M20 item. Every other preset the old config extended is carried over.
 
 const js = require('@eslint/js');
+const globals = require('globals');
 const tseslint = require('@typescript-eslint/eslint-plugin');
 const tsParser = require('@typescript-eslint/parser');
 const prettier = require('eslint-config-prettier');
@@ -186,11 +187,20 @@ module.exports = [
   {
     files: ['**/*.test.ts', '**/*.test.tsx'],
     rules: {
-      'no-restricted-syntax': [
-        'error',
-        ...NO_ANY_SELECTORS,
-        ...physicalStyleProperties,
-      ],
+      'no-restricted-syntax': ['error', ...NO_ANY_SELECTORS, ...physicalStyleProperties],
+    },
+  },
+
+  // ---------------------------------------------------------------- Node & browser scripts (CJS/MJS)
+  {
+    files: ['**/*.cjs', 'scripts/**/*.js', 'scripts/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'commonjs',
+      globals: {
+        ...globals.node,
+        ...globals.browser,
+      },
     },
   },
 

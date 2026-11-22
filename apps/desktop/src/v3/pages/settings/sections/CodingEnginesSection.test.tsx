@@ -33,12 +33,23 @@ function createMockClient(options?: {
 
   const defaultRouting: BackendRoutingsConfig = {
     default_backend: 'opencode',
+    role_backends: {},
+    project_backends: {},
   };
 
   return {
     listCodingBackends: vi.fn().mockResolvedValue(options?.backends ?? defaultBackends),
     getBackendRouting: vi.fn().mockResolvedValue(options?.routing ?? defaultRouting),
     setBackendRouting: vi.fn().mockImplementation(async (cfg: BackendRoutingsConfig) => cfg),
+    testCodingBackend: vi.fn().mockResolvedValue({
+      name: 'opencode',
+      command: 'opencode',
+      installed: true,
+      ready: true,
+      version: 'opencode 1.0.4',
+      status: 'ready',
+      auth_required: false,
+    }),
   } as unknown as WarshaClient;
 }
 
@@ -63,8 +74,8 @@ describe('CodingEnginesSection', () => {
       expect(screen.getByTestId('coding-engines-list')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('OpenCode')).toBeInTheDocument();
-    expect(screen.getByText('Claude Code')).toBeInTheDocument();
+    expect(screen.getByTestId('backend-row-opencode')).toBeInTheDocument();
+    expect(screen.getByTestId('backend-row-claude-code')).toBeInTheDocument();
 
     const opencodeBadge = screen.getByTestId('backend-status-badge-opencode');
     expect(opencodeBadge).toHaveTextContent('Installed');
@@ -81,7 +92,9 @@ describe('CodingEnginesSection', () => {
       expect(screen.getByTestId('coding-engine-default-select')).toBeInTheDocument();
     });
 
-    const select = screen.getByTestId('coding-engine-default-select') as HTMLSelectElement;
+    const select = screen
+      .getByTestId('coding-engine-default-select')
+      .querySelector('select') as HTMLSelectElement;
     expect(select.value).toBe('opencode');
 
     fireEvent.change(select, { target: { value: 'claude-code' } });
@@ -93,8 +106,8 @@ describe('CodingEnginesSection', () => {
     await waitFor(() => {
       expect(client.setBackendRouting).toHaveBeenCalledWith({
         default_backend: 'claude-code',
-        role_backends: undefined,
-        project_backends: undefined,
+        role_backends: {},
+        project_backends: {},
       });
     });
   });
@@ -107,7 +120,9 @@ describe('CodingEnginesSection', () => {
       expect(screen.getByTestId('coding-engine-default-select')).toBeInTheDocument();
     });
 
-    const select = screen.getByTestId('coding-engine-default-select') as HTMLSelectElement;
+    const select = screen
+      .getByTestId('coding-engine-default-select')
+      .querySelector('select') as HTMLSelectElement;
     fireEvent.change(select, { target: { value: 'native' } });
 
     const saveButton = screen.getByTestId('coding-engine-save-button');
@@ -116,9 +131,82 @@ describe('CodingEnginesSection', () => {
     await waitFor(() => {
       expect(client.setBackendRouting).toHaveBeenCalledWith({
         default_backend: null,
-        role_backends: undefined,
-        project_backends: undefined,
+        role_backends: {},
+        project_backends: {},
       });
+    });
+  });
+
+  it('triggers test engine and shows success badge with version', async () => {
+    const client = createMockClient();
+    renderSection(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('test-engine-btn-opencode')).toBeInTheDocument();
+    });
+
+    const testBtn = screen.getByTestId('test-engine-btn-opencode');
+    fireEvent.click(testBtn);
+
+    await waitFor(() => {
+      expect(client.testCodingBackend).toHaveBeenCalledWith('opencode');
+      expect(screen.getByTestId('backend-diag-badge-opencode')).toHaveTextContent(
+        'Engine ready: opencode 1.0.4'
+      );
+    });
+  });
+
+  it('surfaces auth/login required badge on failed test', async () => {
+    const client = createMockClient();
+    vi.mocked(client.testCodingBackend).mockResolvedValueOnce({
+      name: 'claude-code',
+      command: 'claude',
+      installed: true,
+      ready: false,
+      version: null,
+      status: 'Login required',
+      auth_required: true,
+    });
+    renderSection(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('test-engine-btn-claude-code')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('test-engine-btn-claude-code'));
+
+    await waitFor(() => {
+      expect(client.testCodingBackend).toHaveBeenCalledWith('claude-code');
+      expect(screen.getByTestId('backend-diag-badge-claude-code')).toHaveTextContent(
+        'Authentication required for this CLI engine'
+      );
+    });
+  });
+
+  it('surfaces timeout failure badge fail-closed', async () => {
+    const client = createMockClient();
+    vi.mocked(client.testCodingBackend).mockResolvedValueOnce({
+      name: 'opencode',
+      command: 'opencode',
+      installed: true,
+      ready: false,
+      version: null,
+      status: 'CLI health check timed out after 3s',
+      auth_required: false,
+    });
+    renderSection(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('test-engine-btn-opencode')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('test-engine-btn-opencode'));
+
+    await waitFor(() => {
+      expect(client.testCodingBackend).toHaveBeenCalledWith('opencode');
+      expect(screen.getByTestId('backend-diag-badge-opencode')).toHaveTextContent(
+        'Health check timed out (fail-closed)'
+      );
     });
   });
 });

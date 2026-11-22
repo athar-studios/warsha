@@ -188,3 +188,27 @@ async fn test_unknown_backend_routing_errors_fail_loud() {
         err.message()
     );
 }
+
+/// (e) test coding_backends.test returns diagnostics
+#[tokio::test]
+async fn test_test_coding_backend_diagnostics() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = crate::tests::test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner();
+
+    // Testing a known backend (e.g. opencode)
+    let diag = rpc
+        .test_coding_backend(&owner, "opencode".to_string())
+        .await
+        .expect("coding_backends.test succeeds for opencode");
+    assert_eq!(diag.name, "opencode");
+    assert_eq!(diag.command, "opencode");
+
+    // Testing an unknown backend fails with invalid params (-32602)
+    let err = rpc
+        .test_coding_backend(&owner, "nonexistent-backend".to_string())
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("unknown coding backend"));
+}

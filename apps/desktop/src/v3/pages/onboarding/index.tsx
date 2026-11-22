@@ -446,8 +446,10 @@ export default function OnboardingPage(): React.ReactElement {
 
     try {
       const projectName = deriveProjectName(trimmed);
-      const cleanRepo = repoPath.trim() || undefined;
-      const project = await client.createProject(projectName, trimmed, locale, cleanRepo);
+      const cleanRepo = repoPath.trim();
+      const project = cleanRepo
+        ? await client.createProject(projectName, trimmed, locale, cleanRepo)
+        : await client.createProject(projectName, trimmed, locale);
       reloadAllProjects();
       await client.startRun(project.id, trimmed);
 

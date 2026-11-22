@@ -4,6 +4,7 @@ pub mod catalog;
 pub mod permissions;
 pub mod stream;
 use async_trait::async_trait;
+pub use catalog::CliHealthDiagnostics;
 use chrono::Utc;
 use std::collections::HashMap;
 use stream::*;
@@ -157,6 +158,13 @@ impl CliBackend {
 
     pub fn check_installed(&self) -> bool {
         which(&self.command).is_ok()
+    }
+
+    pub async fn check_health(
+        &self,
+        timeout: std::time::Duration,
+    ) -> catalog::CliHealthDiagnostics {
+        catalog::check_cli_health(&self.name, &self.command, timeout).await
     }
 
     /// The prompt handed to the coding CLI: the task, its files and its context.

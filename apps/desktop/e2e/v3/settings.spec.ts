@@ -1001,6 +1001,11 @@ test.describe('Settings v3', () => {
     await act(page, 'settings.coding-engines.save');
   });
 
+  test('action: settings.coding-engines.test', async ({ page }) => {
+    await openV3(page, '/settings/coding-engines', { lang: 'ar' });
+    await act(page, 'settings.coding-engines.test');
+  });
+
   test('action: settings.error.retry', async ({ page }) => {
     await openV3(page, '/settings/general', {
       lang: 'ar',

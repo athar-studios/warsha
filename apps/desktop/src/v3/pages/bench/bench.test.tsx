@@ -124,7 +124,9 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     requestChanges: vi.fn().mockResolvedValue(undefined),
     rejectGate: vi.fn().mockResolvedValue(undefined),
     getRunArtifacts: vi.fn().mockResolvedValue(SAMPLE_ARTIFACTS),
-    getProjectBudget: vi.fn().mockResolvedValue({ totalBudgetUsd: 20, spentUsd: 4, remainingUsd: 16 }),
+    getProjectBudget: vi
+      .fn()
+      .mockResolvedValue({ totalBudgetUsd: 20, spentUsd: 4, remainingUsd: 16 }),
     setProjectBudget: vi.fn().mockResolvedValue(undefined),
     listRoleRoutings: vi.fn().mockResolvedValue([
       {
@@ -136,20 +138,43 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
       },
     ]),
     setRoleConfig: vi.fn().mockResolvedValue(undefined),
-    listCustomModels: vi.fn().mockResolvedValue([
-      { provider: 'ollama', modelId: 'qwen-coder', displayName: 'Qwen Coder', contextWindow: null, enabled: true },
-    ]),
+    listCustomModels: vi
+      .fn()
+      .mockResolvedValue([
+        {
+          provider: 'ollama',
+          modelId: 'qwen-coder',
+          displayName: 'Qwen Coder',
+          contextWindow: null,
+          enabled: true,
+        },
+      ]),
     listHarnesses: vi.fn().mockResolvedValue([]),
     selectHarness: vi.fn().mockResolvedValue(undefined),
     listRunModes: vi.fn().mockResolvedValue([]),
     // D5: swarm off in the default bench fixture — the picker shows no swarm choice.
     getSwarmSettings: vi.fn().mockResolvedValue({ enableSwarm: false, maxParallelAgents: 4 }),
     setSwarmSettings: vi.fn().mockResolvedValue({ enableSwarm: false, maxParallelAgents: 4 }),
-    setRunMode: vi.fn().mockResolvedValue({ mode: 'local', bindHost: '127.0.0.1', allowedHosts: [], relayUrl: null }),
+    setRunMode: vi
+      .fn()
+      .mockResolvedValue({
+        mode: 'local',
+        bindHost: '127.0.0.1',
+        allowedHosts: [],
+        relayUrl: null,
+      }),
     getFilesTree: vi.fn().mockResolvedValue([]),
-    readFileContent: vi.fn().mockResolvedValue({ path: 'src/index.ts', content: 'export const x = 1;', mimeType: 'text/typescript' }),
+    readFileContent: vi
+      .fn()
+      .mockResolvedValue({
+        path: 'src/index.ts',
+        content: 'export const x = 1;',
+        mimeType: 'text/typescript',
+      }),
     createHandoff: vi.fn().mockResolvedValue('/tmp/handoff.zip'),
-    applyHandoff: vi.fn().mockResolvedValue({ applied: ['src/index.ts'], conflicts: [], backups: [], resolved: [] }),
+    applyHandoff: vi
+      .fn()
+      .mockResolvedValue({ applied: ['src/index.ts'], conflicts: [], backups: [], resolved: [] }),
     agentState: vi.fn().mockResolvedValue({
       mode: 'plan',
       approvals: [],
@@ -164,11 +189,35 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
       todos: [{ id: 't1', description: 'Check plan', status: 'done' }],
       tools: [],
     }),
-    approveAgentMode: vi.fn().mockResolvedValue({ from: 'plan', to: 'agent', approved_by: 'dev-1', approved_at: 100 }),
-    returnAgentToPlanMode: vi.fn().mockResolvedValue({ from: 'agent', to: 'plan', approved_by: 'dev-1', approved_at: 200 }),
-    previewStatus: vi.fn().mockResolvedValue({ projectId: 'proj-1', processId: 'p1', command: 'npm', args: ['run', 'dev'], status: 'stopped', url: null }),
-    startPreview: vi.fn().mockResolvedValue({ projectId: 'proj-1', processId: 'p1', command: 'npm', args: ['run', 'dev'], status: 'running', url: 'http://127.0.0.1:3000' }),
+    approveAgentMode: vi
+      .fn()
+      .mockResolvedValue({ from: 'plan', to: 'agent', approved_by: 'dev-1', approved_at: 100 }),
+    returnAgentToPlanMode: vi
+      .fn()
+      .mockResolvedValue({ from: 'agent', to: 'plan', approved_by: 'dev-1', approved_at: 200 }),
+    previewStatus: vi
+      .fn()
+      .mockResolvedValue({
+        projectId: 'proj-1',
+        processId: 'p1',
+        command: 'npm',
+        args: ['run', 'dev'],
+        status: 'stopped',
+        url: null,
+      }),
+    startPreview: vi
+      .fn()
+      .mockResolvedValue({
+        projectId: 'proj-1',
+        processId: 'p1',
+        command: 'npm',
+        args: ['run', 'dev'],
+        status: 'running',
+        url: 'http://127.0.0.1:3000',
+      }),
     stopPreview: vi.fn().mockResolvedValue(undefined),
+    setBackendRouting: vi.fn().mockResolvedValue({ default_backend: null }),
+    listCodingBackends: vi.fn().mockResolvedValue([]),
     ...overrides,
   } as unknown as WarshaClient;
 }
@@ -185,7 +234,11 @@ function createRunEndingClient(overrides: Partial<Record<string, unknown>> = {})
   });
 }
 
-function renderWithProviders(ui: React.ReactElement, client?: WarshaClient, initialLocale: 'ar' | 'en' = 'ar') {
+function renderWithProviders(
+  ui: React.ReactElement,
+  client?: WarshaClient,
+  initialLocale: 'ar' | 'en' = 'ar'
+) {
   const mockClient = client ?? createMockClient();
   return render(
     <ClientProvider client={mockClient}>
@@ -414,11 +467,7 @@ describe('Advanced Workbench (U4)', () => {
 
   it('BenchDecisionCard hides request-changes and reject unless the daemon advertises run controls', () => {
     renderWithProviders(
-      <BenchDecisionCard
-        question="هل نعتمد الفكرة؟"
-        rationale="مراجعة الخطة"
-        onApprove={vi.fn()}
-      />
+      <BenchDecisionCard question="هل نعتمد الفكرة؟" rationale="مراجعة الخطة" onApprove={vi.fn()} />
     );
 
     const approveBtn = screen.getByTestId('bench-gate-approve-btn');
@@ -451,13 +500,17 @@ describe('Advanced Workbench (U4)', () => {
     });
 
     fireEvent.click(screen.getByTestId('bench-gate-changes-btn'));
-    const changesInput = screen.getByTestId('decision-changes-textarea').querySelector('textarea') as HTMLTextAreaElement;
+    const changesInput = screen
+      .getByTestId('decision-changes-textarea')
+      .querySelector('textarea') as HTMLTextAreaElement;
     fireEvent.change(changesInput, { target: { value: 'Add tests' } });
     fireEvent.click(screen.getByTestId('decision-submit-changes-btn'));
     expect(onRequestChanges).toHaveBeenCalledWith('Add tests');
 
     fireEvent.click(screen.getByTestId('bench-gate-reject-btn'));
-    const rejectInput = screen.getByTestId('decision-reject-reason-input').querySelector('textarea') as HTMLTextAreaElement;
+    const rejectInput = screen
+      .getByTestId('decision-reject-reason-input')
+      .querySelector('textarea') as HTMLTextAreaElement;
     fireEvent.change(rejectInput, { target: { value: 'Incomplete' } });
     fireEvent.click(screen.getByTestId('bench-confirm-reject-btn'));
     expect(onReject).toHaveBeenCalledWith('Incomplete');
@@ -507,9 +560,11 @@ describe('Advanced Workbench (U4)', () => {
 
   it('FilesTab renders honest EmptyState when empty and opens/copies files when ready (Amendment c)', async () => {
     const mockClient = createMockClient({
-      getFilesTree: vi.fn().mockResolvedValue([
-        { name: 'index.ts', path: 'src/index.ts', isDir: false, sizeBytes: 120 },
-      ]),
+      getFilesTree: vi
+        .fn()
+        .mockResolvedValue([
+          { name: 'index.ts', path: 'src/index.ts', isDir: false, sizeBytes: 120 },
+        ]),
     });
 
     const { rerender } = renderWithProviders(
@@ -599,7 +654,13 @@ describe('Advanced Workbench (U4)', () => {
       },
     ];
     const models: CustomModelRecord[] = [
-      { provider: 'ollama', modelId: 'qwen-coder', displayName: 'Qwen Coder', contextWindow: null, enabled: true },
+      {
+        provider: 'ollama',
+        modelId: 'qwen-coder',
+        displayName: 'Qwen Coder',
+        contextWindow: null,
+        enabled: true,
+      },
     ];
 
     renderWithProviders(
@@ -655,7 +716,9 @@ describe('Advanced Workbench (U4)', () => {
     fireEvent.click(screen.getByTestId('bench-assistant-mode-plan-btn'));
     expect(onSwitchToPlan).toHaveBeenCalledTimes(1);
 
-    const textarea = screen.getByTestId('bench-assistant-input').querySelector('textarea') as HTMLTextAreaElement;
+    const textarea = screen
+      .getByTestId('bench-assistant-input')
+      .querySelector('textarea') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: 'Check coverage' } });
     fireEvent.click(screen.getByTestId('bench-assistant-send-btn'));
 
@@ -681,7 +744,9 @@ describe('Advanced Workbench (U4)', () => {
     );
 
     expect(screen.getByText('لم يتم ربط نموذج بالوكيل بعد')).toBeInTheDocument();
-    const textarea = screen.getByTestId('bench-assistant-input').querySelector('textarea') as HTMLTextAreaElement;
+    const textarea = screen
+      .getByTestId('bench-assistant-input')
+      .querySelector('textarea') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: 'Hello' } });
     fireEvent.click(screen.getByTestId('bench-assistant-send-btn'));
 
@@ -705,7 +770,9 @@ describe('Advanced Workbench (U4)', () => {
     );
 
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '20');
-    const input = screen.getByTestId('bench-cost-budget-input').querySelector('input') as HTMLInputElement;
+    const input = screen
+      .getByTestId('bench-cost-budget-input')
+      .querySelector('input') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '50' } });
     fireEvent.click(screen.getByTestId('bench-cost-budget-save-btn'));
     expect(onSaveBudget).toHaveBeenCalledWith(5000);
@@ -735,12 +802,7 @@ describe('Advanced Workbench (U4)', () => {
     };
 
     const { rerender } = renderWithProviders(
-      <PreviewTab
-        preview={stoppedPreview}
-        onStart={onStart}
-        onStop={onStop}
-        onOpen={onOpen}
-      />
+      <PreviewTab preview={stoppedPreview} onStart={onStart} onStop={onStop} onOpen={onOpen} />
     );
 
     fireEvent.click(screen.getByTestId('bench-preview-start-btn'));
@@ -754,12 +816,7 @@ describe('Advanced Workbench (U4)', () => {
     rerender(
       <CapabilitiesProvider>
         <I18nProvider initialLocale="ar">
-          <PreviewTab
-            preview={runningPreview}
-            onStart={onStart}
-            onStop={onStop}
-            onOpen={onOpen}
-          />
+          <PreviewTab preview={runningPreview} onStart={onStart} onStop={onStop} onOpen={onOpen} />
         </I18nProvider>
       </CapabilitiesProvider>
     );
@@ -779,7 +836,12 @@ describe('Advanced Workbench (U4)', () => {
         name: 'Standard Flow',
         description: '',
         stages: [],
-        rules: { maxRepairIterations: 2, budgetCapCents: null, allowParallelSubagents: false, requireVerificationReceipt: false },
+        rules: {
+          maxRepairIterations: 2,
+          budgetCapCents: null,
+          allowParallelSubagents: false,
+          requireVerificationReceipt: false,
+        },
         preset: true,
         active: true,
         createdAt: '2026-10-01T00:00:00.000Z',
@@ -805,7 +867,9 @@ describe('Advanced Workbench (U4)', () => {
       />
     );
 
-    const textarea = screen.getByTestId('bench-composer-textarea').querySelector('textarea') as HTMLTextAreaElement;
+    const textarea = screen
+      .getByTestId('bench-composer-textarea')
+      .querySelector('textarea') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: 'Add validation' } });
     fireEvent.click(screen.getByTestId('bench-followup-send-btn'));
     expect(onSendFollowup).toHaveBeenCalledWith('Add validation');
@@ -816,7 +880,9 @@ describe('Advanced Workbench (U4)', () => {
     fireEvent.click(screen.getByTestId('bench-runmode-apply-btn'));
     expect(onSetRunMode).toHaveBeenCalledWith(runModes[0]);
 
-    const budgetInput = screen.getByTestId('bench-composer-budget-input').querySelector('input') as HTMLInputElement;
+    const budgetInput = screen
+      .getByTestId('bench-composer-budget-input')
+      .querySelector('input') as HTMLInputElement;
     fireEvent.change(budgetInput, { target: { value: '30' } });
     fireEvent.click(screen.getByTestId('bench-composer-budget-save-btn'));
     expect(onSaveBudget).toHaveBeenCalledWith(3000);
@@ -845,7 +911,9 @@ describe('Advanced Workbench (U4)', () => {
 
   it('BenchPage integration renders Workbench via V3App with main[data-ready="true"]', async () => {
     const client = createMockClient();
-    const { container } = render(<V3App client={client} initialRoute="/p/proj-1/r/run-1/overview" />);
+    const { container } = render(
+      <V3App client={client} initialRoute="/p/proj-1/r/run-1/overview" />
+    );
 
     await waitFor(() => {
       expect(screen.getByTestId('bench-container')).toBeInTheDocument();
@@ -863,7 +931,9 @@ describe('Advanced Workbench (U4)', () => {
       getRun: vi.fn((id: string) => Promise.resolve({ ...SAMPLE_RUN, id: id as RunId })),
     });
 
-    const { unmount } = render(<V3App client={client} initialRoute="/p/proj-1/r/run-a/assistant" />);
+    const { unmount } = render(
+      <V3App client={client} initialRoute="/p/proj-1/r/run-a/assistant" />
+    );
 
     await waitFor(() => {
       expect(screen.getByTestId('bench-assistant-mode-agent-btn')).toBeInTheDocument();
@@ -895,6 +965,49 @@ describe('Advanced Workbench (U4)', () => {
     await waitFor(() => {
       expect(screen.getByTestId('bench-error')).toBeInTheDocument();
       expect(screen.getByText('Daemon offline')).toBeInTheDocument();
+    });
+  });
+
+  it('BenchPage renders recovery card on bench error and triggers retry path', async () => {
+    const client = createMockClient({
+      getRun: vi.fn().mockRejectedValue(new Error('Contract violation: coder backend failed')),
+    });
+    render(<V3App client={client} initialRoute="/p/proj-1/r/run-1/overview" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bench-error')).toBeInTheDocument();
+      expect(screen.getByTestId('bench-recovery-card')).toBeInTheDocument();
+      expect(screen.getByTestId('bench-recovery-retry-btn')).toBeInTheDocument();
+    });
+
+    const retryBtn = screen.getByTestId('bench-recovery-retry-btn');
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      expect(client.startRun).toHaveBeenCalled();
+    });
+  });
+
+  it('BenchPage renders recovery card on failed run and triggers retry path', async () => {
+    const client = createMockClient({
+      getRun: vi.fn().mockResolvedValue({
+        ...SAMPLE_RUN,
+        status: 'failed',
+      }),
+    });
+    render(<V3App client={client} initialRoute="/p/proj-1/r/run-1/overview" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bench-run-failed-banner')).toBeInTheDocument();
+      expect(screen.getByTestId('bench-recovery-card')).toBeInTheDocument();
+      expect(screen.getByTestId('bench-recovery-retry-btn')).toBeInTheDocument();
+    });
+
+    const retryBtn = screen.getByTestId('bench-recovery-retry-btn');
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      expect(client.startRun).toHaveBeenCalled();
     });
   });
 
@@ -949,19 +1062,21 @@ describe('Advanced Workbench (U4)', () => {
 
   it('PreviewTab shows unavailable message when preview capability is off', () => {
     render(
-      <CapabilitiesProvider initialCapabilities={{
-        daemon: true,
-        provider: true,
-        runControls: false,
-        devices: true,
-        integrations: true,
-        plugins: true,
-        skills: true,
-        harnesses: true,
-        routines: true,
-        preview: false,
-        backend: true,
-      }}>
+      <CapabilitiesProvider
+        initialCapabilities={{
+          daemon: true,
+          provider: true,
+          runControls: false,
+          devices: true,
+          integrations: true,
+          plugins: true,
+          skills: true,
+          harnesses: true,
+          routines: true,
+          preview: false,
+          backend: true,
+        }}
+      >
         <I18nProvider initialLocale="ar">
           <PreviewTab preview={null} onStart={vi.fn()} onStop={vi.fn()} onOpen={vi.fn()} />
         </I18nProvider>
@@ -983,13 +1098,25 @@ describe('Advanced Workbench (U4)', () => {
   it('CostTab handles loading and error states cleanly', () => {
     const onReload = vi.fn();
     const { rerender } = renderWithProviders(
-      <CostTab budget={null} status="loading" events={[]} onSaveBudget={vi.fn()} onReload={onReload} />
+      <CostTab
+        budget={null}
+        status="loading"
+        events={[]}
+        onSaveBudget={vi.fn()}
+        onReload={onReload}
+      />
     );
     expect(document.querySelectorAll('.w-skeleton').length).toBeGreaterThan(0);
 
     rerender(
       <I18nProvider initialLocale="ar">
-        <CostTab budget={null} status="error" events={[]} onSaveBudget={vi.fn()} onReload={onReload} />
+        <CostTab
+          budget={null}
+          status="error"
+          events={[]}
+          onSaveBudget={vi.fn()}
+          onReload={onReload}
+        />
       </I18nProvider>
     );
     fireEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
@@ -1048,7 +1175,7 @@ describe('Advanced Workbench (U4)', () => {
  * the events themselves — the server and tool as LTR tokens, the phase in the catalog,
  * and an approval-pending call pointing at the Inbox.
  */
-describe('TerminalTab — agent MCP call lines and the run\'s end (R-EXT-2)', () => {
+describe("TerminalTab — agent MCP call lines and the run's end (R-EXT-2)", () => {
   const events: WarshaEvent[] = [
     {
       id: 'evt-mcp-1',
@@ -1140,7 +1267,7 @@ describe('TerminalTab — agent MCP call lines and the run\'s end (R-EXT-2)', ()
     expect(items[1].textContent).toContain('Answer it in the Inbox');
   });
 
-  it('renders the run end as one status line and never the call\'s arguments', () => {
+  it("renders the run end as one status line and never the call's arguments", () => {
     renderWithProviders(<TerminalTab events={events} />, undefined, 'en');
 
     const finished = screen.getByTestId('bench-terminal-run-finished');
@@ -1150,7 +1277,11 @@ describe('TerminalTab — agent MCP call lines and the run\'s end (R-EXT-2)', ()
   });
 
   it('says the ending in Arabic too, and keeps the transcript empty when only calls exist', () => {
-    renderWithProviders(<TerminalTab events={[...events.slice(0, 1), events[3]]} />, undefined, 'ar');
+    renderWithProviders(
+      <TerminalTab events={[...events.slice(0, 1), events[3]]} />,
+      undefined,
+      'ar'
+    );
 
     expect(screen.getByTestId('bench-terminal-run-finished')).toHaveTextContent(
       'انتهى التشغيل: مكتمل'
@@ -1163,7 +1294,9 @@ describe('TerminalTab — agent MCP call lines and the run\'s end (R-EXT-2)', ()
   it('renders a failed run end and an unknown status as no ending at all', () => {
     const failed: WarshaEvent = { ...events[3], payload: { status: 'failed' } };
     renderWithProviders(
-      <TerminalTab events={[failed, { ...events[3], id: 'evt-unknown', payload: { status: 'skipped' } }]} />,
+      <TerminalTab
+        events={[failed, { ...events[3], id: 'evt-unknown', payload: { status: 'skipped' } }]}
+      />,
       undefined,
       'en'
     );

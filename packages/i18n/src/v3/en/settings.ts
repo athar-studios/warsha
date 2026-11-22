@@ -460,4 +460,12 @@ export default {
   'settings.coding_engines.not_installed': 'Not installed',
   'settings.coding_engines.load_error': 'Failed to load coding backends.',
   'settings.coding_engines.save_error': 'Failed to save coding engine routing.',
+  'settings.coding_engines.test_engine_btn': 'Test Engine',
+  'settings.coding_engines.testing': 'Testing…',
+  'settings.coding_engines.test_success': 'Engine ready: {version}',
+  'settings.coding_engines.test_ready': 'Engine ready',
+  'settings.coding_engines.test_login_required': 'Authentication required for this CLI engine',
+  'settings.coding_engines.test_not_installed': 'Executable not found in system PATH',
+  'settings.coding_engines.test_timeout': 'Health check timed out (fail-closed)',
+  'settings.coding_engines.test_failed': 'Health check failed: {error}',
 };

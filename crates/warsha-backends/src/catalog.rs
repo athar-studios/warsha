@@ -68,6 +68,127 @@ pub struct CatalogEntry {
     pub permission_mapping: Option<String>,
 }
 
+/// Diagnostic health result of a coding engine CLI check.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliHealthDiagnostics {
+    pub name: String,
+    pub command: String,
+    pub installed: bool,
+    pub ready: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    pub status: String,
+    pub auth_required: bool,
+}
+
+/// Check CLI readiness beyond `which()`: runs `<command> --version` with timeout,
+/// surfaces version and auth/login status. Fails closed (ready = false) on timeout.
+pub async fn check_cli_health(
+    name: &str,
+    command: &str,
+    timeout: std::time::Duration,
+) -> CliHealthDiagnostics {
+    if which::which(command).is_err() {
+        return CliHealthDiagnostics {
+            name: name.to_string(),
+            command: command.to_string(),
+            installed: false,
+            ready: false,
+            version: None,
+            status: "Executable not found in PATH".to_string(),
+            auth_required: false,
+        };
+    }
+
+    let child_future = tokio::process::Command::new(command)
+        .arg("--version")
+        .output();
+
+    match tokio::time::timeout(timeout, child_future).await {
+        Err(_) => CliHealthDiagnostics {
+            name: name.to_string(),
+            command: command.to_string(),
+            installed: true,
+            ready: false,
+            version: None,
+            status: "Timed out checking CLI readiness".to_string(),
+            auth_required: false,
+        },
+        Ok(Err(err)) => CliHealthDiagnostics {
+            name: name.to_string(),
+            command: command.to_string(),
+            installed: true,
+            ready: false,
+            version: None,
+            status: format!("Failed to execute command: {err}"),
+            auth_required: false,
+        },
+        Ok(Ok(output)) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let combined = format!("{stdout} {stderr}").to_lowercase();
+
+            let auth_required = combined.contains("login")
+                || combined.contains("not logged in")
+                || combined.contains("auth")
+                || combined.contains("unauthorized")
+                || combined.contains("api key")
+                || combined.contains("authentication");
+
+            let raw_version = stdout.trim();
+            let first_line = raw_version.lines().next().unwrap_or("").trim().to_string();
+            let version = if !first_line.is_empty() {
+                Some(first_line)
+            } else {
+                let err_first_line = stderr.lines().next().unwrap_or("").trim().to_string();
+                if !err_first_line.is_empty() && output.status.success() {
+                    Some(err_first_line)
+                } else {
+                    None
+                }
+            };
+
+            if output.status.success() {
+                CliHealthDiagnostics {
+                    name: name.to_string(),
+                    command: command.to_string(),
+                    installed: true,
+                    ready: !auth_required,
+                    version,
+                    status: if auth_required {
+                        "Authentication required".to_string()
+                    } else {
+                        "Ready".to_string()
+                    },
+                    auth_required,
+                }
+            } else {
+                let err_msg = if !stderr.trim().is_empty() {
+                    stderr.trim().lines().next().unwrap_or("").to_string()
+                } else if !stdout.trim().is_empty() {
+                    stdout.trim().lines().next().unwrap_or("").to_string()
+                } else {
+                    format!("Process exited with status {}", output.status)
+                };
+
+                CliHealthDiagnostics {
+                    name: name.to_string(),
+                    command: command.to_string(),
+                    installed: true,
+                    ready: false,
+                    version,
+                    status: if auth_required {
+                        "Authentication required".to_string()
+                    } else {
+                        format!("CLI check failed: {err_msg}")
+                    },
+                    auth_required,
+                }
+            }
+        }
+    }
+}
+
 const FORBIDDEN_PERMISSION_SKIPPING_SUBSTRINGS: &[&str] = &[
     "dangerously-skip-permissions",
     "bypass-permissions",
@@ -151,6 +272,11 @@ impl CatalogEntry {
     /// Check if the executable is installed on the local system PATH.
     pub fn is_installed(&self) -> bool {
         which::which(&self.command).is_ok()
+    }
+
+    /// Check CLI health and readiness by running `<command> --version` with a timeout (fail-closed).
+    pub async fn check_health(&self, timeout: std::time::Duration) -> CliHealthDiagnostics {
+        check_cli_health(&self.name, &self.command, timeout).await
     }
 
     /// Check if this catalog entry carries a permission-skipping flag.
@@ -416,5 +542,48 @@ mod tests {
         );
         assert_eq!(codex.tier, VerificationTier::A);
         assert_eq!(codex.output_format, OutputFormat::Jsonl);
+    }
+
+    #[tokio::test]
+    async fn test_cli_health_missing_executable() {
+        let diag = check_cli_health(
+            "phantom",
+            "nonexistent-cli-binary-xyz",
+            std::time::Duration::from_millis(500),
+        )
+        .await;
+        assert_eq!(diag.name, "phantom");
+        assert!(!diag.installed);
+        assert!(!diag.ready);
+        assert!(diag.version.is_none());
+        assert_eq!(diag.status, "Executable not found in PATH");
+        assert!(!diag.auth_required);
+    }
+
+    #[tokio::test]
+    async fn test_cli_health_existing_command_git() {
+        let diag = check_cli_health("git", "git", std::time::Duration::from_secs(3)).await;
+        assert_eq!(diag.name, "git");
+        assert!(diag.installed);
+        assert!(diag.ready);
+        assert!(diag.version.is_some());
+        let ver = diag.version.as_deref().unwrap_or("");
+        assert!(
+            ver.contains("git version"),
+            "expected git version string, got: {ver}"
+        );
+        assert_eq!(diag.status, "Ready");
+        assert!(!diag.auth_required);
+    }
+
+    #[tokio::test]
+    async fn test_cli_health_timeout_fails_closed() {
+        // A timeout of 0 nanos immediately fails closed on timeout
+        let diag = check_cli_health("git", "git", std::time::Duration::from_nanos(0)).await;
+        if diag.installed {
+            assert!(!diag.ready, "timeout must fail closed");
+            assert!(diag.version.is_none());
+            assert!(diag.status.contains("Timed out"));
+        }
     }
 }

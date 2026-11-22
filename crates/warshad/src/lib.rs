@@ -112,10 +112,10 @@ pub(crate) use api::provider_model;
 pub(crate) use api::{default_base_url_for_kind, non_empty, provider_endpoint};
 pub use api::{
     AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus,
-    CodingBackendSummary, CostEstimate, GateSummary, GateSummaryState, HealthCapabilities,
-    HealthResponse, ProviderQuotaStatus, ProviderRecord, QuotaState, RoleRoutingConfig,
-    RoutingTargetConfig, SubscriptionWindow, ToolRulesReply, UsageRow, UsageTimeRow,
-    WarshaApiServer, WindowUsage,
+    CodingBackendDiagnostics, CodingBackendSummary, CostEstimate, GateSummary, GateSummaryState,
+    HealthCapabilities, HealthResponse, ProviderQuotaStatus, ProviderRecord, QuotaState,
+    RoleRoutingConfig, RoutingTargetConfig, SubscriptionWindow, ToolRulesReply, UsageRow,
+    UsageTimeRow, WarshaApiServer, WindowUsage,
 };
 // --- end P-H1 A1 ---
 
@@ -3476,9 +3476,38 @@ impl WarshaApiServer for WarshaRpc {
                     warsha_backends::catalog::VerificationTier::B => "B".to_string(),
                     warsha_backends::catalog::VerificationTier::C => "C".to_string(),
                 },
+                version: None,
             })
             .collect();
         Ok(summaries)
+    }
+
+    async fn test_coding_backend(
+        &self,
+        ext: &RpcExtensions,
+        name: String,
+    ) -> RpcResult<CodingBackendDiagnostics> {
+        self.authorize(ext, "coding_backends.test").await?;
+        let catalog = warsha_backends::catalog::EngineCatalog::builtin();
+        let entry = catalog.get(&name).ok_or_else(|| {
+            jsonrpsee::types::ErrorObject::owned(
+                -32602,
+                format!("unknown coding backend `{name}`"),
+                None::<()>,
+            )
+        })?;
+
+        let diag = entry.check_health(std::time::Duration::from_secs(3)).await;
+
+        Ok(CodingBackendDiagnostics {
+            name: diag.name,
+            command: diag.command,
+            installed: diag.installed,
+            ready: diag.ready,
+            version: diag.version,
+            status: diag.status,
+            auth_required: diag.auth_required,
+        })
     }
 
     async fn get_backend_routing(

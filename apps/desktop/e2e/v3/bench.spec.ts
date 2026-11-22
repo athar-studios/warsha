@@ -15,7 +15,14 @@ import {
   runAxe,
 } from '../harness';
 
-import { act, expectRpc, openV3, auditViewportFit, describeViewportFit, viewportFitIsClean } from './support';
+import {
+  act,
+  expectRpc,
+  openV3,
+  auditViewportFit,
+  describeViewportFit,
+  viewportFitIsClean,
+} from './support';
 
 /**
  * `health` answering what `warshad` answers once its store carries the K2 run-version column.
@@ -132,9 +139,7 @@ test.describe('Workbench (U4) — Journeys & Amendments', () => {
     await expect(panel.locator('input, textarea')).toHaveCount(0);
   });
 
-  test('Assistant tab runs real Plan <-> Agent conversation via agent.* RPCs', async ({
-    page,
-  }) => {
+  test('Assistant tab runs real Plan <-> Agent conversation via agent.* RPCs', async ({ page }) => {
     await openV3(page, '/p/proj-ui/r/run-code/assistant', {
       lang: 'ar',
       mode: 'advanced',
@@ -151,15 +156,10 @@ test.describe('Workbench (U4) — Journeys & Amendments', () => {
     await expectRpc(page, 'agent.plan_mode', { run_id: 'run-code' });
 
     // Owner sends real turn -> agent.turn_run and renders real daemon response
-    await page
-      .getByTestId('bench-assistant-input')
-      .locator('textarea')
-      .fill('ما هي خطة التنفيذ؟');
+    await page.getByTestId('bench-assistant-input').locator('textarea').fill('ما هي خطة التنفيذ؟');
     await act(page, 'bench.assistant.send');
     await expectRpc(page, 'agent.turn_run', { run_id: 'run-code', input: 'ما هي خطة التنفيذ؟' });
-    await expect(
-      page.getByText('تم تجهيز الخطة، وهي بانتظار موافقتك للمتابعة.')
-    ).toBeVisible();
+    await expect(page.getByText('تم تجهيز الخطة، وهي بانتظار موافقتك للمتابعة.')).toBeVisible();
   });
 
   test('EvidenceCard collects evidence through harness stub', async ({ page }) => {
@@ -214,7 +214,7 @@ test.describe('Workbench (U4) — Action ID contracts', () => {
   });
 
   test('action: bench.runmode.start calls runs.start', async ({ page }) => {
-    await openV3(page, BENCH_URL, { mode: 'advanced', fixtures: { 'health': RUN_CONTROLS_HEALTH } });
+    await openV3(page, BENCH_URL, { mode: 'advanced', fixtures: { health: RUN_CONTROLS_HEALTH } });
     await page.getByTestId('bench-composer-textarea').locator('textarea').fill('idea');
     await act(page, 'bench.runmode.start');
     await expectRpc(page, 'runs.start');
@@ -287,10 +287,7 @@ test.describe('Workbench (U4) — Action ID contracts', () => {
       fixtures: { health: RUN_CONTROLS_HEALTH },
     });
     await act(page, 'bench.gate.reject.confirm');
-    await page
-      .getByTestId('decision-reject-reason-input')
-      .locator('textarea')
-      .fill('خارج النطاق');
+    await page.getByTestId('decision-reject-reason-input').locator('textarea').fill('خارج النطاق');
     await page.getByTestId('bench-confirm-reject-btn').click();
     await expectRpc(page, 'gates.reject', {
       run_id: 'run-gate-a',
@@ -350,7 +347,11 @@ test.describe('Workbench (U4) — Action ID contracts', () => {
           result: [{ name: 'main.ts', path: 'main.ts', is_dir: false, size_bytes: 32 }],
         },
         'files.read': {
-          result: { path: 'main.ts', content: 'export const ok = true;', mime_type: 'text/typescript' },
+          result: {
+            path: 'main.ts',
+            content: 'export const ok = true;',
+            mime_type: 'text/typescript',
+          },
         },
       },
     });
@@ -398,10 +399,7 @@ test.describe('Workbench (U4) — Action ID contracts', () => {
 
   test('action: bench.assistant.send calls agent.turn_run', async ({ page }) => {
     await openV3(page, '/p/proj-ui/r/run-code/assistant', { mode: 'advanced' });
-    await page
-      .getByTestId('bench-assistant-input')
-      .locator('textarea')
-      .fill('مرحبا');
+    await page.getByTestId('bench-assistant-input').locator('textarea').fill('مرحبا');
     await act(page, 'bench.assistant.send');
     await expectRpc(page, 'agent.turn_run', { run_id: 'run-code', input: 'مرحبا' });
   });
@@ -496,10 +494,7 @@ test.describe('Workbench (U4) — Action ID contracts', () => {
 
   test('action: bench.followup.send calls runs.followup', async ({ page }) => {
     await openV3(page, BENCH_URL, { mode: 'advanced' });
-    await page
-      .getByTestId('bench-composer-textarea')
-      .locator('textarea')
-      .fill('أضف اختبارات');
+    await page.getByTestId('bench-composer-textarea').locator('textarea').fill('أضف اختبارات');
     await act(page, 'bench.followup.send');
     await expectRpc(page, 'runs.followup', { run_id: 'run-code', prompt: 'أضف اختبارات' });
   });
@@ -552,12 +547,31 @@ test.describe('Workbench (U4) — Action ID contracts', () => {
     await act(page, 'bench.stream.reconnect');
     await expectRpc(page, 'runs.subscribe', { run_id: 'run-code' });
   });
+
+  test('action: bench.recovery.retry', async ({ page }) => {
+    await openV3(page, '/p/proj-ui/r/run-failed/overview', {
+      fixtures: {
+        'runs.get': {
+          result: {
+            id: 'run-failed',
+            projectId: 'proj-ui',
+            stage: 'code',
+            status: 'failed',
+            startedAt: Date.now(),
+          },
+        },
+      },
+    });
+    await act(page, 'bench.recovery.retry');
+  });
 });
 
 test.describe('Narrow Workbench (below 768px)', () => {
   const PHONE = { width: 390, height: 844 } as const;
 
-  test('bench.rail.open moves the rail into a Sheet, and a run choice closes it', async ({ page }) => {
+  test('bench.rail.open moves the rail into a Sheet, and a run choice closes it', async ({
+    page,
+  }) => {
     await openV3(page, BENCH_URL, { lang: 'en', mode: 'advanced', viewport: PHONE });
 
     // The rail left the layout: it is neither painted nor reachable beside the screen at 390.
@@ -584,13 +598,17 @@ test.describe('Narrow Workbench (below 768px)', () => {
     await expect(approve).toBeVisible();
     const box = await approve.boundingBox();
     expect(box, 'the primary decision action has no box').not.toBeNull();
-    expect(box!.x, 'the approve button starts outside the phone viewport').toBeGreaterThanOrEqual(0);
-    expect(box!.x + box!.width, 'the approve button runs past the phone viewport').toBeLessThanOrEqual(
-      PHONE.width
+    expect(box!.x, 'the approve button starts outside the phone viewport').toBeGreaterThanOrEqual(
+      0
     );
-    expect(box!.y + box!.height, 'the approve button sits below the phone viewport').toBeLessThanOrEqual(
-      PHONE.height
-    );
+    expect(
+      box!.x + box!.width,
+      'the approve button runs past the phone viewport'
+    ).toBeLessThanOrEqual(PHONE.width);
+    expect(
+      box!.y + box!.height,
+      'the approve button sits below the phone viewport'
+    ).toBeLessThanOrEqual(PHONE.height);
   });
 });
 
@@ -646,7 +664,9 @@ test.describe('@visual Workbench tabs & states', () => {
             expect.soft(clipsAreClean(clips), describeClips(clips)).toBe(true);
 
             const fit = await auditViewportFit(page);
-            expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+            expect
+              .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+              .toBe(true);
             await expect(page).toHaveScreenshot(
               `bench-${tab}-${viewport.name}-${lang}-${theme}.png`
             );
@@ -665,7 +685,9 @@ test.describe('@visual Workbench tabs & states', () => {
           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
 
           const fit = await auditViewportFit(page);
-          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
+          expect
+            .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+            .toBe(true);
           await expect(page).toHaveScreenshot(
             `bench-gate-waiting-${viewport.name}-${lang}-${theme}.png`
           );
@@ -684,10 +706,10 @@ test.describe('@visual Workbench tabs & states', () => {
           expect.soft(auditIsClean(layout), describeAudit(layout)).toBe(true);
 
           const fit = await auditViewportFit(page);
-          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
-          await expect(page).toHaveScreenshot(
-            `bench-error-${viewport.name}-${lang}-${theme}.png`
-          );
+          expect
+            .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+            .toBe(true);
+          await expect(page).toHaveScreenshot(`bench-error-${viewport.name}-${lang}-${theme}.png`);
         });
       }
     }
@@ -706,11 +728,20 @@ test.describe('Bench visual baselines (@visual)', () => {
     for (const locale of LOCALES) {
       for (const theme of THEMES) {
         test(`@visual bench-newrun-mode-${vp.name}-${locale}-${theme}`, async ({ page }) => {
-          await openV3(page, BENCH_URL, { viewport: { width: vp.width, height: vp.height }, lang: locale, theme, mode: 'advanced' });
+          await openV3(page, BENCH_URL, {
+            viewport: { width: vp.width, height: vp.height },
+            lang: locale,
+            theme,
+            mode: 'advanced',
+          });
           await expect(page.getByTestId('bench-advanced-composer')).toBeVisible();
           const fit = await auditViewportFit(page);
-          expect.soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`).toBe(true);
-          await expect(page).toHaveScreenshot(`bench-newrun-mode-${vp.name}-${locale}-${theme}.png`);
+          expect
+            .soft(viewportFitIsClean(fit), `viewport fit:\n${describeViewportFit(fit)}`)
+            .toBe(true);
+          await expect(page).toHaveScreenshot(
+            `bench-newrun-mode-${vp.name}-${locale}-${theme}.png`
+          );
         });
       }
     }

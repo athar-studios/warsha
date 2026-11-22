@@ -4,7 +4,6 @@ const { chromium } = require('@playwright/test');
 
 (async () => {
   const token = process.env.WARSHA_TEST_TOKEN;
-  const rpcUrl = 'http://127.0.0.1:8766';
   const appUrl = 'http://localhost:4173';
 
   let browser;

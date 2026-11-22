@@ -5,6 +5,7 @@ import React from 'react';
 
 import { getGateQuestionKey } from '../../../copy/stages';
 import { BenchDecisionCard } from '../components/BenchDecisionCard';
+import { BenchRecoveryCard } from '../components/BenchRecoveryCard';
 import { extractEventText, formatEventTime } from '../helpers';
 
 export interface OverviewTabProps {
@@ -18,6 +19,8 @@ export interface OverviewTabProps {
   changesPending?: boolean;
   onRejectGate?: (reason: string) => Promise<void> | void;
   rejectPending?: boolean;
+  onRecoveryRetry?: (model: string, engine: string) => Promise<void> | void;
+  isRetrying?: boolean;
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
@@ -31,6 +34,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   changesPending = false,
   onRejectGate,
   rejectPending = false,
+  onRecoveryRetry,
+  isRetrying = false,
 }) => {
   const t = useT();
   const { locale } = useLocale();
@@ -80,9 +85,12 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       }}
     >
       {run.status === 'failed' && (
-        <Banner variant="danger" data-testid="bench-run-failed-banner">
-          {failureMessage || t('bench.run_failed_banner')}
-        </Banner>
+        <>
+          <Banner variant="danger" data-testid="bench-run-failed-banner">
+            {failureMessage || t('bench.run_failed_banner')}
+          </Banner>
+          <BenchRecoveryCard onRetry={onRecoveryRetry} isRetrying={isRetrying} />
+        </>
       )}
 
       {pendingGate && (

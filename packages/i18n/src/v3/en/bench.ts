@@ -221,4 +221,11 @@ export default {
   'bench.runmode.swarm': 'Swarm',
   'bench.runmode.picker_label': 'Run mode',
   'bench.runmode.picker_hint': 'Plan and spec-file runs stop at the plan gate for your approval.',
+  'bench.recovery.title': 'Retry with Different Model / CLI Engine',
+  'bench.recovery.description': 'Select an alternative model provider or coding CLI engine to recover from the failed run.',
+  'bench.recovery.model_label': 'Model Provider',
+  'bench.recovery.engine_label': 'Coding Engine',
+  'bench.recovery.engine_native': 'Native LLM',
+  'bench.recovery.retry_button': 'Retry with Selection',
+  'bench.recovery.retrying': 'Retrying…',
 };
