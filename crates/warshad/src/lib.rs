@@ -187,6 +187,7 @@ impl WarshaApiServer for WarshaRpc {
         repo_path: Option<String>,
     ) -> RpcResult<Project> {
         self.authorize(ext, "projects.create").await?;
+        let id = ProjectId::new();
         let validated_repo_path = match repo_path
             .as_deref()
             .map(str::trim)
@@ -198,18 +199,43 @@ impl WarshaApiServer for WarshaRpc {
                     .map_err(|e| {
                         ErrorObject::owned(-32000, format!("cannot use `{path}`: {e}"), None::<()>)
                     })?;
-                Some(path.to_string())
+                path.to_string()
             }
-            None => None,
+            None => {
+                let auto_repo = self
+                    .state
+                    .config
+                    .data_dir
+                    .join("projects")
+                    .join(id.to_string())
+                    .join("repo");
+                warsha_pipeline::worktree::init_repository_with_meta(
+                    &auto_repo,
+                    Some(&name),
+                    Some(&description),
+                )
+                .await
+                .map_err(|e| {
+                    ErrorObject::owned(
+                        -32000,
+                        format!(
+                            "cannot initialize repository at `{}`: {e}",
+                            auto_repo.display()
+                        ),
+                        None::<()>,
+                    )
+                })?;
+                auto_repo.to_string_lossy().into_owned()
+            }
         };
         let project = Project {
-            id: ProjectId::new(),
+            id,
             name,
             description,
             language,
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            repo_path: validated_repo_path,
+            repo_path: Some(validated_repo_path),
             repo_url: None,
             confinement,
             approval_mode,
@@ -370,15 +396,25 @@ impl WarshaApiServer for WarshaRpc {
             .map(str::trim)
             .filter(|path| !path.is_empty())
         {
-            return Err(ErrorObject::owned(
-                -32000,
-                format!(
-                    "project {} already has the repository `{existing}`; \
-                     it must be detached before another is attached",
-                    project_id.0
-                ),
-                None::<()>,
-            ));
+            let auto_repo = self
+                .state
+                .config
+                .data_dir
+                .join("projects")
+                .join(project_id.to_string())
+                .join("repo");
+            let is_auto_initted = std::path::Path::new(existing) == auto_repo.as_path();
+            if !is_auto_initted {
+                return Err(ErrorObject::owned(
+                    -32000,
+                    format!(
+                        "project {} already has the repository `{existing}`; \
+                         it must be detached before another is attached",
+                        project_id.0
+                    ),
+                    None::<()>,
+                ));
+            }
         }
         let path = repo_path.trim();
         warsha_pipeline::worktree::validate_repository(std::path::Path::new(path))
@@ -4424,6 +4460,9 @@ mod e5_wiring;
 #[cfg(test)]
 #[path = "tests/e8_wiring.rs"]
 mod e8_wiring;
+#[cfg(test)]
+#[path = "tests/greenfield_autoinit.rs"]
+mod greenfield_autoinit;
 #[cfg(test)]
 #[path = "tests/harness_opencode.rs"]
 mod harness_opencode;

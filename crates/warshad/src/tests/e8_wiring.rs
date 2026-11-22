@@ -160,9 +160,15 @@ async fn pilot_attaches_a_repository_runs_decides_gate_c_and_collects_evidence()
         )
         .await
         .expect("the project is created");
+    let auto_repo = temp
+        .path()
+        .join("projects")
+        .join(project.id.to_string())
+        .join("repo");
     assert_eq!(
-        project.repo_path, None,
-        "a project starts with no repository"
+        project.repo_path.as_deref(),
+        Some(auto_repo.to_str().unwrap()),
+        "a greenfield project starts with an auto-initialized repository"
     );
     let repo_path = repo.path().display().to_string();
     let attached = rpc
