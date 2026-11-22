@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — Round-7 Fix 5 HIGH Approval-Bypass Blockers (D-R7-APPROVAL-1) + FIXES COMPLETE — AWAITING CLAUDE VERIFICATION
+- **Scope**: Fix all 5 HIGH blockers from `/tmp/warsha-round7-2026-11-22.md` on `r-next/integration` (base `a4c12ba`), branch `fix-r7-approval-lane` (`4c148bd`) merged as `c1af54a`. Local-only: no push, no tag, no publish, main untouched.
+- **Changes**: H-1 parity (ProcessPolicy refuses relative paths; git info flags Safe; parity tests updated deliberately); H-2/H-3/H-4 git subcommand + `-c` key allow-lists; H-5 workspace-confinement for path-spelled programs + plumbing excluded; H-6 cmake `-L` needs `-N`; H-7 cargo `tree`/`metadata` → Risky. Proving tests: `test_r7_h1_git_info_flags_safe`, `test_r7_h2_h3_h4_git_subcommand_and_config_allow_list`, `test_r7_h5_absolute_path_workspace_confinement`, `test_r7_h6_cmake_configure_forms_risky`, `test_r7_h7_cargo_tree_metadata_risky` (5/5 pass).
+- **Gate matrix (merged tip)**: `cargo fmt --check` clean; `cargo clippy --workspace --all-targets` clean; pipeline lib 576/0/7; warshad lib 309/0/4; policy 8/0; versions aligned 0.3.0; arch 5/0; wire 11/0. `cargo deny` expected FAIL only on owner-accepted chrono RUSTSEC-2026-0543 (no ignore entry).
+- FIXES COMPLETE — AWAITING CLAUDE VERIFICATION.
+
 ## Run 2026-11-22 — Round-6 Fix 6 HIGH Approval-Bypass Blockers (D-R6-APPROVAL-1)
 - **Scope**: Fix all 6 HIGH approval-bypass blockers from `/tmp/warsha-round6-2026-11-22.md` on branch `fix-r6-approval` (base `8fb068e` of `r-next/integration`). Scope strictly limited to R6-H1 through R6-H6. Local-only: no push, no tag, no publish, main untouched.
 - **Changes**:
