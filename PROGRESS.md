@@ -1,5 +1,22 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-22 — Fix 0.3.1 Code-stage silent-success + Gate-C rerun loop (D-CODE-FAILLOUD-1, D-CODE-GATEC-RERUN-1)
+- **Scope**: Fix Code-stage silent success on empty/DSML-leaked output and Gate-C rerun loop on branch `fix-code-stage` (base `543844c`, worktree `.agents/worktrees/fix-code-stage`). Local-only: no push, no tag, no publish, main untouched.
+- **Changes**:
+  - Location A (`crates/warsha-pipeline/src/lib.rs`): Added `validate_code_stage_content` in `execute_stage_with_feedback` before artifact commit. Validates Code-stage content and fails loudly via `record_stage_failure` and `finish_session(SessionStatus::Failed)` if output is empty/whitespace, contains tool-tag leakage markers (`DSML`, `｜DSML｜`, `<|`, `|>`, `<｜`, `｜>`), is <50 non-whitespace characters (except mock response for test harness), or violates the coder contract (expected JSON with `files` array or structured `--- FILE:` blocks).
+  - Location B (`crates/warsha-pipeline/src/lib.rs`): Remapped `producing_stage_for_gate(Stage::GateC)` from `Stage::ReviewQaSecurity` to `Stage::Code`. In `resume_run`, switched gate feedback resumption to call `advance_to_next_gate_locked` so that resuming after Gate-C changes-requested/rejected re-executes the Coder, advances through Reviewer (`Stage::ReviewQaSecurity`), and returns to `Stage::GateC` pending approval.
+  - Proving tests:
+    - `crates/warsha-pipeline/src/code_stage_tests.rs`: `code_stage_rejects_empty_output` and `code_stage_rejects_dsml_leak` prove empty and tool-leaked outputs fail loudly before artifact commit; `gate_c_changes_requested_reruns_coder` proves Gate-C changes requested sets current stage to `Stage::Code` and re-runs Coder before Reviewer.
+    - `crates/warshad/src/tests/mod.rs`: `runs_resume_gate_c_changes_requested_reruns_coder_then_reviewer` proves full daemon RPC flow through Gate-C change-request and resume runs Coder twice and Reviewer twice.
+- **Verification Matrix**:
+  - `cargo fmt --all -- --check`: clean (exit code 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (exit code 0, 0 warnings).
+  - `cargo test -p warsha-pipeline --lib`: 583 passed, 0 failed, 7 ignored (exit code 0).
+  - `cargo test -p warshad --lib`: 310 passed, 0 failed, 4 ignored (exit code 0).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures (exit code 0).
+  - `node scripts/check-versions.mjs --expect 0.3.1`: versions aligned (exit code 0).
+- **Status**: COMPLETE.
+
 ## Run 2026-11-22 — Round-8 Fix 4 HIGH Approval-Bypass Blockers (D-R8-APPROVAL-1) + FIXES COMPLETE — AWAITING CLAUDE VERIFICATION
 - **Scope**: Fix all 4 HIGH blockers from `/tmp/warsha-round8-2026-11-22.md` (N-1..N-4) on `r-next/integration` (base `a79a506`), branch `fix-r8-approval-lane` (`9803394`) merged as `9c24862`. Local-only: no push, no tag, no publish, main untouched.
 - **Changes**: N-1 bare-repo shape detection (`is_bare_repo_shape`: HEAD+objects/+refs/ without .git → git Risky/Err) + `GIT_CONFIG_NOSYSTEM=1` in MINIMAL_CHILD_ENV (unix+windows); N-2 refuse `--work-tree`/`--git-dir` unless = workspace root, refuse `--namespace`/`--super-prefix` outright, refuse `GIT_WORK_TREE/GIT_DIR/GIT_NAMESPACE` env passthrough (classify+policy), extend `is_git_config_path` (head/index/objects/refs/info); N-3 `--flag=value` outside-workspace scan (`--output/-o/--work-tree/--upload-pack`) + path-spelled safe programs must be canonical PATH tools (`is_canonical_path_tool`); N-4 cmake exact-token allow-list (`-N/-L/-LA/-LH/-LAH` separate, separate `-N` required). Proving executor-driven tests: `test_r8_n1/n2/n3/n4_*_refused_e2e` (4/4 pass, markers absent).

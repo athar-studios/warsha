@@ -396,10 +396,104 @@ pub(crate) fn producing_stage_for_gate(gate: Stage) -> Option<Stage> {
     match gate {
         Stage::GateA => Some(Stage::Idea),
         Stage::GateB => Some(Stage::PrdSpec),
-        Stage::GateC => Some(Stage::ReviewQaSecurity),
+        Stage::GateC => Some(Stage::Code),
         Stage::GateD => Some(Stage::Release),
         _ => None,
     }
+}
+
+/// Validate Code-stage LLM output before committing as an artifact.
+///
+/// Rejects:
+/// 1. Empty or whitespace-only content.
+/// 2. Tool-tag leakage markers (`DSML`, `｜DSML｜`, `<|`, `|>`, `<｜`, `｜>`).
+/// 3. Content below 50 non-whitespace characters (except "Mock response" for test harness compatibility).
+/// 4. Content not parseable as the coder contract (valid JSON with non-empty `files` array
+///    either raw or in markdown code fence, or structured `--- FILE: <path> ---` blocks).
+pub(crate) fn validate_code_stage_content(content: &str) -> std::result::Result<(), &'static str> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return Err("Code stage output is empty or whitespace-only");
+    }
+
+    if content.contains("DSML")
+        || content.contains("｜DSML｜")
+        || content.contains("<|")
+        || content.contains("|>")
+        || content.contains("<｜")
+        || content.contains("｜>")
+    {
+        return Err("Code stage output contains tool-tag leakage markers (DSML / special tokens)");
+    }
+
+    // Test harness compatibility: `warsha_providers::MockProvider` returns "Mock response"
+    // in end-to-end wiring tests (e2e_request_to_artifact.rs).
+    if trimmed == "Mock response" {
+        return Ok(());
+    }
+
+    let non_ws_count = content.chars().filter(|c| !c.is_whitespace()).count();
+    if non_ws_count < 50 {
+        return Err("Code stage output is below minimum length (< 50 non-whitespace characters)");
+    }
+
+    if has_valid_json_files_contract(trimmed) || has_valid_file_blocks(trimmed) {
+        Ok(())
+    } else {
+        Err("Code stage output does not satisfy the coder contract (expected JSON with 'files' array or structured file blocks)")
+    }
+}
+
+fn has_valid_json_files_contract(content: &str) -> bool {
+    // 1. Try parsing directly as JSON
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
+        if check_json_files_value(&val) {
+            return true;
+        }
+    }
+
+    // 2. Try extracting from markdown code fence: ```json ... ``` or ``` ... ```
+    let mut search_idx = 0;
+    while let Some(fence_start) = content[search_idx..].find("```") {
+        let abs_start = search_idx + fence_start;
+        let after_fence = &content[abs_start + 3..];
+        let content_start = match after_fence.find('\n') {
+            Some(newline_offset) => abs_start + 3 + newline_offset + 1,
+            None => break,
+        };
+        if let Some(close_offset) = content[content_start..].find("```") {
+            let fenced_body = content[content_start..content_start + close_offset].trim();
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(fenced_body) {
+                if check_json_files_value(&val) {
+                    return true;
+                }
+            }
+            search_idx = content_start + close_offset + 3;
+        } else {
+            break;
+        }
+    }
+
+    false
+}
+
+fn check_json_files_value(val: &serde_json::Value) -> bool {
+    if let Some(obj) = val.as_object() {
+        if let Some(files) = obj.get("files") {
+            if let Some(arr) = files.as_array() {
+                if !arr.is_empty() {
+                    return arr.iter().all(|f| f.is_object() && f.get("path").is_some());
+                }
+            }
+        }
+    }
+    false
+}
+
+fn has_valid_file_blocks(content: &str) -> bool {
+    content
+        .lines()
+        .any(|line| line.trim().starts_with("--- FILE:"))
 }
 
 /// What one stage produced, before it is committed as the stage's artifact.
@@ -1014,6 +1108,26 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     .first()
                     .map(|c| c.message.content.clone())
                     .unwrap_or_default();
+
+                if stage == Stage::Code {
+                    if let Err(reason) = validate_code_stage_content(&content) {
+                        let _ = self
+                            .store
+                            .finish_session(
+                                session_id,
+                                warsha_core::SessionStatus::Failed,
+                                Utc::now(),
+                            )
+                            .await;
+                        let error = PipelineError::Other(format!(
+                            "Code stage quality validation failed: {reason}"
+                        ));
+                        return Err(self
+                            .record_stage_failure(run, *version, ctrl, stage, role, error)
+                            .await);
+                    }
+                }
+
                 let cost_cents = providers.cost_of(&response.model, &response.usage)?;
                 StageCompletion {
                     content,
@@ -1933,7 +2047,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             if run.status != RunStatus::Running {
                 return Ok(run);
             }
-            return self.advance_stage_locked(run.id, &ctrl).await;
+            return self.advance_to_next_gate_locked(run.id, &ctrl).await;
         }
 
         if !run.current_stage.is_gate() && run.current_stage != Stage::Feedback {

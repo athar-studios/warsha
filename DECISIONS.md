@@ -1,4 +1,24 @@
 
+
+## 2026-11-22 — D-CODE-FAILLOUD-1: Code-Stage Quality Validation and Loud Stage Failure
+- **Decision**: In `crates/warsha-pipeline/src/lib.rs` (`execute_stage_with_feedback`), added explicit output-quality validation (`validate_code_stage_content`) for `Stage::Code` before artifact commit. The validator rejects:
+  1. Empty or whitespace-only content.
+  2. Tool-tag leakage markers (`DSML`, `｜DSML｜`, `<|`, `|>`, `<｜`, `｜>`).
+  3. Content below 50 non-whitespace characters (with exemption for `"Mock response"` for test harness compatibility with `warsha_providers::MockProvider`).
+  4. Content not parseable as the coder contract: either valid JSON containing a non-empty `files` array (raw or in a markdown code fence) or structured `--- FILE: <path> ---` blocks.
+  On validation failure, `finish_session(session_id, SessionStatus::Failed)` is called, and `record_stage_failure` transitions the run to `RunStatus::Failed`, emits an `EventKind::Error` with `action: "stage_failed"`, and returns a `PipelineError`.
+- **Reason**: Laptop evidence showed runs where the code agent returned 0 output tokens or DSML tool-tag leaks (`</｜DSML｜ parameter>` etc.) and silently committed corrupted/empty artifacts, advancing to `ReviewQaSecurity` instead of failing loudly.
+- **Proving tests**: `crates/warsha-pipeline/src/code_stage_tests.rs`: `code_stage_rejects_empty_output`, `code_stage_rejects_dsml_leak`.
+- **Scope**: `crates/warsha-pipeline/src/lib.rs`, `crates/warsha-pipeline/src/code_stage_tests.rs`. Local-only; no main/push.
+
+## 2026-11-22 — D-CODE-GATEC-RERUN-1: Gate-C Resume Re-executes Coder Then Reviewer
+- **Decision**:
+  1. In `crates/warsha-pipeline/src/lib.rs`, updated `producing_stage_for_gate(gate: Stage)` so that `Stage::GateC => Some(Stage::Code)` (previously `Some(Stage::ReviewQaSecurity)`).
+  2. In `resume_run`, updated the gate feedback path to call `self.advance_to_next_gate_locked(run.id, &ctrl).await` rather than `advance_stage_locked`. On a Gate-C change-request or rejection resume, `current_stage` is set to `Stage::Code`, re-executing the Coder with gate feedback, advancing through `Stage::ReviewQaSecurity` (executing the Reviewer), and stopping at `Stage::GateC` pending approval.
+- **Reason**: Laptop events confirmed that requesting changes or rejecting at Gate-C with `IMPLEMENTATION_MISSING` resumed only the Reviewer, because Gate-C was mapped to `ReviewQaSecurity`. The Coder never reran, trapping the run in a review-only loop.
+- **Proving tests**: `crates/warsha-pipeline/src/code_stage_tests.rs`: `gate_c_changes_requested_reruns_coder`; `crates/warshad/src/tests/mod.rs`: `runs_resume_gate_c_changes_requested_reruns_coder_then_reviewer`.
+- **Scope**: `crates/warsha-pipeline/src/lib.rs`, `crates/warsha-pipeline/src/code_stage_tests.rs`, `crates/warshad/src/tests/mod.rs`. Local-only; no main/push.
+
 ## 2026-11-21 — D-R4B-APPROVAL-1: Round-4b H1 Sibling Bypasses + H2 Missing Risky Rows (follow-up to D-R4-APPROVAL-1)
 - **Decision**: Closed the round-4 Codex findings on sibling-form bypasses: `node`/`nodejs` classify any non-flag file-like arg (extensionless scripts, `.txt`, dotfiles, `--test`) as Risky while keeping `node --version/-v/--help` Safe; `java` flags `.java` source args and single-file launches as Risky; `npm restart/stop` added to the RISKY table; `git -c/--config alias.*=!...`, fsmonitor variants with non-empty values, and direct `.git/config` writes flagged Risky in both `command_policy.rs` and `work_protection.rs`. Added missing RISKY rows: `dotnet test`, `composer exec|run-script`, `cargo bench`, pinned `gradle build`. Proving: 14 new tests in `verification_tests_impl.rs` incl negative controls.
 - **Reason**: Codex round-4 re-verify found these exact sibling forms still executing without approval prompts.
