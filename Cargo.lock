@@ -4016,7 +4016,7 @@ dependencies = [
 
 [[package]]
 name = "warsha-backends"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4046,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "warsha-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -4074,7 +4074,7 @@ dependencies = [
 
 [[package]]
 name = "warsha-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "serde",
@@ -4086,7 +4086,7 @@ dependencies = [
 
 [[package]]
 name = "warsha-git"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -4099,7 +4099,7 @@ dependencies = [
 
 [[package]]
 name = "warsha-pipeline"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4120,7 +4120,7 @@ dependencies = [
 
 [[package]]
 name = "warsha-providers"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4142,7 +4142,7 @@ dependencies = [
 
 [[package]]
 name = "warsha-relay"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4169,7 +4169,7 @@ dependencies = [
 
 [[package]]
 name = "warsha-remote"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4187,7 +4187,7 @@ dependencies = [
 
 [[package]]
 name = "warsha-store"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "dirs",
@@ -4205,7 +4205,7 @@ dependencies = [
 
 [[package]]
 name = "warshad"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "axum",
