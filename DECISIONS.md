@@ -15,6 +15,14 @@
   - `crates/warshad/src/tests/mod.rs`: `cancel_during_hung_stage_stops_promptly` proves `runs.cancel` promptly interrupts a hung stage dispatch within milliseconds rather than waiting for timeouts.
 - **Scope**: `crates/warsha-providers/src/lib.rs`, `crates/warsha-pipeline/src/lib.rs`, `crates/warshad/src/lib.rs`, `crates/warshad/src/startup.rs`, `crates/warshad/src/tests/mod.rs`, `apps/desktop/src/v3/pages/bench/index.tsx`, `apps/desktop/src/v3/pages/bench/tabs/OverviewTab.tsx`, `packages/i18n/src/v3/en/bench.ts`, `packages/i18n/src/v3/ar/bench.ts`. Local-only; no main/push.
 
+## 2026-11-22 — D-UI-DRIVE-REFINEMENTS-1: Client Wire Alignment and Bench Reload Stabilization
+- **Decision**:
+  1. In `packages/client/src/index.ts`: Aligned `getGates(runId)` to serialize RPC parameter as `{ run_id: runId }` (snake_case) matching `warshad` wire contract `GatesListParams { pub run_id: RunId }` (`crates/warshad/src/api.rs`).
+  2. In `apps/desktop/src/v3/pages/bench/index.tsx`: Extracted stable reload callbacks (`reloadRun`, `reloadGates`, `reloadProjectRuns`) from the polling effect dependency array, preventing an infinite re-render loop that exhausted browser memory/resources during live UI drive.
+  3. In `crates/warsha-providers/src/lib.rs`: Initialized `ProviderRouter::with_capacity_and_policy` dispatch timeout by checking `WARSHA_STAGE_TIMEOUT_SECS` env override (falling back to `DEFAULT_STAGE_TIMEOUT = 180s`), and supported `WARSHA_MOCK_HANG` in `MockProvider::new` for deterministic hang testing without network.
+- **Reason**: Enable practical UI drive and production bench polling without browser memory exhaustion or RPC parameter rejection.
+- **Scope**: `packages/client/src/index.ts`, `apps/desktop/src/v3/pages/bench/index.tsx`, `crates/warsha-providers/src/lib.rs`. Local-only; no main/push.
+
 ## 2026-11-22 — D-AUDIT-V5-REALITY-1: Plan-vs-Reality Audit of Warsha R-NEXT v5 Recorded
 - **Decision**: Recorded and committed the comprehensive plan-vs-reality audit report (`docs/zadloop/packets/AUDIT-V5-REALITY.md`) into `r-next/integration` at base commit `84cd6a2`. The audit systematically evaluated all 33 packets across Phase-0 (14 packets) and Release Run (19 packets in A11 order), concluding:
   1. **33-Packet Table & Verdicts**: 25 PASS, 7 PARTIAL (F3, FIN4, A1, A2, B2, N3, E2), 1 FAIL (N2 coding-engine catalog disconnected from RPC/UI).

@@ -176,24 +176,28 @@ export default function BenchPage(): React.ReactElement {
 
   // Keep run and gate status in sync while a run is Running so stage timeouts,
   // cancellations, and watchdog reaping surface promptly without requiring user action.
+  const { reload: reloadRun } = runHook;
+  const { reload: reloadGates } = gatesHook;
+  const { reload: reloadProjectRuns } = activeProjectRunsHook;
+
   useEffect(() => {
     if (!effectiveRunId || run?.status !== 'running') return;
     const interval = setInterval(() => {
-      runHook.reload();
-      gatesHook.reload();
-      activeProjectRunsHook.reload();
+      reloadRun();
+      reloadGates();
+      reloadProjectRuns();
     }, 2500);
     return () => clearInterval(interval);
-  }, [effectiveRunId, run?.status, runHook, gatesHook, activeProjectRunsHook]);
+  }, [effectiveRunId, run?.status, reloadRun, reloadGates, reloadProjectRuns]);
 
   const latestEventSeq = eventsHook.data?.[eventsHook.data.length - 1]?.seq;
   useEffect(() => {
     if (latestEventSeq !== undefined && run?.status === 'running') {
-      runHook.reload();
-      gatesHook.reload();
-      activeProjectRunsHook.reload();
+      reloadRun();
+      reloadGates();
+      reloadProjectRuns();
     }
-  }, [latestEventSeq, run?.status, runHook, gatesHook, activeProjectRunsHook]);
+  }, [latestEventSeq, run?.status, reloadRun, reloadGates, reloadProjectRuns]);
 
   // Primary loading & readiness contract (main[data-ready="true"])
   const isPrimarySettled =

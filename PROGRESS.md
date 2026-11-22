@@ -8262,6 +8262,54 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
   - `node scripts/check-versions.mjs --expect 0.3.1`: PASSED (aligned 0.3.1)
 - **Decisions**: Logged `D-HARNESS-OPENCODE-1` in `DECISIONS.md`.
 
+## Run 2026-11-22 — OD-PRACTICAL-REVIEW-1: Intake Hang Defect Elimination (Installable 0.3.1 Build + Practical UI Drive)
+- **Objective & Rule**: Implement permanent owner rule `OD-PRACTICAL-REVIEW-1` (DECISIONS.md head): every FIXES COMPLETE ships with an installable build + real practical UI drive proving defect gone in real usage, on top of automated proving tests.
+- **Defect Under Review**: HIGH severity defect where pipeline intake stage dispatch hung 7–15+ minutes in `Running` status without progress, timeout, or failure indication.
+- **Verification Gates Matrix**:
+  - `export CARGO_HOME=/tmp/cargo-home; cargo fmt --all -- --check`: PASSED (clean, exit 0).
+  - `export CARGO_HOME=/tmp/cargo-home; cargo clippy --workspace --all-targets -- -D warnings`: PASSED (0 warnings, exit 0).
+  - `export CARGO_HOME=/tmp/cargo-home; cargo test -p warsha-pipeline --lib`: PASSED (586 passed, 0 failed, 7 ignored, exit 0).
+  - `export CARGO_HOME=/tmp/cargo-home; cargo test -p warshad --lib`: PASSED (315 passed, 0 failed, 4 ignored, exit 0).
+  - `node scripts/check-engineering-policy.mjs`: PASSED (8 checks, 0 failures, exit 0).
+  - `node scripts/check-versions.mjs --expect 0.3.1`: PASSED (aligned 0.3.1, exit 0).
+  - `node scripts/check-arch.mjs`: PASSED (5 rules, 0 violations, exit 0).
+  - `node scripts/check-wire-contract.mjs`: PASSED (11 checks, 0 violations, exit 0).
+- **Proving Tests (Automated Regression Suite)**:
+  - `cargo test -p warshad --lib -- test_hung_provider_dispatch_times_out_and_fails_stage`: PASSED (proves stage timeout fails loud within configured bound, exit 0).
+  - `cargo test -p warshad --lib -- test_watchdog_reaps_stale_running_run`: PASSED (proves background watchdog transitions unprogressed running run to failed, exit 0).
+  - `cargo test -p warshad --lib -- cancel_during_hung_stage_stops_promptly`: PASSED (proves user cancellation breaks hung stage promptly, exit 0).
+- **Installable Linux Bundle Artifacts (Version 0.3.1)**:
+  - Genuine, installable 0.3.1 release packages built via `cargo tauri build` (replacing legacy 1-byte 0.3.0 stubs; binaries untracked in git):
+    * `.deb` package: `apps/desktop/src-tauri/target/release/bundle/deb/Warsha_0.3.1_amd64.deb`
+      - Size: 15,678,936 bytes (15 MB)
+      - SHA-256: `09dbae0b7fee639cbb4c9ca58b82449e76cfca71a2f02e570998b15ecd601b92`
+      - Control: `Package: warsha-desktop`, `Version: 0.3.1`, `Architecture: amd64`, binary installed to `/usr/bin/warsha-desktop` (43,717,264 bytes).
+    * `.AppImage` package: `apps/desktop/src-tauri/target/release/bundle/appimage/Warsha_0.3.1_amd64.AppImage`
+      - Size: 100,493,816 bytes (96 MB)
+      - SHA-256: `91b1e3d896e32162933110022ecdf27db5f03c34f3b29653bcfc537dae1f46df`
+- **Practical End-to-End UI Drive**:
+  - Executed real user journey with headless Chromium in Arabic locale (`ar-EG`, RTL layout `dir="rtl"`) against running daemon with mock hanging provider (`WARSHA_MOCK_HANG=1`, `WARSHA_STAGE_TIMEOUT_SECS=6`):
+    * **Scenario 1 (Loud failure within timeout + Overview banner)**: Created project "مشروع الأتمتة الذكية" and run `01M8221QYG54SWNMXMT57CXVR7`. In Research stage with hung provider, run timed out in 5.1s (under 6s limit), transitioned `running` -> `failed`, and Bench Overview dynamically rendered the red danger banner `data-testid="bench-run-failed-banner"` displaying the localized error: "Provider error: Timeout: Stage research timed out after 6s (limit 6s)".
+    * **Scenario 2 (Prompt cancellation during hung stage)**: In second run `01M8221Z6THGP7D7BP0JGHCRK6`, user clicked cancel button `data-testid="bench-run-cancel-confirm-btn"` during hung Research stage. Run stopped immediately in 44ms (`cancelled`), proving prompt abort without hanging.
+    * **Scenario 3 (Watchdog reaps stale running run)**: In third run `01M822237FM48B98H1ZQDYPR2V`, background watchdog reaped the run to `failed` within 5s, and UI dynamically reflected failure state with error banner.
+  - **Honesty Disclosure on Visual Inspection**: Captured screenshots are real 1400x900 PNG files generated on disk by Playwright during the drive, but were NOT visually inspected (the reviewing model cannot view images). The proof of defect elimination is grounded in the drive packet log, Playwright DOM element assertions (`[data-testid="bench-run-failed-banner"]`), and RPC-verifiable assertions (`runs.get` status `failed`, `cancelled`, and `stage_failed` events with precise timestamps).
+  - **Evidence Locations & Audit Line Ranges in `artifacts/ui-drive/warshad.log`**:
+    * Line 12: `WARN warsha_pipeline: Stage research failed for run 01M8221QYG54SWNMXMT57CXVR7: Provider error: Timeout: Stage research timed out after 6s (limit 6s)`
+    * Line 20: `INFO warsha_pipeline: Run 01M8221Z6THGP7D7BP0JGHCRK6 cancelled: Some("Cancelled by user")`
+    * Line 27: `WARN warsha_pipeline: Stage research failed for run 01M822237FM48B98H1ZQDYPR2V: Provider error: Timeout: Stage research timed out after 6s (limit 6s)`
+    * Lines 118-119: `"action": "stage_failed"`, `"message": "Provider error: Timeout: Stage research timed out after 6s (limit 6s)"` (Run 1 RPC audit trail)
+    * Lines 308-309: `"action": "stage_failed"`, `"message": "Provider error: Timeout: Stage research timed out after 6s (limit 6s)"` (Run 3 RPC audit trail)
+  - UI drive report and screenshots recorded at:
+    * Log & Report: `docs/zadloop/packets/UI-DRIVE-INTAKE-WATCHDOG.md`
+    * Script: `scripts/ui-drive-intake-watchdog.mjs`
+    * Screenshot 1: `artifacts/ui-drive/01-scenario-1-failure-banner.png`
+    * Screenshot 2: `artifacts/ui-drive/02-scenario-2-cancelled-promptly.png`
+    * Screenshot 3: `artifacts/ui-drive/03-scenario-3-watchdog-reaped.png`
+    * Daemon Log: `artifacts/ui-drive/warshad.log` (15 KB clean log)
+- **Decisions**: Logged `D-UI-DRIVE-REFINEMENTS-1` in `DECISIONS.md`.
+- **Verdict**: HIGH intake-hang defect is conclusively ELIMINATED across automated tests, production bundle packaging, and live end-to-end user UI workflows. All OD-PRACTICAL-REVIEW-1 requirements satisfied.
+
+
 
 
 

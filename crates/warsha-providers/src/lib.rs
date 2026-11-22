@@ -247,6 +247,9 @@ pub struct MockProvider {
 
 impl MockProvider {
     pub fn new(id: &str) -> Self {
+        let hang = std::env::var("WARSHA_MOCK_HANG")
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false);
         Self {
             id: id.to_string(),
             models: vec![ModelInfo {
@@ -265,7 +268,7 @@ impl MockProvider {
             call_count: std::sync::atomic::AtomicU32::new(0),
             calls: Arc::new(AtomicU32::new(0)),
             retryable_left: Arc::new(AtomicU32::new(0)),
-            hang: false,
+            hang,
         }
     }
 
@@ -719,7 +722,11 @@ impl ProviderRouter {
                 permits: std::sync::RwLock::new(Arc::new(Semaphore::new(max_concurrent))),
                 in_flight: Arc::new(AtomicUsize::new(0)),
                 max_concurrent_calls: AtomicUsize::new(max_concurrent),
-                dispatch_timeout: std::sync::RwLock::new(DEFAULT_STAGE_TIMEOUT),
+                dispatch_timeout: std::sync::RwLock::new(
+                    env_number::<u64>("WARSHA_STAGE_TIMEOUT_SECS")
+                        .map(Duration::from_secs)
+                        .unwrap_or(DEFAULT_STAGE_TIMEOUT),
+                ),
             }),
             ledger: Arc::new(std::sync::Mutex::new(SpendLedger::default())),
             cooldowns: Arc::new(Mutex::new(HashMap::new())),

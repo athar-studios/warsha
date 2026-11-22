@@ -2865,7 +2865,7 @@ export class WarshaClient
   // not the `Auth` tier the three writes above use, because a paired phone has to be able to
   // read the queue it is being asked to decide.
   async getGates(runId: RunId): Promise<GateSummary[]> {
-    return this.rpc('gates.list', { runId });
+    return this.rpc('gates.list', { run_id: runId });
   }
 
   async approveGate(runId: RunId, stage: Stage): Promise<void> {
