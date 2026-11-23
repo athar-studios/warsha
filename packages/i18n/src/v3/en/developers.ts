@@ -43,4 +43,5 @@ export default {
   'developers.cost.packet': 'Cost per merged packet: {value}',
   'developers.cost.packet_def': 'Cost per merged packet = run cost ÷ succeeded subtasks. — means no packet merged yet.',
   'developers.swarm.banner': 'Swarm run: {count} sub-agents',
+  'developers.error': 'Could not load developer data',
 };

@@ -1,10 +1,11 @@
-import type {
-  GateEvidence,
-  ProjectId,
-  Role,
-  RunId,
-  RunModeConfig,
-  RunSummary,
+import {
+  canonicalRoleKey,
+  type GateEvidence,
+  type ProjectId,
+  type Role,
+  type RunId,
+  type RunModeConfig,
+  type RunSummary,
 } from '@warsha/client';
 import { useT } from '@warsha/i18n/v3';
 import '@warsha/ui/v3/tokens/tokens.css';
@@ -367,7 +368,7 @@ export default function BenchPage(): React.ReactElement {
     'bench.team.model.set',
     async (role: Role, providerId: string, modelId: string) => {
       if (!client) return;
-      const existingRouting = rolesHook.data?.find((r) => r.role === role);
+      const existingRouting = rolesHook.data?.find((r) => canonicalRoleKey(r.role) === role);
       const newConfig = {
         role,
         targets: [{ provider_id: providerId, model_id: modelId, weight: 100 }],

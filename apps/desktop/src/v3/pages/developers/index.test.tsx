@@ -2,7 +2,14 @@
 // E4: the page's figures equal the fixture derivations; swarm children group under
 // the parent; the receipt export carries the trail; the table virtualises.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { RunSubtask, RunSummary, Session, WarshaEvent, WarshaClient } from '@warsha/client';
+import {
+  parseWarshaEvent,
+  type RunSubtask,
+  type RunSummary,
+  type Session,
+  type WarshaEvent,
+  type WarshaClient,
+} from '@warsha/client';
 import { I18nProvider, type Locale } from '@warsha/i18n/v3';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -241,5 +248,129 @@ describe('DevelopersPage (E4)', () => {
     URL.createObjectURL = originalCreateObjectURL;
     URL.revokeObjectURL = originalRevokeObjectURL;
     createSpy.mockRestore();
+  });
+
+  describe('F3: live-shaped event fixtures with p_m/q_a and screen resilience (D-R12-DEVMODE-1)', () => {
+    const LIVE_PM_FRAME = JSON.stringify({
+      id: 'e-pm-1',
+      run_id: 'run-1',
+      stage: 'prd_spec',
+      role: 'p_m',
+      kind: 'agent_step',
+      payload: { action: 'write_spec' },
+      cost_cents: 5,
+      tokens: { input: 100, output: 50, total: 150, cost_cents: 5 },
+      created_at: '2026-11-18T10:00:15.000Z',
+      device_id: null,
+    });
+
+    const LIVE_QA_FRAME = JSON.stringify({
+      id: 'e-qa-1',
+      run_id: 'run-1',
+      stage: 'review_qa_security',
+      role: 'q_a',
+      kind: 'agent_step',
+      payload: { action: 'verify_tests' },
+      cost_cents: 8,
+      tokens: { input: 200, output: 80, total: 280, cost_cents: 8 },
+      created_at: '2026-11-18T10:00:25.000Z',
+      device_id: null,
+    });
+
+    it('decodes real wire frames containing p_m and q_a to canonical pm and qa', () => {
+      const pmEvt = parseWarshaEvent(LIVE_PM_FRAME);
+      expect(pmEvt.role).toBe('pm');
+      expect(pmEvt.costCents).toBe(5);
+
+      const qaEvt = parseWarshaEvent(LIVE_QA_FRAME);
+      expect(qaEvt.role).toBe('qa');
+      expect(qaEvt.costCents).toBe(8);
+    });
+
+    it('shipped Developers screen renders events decoded from live p_m/q_a wire fixtures', async () => {
+      const decodedEvents = [parseWarshaEvent(LIVE_PM_FRAME), parseWarshaEvent(LIVE_QA_FRAME)];
+      const pmSession: Session = {
+        ...PARENT,
+        id: 's-pm',
+        role: 'pm',
+      } as Session;
+      const client = {
+        ...createClient(),
+        listRunSessions: vi.fn().mockResolvedValue([pmSession]),
+        getRunEvents: vi.fn().mockResolvedValue(decodedEvents),
+      } as unknown as WarshaClient;
+
+      render(
+        <I18nProvider initialLocale="en">
+          <ThemeProvider>
+            <DensityProvider>
+              <ClientProvider client={client}>
+                <DataReadyProvider>
+                  <DevelopersPage />
+                </DataReadyProvider>
+              </ClientProvider>
+            </DensityProvider>
+          </ThemeProvider>
+        </I18nProvider>
+      );
+
+      await ready();
+      expect(screen.getAllByTestId('developers-row')).toHaveLength(1);
+      expect(screen.getByTestId('developers-budget')).toBeVisible();
+    });
+
+    it('resilience: preserves session list and renders translated error banner when events fail (en)', async () => {
+      const client = {
+        ...createClient(),
+        listRunSessions: vi.fn().mockResolvedValue([PARENT]),
+        getRunEvents: vi.fn().mockRejectedValue(new Error('Network failure')),
+      } as unknown as WarshaClient;
+
+      render(
+        <I18nProvider initialLocale="en">
+          <ThemeProvider>
+            <DensityProvider>
+              <ClientProvider client={client}>
+                <DataReadyProvider>
+                  <DevelopersPage />
+                </DataReadyProvider>
+              </ClientProvider>
+            </DensityProvider>
+          </ThemeProvider>
+        </I18nProvider>
+      );
+
+      await waitFor(() => expect(screen.getAllByTestId('developers-row')).toHaveLength(1));
+      const errorBanner = await screen.findByTestId('developers-error');
+      expect(errorBanner).toBeVisible();
+      expect(errorBanner).toHaveTextContent('Could not load developer data');
+    });
+
+    it('resilience: renders translated error banner in Arabic (ar)', async () => {
+      const client = {
+        ...createClient(),
+        listRunSessions: vi.fn().mockResolvedValue([PARENT]),
+        getRunEvents: vi.fn().mockRejectedValue(new Error('Network failure')),
+      } as unknown as WarshaClient;
+
+      render(
+        <I18nProvider initialLocale="ar">
+          <ThemeProvider>
+            <DensityProvider>
+              <ClientProvider client={client}>
+                <DataReadyProvider>
+                  <DevelopersPage />
+                </DataReadyProvider>
+              </ClientProvider>
+            </DensityProvider>
+          </ThemeProvider>
+        </I18nProvider>
+      );
+
+      await waitFor(() => expect(screen.getAllByTestId('developers-row')).toHaveLength(1));
+      const errorBanner = await screen.findByTestId('developers-error');
+      expect(errorBanner).toBeVisible();
+      expect(errorBanner).toHaveTextContent('تعذر تحميل بيانات المطورين');
+    });
   });
 });

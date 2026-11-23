@@ -226,7 +226,7 @@ describe('client', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'projects.create',
-        params: { name: 'New Project', description: 'مشروع جديد', language: 'ar' },
+        params: { name: 'New Project', description: 'مشروع جديد', language: 'ar', repo_path: null },
       }),
     });
     expect(project.name).toBe('New Project');
@@ -242,7 +242,7 @@ describe('client', () => {
     await client.createProject('n', 'd', 'en');
 
     const params = sentParams(0);
-    expect(Object.keys(params).sort()).toEqual(['description', 'language', 'name']);
+    expect(Object.keys(params).sort()).toEqual(['description', 'language', 'name', 'repo_path']);
   });
 
   it('converts budget.show cents into the USD the screens render', async () => {
@@ -1130,6 +1130,34 @@ describe('parseWarshaEvent', () => {
       created_at: '2026-10-28T00:00:03Z',
     });
     expect(() => parseWarshaEvent(unknown)).toThrow('Malformed event frame: unknown "role"');
+  });
+
+  it('decodes wire-serialized p_m and q_a roles to canonical pm and qa (D-R12-DEVMODE-1)', () => {
+    const pmEvent = parseWarshaEvent(
+      JSON.stringify({
+        id: 'evt-pm',
+        run_id: 'run-pm',
+        stage: 'prd_spec',
+        role: 'p_m',
+        kind: 'agent_step',
+        payload: { text: 'prd generated' },
+        created_at: '2026-10-28T00:00:01Z',
+      })
+    );
+    expect(pmEvent.role).toBe('pm');
+
+    const qaEvent = parseWarshaEvent(
+      JSON.stringify({
+        id: 'evt-qa',
+        run_id: 'run-qa',
+        stage: 'review_qa_security',
+        role: 'q_a',
+        kind: 'agent_step',
+        payload: { text: 'qa completed' },
+        created_at: '2026-10-28T00:00:02Z',
+      })
+    );
+    expect(qaEvent.role).toBe('qa');
   });
 
   it('rejects a non-object frame', () => {

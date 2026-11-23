@@ -2,7 +2,17 @@
 // E4 Developers mode: every session of every run with real figures — costs, tokens
 // (estimated labels), TPS, cost per merged packet, budgets + burn rate, swarm
 // children grouped under their parent, receipt export.
-import type { ProjectId, ProjectSummary, RunSubtask, RunSummary, RunId, Session, WarshaEvent } from '@warsha/client';
+import {
+  ALL_ROLES,
+  canonicalRoleKey,
+  type ProjectId,
+  type ProjectSummary,
+  type RunSubtask,
+  type RunSummary,
+  type RunId,
+  type Session,
+  type WarshaEvent,
+} from '@warsha/client';
 import { useT } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -55,12 +65,34 @@ const DevelopersPage: React.FC = () => {
   const refreshAction = useAction('developers.list.refresh', async () => {
     if (!client || !runId) return;
     try {
-      setSessions(await client.listRunSessions(runId));
-      setEvents(await client.getRunEvents(runId));
-      setSubtasks(await client.listRunSubtasks(runId));
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const [sessionsRes, eventsRes, subtasksRes] = await Promise.allSettled([
+        client.listRunSessions(runId),
+        client.getRunEvents(runId),
+        client.listRunSubtasks(runId),
+      ]);
+      let anyFailed = false;
+      if (sessionsRes.status === 'fulfilled') {
+        setSessions(sessionsRes.value);
+      } else {
+        anyFailed = true;
+      }
+      if (eventsRes.status === 'fulfilled') {
+        setEvents(eventsRes.value);
+      } else {
+        anyFailed = true;
+      }
+      if (subtasksRes.status === 'fulfilled') {
+        setSubtasks(subtasksRes.value);
+      } else {
+        anyFailed = true;
+      }
+      if (anyFailed) {
+        setError(t('developers.error'));
+      } else {
+        setError(null);
+      }
+    } catch {
+      setError(t('developers.error'));
     }
   });
 
@@ -74,15 +106,15 @@ const DevelopersPage: React.FC = () => {
           setProjects(list);
           if (list.length > 0) setProjectId((current) => current ?? list[0].id);
         }
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      } catch {
+        if (!cancelled) setError(t('developers.error'));
       }
     };
     void load();
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,46 +137,63 @@ const DevelopersPage: React.FC = () => {
               }
         );
         setRunId((current) => current ?? runList[0]?.id ?? null);
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      } catch {
+        if (!cancelled) setError(t('developers.error'));
       }
     };
     void load();
     return () => {
       cancelled = true;
     };
-  }, [client, projectId]);
+  }, [client, projectId, t]);
 
   useEffect(() => {
     let cancelled = false;
     const load = async (): Promise<void> => {
       if (!client || !runId) return;
       try {
-        const [runSessions, runEvents, runSubtasks] = await Promise.all([
+        const [sessionsRes, eventsRes, subtasksRes] = await Promise.allSettled([
           client.listRunSessions(runId),
           client.getRunEvents(runId),
           client.listRunSubtasks(runId),
         ]);
         if (cancelled) return;
-        setSessions(runSessions);
-        setEvents(runEvents);
-        setSubtasks(runSubtasks);
-        setError(null);
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+        let anyFailed = false;
+        if (sessionsRes.status === 'fulfilled') {
+          setSessions(sessionsRes.value);
+        } else {
+          anyFailed = true;
+        }
+        if (eventsRes.status === 'fulfilled') {
+          setEvents(eventsRes.value);
+        } else {
+          anyFailed = true;
+        }
+        if (subtasksRes.status === 'fulfilled') {
+          setSubtasks(subtasksRes.value);
+        } else {
+          anyFailed = true;
+        }
+        if (anyFailed) {
+          setError(t('developers.error'));
+        } else {
+          setError(null);
+        }
+      } catch {
+        if (!cancelled) setError(t('developers.error'));
       }
     };
     void load();
     return () => {
       cancelled = true;
     };
-  }, [client, runId]);
+  }, [client, runId, t]);
 
   const visibleSessions = useMemo(() => {
     if (!sessions) return null;
     return sessions.filter(
       (session) =>
-        (roleFilter === 'all' || session.role === roleFilter) &&
+        (roleFilter === 'all' || (canonicalRoleKey(session.role) ?? session.role) === roleFilter) &&
         (providerFilter === 'all' || session.provider === providerFilter)
     );
   }, [sessions, roleFilter, providerFilter]);
@@ -202,8 +251,8 @@ const DevelopersPage: React.FC = () => {
         anchor.download = `receipt-${runId}.json`;
         anchor.click();
         URL.revokeObjectURL(url);
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+      } catch {
+        setError(t('developers.error'));
       }
     })();
   }, [client, runId, projectId, events, sessions, subtasks]);
@@ -270,9 +319,7 @@ const DevelopersPage: React.FC = () => {
           onChange={(event) => setRoleFilter(event.target.value)}
           options={[
             { value: 'all', label: t('developers.filter.all') },
-            ...['intake', 'researcher', 'pm', 'designer', 'architect', 'coder', 'reviewer', 'release', 'marketer', 'secretary'].map(
-              (role) => ({ value: role, label: roleLabel(role) })
-            ),
+            ...ALL_ROLES.map((role) => ({ value: role, label: roleLabel(role) })),
           ]}
         />
         <Select

@@ -1150,7 +1150,7 @@ function isStage(value: unknown): value is Stage {
 }
 
 function isRole(value: unknown): value is Role {
-  return typeof value === 'string' && ROLE_VALUES.some((role) => role === value);
+  return typeof value === 'string' && canonicalRoleKey(value) !== null;
 }
 
 /** A sequence flag off a `SequencedEventFrame`: absent/null is false, wrong types throw. */
@@ -1208,7 +1208,7 @@ function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
     if (!isRole(roleValue)) {
       throw new Error(`${EVENT_FRAME_ERROR}: unknown "role"`);
     }
-    role = roleValue;
+    role = canonicalRoleKey(roleValue);
   }
 
   const kind = requiredString(field(source, 'kind'), 'kind');
@@ -1843,7 +1843,11 @@ export interface FileContent {
 /** A Wave 2 `Role`; a missing or unknown role reads as the pipeline's first role. */
 function wave2Role(source: Record<string, unknown>, ...names: string[]): Role {
   const value = field(source, ...names);
-  return isRole(value) ? value : 'intake';
+  if (typeof value === 'string') {
+    const canonical = canonicalRoleKey(value);
+    if (canonical) return canonical;
+  }
+  return 'intake';
 }
 
 function decodeHarnessStage(source: unknown): HarnessStage {
