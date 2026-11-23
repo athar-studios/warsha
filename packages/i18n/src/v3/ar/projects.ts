@@ -34,6 +34,7 @@ export default {
   'projects.summary_done': 'مكتمل',
   'projects.summary_failed': 'توقّف بسبب خطأ',
   'projects.summary_cancelled': 'أُلغي',
+  'projects.summary_paused': 'متوقّف',
   'projects.summary_idle': 'جاهز للبدء',
   'projects.table_label': 'جدول المشاريع',
   'projects.stage_label': 'المرحلة: {stage}',

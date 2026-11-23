@@ -2057,6 +2057,65 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         Ok(run)
     }
 
+    /// Mark a run as failed, recording a run_finished event.
+    pub async fn fail_run(&self, run_id: RunId, reason: Option<String>) -> Result<Run> {
+        let ctrl = self.control_for(run_id).await;
+        let _ = ctrl.cancel_tx.send(true);
+
+        let _state_guard = ctrl.state_lock.lock().await;
+        let (run, was_terminal) = {
+            let (mut run, _version) = self.store.get_run_versioned(run_id).await?;
+            let was_terminal = matches!(
+                run.status,
+                RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled
+            );
+            if !was_terminal {
+                run.status = RunStatus::Failed;
+                run.updated_at = Utc::now();
+                self.store
+                    .update_run_status(run_id, RunStatus::Failed)
+                    .await?;
+            }
+            (run, was_terminal)
+        };
+
+        if !was_terminal {
+            let event = Event {
+                id: Ulid::new(),
+                run_id,
+                stage: run.current_stage,
+                role: None,
+                kind: EventKind::RunFinished,
+                payload: serde_json::json!({
+                    "status": "failed",
+                    "reason": reason,
+                }),
+                cost_cents: None,
+                tokens: None,
+                created_at: Utc::now(),
+                device_id: None,
+            };
+            if let Err(e) = self.store.append_event(&event).await {
+                tracing::warn!("failed to append run_finished event: {e}");
+            }
+
+            if let Ok(sessions) = self.store.list_sessions_by_run(run_id).await {
+                let now = Utc::now();
+                for s in sessions {
+                    if s.status == warsha_core::SessionStatus::Working {
+                        let _ = self
+                            .store
+                            .finish_session(s.id, warsha_core::SessionStatus::Failed, now)
+                            .await;
+                    }
+                }
+            }
+        }
+
+        info!("Run {} failed: {:?}", run_id.0, reason);
+        Ok(run)
+    }
+
     /// Resume a paused run (change request loop, budget-exceeded pause, or restart recovery).
     pub async fn resume_run(&self, run_id: RunId) -> Result<Run> {
         let ctrl = self.control_for(run_id).await;

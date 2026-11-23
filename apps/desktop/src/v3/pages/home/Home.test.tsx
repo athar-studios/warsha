@@ -265,6 +265,23 @@ describe('Home helpers', () => {
       summaryKey: 'home.summary_cancelled',
     });
   });
+
+  it('computes paused project status accurately (N9)', () => {
+    const pausedRun: RunSummary = {
+      id: 'run-paused' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'code',
+      status: 'paused',
+      runMode: 'agent',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    expect(computeProjectStatus([pausedRun], 0)).toEqual({
+      status: 'paused',
+      stageKey: 'stages.build',
+      summaryKey: 'home.summary_paused',
+    });
+  });
 });
 
 describe('HomePage', () => {
@@ -678,6 +695,92 @@ describe('HomePage', () => {
     const statusPill = document.querySelector('[data-status="cancelled"]');
     expect(statusPill).not.toBeNull();
     expect(statusPill?.textContent).toContain('ملغاة');
+  });
+
+  it('renders paused status pill and summary on home screen for project with paused run in AR and EN (N9)', async () => {
+    const pausedRun: RunSummary = {
+      id: 'run-p1' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'code',
+      status: 'paused',
+      runMode: 'agent',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    const client = makeMockClient({
+      listRuns: vi.fn().mockImplementation(async (projectId: string) => {
+        if (projectId === 'proj-1') return [pausedRun];
+        return [];
+      }),
+    });
+    const { unmount } = await renderHome({ client, locale: 'ar' });
+    await waitFor(() => {
+      expect(screen.getByTestId('home-projects-grid')).toBeDefined();
+    });
+    const arStatusPill = document.querySelector('[data-status="paused"]');
+    expect(arStatusPill).not.toBeNull();
+    expect(arStatusPill?.textContent).toContain('متوقّف');
+    unmount();
+
+    await renderHome({ client, locale: 'en' });
+    await waitFor(() => {
+      expect(screen.getByTestId('home-projects-grid')).toBeDefined();
+    });
+    const enStatusPill = document.querySelector('[data-status="paused"]');
+    expect(enStatusPill).not.toBeNull();
+    expect(enStatusPill?.textContent).toContain('Paused');
+  });
+
+  it('renders failed and cancelled status pills distinctly on home screen (F4 / F13)', async () => {
+    const failedRun: RunSummary = {
+      id: 'run-f1' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'code',
+      status: 'failed',
+      runMode: 'agent',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    const cancelledRun: RunSummary = {
+      id: 'run-c1' as RunId,
+      projectId: 'proj-2' as ProjectId,
+      stage: 'code',
+      status: 'cancelled',
+      runMode: 'agent',
+      startedAt: '2026-10-03T08:00:00.000Z',
+      updatedAt: '2026-10-03T09:00:00.000Z',
+    };
+    const client = makeMockClient({
+      listRuns: vi.fn().mockImplementation(async (projectId: string) => {
+        if (projectId === 'proj-1') return [failedRun];
+        if (projectId === 'proj-2') return [cancelledRun];
+        return [];
+      }),
+    });
+    const { unmount } = await renderHome({ client, locale: 'en' });
+    await waitFor(() => {
+      expect(screen.getByTestId('home-projects-grid')).toBeDefined();
+    });
+    const failedPill = document.querySelector('[data-status="failed"]');
+    const cancelledPill = document.querySelector('[data-status="cancelled"]');
+    expect(failedPill).not.toBeNull();
+    expect(cancelledPill).not.toBeNull();
+    expect(failedPill?.textContent).toContain('Failed');
+    expect(cancelledPill?.textContent).toContain('Cancelled');
+    expect(failedPill?.textContent).not.toEqual(cancelledPill?.textContent);
+    unmount();
+
+    await renderHome({ client, locale: 'ar' });
+    await waitFor(() => {
+      expect(screen.getByTestId('home-projects-grid')).toBeDefined();
+    });
+    const arFailedPill = document.querySelector('[data-status="failed"]');
+    const arCancelledPill = document.querySelector('[data-status="cancelled"]');
+    expect(arFailedPill).not.toBeNull();
+    expect(arCancelledPill).not.toBeNull();
+    expect(arFailedPill?.textContent).toContain('تعثّر');
+    expect(arCancelledPill?.textContent).toContain('ملغاة');
+    expect(arFailedPill?.textContent).not.toEqual(arCancelledPill?.textContent);
   });
 });
 

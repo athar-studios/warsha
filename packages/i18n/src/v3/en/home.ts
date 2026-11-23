@@ -49,6 +49,7 @@ export default {
   'home.summary_done': 'Completed',
   'home.summary_failed': 'Stopped with error',
   'home.summary_cancelled': 'Cancelled',
+  'home.summary_paused': 'Paused',
   'home.summary_idle': 'Ready to start',
   'home.mini_progress_label': 'Project progress',
   'home.table_label': 'Recent projects',

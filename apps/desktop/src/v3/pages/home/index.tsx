@@ -273,6 +273,14 @@ export function computeProjectStatus(
     };
   }
 
+  if (latestRun.status === 'paused') {
+    return {
+      status: 'paused',
+      stageKey,
+      summaryKey: 'home.summary_paused',
+    };
+  }
+
   return {
     status: 'idle',
     stageKey,

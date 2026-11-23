@@ -1,6 +1,20 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R13-RESIDUAL-1: Round-13 residuals N5 orphan running row, N8 backend ETXTBSY flakiness, N9 paused UI status, and F4 paired pills
+- **Decision**:
+  1. N5: In `crates/warshad/src/lib.rs:834`, when `apply_start_budget` fails (e.g. `set_run_budget` fails during persistence), cleanly evict the created run from in-memory maps (`agent_sessions`, `run_worktrees`, `mcp_approvals`, `previews`), cancel any running session loops, and mark the run as `Failed` via `state.pipeline.fail_run(&run.id, Some(err.to_string()))`. In `crates/warsha-pipeline/src/lib.rs`, added `fail_run` helper to cancel signals, mark run failed, emit `RunFinished`, and finish working sessions. In `crates/warsha-store/src/lib.rs`, added `update_run_status` to allow status updates without overwriting `budget_cents`. Added test `runs_start_budget_failure_marks_run_failed_and_leaves_no_running_row` injecting persistence failure via an SQLite trigger on `UPDATE OF budget_cents ON runs` verifying no running row remains in `runs.list` and run is marked failed.
+  2. N8: In `crates/warsha-backends/src/lib.rs`, hardened `fake_cli` script writing with PID and atomic counter to prevent filename collision, synced file contents before chmod (`sync_all()`), and wrapped the CLI execution in `cli_run_changing_nothing_reports_no_warsha_in_files_changed_and_clean_git_status` with transient ETXTBSY (os error 26) retry handling (up to 5 attempts with 50ms backoff) to tolerate kernel write-handle closure delays without relaxing containment assertions.
+  3. N9: In `apps/desktop/src/v3/pages/home/index.tsx`, updated `computeProjectStatus` to detect `latestRun.status === 'paused'` and return `{ status: 'paused', stageKey, summaryKey: 'home.summary_paused' }`. Added native i18n keys `home.summary_paused` and `projects.summary_paused` (EN: "Paused", AR: "متوقّف") in `packages/i18n/src/v3/{en,ar}/{home,projects}.ts`. Added unit tests in `Home.test.tsx` and `Projects.test.tsx` asserting paused run pill and summary rendering in both EN and AR.
+  4. F13 gaps / F4: Added tests in `apps/desktop/src/v3/pages/home/Home.test.tsx` asserting failed and cancelled status pills render simultaneously and distinctly on Home in both EN and AR locales.
+- **Reason**: Resolve Round-12 LOW residuals N5, N8, N9, and close F13 coverage gaps for F4 paired failed/cancelled DOM pills on r-next/integration worktree.
+- **Proving tests**:
+  - `crates/warshad/src/tests/mod.rs`: `runs_start_budget_failure_marks_run_failed_and_leaves_no_running_row` (6 passed in `runs_start_budget`)
+  - `crates/warsha-backends/src/lib.rs`: `cli_run_changing_nothing_reports_no_warsha_in_files_changed_and_clean_git_status` (1 passed)
+  - `apps/desktop/src/v3/pages/home/Home.test.tsx`: 26 passed
+  - `apps/desktop/src/v3/pages/projects/Projects.test.tsx`: 13 passed
+- **Scope**: `crates/warsha-store`, `crates/warsha-pipeline`, `crates/warshad`, `crates/warsha-backends`, `apps/desktop/src/v3/pages/{home,projects}`, `packages/i18n/src/v3/{en,ar}/{home,projects}.ts`, `DECISIONS.md`, `PROGRESS.md`. Local-only.
+
 ## 2026-11-23 — D-R12-STATUS-1: End-to-end cancelled run status and F1/F4 gate regressions repair
 - **Decision**:
   1. Complete end-to-end `cancelled` status support across all surfaces (F4):

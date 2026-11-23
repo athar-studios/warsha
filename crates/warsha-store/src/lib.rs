@@ -552,6 +552,22 @@ impl Store {
         Ok(())
     }
 
+    /// Update only the status of a run, bumping its version.
+    pub async fn update_run_status(&self, id: RunId, status: RunStatus) -> Result<()> {
+        let outcome = sqlx::query(
+            "UPDATE runs SET status = ?, updated_at = ?, version = version + 1 WHERE id = ?",
+        )
+        .bind(serde_json::to_string(&status)?)
+        .bind(chrono::Utc::now().to_rfc3339())
+        .bind(id.0.to_string())
+        .execute(&self.pool)
+        .await?;
+        if outcome.rows_affected() == 0 {
+            return Err(StoreError::RunNotFound(id));
+        }
+        Ok(())
+    }
+
     /// Update a run using optimistic concurrency compare-and-swap (CAS).
     ///
     /// If the stored version matches `expected_version`, applies the update,

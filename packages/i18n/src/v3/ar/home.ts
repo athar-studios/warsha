@@ -47,6 +47,7 @@ export default {
   'home.summary_done': 'مكتمل',
   'home.summary_failed': 'توقّف بسبب خطأ',
   'home.summary_cancelled': 'أُلغي',
+  'home.summary_paused': 'متوقّف',
   'home.summary_idle': 'جاهز للبدء',
   'home.mini_progress_label': 'تقدّم المشروع',
   'home.table_label': 'المشاريع الأخيرة',

@@ -417,4 +417,38 @@ describe('ProjectsPage', () => {
     expect(tablePill).not.toBeNull();
     expect(tablePill?.textContent).toContain('Cancelled');
   });
+
+  it('renders paused status pill on projects screen in simple and advanced modes for EN and AR (N9)', async () => {
+    const pausedRun: RunSummary = {
+      id: 'run-p1' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'code',
+      status: 'paused',
+      runMode: 'agent',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    const client = makeMockClient({
+      listRuns: vi.fn().mockImplementation(async (projectId: string) => {
+        if (projectId === 'proj-1') return [pausedRun];
+        return [];
+      }),
+    });
+    const { unmount } = await renderProjects({ client, locale: 'ar', mode: 'simple' });
+    await waitFor(() => {
+      expect(screen.getByTestId('projects-grid')).toBeDefined();
+    });
+    const arStatusPill = document.querySelector('[data-status="paused"]');
+    expect(arStatusPill).not.toBeNull();
+    expect(arStatusPill?.textContent).toContain('متوقّف');
+    unmount();
+
+    await renderProjects({ client, locale: 'en', mode: 'developers' });
+    await waitFor(() => {
+      expect(screen.getByTestId('projects-table')).toBeDefined();
+    });
+    const enTablePill = document.querySelector('[data-status="paused"]');
+    expect(enTablePill).not.toBeNull();
+    expect(enTablePill?.textContent).toContain('Paused');
+  });
 });

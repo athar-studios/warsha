@@ -4590,6 +4590,65 @@ mod runs_start_budget {
     }
 
     #[tokio::test]
+    async fn runs_start_budget_failure_marks_run_failed_and_leaves_no_running_row() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Injected Budget Fail".to_string(),
+                "Budget fail test".to_string(),
+                "en".to_string(),
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("project created");
+
+        sqlx::query(
+            "CREATE TRIGGER fail_budget_update BEFORE UPDATE OF budget_cents ON runs \
+             WHEN OLD.version >= 2 \
+             BEGIN SELECT RAISE(ABORT, 'injected budget persistence failure'); END;",
+        )
+        .execute(store.pool())
+        .await
+        .expect("trigger created");
+
+        let start_res = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "Build something".to_string(),
+                None,
+                None,
+                Some(500),
+            )
+            .await;
+        assert!(
+            start_res.is_err(),
+            "runs.start must fail when budget update fails"
+        );
+
+        let runs = rpc
+            .list_runs(&owner, project.id)
+            .await
+            .expect("runs listed");
+        assert!(
+            !runs
+                .iter()
+                .any(|r| r.status == warsha_core::RunStatus::Running),
+            "no running row must remain after start budget failure: {:?}",
+            runs
+        );
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].status, warsha_core::RunStatus::Failed);
+    }
+
+    #[tokio::test]
     async fn explicit_budget_on_runs_start_lifts_project_exhaustion() {
         let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;

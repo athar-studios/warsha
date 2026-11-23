@@ -1,5 +1,23 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 13 Lane Residuals Fixes (N5/N8/N9 + F13 coverage gaps, D-R13-RESIDUAL-1)
+- **Worktree**: `.agents/worktrees/fix-r13-residuals` on `r-next/integration` (detached HEAD at `7665343`). Local-only: no push, no tag, no publish, `main` untouched.
+- **Addressed Residuals**:
+  - **N5 (`crates/warshad/src/lib.rs:833`)**: In `apply_start_budget`, handled failure by cleanly canceling session loop, evicting in-memory maps (`agent_sessions`, `run_worktrees`, `mcp_approvals`, `previews`), and failing the run via `state.pipeline.fail_run(...)`. Added `update_run_status` to `warsha-store` and `fail_run` to `warsha-pipeline`. Added proving test with injected budget-persistence failure via SQLite trigger on `UPDATE OF budget_cents ON runs` verifying run is marked failed and no orphan running row remains.
+  - **N8 (`crates/warsha-backends/src/lib.rs:1665`)**: Hardened `fake_cli` temp scripts with PID + atomic counter and `sync_all()`, and added transient ETXTBSY (os error 26) retry handling (5 attempts, 50ms sleep) in `cli_run_changing_nothing_reports_no_warsha_in_files_changed_and_clean_git_status` to eliminate flakiness while preserving all containment assertions.
+  - **N9 (`apps/desktop/src/v3/pages/home/index.tsx:277` + `projects/index.tsx:346`)**: Added paused branch to `computeProjectStatus` returning `{ status: 'paused', stageKey, summaryKey: 'home.summary_paused' }`. Added `home.summary_paused` and `projects.summary_paused` in EN ("Paused") and AR ("متوقّف"). Added unit tests in `Home.test.tsx` and `Projects.test.tsx` asserting paused pill and summary rendering in EN and AR.
+  - **F13 gaps / F4**: Added unit test in `Home.test.tsx` asserting failed and cancelled status pills render simultaneously and distinctly on Home in both EN and AR.
+- **Verification & Gates**:
+  - `cargo fmt --check`: exit 0
+  - `cargo clippy -p warsha-store -p warsha-pipeline -p warshad -p warsha-backends --tests -- -D warnings`: exit 0
+  - `cargo test -p warshad --lib runs_start_budget`: 6 passed, 0 failed
+  - `cargo test -p warsha-backends --lib cli_run_changing_nothing_reports_no_warsha_in_files_changed_and_clean_git_status`: 1 passed, 0 failed
+  - Desktop vitest `Home.test.tsx`: 26 passed, 0 failed
+  - Desktop vitest `Projects.test.tsx`: 13 passed, 0 failed
+  - Desktop `tsc --noEmit`: 0 errors
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures
+- **Status**: RESIDUALS COMPLETE — local commit on lane.
+
 ## Run 2026-11-23 — Round 12 FIXES COMPLETE (F2/F3/F1/F4/F5/F7 + F6/F8/F9-F13, D-R12-*)
 - **Tip**: `96fa03f` on `r-next/integration` (chain: deny `eb3c105` → gates `346a023` → infra `80a0e1d` → sessions `de09d3c` → devmode `c0810e8` → status `bc86757` → repo_path `0522645` → tsc `0e5e52b` → eslint `96fa03f`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Verified on tip (this session)**:
