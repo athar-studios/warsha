@@ -1,9 +1,91 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 15 Lane Fixes (Blocker F1 ETXTBSY elimination, Residuals 1-7, Open Caveat, D-R15-*)
+- **Worktree**: `.agents/worktrees/fix-r15-etxtbsy` on `r-next/integration` (commit `a7672ae`). Local-only: no push, no tag, no publish, `main` untouched.
+- **Addressed items**:
+  - **Blocker F1 (N13-2 ETXTBSY elimination, D-R15-N13-2-2)**:
+    - Root cause: Staging+rename pattern does not prevent ETXTBSY under parallel test execution because a parallel thread can `fork()` while the staging file descriptor is open, causing the child process to inherit the fd. When rename occurs, the inode remains unchanged, and any process attempting to `exec()` the script before the child exits or execs encounters `ETXTBSY` (`os error 26`).
+    - Fix: Implemented option (b) with targeted ETXTBSY-only retry (up to 10 attempts with 50ms backoff, matching 0caf6c0 / aadfcff pattern) on the three affected tests:
+      1. `crates/warsha-backends/src/catalog.rs:582` (`test_cli_health_timeout_fails_closed`)
+      2. `crates/warsha-backends/src/lib.rs:1285` (`a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log`)
+      3. `crates/warsha-backends/src/tests/streaming_acceptance.rs:535` (`test_opencode_end_to_end_streams_events_and_flags_estimated_usage`)
+    - Proving: Executed 32 consecutive full-suite runs of `cargo test -p warsha-backends --lib` with 0 failures (50/50 tests passed each run). Exact run log recorded below.
+    - Correction: Corrected D-R14-N13-2 false claim via D-R15-N13-2-2.
+  - **Residual 1 (F13 fails-before wording correction, D-R15-F13-2)**:
+    - Corrected D-R14-F13-1 and PROGRESS.md line 6 to the verifier's observed behavior: on baseline `7665343`, the transplanted test fails at the `marker_file.exists()` assertion (marker file is absent when error returns because `open_cli_log` aborts before spawning child).
+  - **Residual 2 (Stale desktop count 764 -> 771, D-R15-COUNT-2)**:
+    - Corrected both `DECISIONS.md:173` (originally 116) and `PROGRESS.md:106` from 764 to 771 (88 files / 771 tests).
+  - **Residual 3 (Leftover warsha/run-<id> branch cleanup, D-R15-N13-4-2)**:
+    - In `crates/warsha-pipeline/src/worktree.rs:116` (`remove_run_worktree`), added best-effort `git branch -D warsha/{name}` in `repo_path` after `git worktree remove --force`.
+    - Proving test: `removal_takes_the_worktree_away` asserting `git branch --list warsha/run-run9` is empty after removal.
+  - **Residual 4 (Atomic ensure_git_exclude write preserving user lines, D-R15-N13-1-2)**:
+    - In `crates/warsha-backends/src/lib.rs:721` (`ensure_git_exclude`), made file write atomic by writing to `.exclude.tmp.<pid>.<ulid>`, calling `sync_all()`, and renaming over `.git/info/exclude`. Preserves existing user comments and patterns while normalizing unanchored `.warsha` lines to `/.warsha/` and `/.warsha`.
+    - Proving test: `test_ensure_git_exclude_atomic_and_preserves_user_lines`.
+  - **Residual 5 (Unify is_warsha_internal_path into warsha-core, D-R15-N13-1-3)**:
+    - Moved canonical `is_warsha_internal_path` implementation to `crates/warsha-core/src/lib.rs`. Handled `Component::RootDir` and `Component::Prefix` by skipping them alongside `Component::CurDir`, ensuring correct behavior for both relative and absolute paths.
+    - Re-exported canonical helper in `crates/warsha-backends/src/lib.rs` and `crates/warsha-pipeline/src/worktree.rs`.
+    - Proving test: `test_is_warsha_internal_path` in `warsha-core`.
+  - **Residual 6 (warshad fallback cleanup worktree deregistration, D-R15-N13-4-3)**:
+    - In `crates/warshad/src/lib.rs:221-233` (`apply_start_budget`), updated fallback cleanup arm on budget application failure to invoke `warsha_pipeline::remove_run_worktree` when `repo_path` exists, deregistering the git worktree and deleting the run branch before directory removal.
+    - Proving: `cargo test -p warshad --lib` (328/328 passed).
+  - **Residual 7 (Nested lane worktree cleanup command for PM, D-R15-HOUSEKEEPING-1)**:
+    - Because this subagent runs inside `.agents/worktrees/fix-r15-etxtbsy`, git refuses in-situ deletion of the active worktree.
+    - Exact cleanup command for PM from integration checkout:
+      `git worktree remove --force .agents/worktrees/fix-r15-etxtbsy && rm -rf .agents`
+    - Verified `git status` inside lane is clean with 0 untracked files.
+  - **Open Caveat (session-superagent watch status, D-R15-WATCH-1)**:
+    - Verified active watcher in `/home/moe/.dsh/state/session-superagent/watchers.json`:
+      ID: `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29`
+      Enabled: `true`, Interval: `60s`, Ack label: `"主理鱼:已处理"`.
+- **Blocker F1 Proving Run Log (32 consecutive full-suite runs of `cargo test -p warsha-backends --lib`, 0 failures)**:
+  - Run 1: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+  - Run 2: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 3: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 4: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 5: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 6: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 7: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 8: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 9: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+  - Run 10: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 11: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 12: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 13: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 14: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 15: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 16: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 17: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 18: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 19: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 20: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 21: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 22: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 23: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 24: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 25: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 26: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 27: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 28: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 29: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 30: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+  - Run 31: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+  - Run 32: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+- **Verification & Gates**:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0 (0 warnings)
+  - `cargo test -p warsha-core`: 36 passed, 0 failed
+  - `cargo test -p warsha-backends --lib`: 50 passed, 0 failed (32x consecutive runs)
+  - `cargo test -p warsha-pipeline --lib worktree`: 12 passed, 0 failed
+  - `cargo test -p warshad --lib`: 328 passed, 0 failed, 4 ignored
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures
+- **Status**: ALL FIXES COMPLETE — Blocker F1 resolved, 7 LOW residuals resolved, Open Caveat documented.
+- **PM re-verification (lane, 2026-11-23)**: `cargo fmt --check` exit 0; `cargo clippy --workspace --all-targets` exit 0; `warsha-core` 36/0; `warsha-backends --lib` 50/0 single + 30/30 consecutive loop clean; `warsha-pipeline worktree` 12/12; `warshad --lib` 328/0/4; `check-engineering-policy.mjs` 8/0. Reviewer follow-ups applied: porcelain branch lookup moved BEFORE `worktree remove` (lookup-after-removal can never match), helper docs narrowed to repo-relative contract, retry-exhaustion panic reports last error.
+- **Plugins used this round**: Code Reviewer (@ pre-merge — MEDIUM, 3 should-fix applied: porcelain ordering, helper docs, panic clarity) + brooks-review (brooks-lint PR Review — score 98/100, 2 Suggestions T3/R6 deferred, no blockers).
+
 ## Run 2026-11-23 — Round 14 Lane Fixes (F13 blocker, N13-1..N13-4, and count correction, D-R14-*)
 - **Worktree**: `.agents/worktrees/fix-r14-f9stderr` on `r-next/integration` (commit `1536638`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Addressed items**:
-  - **F13 blocker (`crates/warsha-backends/src/lib.rs:1892`)**: Rewrote `non_writable_workdir_fails_gracefully_with_clear_error` to assert child executed (marker file `child_marker.txt` written in parent temp dir outside read-only workdir) and that child stderr `boom-stderr` and `exit 3` are preserved in the `BackendError::Sandbox` error. Verified fails-before on baseline `7665343` (transplanted test fails on the stderr/exit-detail assertions — baseline spawns before `open_cli_log?` aborts, so the marker is still written but the generic error lacks the detail) and passes at tip.
+  - **F13 blocker (`crates/warsha-backends/src/lib.rs:1892`)**: Rewrote `non_writable_workdir_fails_gracefully_with_clear_error` to assert child executed (marker file `child_marker.txt` written in parent temp dir outside read-only workdir) and that child stderr `boom-stderr` and `exit 3` are preserved in the `BackendError::Sandbox` error. Verified fails-before on baseline `7665343` (transplanted test fails at the marker-exists assertion — no marker file when error returns) and passes at tip.
   - **N13-3 (`crates/warsha-backends/src/lib.rs:668-688`)**: Preserved child stderr and exit code in `execute_cli_child` when child process exits non-zero inside an unwritable work directory (`work directory is not writable: <path> (<exit_info>): <stderr>`).
   - **N13-1 (`crates/warsha-backends/src/lib.rs:814` + `crates/warsha-pipeline/src/worktree.rs:135`)**: Narrowed `is_warsha_internal_path` to match only leading `.warsha` component (root-level only). Legitimate nested paths like `docs/.warsha/notes.md` are tracked in `dirty_set`, reported in `files_changed`, and committed by `commit_run_worktree`, while root `.warsha/cli.log` remains excluded.
   - **N13-2 (`crates/warsha-backends/src/catalog.rs:588`)**: Applied atomic-publish pattern to `test_cli_health_timeout_fails_closed` shim writing (write staging `.warsha-block-forever.tmp`, sync_all, rename, chmod 0o755) to eliminate transient ETXTBSY race. Verified 5 consecutive sweeps of `cargo test -p warsha-backends --lib` green with 0 flakiness.
@@ -103,7 +185,7 @@
   - Added `server.fs.allow` parent directory support in `packages/ui/vitest.config.ts` and `apps/remote/vitest.config.ts` matching `apps/desktop/vitest.config.ts` for worktree Vite resolution.
 - **Proving evidence**:
   - Monorepo full Vitest suite (`pnpm -r test`): 8/8 workspaces passed, 168 test files, 1678 tests, exit code 0:
-    - `@warsha/desktop`: 88 passed (88 files), 764 passed (764 tests), 0 failed.
+    - `@warsha/desktop`: 88 passed (88 files), 771 passed (771 tests), 0 failed.
     - `@warsha/ui`: 58 passed (58 files), 391 passed (391 tests), 0 failed.
     - `@warsha/remote`: 17 passed (17 files), 231 passed (231 tests), 0 failed.
     - `@warsha/client`: 2 passed (2 files), 202 passed (202 tests), 0 failed.

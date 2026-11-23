@@ -574,10 +574,32 @@ async fn test_opencode_end_to_end_streams_events_and_flags_estimated_usage() {
         context: std::collections::HashMap::new(),
     };
 
-    let res = backend
-        .execute(task, &sandbox)
-        .await
-        .expect("opencode execute");
+    let mut last_err = None;
+    let mut res = None;
+    for _ in 0..10 {
+        match backend.execute(task.clone(), &sandbox).await {
+            Ok(r) => {
+                res = Some(r);
+                break;
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("Text file busy") || msg.contains("os error 26") {
+                    last_err = Some(msg);
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    continue;
+                } else {
+                    panic!("opencode execute failed, got: {e}");
+                }
+            }
+        }
+    }
+    let res = res.unwrap_or_else(|| {
+        panic!(
+            "opencode execute failed after ETXTBSY retries, last: {}",
+            last_err.unwrap_or_default()
+        )
+    });
     assert!(res.success);
     let usage = res.usage.expect("usage parsed");
     assert_eq!(usage.input, 150);
