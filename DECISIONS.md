@@ -1,6 +1,26 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R13-JS-1: Declare --w-danger-border and --w-space-12 tokens and align Settings navigation counts with Coding Engines section
+- **Decision**:
+  1. Token parity (N1/F1):
+     - In `packages/ui/src/v3/tokens/tokens.css`, declare `--w-danger-border: #E09590;` in `:root` (light) and `--w-danger-border: #6E2B25;` in dark theme (`:root[data-theme="dark"]` and `@media (prefers-color-scheme: dark)`), matching the danger border contrast required by `BenchRecoveryCard.tsx:43`.
+     - In `packages/ui/src/v3/tokens/tokens.css`, declare `--w-space-12: 96px;` in `:root`, continuing the 4-based spacing scale for containers and skeleton placeholders like `CodingEnginesSection.tsx:137`.
+  2. Settings section navigation alignment:
+     - In `apps/desktop/src/v3/pages/settings/Settings.test.tsx`, update Simple mode primary navigation count assertion from 4 to 5 and expanded count from 18 to 19 (and Advanced mode immediate count from 18 to 19). This reconciles the test assertions with the real `coding-engines` section added in commit 7d661fa (D-HARNESS-OPENCODE-1) with `isAdvanced: false, isQuick: true`.
+  3. Worktree Vitest filesystem access:
+     - In `packages/ui/vitest.config.ts` and `apps/remote/vitest.config.ts`, align `server.fs.allow` to allow parent workspace directories (`../../../../..`), matching `apps/desktop/vitest.config.ts` so Vitest can resolve monorepo dependencies when running inside worktrees.
+- **Reason**: Round-12 Codex finding N1/F1 JS gate failures. `tokenUsage.test.ts` flagged undefined `--w-danger-border` and `--w-space-12`, and `Settings.test.tsx` failed because the Coding Engines section increased primary sections from 4 to 5 and total nav sections from 18 to 19.
+- **Proving tests**:
+  - Full desktop Vitest suite: 88 test files passed (88/88), 764 tests passed (764/764), 0 failed.
+  - Full UI package Vitest suite: 58 test files passed (58/58), 391 tests passed (391/391), 0 failed.
+  - Full remote Vitest suite: 17 test files passed (17/17), 231 tests passed (231/231), 0 failed.
+  - Full monorepo Vitest suite (`pnpm -r test`): all 8 workspaces passed (168 test files, 1470 tests), exit code 0.
+  - `tsc --noEmit` in apps/desktop, apps/remote, packages/ui: 0 errors.
+  - ESLint on touched files: 0 errors.
+  - `node scripts/check-engineering-policy.mjs`: 8/0 passed.
+- **Scope**: `packages/ui/src/v3/tokens/tokens.css`, `apps/desktop/src/v3/pages/settings/Settings.test.tsx`, `packages/ui/vitest.config.ts`, `apps/remote/vitest.config.ts`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-23 — D-R12-STATUS-1: End-to-end cancelled run status and F1/F4 gate regressions repair
 - **Decision**:
   1. Complete end-to-end `cancelled` status support across all surfaces (F4):
