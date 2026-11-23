@@ -507,7 +507,7 @@ impl CodingBackend for CliBackend {
                             if is_streaming {
                                 process_line(&l, &mut usage, &mut session_ended_emitted);
                             }
-                            append_cli_log_line(&mut cli_log, "stdout", &l)?;
+                            append_cli_log_line(&mut cli_log, "stdout", &l);
                             captured_stdout.push(l);
                         }
                         Ok(None) | Err(_) => {
@@ -521,7 +521,7 @@ impl CodingBackend for CliBackend {
                             if let Some(mgr) = &live_sessions {
                                 mgr.push_tail_line(session_id, &l).await;
                             }
-                            append_cli_log_line(&mut cli_log, "stderr", &l)?;
+                            append_cli_log_line(&mut cli_log, "stderr", &l);
                             captured_stderr.push(l);
                         }
                         Ok(None) | Err(_) => {
@@ -576,14 +576,14 @@ impl CodingBackend for CliBackend {
             if is_streaming {
                 process_line(&l, &mut usage, &mut session_ended_emitted);
             }
-            append_cli_log_line(&mut cli_log, "stdout", &l)?;
+            append_cli_log_line(&mut cli_log, "stdout", &l);
             captured_stdout.push(l);
         }
         while let Ok(Some(l)) = stderr_reader.next_line().await {
             if let Some(mgr) = &live_sessions {
                 mgr.push_tail_line(session_id, &l).await;
             }
-            append_cli_log_line(&mut cli_log, "stderr", &l)?;
+            append_cli_log_line(&mut cli_log, "stderr", &l);
             captured_stderr.push(l);
         }
 
@@ -684,27 +684,104 @@ impl CodingBackend for CliBackend {
     }
 }
 
+/// Ensure `.warsha/` and `.warsha` are listed in `.git/info/exclude` if `work_dir`
+/// is in a git repository. This keeps `.warsha/cli.log` out of `git status` and
+/// `git add` without editing the user's tracked `.gitignore`.
+fn ensure_git_exclude(work_dir: &std::path::Path) {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(work_dir)
+        .args(["rev-parse", "--git-path", "info/exclude"])
+        .output();
+    if let Ok(out) = output {
+        if out.status.success() {
+            let path_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !path_str.is_empty() {
+                let exclude_path = if std::path::Path::new(&path_str).is_absolute() {
+                    std::path::PathBuf::from(path_str)
+                } else {
+                    work_dir.join(path_str)
+                };
+                if let Some(parent) = exclude_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let needs_entry = if let Ok(existing) = std::fs::read_to_string(&exclude_path) {
+                    !existing.lines().any(|l| {
+                        l.trim() == ".warsha" || l.trim() == ".warsha/" || l.trim() == ".warsha/**"
+                    })
+                } else {
+                    true
+                };
+                if needs_entry {
+                    use std::io::Write;
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&exclude_path)
+                    {
+                        let _ = writeln!(f, ".warsha/\n.warsha");
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// `<work_dir>/.warsha/cli.log`, created on demand. Lines are appended as the
 /// child emits them so a SIGKILL/OOM still leaves a partial log on disk.
 fn open_cli_log(work_dir: &std::path::Path) -> Result<std::fs::File> {
+    if !work_dir.exists() {
+        return Err(BackendError::Sandbox(format!(
+            "work directory does not exist: {}",
+            work_dir.display()
+        )));
+    }
+    if let Ok(meta) = std::fs::metadata(work_dir) {
+        if meta.permissions().readonly() {
+            return Err(BackendError::Sandbox(format!(
+                "work directory is not writable: {}",
+                work_dir.display()
+            )));
+        }
+    }
+
+    ensure_git_exclude(work_dir);
+
     let dir = work_dir.join(".warsha");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| BackendError::Sandbox(format!("failed to create {}: {e}", dir.display())))?;
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            return Err(BackendError::Sandbox(format!(
+                "work directory is not writable: {}",
+                work_dir.display()
+            )));
+        }
+        return Err(BackendError::Sandbox(format!(
+            "failed to create {}: {e}",
+            dir.display()
+        )));
+    }
     let path = dir.join("cli.log");
     std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
-        .map_err(|e| BackendError::Sandbox(format!("failed to open {}: {e}", path.display())))
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                BackendError::Sandbox(format!(
+                    "work directory is not writable: {}",
+                    work_dir.display()
+                ))
+            } else {
+                BackendError::Sandbox(format!("failed to open {}: {e}", path.display()))
+            }
+        })
 }
 
 /// Append one already-captured line and flush it. The line text is the child's
-/// own stdout/stderr; secret values are not added here.
-fn append_cli_log_line(log: &mut std::fs::File, stream: &str, line: &str) -> Result<()> {
-    writeln!(log, "{stream}: {line}")
-        .map_err(|e| BackendError::Sandbox(format!("failed to write .warsha/cli.log: {e}")))?;
-    log.flush()
-        .map_err(|e| BackendError::Sandbox(format!("failed to flush .warsha/cli.log: {e}")))
+/// own stdout/stderr; secret values are not added here. Mid-run log write errors
+/// do not abort the run.
+fn append_cli_log_line(log: &mut std::fs::File, stream: &str, line: &str) {
+    let _ = writeln!(log, "{stream}: {line}").and_then(|_| log.flush());
 }
 
 /// The diff and changed paths a run left in `work_dir`, or an empty pair when it
@@ -728,8 +805,8 @@ async fn capture_changes(work_dir: &std::path::Path) -> (Option<String>, Vec<Str
         if output.status.success() {
             for line in String::from_utf8_lossy(&output.stdout).lines() {
                 if let Some(path) = line.get(3..) {
-                    let path = path.trim();
-                    if !path.is_empty() {
+                    let path = path.trim().trim_matches('"');
+                    if !path.is_empty() && !path.starts_with(".warsha") {
                         files.push(path.to_string());
                     }
                 }
@@ -986,7 +1063,7 @@ mod tests {
         use super::*;
         use std::process::Command;
 
-        fn task(title: &str, description: &str) -> CodingTask {
+        pub(super) fn task(title: &str, description: &str) -> CodingTask {
             CodingTask {
                 id: Ulid::new(),
                 worktree_path: None,
@@ -1217,6 +1294,7 @@ mod tests {
     /// ENGINE E4: the Code stage executes through a selected coding CLI, and the
     /// artifact it records is the change the CLI actually made.
     mod e4_coding_cli {
+        use super::e4::task;
         use super::*;
         use chrono::Utc;
         use std::sync::Arc;
@@ -1560,6 +1638,147 @@ mod tests {
                 .expect("crossing the budget must record BudgetExceeded");
             assert_eq!(exceeded.payload["budget_cents"], 5);
             assert_eq!(exceeded.payload["spent_cents"], 7);
+        }
+
+        /// F6+F9: CLI run changing nothing reports no .warsha/ in files_changed
+        /// and no ?? .warsha/ in git status.
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn cli_run_changing_nothing_reports_no_warsha_in_files_changed_and_clean_git_status()
+        {
+            let temp = tempfile::tempdir().expect("a temp dir");
+            let bin_dir = tempfile::tempdir().expect("bin dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("a base file");
+            git_repo(temp.path());
+
+            // A CLI that emits logs but modifies no files, placed outside the repo in bin_dir
+            let cli = fake_cli(
+                bin_dir.path(),
+                "echo 'working on task...'\necho 'no modifications needed'\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let result = backend
+                .execute(task("Inspect", "Check files"), &sandbox)
+                .await
+                .expect("the fake CLI succeeds");
+
+            assert!(result.success);
+            // Must report NO .warsha or .warsha/ in files_changed
+            assert!(
+                !result
+                    .files_changed
+                    .iter()
+                    .any(|f| f.starts_with(".warsha")),
+                "files_changed must not contain .warsha: {:?}",
+                result.files_changed
+            );
+            assert!(
+                result.files_changed.is_empty(),
+                "expected empty files_changed when nothing changed, got {:?}",
+                result.files_changed
+            );
+
+            // git status --porcelain must NOT contain ?? .warsha or ?? .warsha/
+            let status_output = std::process::Command::new("git")
+                .args(["status", "--porcelain"])
+                .current_dir(temp.path())
+                .output()
+                .expect("git status runs");
+            let status_str = String::from_utf8_lossy(&status_output.stdout);
+            assert!(
+                !status_str.contains(".warsha"),
+                "git status must not report .warsha: {status_str}"
+            );
+            assert!(
+                status_str.trim().is_empty(),
+                "git status must be completely clean, got: {status_str}"
+            );
+
+            // But .warsha/cli.log MUST exist and contain the CLI log output
+            let log_file = temp.path().join(".warsha/cli.log");
+            assert!(log_file.exists(), ".warsha/cli.log must exist");
+            let log_content = std::fs::read_to_string(&log_file).expect("readable cli.log");
+            assert!(
+                log_content.contains("working on task..."),
+                "log must contain output: {log_content}"
+            );
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn non_writable_workdir_fails_gracefully_with_clear_error() {
+            use std::os::unix::fs::PermissionsExt;
+            let temp = tempfile::tempdir().expect("a temp dir");
+            let read_only_dir = temp.path().join("ro_dir");
+            std::fs::create_dir(&read_only_dir).expect("dir created");
+
+            // Make directory read-only
+            std::fs::set_permissions(&read_only_dir, std::fs::Permissions::from_mode(0o555))
+                .expect("set read-only permissions");
+
+            let cli = fake_cli(
+                temp.path(),
+                "echo 'should not run'\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(read_only_dir.clone());
+
+            let error = backend
+                .execute(task("Task", "Desc"), &sandbox)
+                .await
+                .expect_err("read-only workdir must fail");
+
+            // Restore write permissions so tempdir can clean up
+            let _ =
+                std::fs::set_permissions(&read_only_dir, std::fs::Permissions::from_mode(0o755));
+
+            match error {
+                BackendError::Sandbox(msg) => {
+                    assert!(
+                        msg.contains("work directory is not writable"),
+                        "expected clear error message, got: {msg}"
+                    );
+                }
+                other => panic!("expected BackendError::Sandbox, got: {other:?}"),
+            }
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn mid_run_log_errors_do_not_abort_run() {
+            let temp = tempfile::tempdir().expect("a temp dir");
+            let bin_dir = tempfile::tempdir().expect("bin dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("a base file");
+            git_repo(temp.path());
+
+            // If /dev/full is available, symlink .warsha/cli.log to /dev/full so every write fails with ENOSPC
+            let warsha_dir = temp.path().join(".warsha");
+            std::fs::create_dir_all(&warsha_dir).expect("created warsha dir");
+            let dev_full = std::path::Path::new("/dev/full");
+            if dev_full.exists() {
+                std::os::unix::fs::symlink(dev_full, warsha_dir.join("cli.log"))
+                    .expect("symlink to dev/full");
+            }
+
+            let cli = fake_cli(
+                bin_dir.path(),
+                "echo 'line 1'\necho 'line 2'\nprintf 'changed' > base.txt\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let result = backend
+                .execute(task("Task", "Desc"), &sandbox)
+                .await
+                .expect("mid-run log errors must not abort run");
+
+            assert!(
+                result.success,
+                "run must succeed even if log appends fail with ENOSPC"
+            );
+            assert!(result.files_changed.contains(&"base.txt".to_string()));
         }
     }
 }

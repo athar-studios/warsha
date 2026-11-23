@@ -1,5 +1,30 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 12 F5 sessions cost/failover + F6/F9 cli.log containment (D-R12-SESSIONS-1, D-R12-POSTMORTEM-2)
+- **Scope**: Owner verification findings F5, F6, F9, F13 from `claude-code-verify-round11-2026-11-23.md`. Work in `.agents/worktrees/fix-r12-sessions` (base `8f2fc72`). Parallel lane: files owned by other lanes (Home gate cards, Developers page `index.tsx`, status pills, deny lockfile `Cargo.lock`) were not touched. Local-only; no main/push/tag/publish.
+- **Changes**:
+  - **F5 Failover-aware provider/model & Cost/tokens window ordering**:
+    - `crates/warsha-providers/src/lib.rs`: Added `FallbackChatResponse` returning `ChatResponse`, `provider_id`, and `model_id`. Added `chat_with_fallback_detailed` while keeping `chat_with_fallback` backward-compatible.
+    - `crates/warsha-store/src/lib.rs`: Added `update_session_responder` updating `sessions.provider` and `sessions.model` in SQLite.
+    - `crates/warsha-pipeline/src/lib.rs`: `dispatch_chat` returns responder details; pipeline updates session row with actual provider and model after dispatch. Moved `finish_session` to run AFTER `append_event` with `ended_at = Utc::now().max(event.created_at)` (and fail-closed on error/cancellation) so `session.ended_at >= event.created_at`.
+    - `crates/warsha-pipeline/src/swarm_runtime.rs`: Forwarded `session_id` on `StageCompletion`.
+  - **F6+F9 Containment of .warsha/cli.log & Error resilience**:
+    - `crates/warsha-backends/src/lib.rs`: In `open_cli_log`, added `ensure_git_exclude(work_dir)` to add `.warsha` and `.warsha/` to `.git/info/exclude`; added check for workdir writability returning `BackendError::Sandbox("work directory is not writable: ...")`. Made `append_cli_log_line` infallible for callers so mid-run log write errors (e.g. ENOSPC) do not abort runs. Filtered `.warsha` from `files_changed` in `capture_changes`.
+    - `crates/warsha-pipeline/src/worktree.rs`: In `commit_run_worktree` and `dirty_set`, filtered out `.warsha` entries from git status.
+- **Proving tests**:
+  - `crates/warsha-pipeline/src/lib.rs`: `normal_route_records_responder_and_cost_with_proper_window_order` and `failover_route_updates_session_row_to_responder_and_preserves_cost_window`.
+  - `crates/warsha-backends/src/lib.rs`: `cli_run_changing_nothing_reports_no_warsha_in_files_changed_and_clean_git_status`, `non_writable_workdir_fails_gracefully_with_clear_error`, and `mid_run_log_errors_do_not_abort_run`.
+  - `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx`: Shipped Developers screen path (`DevelopersPage` on live-shaped daemon data) verifying normal route displays responder `test-mock` and cost `5 ¢`, failover route displays responder `mock` (not `mock-503`) and cost `12 ¢`, and both display known costs and tokens without "no telemetry" banners. Includes before/after regression assertions.
+- **Gates**:
+  - `cargo fmt --all -- --check`: clean (exit code 0)
+  - `cargo clippy --all-targets -- -D warnings`: clean (0 warnings, 0 errors, exit code 0)
+  - `cargo test -p warsha-pipeline --lib`: 593 passed; 0 failed; 7 ignored
+  - `cargo test -p warshad --lib`: 322 passed; 0 failed; 4 ignored
+  - `desktop developers vitest`: 3 test files passed (24 tests: metrics 14, f5-proving 2, index 8)
+  - `node scripts/check-engineering-policy.mjs`: policy: 8 checks, 0 failures
+- **Status**: GREEN, VERIFIED, READY TO COMMIT.
+
+
 ## Run 2026-11-23 — R11 fix round COMPLETE (FIXES COMPLETE)
 - **Tip**: `773be87` on `r-next/integration`. Clean tree, no uncommitted diff.
 - **Landed**: postmortem MISS-4 (`eaa6839`), sessions D-R11-SESSIONS-1 (`3c649c7`), devices D-R11-DEVICES-1 (`48483c5`), status D-R11-STATUS-1 (`6620915`), roles D-R11-ROLES-1 (`787d286`), budget D-R11-BUDGET-1 (`dd76b9f`), gates D-R11-GATES-1 (`1a7568f`), devmode D-R11-DEVMODE-1 direct on tip (`25b1043` + `773be87`).
