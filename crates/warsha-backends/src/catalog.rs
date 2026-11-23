@@ -605,12 +605,26 @@ mod tests {
             perms.set_mode(0o755);
             std::fs::set_permissions(&shim, perms).expect("shim executable");
         }
-        let diag = check_cli_health(
-            "blocker",
-            shim.to_str().expect("valid utf8 path"),
-            std::time::Duration::from_millis(200),
-        )
-        .await;
+        let mut last_err = String::new();
+        let mut diag = None;
+        for _ in 0..10 {
+            let d = check_cli_health(
+                "blocker",
+                shim.to_str().expect("valid utf8 path"),
+                std::time::Duration::from_millis(200),
+            )
+            .await;
+            if d.status.contains("Text file busy") || d.status.contains("os error 26") {
+                last_err.clone_from(&d.status);
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                continue;
+            }
+            diag = Some(d);
+            break;
+        }
+        let diag = diag.unwrap_or_else(|| {
+            panic!("cli health still Text file busy after 10 retries, last: {last_err}")
+        });
         assert!(diag.installed, "the blocking shim exists");
         assert!(!diag.ready, "timeout must fail closed");
         assert!(diag.version.is_none());

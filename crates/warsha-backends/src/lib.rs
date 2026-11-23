@@ -760,7 +760,29 @@ fn ensure_git_exclude(work_dir: &std::path::Path) {
                         lines.push("/.warsha".to_string());
                     }
                     let new_content = lines.join("\n") + "\n";
-                    if let Err(e) = std::fs::write(&exclude_path, new_content) {
+                    let parent = exclude_path
+                        .parent()
+                        .unwrap_or_else(|| std::path::Path::new("."));
+                    let tmp_path = parent.join(format!(
+                        ".exclude.tmp.{}.{}",
+                        std::process::id(),
+                        ulid::Ulid::new()
+                    ));
+                    let write_atomic = || -> std::io::Result<()> {
+                        use std::io::Write;
+                        let mut f = std::fs::OpenOptions::new()
+                            .write(true)
+                            .create(true)
+                            .truncate(true)
+                            .open(&tmp_path)?;
+                        f.write_all(new_content.as_bytes())?;
+                        f.sync_all()?;
+                        drop(f);
+                        std::fs::rename(&tmp_path, &exclude_path)?;
+                        Ok(())
+                    };
+                    if let Err(e) = write_atomic() {
+                        let _ = std::fs::remove_file(&tmp_path);
                         eprintln!(
                             "warning: failed to write .warsha exclusion to {}: {e}",
                             exclude_path.display()
@@ -822,20 +844,7 @@ fn open_cli_log(work_dir: &std::path::Path) -> Result<std::fs::File> {
         })
 }
 
-/// Match paths that belong to internal `.warsha` directories or `.warsha` files
-/// at the root of the worktree, without matching valid project files that share
-/// a prefix like `.warsha-config.json` or nested directories like `docs/.warsha/notes.md`.
-pub fn is_warsha_internal_path(path: &str) -> bool {
-    let clean = path.trim().trim_matches('"');
-    for c in std::path::Path::new(clean).components() {
-        match c {
-            std::path::Component::CurDir => continue,
-            std::path::Component::Normal(name) => return name == ".warsha",
-            _ => return false,
-        }
-    }
-    false
-}
+pub use warsha_core::is_warsha_internal_path;
 
 /// Append one already-captured line and flush it. The line text is the child's
 /// own stdout/stderr; secret values are not added here. Mid-run log write errors
@@ -1291,10 +1300,30 @@ mod tests {
             let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
             let sandbox = Sandbox::new(temp.path().to_path_buf());
 
-            let error = backend
-                .execute(task("T", "D"), &sandbox)
-                .await
-                .expect_err("the CLI was killed");
+            let mut last_err = None;
+            let mut error = None;
+            for _ in 0..10 {
+                match backend.execute(task("T", "D"), &sandbox).await {
+                    Ok(_) => panic!("the CLI was killed"),
+                    Err(BackendError::ExecutionFailed(msg))
+                        if msg.contains("Text file busy") || msg.contains("os error 26") =>
+                    {
+                        last_err = Some(msg);
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        continue;
+                    }
+                    Err(e) => {
+                        error = Some(e);
+                        break;
+                    }
+                }
+            }
+            let error = error.unwrap_or_else(|| {
+                panic!(
+                    "the CLI was killed after ETXTBSY retries, last: {}",
+                    last_err.unwrap_or_default()
+                )
+            });
             assert!(
                 matches!(error, BackendError::ExecutionFailed(_)),
                 "{error:?}"
@@ -2217,12 +2246,51 @@ mod tests {
             assert!(is_warsha_internal_path(".warsha"));
             assert!(is_warsha_internal_path(".warsha/cli.log"));
             assert!(is_warsha_internal_path("./.warsha/cli.log"));
+            assert!(is_warsha_internal_path("/.warsha/cli.log"));
             assert!(is_warsha_internal_path("\".warsha/cli.log\""));
             assert!(!is_warsha_internal_path(".warsha-config.json"));
             assert!(!is_warsha_internal_path("docs/.warsha/notes.md"));
             assert!(!is_warsha_internal_path("./docs/.warsha/notes.md"));
             assert!(!is_warsha_internal_path("sub/.warsha"));
             assert!(!is_warsha_internal_path(""));
+        }
+
+        #[test]
+        fn test_ensure_git_exclude_atomic_and_preserves_user_lines() {
+            let temp = tempfile::tempdir().expect("temp dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("base file");
+            git_repo(temp.path());
+
+            let exclude_dir = temp.path().join(".git/info");
+            std::fs::create_dir_all(&exclude_dir).expect("create info dir");
+            let exclude_file = exclude_dir.join("exclude");
+
+            let initial_content = "# User comment\ntarget/\n.warsha\n*.tmp\n";
+            std::fs::write(&exclude_file, initial_content).expect("write exclude");
+
+            ensure_git_exclude(temp.path());
+
+            let content = std::fs::read_to_string(&exclude_file).expect("read exclude");
+            assert!(content.contains("# User comment"), "user comment preserved");
+            assert!(content.contains("target/"), "user target/ preserved");
+            assert!(content.contains("*.tmp"), "user *.tmp preserved");
+            assert!(content.contains("/.warsha/"), "anchored /.warsha/ added");
+            assert!(content.contains("/.warsha"), "anchored /.warsha added");
+
+            // Bare unanchored .warsha must be stripped
+            let lines: Vec<&str> = content.lines().map(str::trim).collect();
+            assert!(
+                !lines.contains(&".warsha"),
+                "bare .warsha should be replaced by anchored variants"
+            );
+
+            // Idempotency: second call makes no spurious changes
+            ensure_git_exclude(temp.path());
+            let content_after = std::fs::read_to_string(&exclude_file).expect("read exclude again");
+            assert_eq!(
+                content, content_after,
+                "ensure_git_exclude must be idempotent"
+            );
         }
     }
 }
