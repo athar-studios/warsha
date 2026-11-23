@@ -170,22 +170,30 @@ pub async fn remove_run_worktree(repo: &Path, worktree: &RunWorktree) -> Result<
         ));
     }
 
-    // Delete the resolved branch; never abort cleanup on failure.
+    // Delete the resolved branch only if it carries the `warsha/run-` prefix;
+    // never force-delete user branches (e.g. main, feature).
     if let Some(branch) = branch {
-        let branch_out = tokio::process::Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(["branch", "-D", &branch])
-            .output()
-            .await;
-        if let Ok(b_out) = branch_out {
-            if !b_out.status.success() {
-                tracing::warn!(
-                    branch = %branch,
-                    error = %String::from_utf8_lossy(&b_out.stderr).trim(),
-                    "best-effort branch deletion after worktree removal failed"
-                );
+        if branch.starts_with("warsha/run-") {
+            let branch_out = tokio::process::Command::new("git")
+                .arg("-C")
+                .arg(repo)
+                .args(["branch", "-D", &branch])
+                .output()
+                .await;
+            if let Ok(b_out) = branch_out {
+                if !b_out.status.success() {
+                    tracing::warn!(
+                        branch = %branch,
+                        error = %String::from_utf8_lossy(&b_out.stderr).trim(),
+                        "best-effort branch deletion after worktree removal failed"
+                    );
+                }
             }
+        } else {
+            tracing::debug!(
+                branch = %branch,
+                "skipping branch deletion: does not match warsha/run- prefix"
+            );
         }
     }
 
@@ -643,6 +651,58 @@ mod e3 {
         assert!(
             String::from_utf8_lossy(&branches.stdout).trim().is_empty(),
             "branch warsha/run-run9 should be deleted by remove_run_worktree"
+        );
+    }
+
+    #[tokio::test]
+    async fn removal_preserves_branches_without_warsha_run_prefix() {
+        let (repo, root) = temp_repo();
+
+        // Create a non-run user branch
+        let branch_status = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["branch", "user-feature", "HEAD"])
+            .status()
+            .await
+            .expect("create user branch");
+        assert!(branch_status.success());
+
+        // Create a worktree attached to user-feature
+        let wt_path = root.path().join("user-feature-wt");
+        let wt_status = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["worktree", "add"])
+            .arg(&wt_path)
+            .arg("user-feature")
+            .status()
+            .await
+            .expect("create worktree");
+        assert!(wt_status.success());
+
+        let worktree = RunWorktree {
+            path: wt_path.clone(),
+            base: "user-feature".to_string(),
+        };
+
+        remove_run_worktree(repo.path(), &worktree)
+            .await
+            .expect("worktree removal succeeds");
+        assert!(!wt_path.exists());
+
+        // Verify that user-feature branch is PRESERVED and not deleted with -D
+        let branches = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["branch", "--list", "user-feature"])
+            .output()
+            .await
+            .expect("git branch --list");
+        let list_str = String::from_utf8_lossy(&branches.stdout);
+        assert!(
+            list_str.contains("user-feature"),
+            "user branch must be preserved by remove_run_worktree: {list_str}"
         );
     }
 
