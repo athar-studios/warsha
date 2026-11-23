@@ -119,18 +119,49 @@ async fn seed_pairings(settings: &SettingsStore) -> Result<InMemoryPairingStore>
     Ok(settings.load_pairings().await?)
 }
 
-/// The device registry for this process: a freshly minted local identity, plus
-/// every paired device the store still has.
-///
-/// The local identity is not a row. It is regenerated on every start, and the
-/// rows are the phones an owner paired — the thing `devices.list` was empty of
-/// after a restart. A revoked row is restored revoked: `add_device` would refuse
-/// it, and dropping it would let a cut-off phone come back as if it had never
-/// been paired.
+/// The device registry for this process: the local daemon identity (persisted across
+/// restarts in the `devices` table), plus every paired device the store still has.
 pub(crate) async fn load_device_registry(store: &Store) -> Result<DeviceRegistry> {
-    let local_identity = warsha_remote::DeviceIdentity::generate("Warsha Daemon".to_string())?;
+    let stored_devices = match store.load_devices().await {
+        Ok(devs) => devs,
+        Err(e) => {
+            warn!(error = %e, "failed to load devices from store; continuing with fresh registry");
+            Vec::new()
+        }
+    };
+
+    let local_stored = stored_devices
+        .iter()
+        .find(|d| d.name == "Warsha Daemon" && !d.revoked);
+
+    let local_identity = match local_stored {
+        Some(stored) => warsha_remote::DeviceIdentity {
+            device_id: stored.id,
+            static_public: stored.public_key,
+            name: stored.name.clone(),
+            created_at: stored.paired_at,
+            revoked: false,
+            revoked_at: None,
+        },
+        None => {
+            let identity = warsha_remote::DeviceIdentity::generate("Warsha Daemon".to_string())?;
+            let stored = warsha_store::StoredDevice {
+                id: identity.device_id,
+                name: identity.name.clone(),
+                public_key: identity.static_public,
+                paired_at: identity.created_at,
+                revoked: false,
+                revoked_at: None,
+            };
+            if let Err(e) = store.save_device(&stored).await {
+                warn!(error = %e, "failed to persist local daemon identity");
+            }
+            identity
+        }
+    };
+
     let registry = DeviceRegistry::new(local_identity);
-    for stored in store.load_devices().await? {
+    for stored in stored_devices {
         registry
             .restore_stored(warsha_remote::DeviceIdentity {
                 device_id: stored.id,

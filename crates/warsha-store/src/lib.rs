@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::broadcast;
-use tracing::info;
+use tracing::{info, warn};
 use ulid::Ulid;
 use uuid::Uuid;
 #[allow(unused_imports)]
@@ -1573,7 +1573,16 @@ impl Store {
         )
         .fetch_all(&self.pool)
         .await?;
-        rows.iter().map(stored_device_from_row).collect()
+        let mut devices = Vec::with_capacity(rows.len());
+        for row in &rows {
+            match stored_device_from_row(row) {
+                Ok(device) => devices.push(device),
+                Err(error) => {
+                    warn!(%error, "skipping undecodable devices row");
+                }
+            }
+        }
+        Ok(devices)
     }
 
     // -------------------------------------------------------------- artifacts
@@ -3033,5 +3042,38 @@ mod tests {
             .expect("sessions list");
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, session_id);
+    }
+
+    #[tokio::test]
+    async fn load_devices_skips_undecodable_row() {
+        let store = temp_store().await;
+        let valid = StoredDevice {
+            id: DeviceId::new(),
+            name: "Valid Phone".to_string(),
+            public_key: [42u8; 32],
+            paired_at: Utc::now(),
+            revoked: false,
+            revoked_at: None,
+        };
+        store.save_device(&valid).await.unwrap();
+
+        // Insert a corrupt row with a 16-byte public key instead of 32 bytes
+        let bad_id = DeviceId::new();
+        sqlx::query(
+            "INSERT INTO devices (id, name, public_key, paired_at, revoked, revoked_at) \
+             VALUES (?, ?, ?, ?, 0, NULL)",
+        )
+        .bind(bad_id.0.as_bytes().as_slice())
+        .bind("Corrupted Phone")
+        .bind(&[1u8; 16][..])
+        .bind(Utc::now().to_rfc3339())
+        .execute(store.pool())
+        .await
+        .unwrap();
+
+        let devices = store.load_devices().await.expect("load_devices succeeds");
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, valid.id);
+        assert_eq!(devices[0].name, "Valid Phone");
     }
 }

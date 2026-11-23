@@ -182,6 +182,9 @@ async fn apply_start_budget(
                 error = %e,
                 "failed to apply start budget to newly created run"
             );
+            return Err(rpc_error(format!(
+                "failed to apply start budget to newly created run: {e}"
+            )));
         }
     }
     Ok(run)
@@ -661,10 +664,22 @@ impl WarshaApiServer for WarshaRpc {
             .and_then(|m| warsha_core::RunMode::from_str(&m).ok())
             .unwrap_or_default();
 
+        let pending_budget = PENDING_PROJECT_BUDGETS
+            .read()
+            .ok()
+            .and_then(|p| p.get(&project_id).copied());
+        let effective_start_budget = budget_cents.or(pending_budget);
+
         let mut run = self
             .state
             .pipeline
-            .start_run_in_mode(project_id, &idea, run_mode, spec_file_path.as_deref())
+            .start_run_in_mode_with_budget(
+                project_id,
+                &idea,
+                run_mode,
+                spec_file_path.as_deref(),
+                effective_start_budget,
+            )
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
 

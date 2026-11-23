@@ -766,6 +766,62 @@ async fn paired_device_survives_rebuilding_daemon_state_from_the_same_data_dir()
 }
 
 #[tokio::test]
+async fn local_daemon_identity_is_stable_across_restarts() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state1, _store) = test_state(temp.path()).await;
+    let initial_device_id = state1.devices.local_identity().device_id;
+    let initial_pubkey = state1.devices.local_identity().static_public;
+    drop(state1);
+
+    // Restart daemon from the exact same data directory
+    let (state2, _store) = test_state(temp.path()).await;
+    let restarted_device_id = state2.devices.local_identity().device_id;
+    let restarted_pubkey = state2.devices.local_identity().static_public;
+
+    assert_eq!(
+        initial_device_id, restarted_device_id,
+        "local daemon identity device_id must be stable across restarts"
+    );
+    assert_eq!(
+        initial_pubkey, restarted_pubkey,
+        "local daemon identity public key must be stable across restarts"
+    );
+}
+
+#[tokio::test]
+async fn daemon_startup_survives_undecodable_device_row() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+    drop(state);
+
+    // Insert corrupt row into devices table (16-byte public_key instead of 32-byte)
+    sqlx::query(
+        "INSERT INTO devices (id, name, public_key, paired_at, revoked, revoked_at) \
+         VALUES (?, ?, ?, ?, 0, NULL)",
+    )
+    .bind(uuid::Uuid::new_v4().as_bytes().as_slice())
+    .bind("Corrupt Phone")
+    .bind(&[9u8; 16][..])
+    .bind(chrono::Utc::now().to_rfc3339())
+    .execute(store.pool())
+    .await
+    .unwrap();
+    drop(store);
+
+    // Daemon restarts without error and lists devices
+    let (restarted, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(restarted);
+    let listed = rpc
+        .list_devices(&owner_ext())
+        .await
+        .expect("daemon startup and devices.list must succeed despite undecodable row");
+    assert!(
+        listed.iter().any(|d| d.name == "Warsha Daemon"),
+        "daemon identity must still be listed"
+    );
+}
+
+#[tokio::test]
 async fn a_gate_decision_refuses_a_device_id_that_is_not_the_session() {
     // Audit H-03, at the seam: the legacy param is accepted, and a value that is
     // not the authenticated device is refused without touching the run.
@@ -4491,6 +4547,117 @@ mod runs_start_budget {
             "set_budget on non-existent project must fail"
         );
     }
+
+    #[tokio::test]
+    async fn apply_start_budget_propagates_failure() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let project = Project {
+            id: ProjectId::new(),
+            name: "Budget Error Project".to_string(),
+            description: "Test".to_string(),
+            language: "en".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            ..Default::default()
+        };
+        store
+            .create_project(&project)
+            .await
+            .expect("project created");
+        let phantom_run = Run {
+            id: RunId::new(),
+            project_id: project.id,
+            current_stage: Stage::Idea,
+            gate_states: HashMap::new(),
+            artifacts: HashMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            status: RunStatus::Running,
+            budget_cents: None,
+            spent_cents: 0,
+            worktree_path: None,
+            worktree_branch: None,
+            confinement: None,
+            run_mode: warsha_core::RunMode::Agent,
+        };
+
+        let result = crate::apply_start_budget(&state, project.id, phantom_run, Some(500)).await;
+        assert!(
+            result.is_err(),
+            "apply_start_budget must propagate set_run_budget failure rather than swallow it"
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_budget_on_runs_start_lifts_project_exhaustion() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, _store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state);
+        let owner = owner_ext();
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Exhausted Budget Project".to_string(),
+                "Testing budget exhaustion lift".to_string(),
+                "en".to_string(),
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("project created");
+
+        // Start first run with budget 0: project budget becomes 0, spent 0 (exhausted)
+        let first = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "Run 1 with zero budget".to_string(),
+                None,
+                None,
+                Some(0),
+            )
+            .await
+            .expect("start_run with budget 0 succeeds");
+        assert_eq!(first.budget_cents, Some(0));
+
+        // Starting a second run with None for budget_cents fails because project budget is exhausted
+        let err = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "Run 2 without budget".to_string(),
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect_err(
+                "second run without explicit budget must be refused due to project exhaustion",
+            );
+        assert!(
+            err.message().contains("spent 0 of 0 cents")
+                || err.message().to_lowercase().contains("exhausted"),
+            "error must cite exhaustion: {:?}",
+            err.message()
+        );
+
+        // Starting a third run with an explicit budget of 11 lifts exhaustion and succeeds
+        let third = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "Run 3 with explicit budget 11".to_string(),
+                None,
+                None,
+                Some(11),
+            )
+            .await
+            .expect("start_run with explicit budget 11 must succeed and lift project exhaustion");
+        assert_eq!(third.budget_cents, Some(11));
+    }
 }
 
 mod runs_followup {
@@ -7736,8 +7903,22 @@ async fn cancel_during_hung_stage_stops_promptly() {
     let advance_outcome = tokio::time::timeout(std::time::Duration::from_secs(2), advance_handle)
         .await
         .expect("advance_run task must resolve promptly on cancellation");
-    // advance_run returns Err because the stage was cancelled
-    assert!(advance_outcome.unwrap().is_err());
+    let advance_res = advance_outcome.expect("advance_run task joined cleanly");
+    // Under prompt cancellation, advance_run resolves either with an error (cancellation
+    // observed mid-flight) or with the cancelled run (if cancel completed the store CAS
+    // update first). In neither case can it return a non-cancelled run or hang.
+    match advance_res {
+        Ok(advanced_run) => {
+            assert_eq!(
+                advanced_run.status,
+                RunStatus::Cancelled,
+                "advance_run resolved with Ok but run was not Cancelled"
+            );
+        }
+        Err(_) => {
+            // Cancelled mid-flight before run status updated
+        }
+    }
 
     // Verify stored state and events
     let final_run = store.get_run(run_id).await.unwrap();
