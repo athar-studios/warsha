@@ -1,6 +1,11 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R13-F9-FLAKE-1: Retry F9 log-open proving test on transient ETXTBSY
+- **Decision**: Wrap the `execute` call in `log_open_failure_does_not_abort_cli_run` (`crates/warsha-backends/src/lib.rs`) with the same up-to-5-attempt 50ms-backoff ETXTBSY retry the N8 test uses. Real non-busy errors still panic immediately; only `Text file busy` / `os error 26` retries.
+- **Reason**: The tip full-suite run failed the F9 proving test with `ExecutionFailed("Text file busy (os error 26)")` — the same kernel write-handle race the N8 hardening already tolerates in `cli_run_changing_nothing`. The retry does not relax the F9 assertion (CLI must still succeed when the log cannot be created); it only tolerates the transient exec race. Verified 5/5 green plus fmt 0 and clippy 0.
+- **Scope**: `crates/warsha-backends/src/lib.rs` test only. Local-only.
+
 ## 2026-11-23 — D-R13-RESIDUAL-1: Round-13 residuals N5 orphan running row, N8 backend ETXTBSY flakiness, N9 paused UI status, and F4 paired pills
 - **Decision**:
   1. N5: In `crates/warshad/src/lib.rs:834`, when `apply_start_budget` fails (e.g. `set_run_budget` fails during persistence), cleanly evict the created run from in-memory maps (`agent_sessions`, `run_worktrees`, `mcp_approvals`, `previews`), cancel any running session loops, and mark the run as `Failed` via `state.pipeline.fail_run(&run.id, Some(err.to_string()))`. In `crates/warsha-pipeline/src/lib.rs`, added `fail_run` helper to cancel signals, mark run failed, emit `RunFinished`, and finish working sessions. In `crates/warsha-store/src/lib.rs`, added `update_run_status` to allow status updates without overwriting `budget_cents`. Added test `runs_start_budget_failure_marks_run_failed_and_leaves_no_running_row` injecting persistence failure via an SQLite trigger on `UPDATE OF budget_cents ON runs` verifying no running row remains in `runs.list` and run is marked failed.
