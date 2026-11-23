@@ -81,6 +81,7 @@
 - **Status**: ALL FIXES COMPLETE — Blocker F1 resolved, 7 LOW residuals resolved, Open Caveat documented.
 - **PM re-verification (lane, 2026-11-23)**: `cargo fmt --check` exit 0; `cargo clippy --workspace --all-targets` exit 0; `warsha-core` 36/0; `warsha-backends --lib` 50/0 single + 30/30 consecutive loop clean; `warsha-pipeline worktree` 12/12; `warshad --lib` 328/0/4; `check-engineering-policy.mjs` 8/0. Reviewer follow-ups applied: porcelain branch lookup moved BEFORE `worktree remove` (lookup-after-removal can never match), helper docs narrowed to repo-relative contract, retry-exhaustion panic reports last error.
 - **Plugins used this round**: Code Reviewer (@ pre-merge — MEDIUM, 3 should-fix applied: porcelain ordering, helper docs, panic clarity) + brooks-review (brooks-lint PR Review — score 98/100, 2 Suggestions T3/R6 deferred, no blockers).
+- **Tip merge**: merged lane into `r-next/integration` as `57adb78` (lane commits `87bf195`/`e6287e0`/`647c19f`/`1f73517`); tip re-verified fmt 0, clippy 0, core 36/0, backends 50/0, worktree 12/0, warshad 328/0/4, policy 8/0, versions 0.3.1, arch 5/0, wire 11/0; lane worktree removed + branch `-D`. Local-only: no push/tag/publish, `main` untouched.
 
 ## Run 2026-11-23 — Round 14 Lane Fixes (F13 blocker, N13-1..N13-4, and count correction, D-R14-*)
 - **Worktree**: `.agents/worktrees/fix-r14-f9stderr` on `r-next/integration` (commit `1536638`). Local-only: no push, no tag, no publish, `main` untouched.
