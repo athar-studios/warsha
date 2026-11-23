@@ -58,6 +58,7 @@ export default {
   'home.interview_enough': 'يكفي',
   'home.needsyou.title': 'بانتظارك',
   'home.needsyou.gate': 'قرار',
+  'home.needsyou.gate_subject': '{project} · {run} · {gate}',
   'home.needsyou.ask': 'طلب موافقة',
   'home.needsyou.since': 'ينتظر منذ {since}',
   'home.needsyou.open': 'افتح',

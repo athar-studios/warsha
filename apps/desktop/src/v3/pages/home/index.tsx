@@ -321,6 +321,7 @@ export interface NeedsYouRow {
   /** The run the row belongs to. */
   runId: string;
   projectId: ProjectId | null;
+  projectName?: string;
   /** RFC 3339 the row started waiting; oldest first is the strip's order. */
   since: string;
   /** Navigate target for the row's Open button. */
@@ -333,7 +334,7 @@ export interface NeedsYouRow {
  * which for a parked run is the gate's arrival); an ask carries its own `requestedAt`.
  */
 export function buildNeedsYou(
-  t: (key: string) => string,
+  t: (key: string, vars?: Record<string, string | number>) => string,
   runs: readonly RunSummary[],
   gatesByRun: Readonly<
     Record<
@@ -359,6 +360,9 @@ export function buildNeedsYou(
   const rows: NeedsYouRow[] = [];
   const projectNames = new Map(projects.map((p) => [p.id, p.name]));
   for (const run of runs) {
+    if (run.status === 'completed' || run.status === 'cancelled') {
+      continue;
+    }
     if (run.status === 'failed') {
       rows.push({
         key: `failed-${run.id}`,
@@ -367,6 +371,7 @@ export function buildNeedsYou(
         subject: projectNames.get(run.projectId) ?? t('home.project_unnamed'),
         runId: run.id,
         projectId: run.projectId,
+        projectName: projectNames.get(run.projectId),
         since: run.updatedAt,
         href: `/p/${run.projectId}/r/${run.id}`,
       });
@@ -374,14 +379,25 @@ export function buildNeedsYou(
     }
     const pending = gatesByRun[run.id] ?? [];
     for (const gate of pending) {
-      if (!gate.pending) continue;
+      if (!gate.pending || gate.stage !== run.stage) continue;
+      const projectName = projectNames.get(run.projectId) ?? t('home.project_unnamed');
+      const gateName = t(`bench.stage.${gate.stage}`);
+      const subjectKey = 'home.needsyou.gate_subject';
+      const translated = t(subjectKey, {
+        project: projectName,
+        run: run.id,
+        gate: gateName,
+      });
+      const subject =
+        translated === subjectKey ? `${projectName} · ${run.id} · ${gateName}` : translated;
       rows.push({
         key: `gate-${run.id}-${gate.stage}`,
         kind: 'gate',
         labelKey: 'home.needsyou.gate',
-        subject: t(`bench.stage.${gate.stage}`),
+        subject,
         runId: run.id,
         projectId: run.projectId,
+        projectName,
         since: gate.runUpdatedAt,
         href: `/p/${run.projectId}/r/${run.id}/${gate.stage}`,
       });
@@ -601,7 +617,7 @@ export default function HomePage(): React.ReactElement {
                   projectId: run.projectId,
                   runUpdatedAt: run.updatedAt,
                   stage: g.stage,
-                  pending: g.state.state === 'pending',
+                  pending: g.state.state === 'pending' && g.stage === run.stage,
                 }));
 
                 for (const row of gateRows[run.id]) {
@@ -834,6 +850,7 @@ export default function HomePage(): React.ReactElement {
             done: t('home.status_done'),
             failed: t('home.status_failed'),
             paused: t('home.status_paused'),
+            cancelled: t('bench.status.cancelled'),
           };
           const latestRun = runs?.[0];
           return (
@@ -961,7 +978,14 @@ export default function HomePage(): React.ReactElement {
           <div role="region" aria-label={t('home.needsyou.title')} data-testid="home-needsyou">
             <ul className="v3-home-needsyou" aria-label={t('home.needsyou.title')}>
               {needsYou.map((row) => (
-                <li key={row.key} className="v3-home-needsyou-row">
+                <li
+                  key={row.key}
+                  className="v3-home-needsyou-row"
+                  data-testid={`home-needsyou-row-${row.key}`}
+                  data-kind={row.kind}
+                  data-run-id={row.runId}
+                  data-project-id={row.projectId ?? undefined}
+                >
                   <span className="v3-home-needsyou-label">{t(row.labelKey)}</span>
                   <span className="v3-home-needsyou-subject">{row.subject}</span>
                   <span className="v3-home-needsyou-wait">

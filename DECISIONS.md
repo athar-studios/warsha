@@ -1,6 +1,26 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R12-GATES-1: Shipped Home screen gate cards show only current pending gate with project/run identity
+
+- **Decision**:
+  - In `apps/desktop/src/v3/pages/home/index.tsx`:
+    - `buildNeedsYou` skips `completed` and `cancelled` runs completely so cancelled runs emit 0 gate cards.
+    - Gate rows are filtered strictly to `gate.stage === run.stage && gate.pending`, ensuring that future gate stages (and runs parked at non-gate stages such as `idea`) never emit premature gate cards.
+    - The gate card subject is formatted with project name, run ID, and localized gate stage: `home.needsyou.gate_subject` (`{project} · {run} · {gate}`) in `packages/i18n/src/v3/{en,ar}/home.ts`, with fallback to `{project} · {run} · {gate}`.
+    - Gate card DOM element carries `data-kind="gate"`, `data-run-id={run.id}`, `data-project-id={run.projectId}`, and `data-testid="home-needsyou-row-gate-{run.id}-{stage}"`.
+    - `loadRunsAndGates` sets `pending: g.state.state === 'pending' && g.stage === run.stage` so `oldestWaitingGateAt` only considers gates waiting at the current stage.
+  - Fixes F2 (gate card clutter/identity missing/cancelled runs showing cards) and F13 (proving tests testing dead helper rather than mounting shipped screen).
+  - Preserves daemon wire contract for `gates.list` which continues to answer all 4 gate stages defaulted to pending.
+- **Reason**: Owner verification findings F2 and F13 from round 11 report `/home/moe/Downloads/Warsha/claude-code-verify-round11-2026-11-23.md`. In round 11, the `gate_card_face` helper in `crates/warsha-pipeline/src/gate_integrity.rs` had no UI callers. The shipped Home screen in `apps/desktop/src/v3/pages/home/index.tsx` was generating 4 cards for every run (even at `idea` or when cancelled), with no project or run name in the subject.
+- **Proving test**:
+  - Proving test suite in `apps/desktop/src/v3/pages/home/Home.test.tsx` mounts the shipped Home screen with the real client (`createClient` from `@warsha/client` with JSON-RPC wire transport):
+    - Proves a parked run at `gate_a` with a daemon returning all 4 gates pending emits exactly 1 gate card for `gate_a` (not 4), carrying project name, run ID, and gate name (`Warsha Store · run-parked-1 · Gate A` / `متجر ورشة · run-parked-1 · بوابة أ`), with DOM identity attributes and working navigation.
+    - Proves a run at `idea` with all 4 gates pending emits ZERO gate cards.
+    - Proves a cancelled run emits ZERO gate cards.
+    - Direct unit test for `buildNeedsYou` logic confirms stage filtering and cancellation exclusion.
+- **Scope**: `apps/desktop/src/v3/pages/home/index.tsx`, `packages/i18n/src/v3/en/home.ts`, `packages/i18n/src/v3/ar/home.ts`, `apps/desktop/src/v3/pages/home/Home.test.tsx`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-23 — D-R11-DEVMODE-1: useRunEvents clears a stale error on the next good poll
 - **Decision**: `useRunEvents` calls `setError(null)` on the success path after `subscribeRun` resolves, so a later good poll clears a previous decode or stream error. Decoder coverage is unchanged: tip `1a7568f` already staffs `secretary` in `ROLE_VALUES`/`ALL_ROLES` (13 rows, D-R11-ROLES-1); a regression test guards that `parseWarshaEvent` accepts `role: 'secretary'` and still throws `Malformed event frame: unknown "role"` for anything else.
 - **Reason**: Owner UI finding #4. A legitimate secretary event must not stay an error on screen, and a stale error must not outlive the next good poll.

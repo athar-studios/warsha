@@ -10,6 +10,7 @@ import type {
   RunSummary,
   WarshaClient,
 } from '@warsha/client';
+import { createClient } from '@warsha/client';
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,6 +23,7 @@ import { clearToastListeners } from '../../app/toast';
 import { RouterProvider, useRoute } from '../../router';
 
 import HomePage, {
+  buildNeedsYou,
   computeMiniSegments,
   computeProjectStatus,
   deriveProjectName,
@@ -45,14 +47,12 @@ const SAMPLE_PROJECTS: ProjectSummary[] = [
     name: 'متجر ورشة',
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
-
   },
   {
     id: 'proj-2' as ProjectId,
     name: 'Warsha Store',
     createdAt: '2026-10-03T08:00:00.000Z',
     updatedAt: '2026-10-04T09:00:00.000Z',
-
   },
 ];
 
@@ -61,10 +61,10 @@ const SAMPLE_RUNS_P1: RunSummary[] = [
     id: 'run-1' as RunId,
     projectId: 'proj-1' as ProjectId,
     stage: 'code',
-    status: 'running', runMode: 'agent',
+    status: 'running',
+    runMode: 'agent',
     startedAt: '2026-10-02T08:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
-
   },
 ];
 
@@ -115,21 +115,22 @@ function makeMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     name: 'New Project',
     createdAt: '2026-10-05T08:00:00.000Z',
     updatedAt: '2026-10-05T08:00:00.000Z',
-
   };
   const startedRun: RunSummary = {
     id: 'run-created' as RunId,
     projectId: 'proj-created' as ProjectId,
     stage: 'idea',
-    status: 'running', runMode: 'agent',
+    status: 'running',
+    runMode: 'agent',
     startedAt: '2026-10-05T08:00:00.000Z',
     updatedAt: '2026-10-05T08:00:00.000Z',
-
   };
 
   return {
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
-    listProviders: vi.fn().mockResolvedValue([{ name: 'open_router', kind: 'open_router', enabled: true }]),
+    listProviders: vi
+      .fn()
+      .mockResolvedValue([{ name: 'open_router', kind: 'open_router', enabled: true }]),
     listProjects: vi.fn().mockResolvedValue(SAMPLE_PROJECTS),
     listRuns: vi.fn().mockImplementation(async (projectId: string) => {
       if (projectId === 'proj-1') return SAMPLE_RUNS_P1;
@@ -256,22 +257,24 @@ describe('HomePage', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('calls projects.create -> runs.start -> budget.set IN THAT EXACT ORDER on home.start', async () => {
     const callOrder: string[] = [];
     const client = makeMockClient({
-      createProject: vi.fn().mockImplementation(async (name: string, desc: string, lang: string) => {
-        callOrder.push(`projects.create:${name}:${lang}`);
-        expect(desc).toContain('متجر كتب');
-        return {
-          id: 'proj-seq' as ProjectId,
-          name,
-          createdAt: '2026-10-05T08:00:00.000Z',
-          updatedAt: '2026-10-05T08:00:00.000Z',
-
-        };
-      }),
+      createProject: vi
+        .fn()
+        .mockImplementation(async (name: string, desc: string, lang: string) => {
+          callOrder.push(`projects.create:${name}:${lang}`);
+          expect(desc).toContain('متجر كتب');
+          return {
+            id: 'proj-seq' as ProjectId,
+            name,
+            createdAt: '2026-10-05T08:00:00.000Z',
+            updatedAt: '2026-10-05T08:00:00.000Z',
+          };
+        }),
       setProjectBudget: vi.fn().mockImplementation(async (projectId: string, cents: number) => {
         callOrder.push(`budget.set:${projectId}:${cents}`);
       }),
@@ -281,10 +284,10 @@ describe('HomePage', () => {
           id: 'run-seq' as RunId,
           projectId: projectId as ProjectId,
           stage: 'idea',
-          status: 'running', runMode: 'agent',
+          status: 'running',
+          runMode: 'agent',
           startedAt: '2026-10-05T08:00:00.000Z',
           updatedAt: '2026-10-05T08:00:00.000Z',
-
         };
       }),
     });
@@ -365,7 +368,13 @@ describe('HomePage', () => {
     });
 
     // Proves N2 fix: runs.start was reached and executed on the brand new project without error
-    expect(startRunMock).toHaveBeenCalledWith('proj-first', expect.stringContaining('فكرة مشروع جديد'));
+    expect(startRunMock).toHaveBeenCalledWith(
+      'proj-first',
+      expect.stringContaining('فكرة مشروع جديد'),
+      undefined,
+      undefined,
+      2500
+    );
     // Proves N3 fix: project list was reloaded after createProject
     expect(listCount).toBeGreaterThan(1);
   });
@@ -399,7 +408,10 @@ describe('HomePage', () => {
     });
 
     expect(client.createProject).toHaveBeenCalled();
-    expect(client.interviewStart).toHaveBeenCalledWith('proj-interview', expect.stringContaining('فكرة تحتاج'));
+    expect(client.interviewStart).toHaveBeenCalledWith(
+      'proj-interview',
+      expect.stringContaining('فكرة تحتاج')
+    );
     expect(listCount).toBeGreaterThan(1);
   });
 
@@ -461,7 +473,9 @@ describe('HomePage', () => {
     const budgetInput = screen.getByTestId('budget-custom-input') as HTMLInputElement;
     fireEvent.change(budgetInput, { target: { value: '50' } });
 
-    const saveBtn = document.querySelector('[data-action="home.defaults.budget.save"]') as HTMLElement;
+    const saveBtn = document.querySelector(
+      '[data-action="home.defaults.budget.save"]'
+    ) as HTMLElement;
     await act(async () => {
       fireEvent.click(saveBtn);
       await Promise.resolve();
@@ -475,7 +489,9 @@ describe('HomePage', () => {
     expect(client.recordPreference).not.toHaveBeenCalled();
     window.localStorage.removeItem('warsha.default_budget_usd');
 
-    const modelsBtn = document.querySelector('[data-action="home.defaults.models.open"]') as HTMLElement;
+    const modelsBtn = document.querySelector(
+      '[data-action="home.defaults.models.open"]'
+    ) as HTMLElement;
     fireEvent.click(modelsBtn);
     expect(screen.getByTestId('route-inspector').textContent).toBe('/settings/models');
   });
@@ -501,7 +517,6 @@ describe('HomePage', () => {
       name: `Project ${idx + 1}`,
       createdAt: '2026-10-01T00:00:00Z',
       updatedAt: '2026-10-01T00:00:00Z',
-
     }));
     const client = makeMockClient({
       listProjects: vi.fn().mockResolvedValue(manyProjects),
@@ -621,5 +636,363 @@ describe('HomePage', () => {
     const chips = screen.getAllByTestId('runmode-chip');
     expect(chips.length).toBe(1);
     expect(chips[0].getAttribute('data-runmode')).toBe('plan');
+  });
+});
+
+describe('Round 12 F2 + F13: Home screen gate cards with real client', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function installRealDaemonFetch(options: {
+    projects?: unknown[];
+    runsByProject?: Record<string, unknown[]>;
+    gatesByRun?: Record<string, unknown[]>;
+    approvals?: unknown[];
+  }) {
+    const {
+      projects = [
+        {
+          id: 'proj-1',
+          name: 'متجر ورشة',
+          created_at: '2026-10-01T08:00:00.000Z',
+          updated_at: '2026-10-02T09:00:00.000Z',
+        },
+      ],
+      runsByProject = {},
+      gatesByRun = {},
+      approvals = [],
+    } = options;
+
+    const recordedCalls: { method: string; params: unknown }[] = [];
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const body = JSON.parse(init?.body ?? '{}') as {
+          id: number;
+          method: string;
+          params?: unknown;
+        };
+        recordedCalls.push({ method: body.method, params: body.params });
+
+        let result: unknown = null;
+        if (body.method === 'projects.list') {
+          result = projects;
+        } else if (body.method === 'runs.list') {
+          const p = body.params as { project_id?: string; projectId?: string } | undefined;
+          const pid = p?.project_id ?? p?.projectId ?? '';
+          result = runsByProject[pid] ?? [];
+        } else if (body.method === 'gates.list') {
+          const p = body.params as { run_id?: string; runId?: string } | undefined;
+          const rid = p?.run_id ?? p?.runId ?? '';
+          // Real daemon wire response: always serves all 4 gates defaulted to pending
+          result = gatesByRun[rid] ?? [
+            { stage: 'gate_a', state: { state: 'pending' } },
+            { stage: 'gate_b', state: { state: 'pending' } },
+            { stage: 'gate_c', state: { state: 'pending' } },
+            { stage: 'gate_d', state: { state: 'pending' } },
+          ];
+        } else if (body.method === 'mcp.approvals.list') {
+          result = approvals;
+        } else if (body.method === 'providers.list') {
+          result = [{ name: 'mock', kind: 'mock', enabled: true }];
+        } else if (
+          body.method === 'models.list' ||
+          body.method === 'roles.list' ||
+          body.method === 'preferences.list'
+        ) {
+          result = [];
+        } else if (body.method === 'health') {
+          result = { status: 'ok', version: '0.3.1' };
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            jsonrpc: '2.0',
+            id: body.id,
+            result,
+          }),
+        };
+      })
+    );
+
+    return recordedCalls;
+  }
+
+  it('mounts shipped Home screen with real client and renders only current pending gate with project/run identity', async () => {
+    installRealDaemonFetch({
+      projects: [
+        {
+          id: 'proj-1',
+          name: 'Warsha Store',
+          created_at: '2026-10-01T08:00:00.000Z',
+          updated_at: '2026-10-02T09:00:00.000Z',
+        },
+      ],
+      runsByProject: {
+        'proj-1': [
+          {
+            id: 'run-parked-1',
+            project_id: 'proj-1',
+            current_stage: 'gate_a',
+            status: 'awaiting_gate',
+            started_at: '2026-10-04T08:00:00.000Z',
+            updated_at: '2026-10-04T09:00:00.000Z',
+            run_mode: 'agent',
+          },
+        ],
+      },
+    });
+
+    const realClient = createClient('http://127.0.0.1:8766', 'test-token');
+    await renderHome({ client: realClient, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-needsyou')).toBeInTheDocument();
+    });
+
+    // Proves only 1 gate card is rendered, NOT 4 cards
+    const gateCards = document.querySelectorAll('.v3-home-needsyou-row[data-kind="gate"]');
+    expect(gateCards).toHaveLength(1);
+
+    const gateA = document.querySelector(
+      '[data-testid="home-needsyou-row-gate-run-parked-1-gate_a"]'
+    );
+    expect(gateA).not.toBeNull();
+    expect(gateA?.getAttribute('data-run-id')).toBe('run-parked-1');
+    expect(gateA?.getAttribute('data-project-id')).toBe('proj-1');
+
+    // Proves the card carries project, run, and gate identity
+    const subject = gateA?.querySelector('.v3-home-needsyou-subject');
+    expect(subject?.textContent).toBe('Warsha Store · run-parked-1 · Gate A');
+
+    // Future gate stages are not shown
+    expect(
+      document.querySelector('[data-testid="home-needsyou-row-gate-run-parked-1-gate_b"]')
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid="home-needsyou-row-gate-run-parked-1-gate_c"]')
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-testid="home-needsyou-row-gate-run-parked-1-gate_d"]')
+    ).toBeNull();
+
+    // Open link navigates to the specific gate decision route
+    const openLink = screen.getByTestId('home-needsyou-open-gate-run-parked-1-gate_a');
+    expect(openLink).not.toBeNull();
+    fireEvent.click(openLink);
+    expect(screen.getByTestId('route-inspector').textContent).toBe(
+      '/p/proj-1/r/run-parked-1/gate_a'
+    );
+  });
+
+  it('mounts shipped Home screen with real client and renders Arabic gate identity', async () => {
+    installRealDaemonFetch({
+      projects: [
+        {
+          id: 'proj-1',
+          name: 'متجر ورشة',
+          created_at: '2026-10-01T08:00:00.000Z',
+          updated_at: '2026-10-02T09:00:00.000Z',
+        },
+      ],
+      runsByProject: {
+        'proj-1': [
+          {
+            id: 'run-parked-1',
+            project_id: 'proj-1',
+            current_stage: 'gate_a',
+            status: 'awaiting_gate',
+            started_at: '2026-10-04T08:00:00.000Z',
+            updated_at: '2026-10-04T09:00:00.000Z',
+            run_mode: 'agent',
+          },
+        ],
+      },
+    });
+
+    const realClient = createClient('http://127.0.0.1:8766', 'test-token');
+    await renderHome({ client: realClient, locale: 'ar' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-needsyou')).toBeInTheDocument();
+    });
+
+    const gateA = document.querySelector(
+      '[data-testid="home-needsyou-row-gate-run-parked-1-gate_a"]'
+    );
+    expect(gateA).not.toBeNull();
+    const subject = gateA?.querySelector('.v3-home-needsyou-subject');
+    expect(subject?.textContent).toBe('متجر ورشة · run-parked-1 · بوابة أ');
+  });
+
+  it('mounts shipped Home screen with real client and renders ZERO gate cards for run at stage idea', async () => {
+    installRealDaemonFetch({
+      runsByProject: {
+        'proj-1': [
+          {
+            id: 'run-idea-1',
+            project_id: 'proj-1',
+            current_stage: 'idea',
+            status: 'running',
+            started_at: '2026-10-04T08:00:00.000Z',
+            updated_at: '2026-10-04T09:00:00.000Z',
+            run_mode: 'agent',
+          },
+        ],
+      },
+    });
+
+    const realClient = createClient('http://127.0.0.1:8766', 'test-token');
+    await renderHome({ client: realClient, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-projects-grid')).toBeInTheDocument();
+    });
+
+    // Zero gate cards should be rendered
+    const gateCards = document.querySelectorAll('.v3-home-needsyou-row[data-kind="gate"]');
+    expect(gateCards).toHaveLength(0);
+    expect(document.querySelector('[data-testid="home-needsyou"]')).toBeNull();
+  });
+
+  it('mounts shipped Home screen with real client and renders ZERO gate cards for cancelled run', async () => {
+    installRealDaemonFetch({
+      runsByProject: {
+        'proj-1': [
+          {
+            id: 'run-cancelled-1',
+            project_id: 'proj-1',
+            current_stage: 'gate_a',
+            status: 'cancelled',
+            started_at: '2026-10-04T08:00:00.000Z',
+            updated_at: '2026-10-04T09:00:00.000Z',
+            run_mode: 'agent',
+          },
+        ],
+      },
+    });
+
+    const realClient = createClient('http://127.0.0.1:8766', 'test-token');
+    await renderHome({ client: realClient, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-projects-grid')).toBeInTheDocument();
+    });
+
+    const gateCards = document.querySelectorAll('.v3-home-needsyou-row[data-kind="gate"]');
+    expect(gateCards).toHaveLength(0);
+    expect(document.querySelector('[data-testid="home-needsyou"]')).toBeNull();
+  });
+});
+
+describe('buildNeedsYou unit logic', () => {
+  it('omits completed and cancelled runs even if gates are pending', () => {
+    const t = (k: string) => k;
+    const runs: RunSummary[] = [
+      {
+        id: 'run-done' as RunId,
+        projectId: 'proj-1' as ProjectId,
+        stage: 'gate_a',
+        status: 'completed',
+        runMode: 'agent',
+        startedAt: '2026-10-01T00:00:00Z',
+        updatedAt: '2026-10-01T01:00:00Z',
+      },
+      {
+        id: 'run-cancel' as RunId,
+        projectId: 'proj-1' as ProjectId,
+        stage: 'gate_a',
+        status: 'cancelled',
+        runMode: 'agent',
+        startedAt: '2026-10-01T00:00:00Z',
+        updatedAt: '2026-10-01T01:00:00Z',
+      },
+    ];
+    const gatesByRun = {
+      'run-done': [
+        {
+          runId: 'run-done',
+          projectId: 'proj-1' as ProjectId,
+          runUpdatedAt: '2026-10-01T01:00:00Z',
+          stage: 'gate_a',
+          pending: true,
+        },
+      ],
+      'run-cancel': [
+        {
+          runId: 'run-cancel',
+          projectId: 'proj-1' as ProjectId,
+          runUpdatedAt: '2026-10-01T01:00:00Z',
+          stage: 'gate_a',
+          pending: true,
+        },
+      ],
+    };
+    const rows = buildNeedsYou(t, runs, gatesByRun, []);
+    expect(rows).toEqual([]);
+  });
+
+  it('filters out pending gates that belong to different stages than run.stage', () => {
+    const t = (k: string) => k;
+    const runs: RunSummary[] = [
+      {
+        id: 'run-1' as RunId,
+        projectId: 'proj-1' as ProjectId,
+        stage: 'gate_a',
+        status: 'awaiting_gate',
+        runMode: 'agent',
+        startedAt: '2026-10-01T00:00:00Z',
+        updatedAt: '2026-10-01T01:00:00Z',
+      },
+    ];
+    const gatesByRun = {
+      'run-1': [
+        {
+          runId: 'run-1',
+          projectId: 'proj-1' as ProjectId,
+          runUpdatedAt: '2026-10-01T01:00:00Z',
+          stage: 'gate_a',
+          pending: true,
+        },
+        {
+          runId: 'run-1',
+          projectId: 'proj-1' as ProjectId,
+          runUpdatedAt: '2026-10-01T01:00:00Z',
+          stage: 'gate_b',
+          pending: true,
+        },
+        {
+          runId: 'run-1',
+          projectId: 'proj-1' as ProjectId,
+          runUpdatedAt: '2026-10-01T01:00:00Z',
+          stage: 'gate_c',
+          pending: true,
+        },
+        {
+          runId: 'run-1',
+          projectId: 'proj-1' as ProjectId,
+          runUpdatedAt: '2026-10-01T01:00:00Z',
+          stage: 'gate_d',
+          pending: true,
+        },
+      ],
+    };
+    const projects: ProjectSummary[] = [
+      {
+        id: 'proj-1' as ProjectId,
+        name: 'Alpha Project',
+        createdAt: '2026-10-01T00:00:00Z',
+        updatedAt: '2026-10-01T00:00:00Z',
+      },
+    ];
+    const rows = buildNeedsYou(t, runs, gatesByRun, [], projects);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].key).toBe('gate-run-1-gate_a');
+    expect(rows[0].subject).toBe('Alpha Project · run-1 · bench.stage.gate_a');
   });
 });
