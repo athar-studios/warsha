@@ -24,7 +24,7 @@ export interface SessionMetrics {
   elapsedMs: number;
 }
 
-function withinWindow(event: WarshaEvent, session: Session): boolean {
+export function withinWindow(event: WarshaEvent, session: Session): boolean {
   if (event.role !== session.role) return false;
   const at = Date.parse(event.createdAt);
   const start = Date.parse(session.startedAt);

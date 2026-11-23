@@ -22,6 +22,7 @@ import {
   decodeRunFinished,
   decodeRoutine,
   decodeRunSummary,
+  decodeSession,
   encodeBackendKit,
   parseWarshaEvent,
   pairingDataFromQrPayload,
@@ -1158,6 +1159,46 @@ describe('parseWarshaEvent', () => {
       })
     );
     expect(qaEvent.role).toBe('qa');
+  });
+
+  it('decodes wire-serialized p_m and q_a roles to canonical pm and qa in decodeSession (D-R13-SESSION-ROLE-1)', () => {
+    const pmSession = decodeSession({
+      id: 's-pm',
+      run_id: 'run-pm',
+      project_id: 'p-1',
+      role: 'p_m',
+      stage: 'prd_spec',
+      status: 'completed',
+      started_at: '2026-10-28T00:00:00Z',
+      ended_at: '2026-10-28T00:00:30Z',
+      parent_session_id: null,
+      active_child_session_id: null,
+      provider: 'anthropic',
+      model: 'claude-3-5-sonnet',
+      failover_count: 0,
+      total_tokens: 150,
+      cost_cents: 5,
+    });
+    expect(pmSession.role).toBe('pm');
+
+    const qaSession = decodeSession({
+      id: 's-qa',
+      run_id: 'run-qa',
+      project_id: 'p-1',
+      role: 'q_a',
+      stage: 'review_qa_security',
+      status: 'completed',
+      started_at: '2026-10-28T00:01:00Z',
+      ended_at: '2026-10-28T00:01:30Z',
+      parent_session_id: null,
+      active_child_session_id: null,
+      provider: 'openai',
+      model: 'gpt-4o',
+      failover_count: 0,
+      total_tokens: 280,
+      cost_cents: 8,
+    });
+    expect(qaSession.role).toBe('qa');
   });
 
   it('rejects a non-object frame', () => {

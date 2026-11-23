@@ -8,7 +8,16 @@
 //    - After: endedAt >= event.createdAt keeps telemetry inside window and actual responder 'mock' is shown.
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ProjectId, ProjectSummary, RunSummary, Session, WarshaClient, WarshaEvent } from '@warsha/client';
+import {
+  decodeSession,
+  decodeWarshaEvent,
+  type ProjectId,
+  type ProjectSummary,
+  type RunSummary,
+  type Session,
+  type WarshaClient,
+  type WarshaEvent,
+} from '@warsha/client';
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -181,6 +190,102 @@ describe('F5 Shipped Developers Screen Proving Test', () => {
       expect(within(detail).getByTestId('developers-detail-cost')).toHaveTextContent('12 ¢');
     });
     expect(within(detail).getByTestId('developers-detail-tokens')).toHaveTextContent('300 (200+100)');
+    expect(screen.queryByTestId('developers-detail-no-telemetry')).toBeNull();
+  });
+
+  it('renders decoded real wire PM and QA sessions with known costs and tokens (D-R13-SESSION-ROLE-1)', async () => {
+    const RAW_PM_SESSION_WIRE = {
+      id: 's-pm-live',
+      run_id: 'run-f5',
+      project_id: 'p-f5',
+      role: 'p_m',
+      stage: 'prd_spec',
+      status: 'completed',
+      started_at: '2026-11-23T10:00:00.000Z',
+      ended_at: '2026-11-23T10:00:10.000Z',
+      parent_session_id: null,
+      active_child_session_id: null,
+      provider: 'anthropic',
+      model: 'claude-3-5-sonnet',
+      failover_count: 0,
+      total_tokens: 150,
+      cost_cents: 5,
+    };
+
+    const RAW_PM_EVENT_WIRE = {
+      id: 'e-pm-live',
+      run_id: 'run-f5',
+      stage: 'prd_spec',
+      role: 'p_m',
+      kind: 'agent_step',
+      payload: { action: 'write_spec' },
+      cost_cents: 5,
+      tokens: { input: 100, output: 50, total: 150, cost_cents: 5 },
+      created_at: '2026-11-23T10:00:05.000Z',
+      device_id: null,
+    };
+
+    const RAW_QA_SESSION_WIRE = {
+      id: 's-qa-live',
+      run_id: 'run-f5',
+      project_id: 'p-f5',
+      role: 'q_a',
+      stage: 'review_qa_security',
+      status: 'completed',
+      started_at: '2026-11-23T10:00:20.000Z',
+      ended_at: '2026-11-23T10:00:30.000Z',
+      parent_session_id: null,
+      active_child_session_id: null,
+      provider: 'openai',
+      model: 'gpt-4o',
+      failover_count: 0,
+      total_tokens: 280,
+      cost_cents: 8,
+    };
+
+    const RAW_QA_EVENT_WIRE = {
+      id: 'e-qa-live',
+      run_id: 'run-f5',
+      stage: 'review_qa_security',
+      role: 'q_a',
+      kind: 'agent_step',
+      payload: { action: 'verify_tests' },
+      cost_cents: 8,
+      tokens: { input: 200, output: 80, total: 280, cost_cents: 8 },
+      created_at: '2026-11-23T10:00:25.000Z',
+      device_id: null,
+    };
+
+    const pmSession = decodeSession(RAW_PM_SESSION_WIRE);
+    const pmEvent = decodeWarshaEvent(RAW_PM_EVENT_WIRE);
+    const qaSession = decodeSession(RAW_QA_SESSION_WIRE);
+    const qaEvent = decodeWarshaEvent(RAW_QA_EVENT_WIRE);
+
+    const client = createProvingClient([pmSession, qaSession], [pmEvent, qaEvent]);
+    renderDevelopersScreen(client);
+
+    await waitFor(() => expect(screen.getAllByTestId('developers-row')).toHaveLength(2));
+    const [pmRow, qaRow] = screen.getAllByTestId('developers-row');
+
+    // Cost column must NOT be 'unknown' / t('developers.unknown'), must be known '5 ¢' and '8 ¢'
+    expect(within(pmRow).getByTestId('developers-cell-cost')).toHaveTextContent('5 ¢');
+    expect(within(pmRow).getByTestId('developers-cell-cost')).not.toHaveTextContent('unknown');
+    expect(within(qaRow).getByTestId('developers-cell-cost')).toHaveTextContent('8 ¢');
+    expect(within(qaRow).getByTestId('developers-cell-cost')).not.toHaveTextContent('unknown');
+
+    // Inspect PM session detail: known cost & tokens, no "no telemetry" state
+    fireEvent.click(pmRow);
+    const detail = await screen.findByTestId('developers-detail');
+    expect(within(detail).getByTestId('developers-detail-cost')).toHaveTextContent('5 ¢');
+    expect(within(detail).getByTestId('developers-detail-tokens')).toHaveTextContent('150 (100+50)');
+    expect(screen.queryByTestId('developers-detail-no-telemetry')).toBeNull();
+
+    // Inspect QA session detail: known cost & tokens, no "no telemetry" state
+    fireEvent.click(qaRow);
+    await waitFor(() => {
+      expect(within(detail).getByTestId('developers-detail-cost')).toHaveTextContent('8 ¢');
+    });
+    expect(within(detail).getByTestId('developers-detail-tokens')).toHaveTextContent('280 (200+80)');
     expect(screen.queryByTestId('developers-detail-no-telemetry')).toBeNull();
   });
 
