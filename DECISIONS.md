@@ -1,6 +1,11 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R12-DENY-1: bump url to clear RUSTSEC-2026-0592
+- **Decision**: `cargo update -p url` (2.5.8→2.5.9, plus form_urlencoded 1.2.2→1.2.3). `cargo deny check advisories` returns to the owner-accepted state: only the chrono RUSTSEC-2026-0543 unmaintained item remains. No Warsha code calls `Url::origin()`.
+- **Proving check**: `cargo deny check advisories` shows no `url`/`RUSTSEC-2026-0592` finding.
+- **Scope**: `Cargo.lock` only. Local-only; no main/push/tag/publish.
+
 ## 2026-11-23 — D-R11-DEVMODE-1: useRunEvents clears a stale error on the next good poll
 - **Decision**: `useRunEvents` calls `setError(null)` on the success path after `subscribeRun` resolves, so a later good poll clears a previous decode or stream error. Decoder coverage is unchanged: tip `1a7568f` already staffs `secretary` in `ROLE_VALUES`/`ALL_ROLES` (13 rows, D-R11-ROLES-1); a regression test guards that `parseWarshaEvent` accepts `role: 'secretary'` and still throws `Malformed event frame: unknown "role"` for anything else.
 - **Reason**: Owner UI finding #4. A legitimate secretary event must not stay an error on screen, and a stale error must not outlive the next good poll.
