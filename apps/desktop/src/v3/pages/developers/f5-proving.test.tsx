@@ -8,7 +8,7 @@
 //    - After: endedAt >= event.createdAt keeps telemetry inside window and actual responder 'mock' is shown.
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ProjectSummary, RunSummary, Session, WarshaClient, WarshaEvent } from '@warsha/client';
+import type { ProjectId, ProjectSummary, RunSummary, Session, WarshaClient, WarshaEvent } from '@warsha/client';
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -21,7 +21,7 @@ import DevelopersPage from './index';
 import { sessionMetrics } from './metrics';
 
 const PROJECT: ProjectSummary = {
-  id: 'p-f5',
+  id: 'p-f5' as ProjectId,
   name: 'F5 Proving Project',
   createdAt: '2026-11-23T10:00:00.000Z',
   updatedAt: '2026-11-23T10:00:00.000Z',

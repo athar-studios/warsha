@@ -10,6 +10,7 @@ import type {
   LivePreview,
   ProjectId,
   ProjectSummary,
+  Role,
   RoleRouting,
   RunArtifact,
   RunId,

@@ -854,7 +854,6 @@ export default function HomePage(): React.ReactElement {
             failed: t('home.status_failed'),
             cancelled: t('home.status_cancelled'),
             paused: t('home.status_paused'),
-            cancelled: t('bench.status.cancelled'),
           };
           const latestRun = runs?.[0];
           return (
