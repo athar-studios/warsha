@@ -1,5 +1,12 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round-12 F2 + F13 shipped-screen gate cards fix (D-R12-GATES-1)
+
+- **Scope**: Owner verification findings F2 (gate card clutter/identity missing/cancelled runs showing cards) + F13 (proving tests must test shipped screens) from round 11 report. Shipped Home screen `apps/desktop/src/v3/pages/home/index.tsx`. Local-only: no push, no tag, no publish, main untouched.
+- **Changes**: `buildNeedsYou` skips `completed`/`cancelled` runs; gate rows filtered to `gate.stage === run.stage && gate.pending`; gate subject carries project name + run ID + gate name via `home.needsyou.gate_subject` (en/ar); DOM identity `data-kind="gate"` + `data-run-id` + `data-project-id` + `data-testid="home-needsyou-row-gate-{runId}-{stage}"`.
+- **Proving test**: `Home.test.tsx` mounts the shipped Home screen with the real client — gate_a run emits exactly 1 card (not 4), idea run emits 0, cancelled run emits 0, plus ar-locale and navigation assertions.
+- **Status**: fix applied; proving vitest runs in this same change.
+
 ## Run 2026-11-23 — R11 fix round COMPLETE (FIXES COMPLETE)
 - **Tip**: `773be87` on `r-next/integration`. Clean tree, no uncommitted diff.
 - **Landed**: postmortem MISS-4 (`eaa6839`), sessions D-R11-SESSIONS-1 (`3c649c7`), devices D-R11-DEVICES-1 (`48483c5`), status D-R11-STATUS-1 (`6620915`), roles D-R11-ROLES-1 (`787d286`), budget D-R11-BUDGET-1 (`dd76b9f`), gates D-R11-GATES-1 (`1a7568f`), devmode D-R11-DEVMODE-1 direct on tip (`25b1043` + `773be87`).

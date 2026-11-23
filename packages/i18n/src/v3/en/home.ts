@@ -60,6 +60,7 @@ export default {
   'home.interview_enough': 'Enough',
   'home.needsyou.title': 'Waiting on you',
   'home.needsyou.gate': 'Decision',
+  'home.needsyou.gate_subject': '{project} · {run} · {gate}',
   'home.needsyou.ask': 'Approval request',
   'home.needsyou.since': 'Waiting since {since}',
   'home.needsyou.open': 'Open',
