@@ -647,12 +647,41 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             .await
     }
 
+    /// Start a new run for a project with an explicit initial budget.
+    pub async fn start_run_with_budget(
+        &self,
+        project_id: ProjectId,
+        idea: &str,
+        budget_cents: Option<u64>,
+    ) -> Result<Run> {
+        self.start_run_in_mode_with_budget(
+            project_id,
+            idea,
+            warsha_core::RunMode::Agent,
+            None,
+            budget_cents,
+        )
+        .await
+    }
+
     pub async fn start_run_in_mode(
         &self,
         project_id: ProjectId,
         idea: &str,
         mode: warsha_core::RunMode,
+        spec_file_path: Option<&str>,
+    ) -> Result<Run> {
+        self.start_run_in_mode_with_budget(project_id, idea, mode, spec_file_path, None)
+            .await
+    }
+
+    pub async fn start_run_in_mode_with_budget(
+        &self,
+        project_id: ProjectId,
+        idea: &str,
+        mode: warsha_core::RunMode,
         #[allow(unused_variables)] spec_file_path: Option<&str>,
+        explicit_budget_cents: Option<u64>,
     ) -> Result<Run> {
         let project = self.store.get_project(project_id).await?;
 
@@ -662,14 +691,21 @@ impl<S: SettingsProvider> PipelineEngine<S> {
 
         let (project_budget_cents, project_spent_cents) =
             self.project_budget_state(project_id).await?;
-        if let Some(budget_cents) = project_budget_cents {
-            if project_spent_cents >= budget_cents {
-                return Err(PipelineError::ProjectBudgetExhausted {
-                    budget_cents,
-                    spent_cents: project_spent_cents,
-                });
+
+        // An explicit budget on run start lifts project exhaustion: the caller is explicitly
+        // allocating funds for this run. If no explicit budget is given, project exhaustion applies.
+        if explicit_budget_cents.is_none() {
+            if let Some(budget_cents) = project_budget_cents {
+                if project_spent_cents >= budget_cents {
+                    return Err(PipelineError::ProjectBudgetExhausted {
+                        budget_cents,
+                        spent_cents: project_spent_cents,
+                    });
+                }
             }
         }
+
+        let effective_budget = explicit_budget_cents.or(project_budget_cents);
 
         let mut run = Run {
             id: RunId::new(),
@@ -680,7 +716,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             status: RunStatus::Running,
-            budget_cents: project_budget_cents,
+            budget_cents: effective_budget,
             spent_cents: 0,
             worktree_path: None,
             worktree_branch: None,
@@ -3253,6 +3289,42 @@ mod tests {
             let runs = store.list_runs(project.id).await.unwrap();
             assert_eq!(runs.len(), 1, "the refused start created a run row");
             assert_eq!(runs[0].id, first.id);
+        }
+
+        #[tokio::test]
+        async fn explicit_budget_lifts_exhausted_project_budget() {
+            let store = temp_store().await;
+            let engine =
+                PipelineEngine::new(store.clone(), setup_providers_with_mock(), setup_settings());
+            let project = project();
+            store.create_project(&project).await.unwrap();
+
+            // Run with budget 0 is immediately exhausted (spent 0 >= budget 0)
+            let first = engine
+                .start_run_with_budget(project.id, "Zero Budget Run", Some(0))
+                .await
+                .unwrap();
+            assert_eq!(first.budget_cents, Some(0));
+
+            // Starting without budget fails with ProjectBudgetExhausted
+            let error = engine
+                .start_run(project.id, "Second Run No Budget")
+                .await
+                .expect_err("project budget is exhausted");
+            assert!(matches!(
+                error,
+                PipelineError::ProjectBudgetExhausted {
+                    budget_cents: 0,
+                    spent_cents: 0
+                }
+            ));
+
+            // Starting with explicit budget lifts exhaustion
+            let second = engine
+                .start_run_with_budget(project.id, "Third Run With Budget", Some(11))
+                .await
+                .expect("explicit budget must lift project exhaustion");
+            assert_eq!(second.budget_cents, Some(11));
         }
 
         /// P-E1a: a project under its budget still starts, and the new run inherits

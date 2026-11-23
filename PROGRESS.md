@@ -1,5 +1,26 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — R12 infra robustness: F10/F11/F12 (D-R12-INFRA-1, D-R12-INFRA-2, D-R12-INFRA-3)
+- **Scope**: Parallel lane `fix-r12-infra` addressing verification findings F10, F11, and F12. Local-only; no push, no tag, no publish, `main` untouched.
+- **F10 (D-R12-INFRA-1)**:
+  - `apply_start_budget` in `crates/warshad/src/lib.rs` propagates `set_run_budget` failure as an `Err` instead of silently swallowing with `warn!`.
+  - `crates/warsha-pipeline/src/lib.rs`: added `start_run_with_budget` and `start_run_in_mode_with_budget` accepting `explicit_budget_cents: Option<u64>`. Explicit budget on start lifts/bypasses project budget exhaustion. `warshad` passes effective start budget (`budget_cents.or(pending_budget)`).
+  - Proving tests: `apply_start_budget_propagates_failure` and `explicit_budget_on_runs_start_lifts_project_exhaustion` in `crates/warshad/src/tests/mod.rs`; `explicit_budget_lifts_exhausted_project_budget` in `crates/warsha-pipeline/src/lib.rs`.
+- **F11 (D-R12-INFRA-2)**:
+  - `crates/warsha-store/src/lib.rs`: `Store::load_devices` logs warning and skips undecodable rows instead of failing daemon startup with `?`.
+  - `crates/warshad/src/startup.rs`: `load_device_registry` restores unrevoked `"Warsha Daemon"` identity row from the database, persisting local daemon device ID and public key across restarts; mints and persists on first boot.
+  - Proving tests: `load_devices_skips_undecodable_row` in `crates/warsha-store/src/lib.rs`; `daemon_startup_survives_undecodable_device_row` and `local_daemon_identity_is_stable_across_restarts` in `crates/warshad/src/tests/mod.rs`.
+- **F12 (D-R12-INFRA-3)**:
+  - `crates/warshad/src/tests/mod.rs`: Resolved flaky cancel-vs-advance race in `cancel_during_hung_stage_stops_promptly` by deterministically joining and asserting `advance_res` returns either `Ok(run)` with `status: RunStatus::Cancelled` or `Err(_)`, never hanging or reporting non-cancelled status.
+  - Proving test: `cancel_during_hung_stage_stops_promptly` passed 5/5 consecutive test executions.
+- **Gates**:
+  - `cargo fmt --all -- --check`
+  - `cargo clippy -p warshad -p warsha-pipeline -p warsha-store --all-targets -- -D warnings`
+  - `cargo test -p warshad --lib`
+  - `cargo test -p warsha-pipeline --lib`
+  - `node scripts/check-engineering-policy.mjs`
+- **Status**: COMPLETE.
+
 ## Run 2026-11-23 — R11 fix round COMPLETE (FIXES COMPLETE)
 - **Tip**: `773be87` on `r-next/integration`. Clean tree, no uncommitted diff.
 - **Landed**: postmortem MISS-4 (`eaa6839`), sessions D-R11-SESSIONS-1 (`3c649c7`), devices D-R11-DEVICES-1 (`48483c5`), status D-R11-STATUS-1 (`6620915`), roles D-R11-ROLES-1 (`787d286`), budget D-R11-BUDGET-1 (`dd76b9f`), gates D-R11-GATES-1 (`1a7568f`), devmode D-R11-DEVMODE-1 direct on tip (`25b1043` + `773be87`).

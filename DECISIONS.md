@@ -1,6 +1,34 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R12-INFRA-1: Propagate apply_start_budget failure and lift project budget exhaustion on explicit run budget (F10)
+- **Decision**:
+  1. `apply_start_budget` in `crates/warshad/src/lib.rs` propagates any error returned by `state.pipeline.set_run_budget(run.id, cents)` as an `Err(rpc_error(...))` instead of swallowing it with `tracing::warn!`. An explicit start budget supplied by an owner is never silently dropped.
+  2. In `crates/warsha-pipeline/src/lib.rs`, `PipelineEngine::start_run_in_mode_with_budget` accepts `explicit_budget_cents: Option<u64>`. When an explicit budget is supplied on run start, the project budget exhaustion check (`project_spent_cents >= budget_cents`) is bypassed/lifted, allowing the explicit budget to top up or allocate budget for the new run. `warshad` computes the effective start budget (`budget_cents.or(pending_budget)`) and passes it into `start_run_in_mode_with_budget`.
+- **Reason**: Claude Code verify Round 11 finding F10. `apply_start_budget` swallowed `set_run_budget` failure, so an owner budget could be lost without notice. In addition, `start_run_in_mode` checked project budget exhaustion before applying the explicit run budget, refusing valid runs when project budget was 0 even if the owner explicitly supplied budget (repro: run with budget 0 then `runs.start(..., 11)` refused).
+- **Proving tests**:
+  - `crates/warshad/src/tests/mod.rs`: `apply_start_budget_propagates_failure` asserts calling `apply_start_budget` with an unpersisted run ID returns `Err`.
+  - `crates/warshad/src/tests/mod.rs`: `explicit_budget_on_runs_start_lifts_project_exhaustion` asserts that after project budget is exhausted by a 0-budget run, `runs.start(..., None)` is refused, while `runs.start(..., Some(11))` succeeds with `budget_cents == Some(11)`.
+  - `crates/warsha-pipeline/src/lib.rs`: `explicit_budget_lifts_exhausted_project_budget` verifies engine-level exhaustion bypass.
+- **Scope**: `crates/warshad/src/lib.rs`, `crates/warsha-pipeline/src/lib.rs`, `crates/warshad/src/tests/mod.rs`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
+## 2026-11-23 — D-R12-INFRA-2: Skip undecodable devices rows and persist local daemon identity across restarts (F11)
+- **Decision**:
+  1. In `crates/warsha-store/src/lib.rs`, `Store::load_devices` logs a warning (`tracing::warn!`) and skips undecodable rows instead of aborting the query with `?`. A single corrupted device row in SQLite does not crash daemon startup.
+  2. In `crates/warshad/src/startup.rs`, `load_device_registry` queries stored devices for an unrevoked entry named `"Warsha Daemon"`. If found, it restores that identity (`device_id` and `static_public`), keeping the local Warsha Daemon identity stable across restarts. If not found, it generates a fresh identity and persists it to the `devices` table via `store.save_device`.
+- **Reason**: Claude Code verify Round 11 finding F11. One undecodable row previously failed `load_devices` and aborted daemon startup. In addition, the local daemon identity was minted freshly on every start, causing the server device ID to change across restarts.
+- **Proving tests**:
+  - `crates/warsha-store/src/lib.rs`: `load_devices_skips_undecodable_row` inserts an invalid 16-byte public key row into `devices` and confirms `load_devices` succeeds and returns only valid rows.
+  - `crates/warshad/src/tests/mod.rs`: `daemon_startup_survives_undecodable_device_row` confirms daemon startup and `devices.list` succeed when an undecodable row exists.
+  - `crates/warshad/src/tests/mod.rs`: `local_daemon_identity_is_stable_across_restarts` starts a daemon, drops state, restarts from the same data dir, and asserts `device_id` and `static_public` remain identical.
+- **Scope**: `crates/warsha-store/src/lib.rs`, `crates/warshad/src/startup.rs`, `crates/warshad/src/tests/mod.rs`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
+## 2026-11-23 — D-R12-INFRA-3: Deterministic join on advance_run handle in cancel_during_hung_stage_stops_promptly test (F12)
+- **Decision**: In `crates/warshad/src/tests/mod.rs:7735`, update the assertions on the spawned `advance_handle` join in `cancel_during_hung_stage_stops_promptly` to handle both possible outcomes of the cancellation race deterministically. Depending on whether `cancel_run`'s CAS update commits before or after `advance_to_next_gate_locked` inspects status, `advance_run` either returns `Err(PipelineError::RunTerminated | RpcError)` or `Ok(run)` where `run.status == RunStatus::Cancelled`. The test verifies that the advance task stops promptly within the timeout and never reports a non-cancelled or active status.
+- **Reason**: Claude Code verify Round 11 finding F12. Flaky test failure observed in CI/verify where `advance_run` completed with `Ok(run)` with `status: Cancelled`, but the test strictly asserted `advance_outcome.unwrap().is_err()`.
+- **Proving test**: `cargo test -p warshad --lib cancel_during_hung_stage_stops_promptly` passed 5/5 consecutive runs.
+- **Scope**: `crates/warshad/src/tests/mod.rs`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-23 — D-R11-DEVMODE-1: useRunEvents clears a stale error on the next good poll
 - **Decision**: `useRunEvents` calls `setError(null)` on the success path after `subscribeRun` resolves, so a later good poll clears a previous decode or stream error. Decoder coverage is unchanged: tip `1a7568f` already staffs `secretary` in `ROLE_VALUES`/`ALL_ROLES` (13 rows, D-R11-ROLES-1); a regression test guards that `parseWarshaEvent` accepts `role: 'secretary'` and still throws `Malformed event frame: unknown "role"` for anything else.
 - **Reason**: Owner UI finding #4. A legitimate secretary event must not stay an error on screen, and a stale error must not outlive the next good poll.
