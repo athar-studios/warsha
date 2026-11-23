@@ -21,6 +21,7 @@ export default {
   'frame.status_waiting': 'Waiting',
   'frame.status_done': 'Done',
   'frame.status_failed': 'Failed',
+  'frame.status_cancelled': 'Cancelled',
   'frame.status_paused': 'Paused',
   'frame.quota_gauge_label': 'Provider quota gauge',
   'frame.quota_gauge_none': 'No provider quota known',

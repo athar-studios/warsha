@@ -35,7 +35,9 @@ export function resolveProjectStatus(
   const awaiting = runs.find((run) => run.status === 'awaiting_gate');
   const candidate =
     awaiting ??
-    [...runs].sort((a, b) => (b.updatedAt || b.startedAt).localeCompare(a.updatedAt || a.startedAt))[0];
+    [...runs].sort((a, b) =>
+      (b.updatedAt || b.startedAt).localeCompare(a.updatedAt || a.startedAt)
+    )[0];
 
   switch (candidate?.status) {
     case 'awaiting_gate':
@@ -48,8 +50,9 @@ export function resolveProjectStatus(
       return { status: 'done', label: t('frame.status_done') };
     case 'failed':
     case 'error':
-    case 'cancelled':
       return { status: 'failed', label: t('frame.status_failed') };
+    case 'cancelled':
+      return { status: 'cancelled', label: t('frame.status_cancelled') };
     case 'paused':
       return { status: 'paused', label: t('frame.status_paused') };
     default:

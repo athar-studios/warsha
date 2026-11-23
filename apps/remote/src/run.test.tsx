@@ -7,7 +7,17 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { describe, expect, it } from 'vitest';
 
-import { RUN, SESSION, event, fakeStream, fullApi, renderRemote, settle, stubApi } from './testkit';
+import {
+  RUN,
+  SESSION,
+  event,
+  fakeStream,
+  fullApi,
+  renderRemote,
+  runId,
+  settle,
+  stubApi,
+} from './testkit';
 
 describe('the pipeline plate', () => {
   it('draws every stage of the run, with the current one lit', async () => {
@@ -21,10 +31,12 @@ describe('the pipeline plate', () => {
     // A stage behind the run carries the done glyph, the current one the running glyph, the rest the todo
     // glyph (§9: the glyph says it, the tint only helps). The bench opened on the newest run, `gate_b`.
     expect(rows[0].getAttribute('data-state')).toBe('done');
-    expect(rows.find((row) => row.textContent?.includes('البوّابة ب'))?.getAttribute('data-state')).toBe(
-      'running'
-    );
-    expect(rows.find((row) => row.textContent?.includes('البرمجة'))?.getAttribute('data-state')).toBe('todo');
+    expect(
+      rows.find((row) => row.textContent?.includes('البوّابة ب'))?.getAttribute('data-state')
+    ).toBe('running');
+    expect(
+      rows.find((row) => row.textContent?.includes('البرمجة'))?.getAttribute('data-state')
+    ).toBe('todo');
     expect(within(ledger).getByText('الفكرة')).toBeInTheDocument();
     expect(within(ledger).getByText('جارٍ')).toBeInTheDocument();
   });
@@ -49,13 +61,20 @@ describe('the pipeline plate', () => {
     expect(within(ledger).getAllByRole('listitem')).toHaveLength(2);
 
     fireEvent.click(within(ledger).getByRole('button', { name: /البرمجة/ }));
-    expect(within(ledger).getByRole('button', { name: /البرمجة/ })).toHaveAttribute('aria-current', 'true');
+    expect(within(ledger).getByRole('button', { name: /البرمجة/ })).toHaveAttribute(
+      'aria-current',
+      'true'
+    );
     // The readings switched with the row: the other run is the failed one at `code`.
     expect(screen.getByText('حالة التشغيل: توقف')).toBeInTheDocument();
   });
 
   it('is honest about having no run, and points at the projects that would have one', async () => {
-    renderRemote({ session: SESSION, route: '/run', api: stubApi({ listRuns: () => Promise.resolve([]) }) });
+    renderRemote({
+      session: SESSION,
+      route: '/run',
+      api: stubApi({ listRuns: () => Promise.resolve([]) }),
+    });
     await settle();
 
     const bench = screen.getByTestId('remote-screen-run');
@@ -81,6 +100,46 @@ describe('the pipeline plate', () => {
     fireEvent.click(screen.getByTestId('remote-retry-runs'));
     await settle();
     expect(reads).toBe(2);
+  });
+
+  it('renders distinct cancelled status pill and words when run is cancelled (F4)', async () => {
+    const cancelledRun = {
+      ...RUN,
+      id: runId('run_cancelled'),
+      status: 'cancelled' as const,
+      stage: 'code' as const,
+    };
+    const api = stubApi({
+      listRuns: () => Promise.resolve([cancelledRun]),
+    });
+    renderRemote({ session: SESSION, route: '/run', api, locale: 'ar' });
+    await settle();
+
+    const plate = screen.getByRole('region', { name: 'التشغيل الحالي' });
+    expect(within(plate).getByText('حالة التشغيل: ملغى')).toBeInTheDocument();
+    const pill = plate.querySelector('[data-status="cancelled"]');
+    expect(pill).not.toBeNull();
+    expect(pill?.textContent).toContain('حالة التشغيل: ملغى');
+  });
+
+  it('renders cancelled status in English locale (F4)', async () => {
+    const cancelledRun = {
+      ...RUN,
+      id: runId('run_cancelled_en'),
+      status: 'cancelled' as const,
+      stage: 'code' as const,
+    };
+    const api = stubApi({
+      listRuns: () => Promise.resolve([cancelledRun]),
+    });
+    renderRemote({ session: SESSION, route: '/run', api, locale: 'en' });
+    await settle();
+
+    const plate = screen.getByRole('region', { name: 'Current run' });
+    expect(within(plate).getByText('Run status: cancelled')).toBeInTheDocument();
+    const pill = plate.querySelector('[data-status="cancelled"]');
+    expect(pill).not.toBeNull();
+    expect(pill?.textContent).toContain('Run status: cancelled');
   });
 });
 
@@ -162,7 +221,9 @@ describe('the readings, the feed and the log', () => {
     const dock = screen.getByRole('region', { name: 'ناحية الطرفية' });
     expect(within(dock).getByText('cargo test')).toBeInTheDocument();
     expect(within(dock).getByText('14 passed')).toBeInTheDocument();
-    expect(within(dock).getByText('الواجهة تعرض سجلّ التشغيل ولا تنفّذ أوامر.')).toBeInTheDocument();
+    expect(
+      within(dock).getByText('الواجهة تعرض سجلّ التشغيل ولا تنفّذ أوامر.')
+    ).toBeInTheDocument();
     // Read-only: no command field to mistype into (§9's terminal finding).
     expect(within(dock).queryByRole('textbox')).toBeNull();
   });
@@ -231,7 +292,9 @@ describe('the run under the owner’s thumb (W4 run controls)', () => {
     await settle();
 
     const form = screen.getByTestId('remote-followup-form');
-    fireEvent.change(within(form).getByTestId('remote-followup-input'), { target: { value: 'أضف تصدير PDF' } });
+    fireEvent.change(within(form).getByTestId('remote-followup-input'), {
+      target: { value: 'أضف تصدير PDF' },
+    });
     fireEvent.click(within(form).getByTestId('remote-followup-submit'));
     await settle();
 

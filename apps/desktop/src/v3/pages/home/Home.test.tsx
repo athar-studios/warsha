@@ -45,14 +45,12 @@ const SAMPLE_PROJECTS: ProjectSummary[] = [
     name: 'متجر ورشة',
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
-
   },
   {
     id: 'proj-2' as ProjectId,
     name: 'Warsha Store',
     createdAt: '2026-10-03T08:00:00.000Z',
     updatedAt: '2026-10-04T09:00:00.000Z',
-
   },
 ];
 
@@ -61,10 +59,10 @@ const SAMPLE_RUNS_P1: RunSummary[] = [
     id: 'run-1' as RunId,
     projectId: 'proj-1' as ProjectId,
     stage: 'code',
-    status: 'running', runMode: 'agent',
+    status: 'running',
+    runMode: 'agent',
     startedAt: '2026-10-02T08:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
-
   },
 ];
 
@@ -115,21 +113,22 @@ function makeMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     name: 'New Project',
     createdAt: '2026-10-05T08:00:00.000Z',
     updatedAt: '2026-10-05T08:00:00.000Z',
-
   };
   const startedRun: RunSummary = {
     id: 'run-created' as RunId,
     projectId: 'proj-created' as ProjectId,
     stage: 'idea',
-    status: 'running', runMode: 'agent',
+    status: 'running',
+    runMode: 'agent',
     startedAt: '2026-10-05T08:00:00.000Z',
     updatedAt: '2026-10-05T08:00:00.000Z',
-
   };
 
   return {
     health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
-    listProviders: vi.fn().mockResolvedValue([{ name: 'open_router', kind: 'open_router', enabled: true }]),
+    listProviders: vi
+      .fn()
+      .mockResolvedValue([{ name: 'open_router', kind: 'open_router', enabled: true }]),
     listProjects: vi.fn().mockResolvedValue(SAMPLE_PROJECTS),
     listRuns: vi.fn().mockImplementation(async (projectId: string) => {
       if (projectId === 'proj-1') return SAMPLE_RUNS_P1;
@@ -247,6 +246,23 @@ describe('Home helpers', () => {
       'todo',
     ]);
   });
+
+  it('computes cancelled project status accurately (F4)', () => {
+    const cancelledRun: RunSummary = {
+      id: 'run-cancelled' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'code',
+      status: 'cancelled',
+      runMode: 'agent',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    expect(computeProjectStatus([cancelledRun], 0)).toEqual({
+      status: 'cancelled',
+      stageKey: 'stages.build',
+      summaryKey: 'home.summary_cancelled',
+    });
+  });
 });
 
 describe('HomePage', () => {
@@ -261,17 +277,18 @@ describe('HomePage', () => {
   it('calls projects.create -> runs.start -> budget.set IN THAT EXACT ORDER on home.start', async () => {
     const callOrder: string[] = [];
     const client = makeMockClient({
-      createProject: vi.fn().mockImplementation(async (name: string, desc: string, lang: string) => {
-        callOrder.push(`projects.create:${name}:${lang}`);
-        expect(desc).toContain('متجر كتب');
-        return {
-          id: 'proj-seq' as ProjectId,
-          name,
-          createdAt: '2026-10-05T08:00:00.000Z',
-          updatedAt: '2026-10-05T08:00:00.000Z',
-
-        };
-      }),
+      createProject: vi
+        .fn()
+        .mockImplementation(async (name: string, desc: string, lang: string) => {
+          callOrder.push(`projects.create:${name}:${lang}`);
+          expect(desc).toContain('متجر كتب');
+          return {
+            id: 'proj-seq' as ProjectId,
+            name,
+            createdAt: '2026-10-05T08:00:00.000Z',
+            updatedAt: '2026-10-05T08:00:00.000Z',
+          };
+        }),
       setProjectBudget: vi.fn().mockImplementation(async (projectId: string, cents: number) => {
         callOrder.push(`budget.set:${projectId}:${cents}`);
       }),
@@ -281,10 +298,10 @@ describe('HomePage', () => {
           id: 'run-seq' as RunId,
           projectId: projectId as ProjectId,
           stage: 'idea',
-          status: 'running', runMode: 'agent',
+          status: 'running',
+          runMode: 'agent',
           startedAt: '2026-10-05T08:00:00.000Z',
           updatedAt: '2026-10-05T08:00:00.000Z',
-
         };
       }),
     });
@@ -365,7 +382,13 @@ describe('HomePage', () => {
     });
 
     // Proves N2 fix: runs.start was reached and executed on the brand new project without error
-    expect(startRunMock).toHaveBeenCalledWith('proj-first', expect.stringContaining('فكرة مشروع جديد'));
+    expect(startRunMock).toHaveBeenCalledWith(
+      'proj-first',
+      expect.stringContaining('فكرة مشروع جديد'),
+      undefined,
+      undefined,
+      2500
+    );
     // Proves N3 fix: project list was reloaded after createProject
     expect(listCount).toBeGreaterThan(1);
   });
@@ -399,7 +422,10 @@ describe('HomePage', () => {
     });
 
     expect(client.createProject).toHaveBeenCalled();
-    expect(client.interviewStart).toHaveBeenCalledWith('proj-interview', expect.stringContaining('فكرة تحتاج'));
+    expect(client.interviewStart).toHaveBeenCalledWith(
+      'proj-interview',
+      expect.stringContaining('فكرة تحتاج')
+    );
     expect(listCount).toBeGreaterThan(1);
   });
 
@@ -461,7 +487,9 @@ describe('HomePage', () => {
     const budgetInput = screen.getByTestId('budget-custom-input') as HTMLInputElement;
     fireEvent.change(budgetInput, { target: { value: '50' } });
 
-    const saveBtn = document.querySelector('[data-action="home.defaults.budget.save"]') as HTMLElement;
+    const saveBtn = document.querySelector(
+      '[data-action="home.defaults.budget.save"]'
+    ) as HTMLElement;
     await act(async () => {
       fireEvent.click(saveBtn);
       await Promise.resolve();
@@ -475,7 +503,9 @@ describe('HomePage', () => {
     expect(client.recordPreference).not.toHaveBeenCalled();
     window.localStorage.removeItem('warsha.default_budget_usd');
 
-    const modelsBtn = document.querySelector('[data-action="home.defaults.models.open"]') as HTMLElement;
+    const modelsBtn = document.querySelector(
+      '[data-action="home.defaults.models.open"]'
+    ) as HTMLElement;
     fireEvent.click(modelsBtn);
     expect(screen.getByTestId('route-inspector').textContent).toBe('/settings/models');
   });
@@ -501,7 +531,6 @@ describe('HomePage', () => {
       name: `Project ${idx + 1}`,
       createdAt: '2026-10-01T00:00:00Z',
       updatedAt: '2026-10-01T00:00:00Z',
-
     }));
     const client = makeMockClient({
       listProjects: vi.fn().mockResolvedValue(manyProjects),
@@ -621,5 +650,30 @@ describe('HomePage', () => {
     const chips = screen.getAllByTestId('runmode-chip');
     expect(chips.length).toBe(1);
     expect(chips[0].getAttribute('data-runmode')).toBe('plan');
+  });
+
+  it('renders cancelled status pill and summary on home screen for project with cancelled run (F4)', async () => {
+    const cancelledRun: RunSummary = {
+      id: 'run-c1' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'code',
+      status: 'cancelled',
+      runMode: 'agent',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    const client = makeMockClient({
+      listRuns: vi.fn().mockImplementation(async (projectId: string) => {
+        if (projectId === 'proj-1') return [cancelledRun];
+        return [];
+      }),
+    });
+    await renderHome({ client, locale: 'ar' });
+    await waitFor(() => {
+      expect(screen.getByTestId('home-projects-grid')).toBeDefined();
+    });
+    const statusPill = document.querySelector('[data-status="cancelled"]');
+    expect(statusPill).not.toBeNull();
+    expect(statusPill?.textContent).toContain('ملغاة');
   });
 });

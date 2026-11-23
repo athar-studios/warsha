@@ -2660,7 +2660,7 @@ export class WarshaClient
       language,
       confinement,
       approval_mode: approvalMode,
-      repo_path: resolvedRepoPath ?? null,
+      repo_path: resolvedRepoPath,
     });
     return decodeProjectSummary(row);
   }
@@ -2806,7 +2806,7 @@ export class WarshaClient
       idea,
       runMode,
       specFilePath,
-      ...(budgetCents === undefined ? {} : { budgetCents }),
+      budgetCents,
     });
     return decodeRunSummary(row);
   }

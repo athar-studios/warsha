@@ -1,9 +1,4 @@
-import type {
-  BudgetStatus,
-  GateSummary,
-  ProjectSummary,
-  RunSummary,
-} from '@warsha/client';
+import type { BudgetStatus, GateSummary, ProjectSummary, RunSummary } from '@warsha/client';
 import { useLocale, useT } from '@warsha/i18n/v3';
 import {
   Banner,
@@ -158,7 +153,9 @@ export default function ProjectsPage(): React.ReactElement {
   const [searchDraft, setSearchDraft] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [sortIndex, setSortIndex] = useState(0);
-  const [customSort, setCustomSort] = useState<{ col: SortColumn; dir: SortDirection } | null>(null);
+  const [customSort, setCustomSort] = useState<{ col: SortColumn; dir: SortDirection } | null>(
+    null
+  );
 
   const [runsByProject, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
   const [waitingGatesByProject, setWaitingGatesByProject] = useState<Record<string, number>>({});
@@ -271,7 +268,11 @@ export default function ProjectsPage(): React.ReactElement {
   }, []);
 
   const activeSortDef = customSort
-    ? { col: customSort.col, dir: customSort.dir, labelKey: `projects.sort_${customSort.col}_${customSort.dir}` }
+    ? {
+        col: customSort.col,
+        dir: customSort.dir,
+        labelKey: `projects.sort_${customSort.col}_${customSort.dir}`,
+      }
     : SORT_CYCLE[sortIndex];
 
   const activeSortCol = activeSortDef.col;
@@ -291,7 +292,7 @@ export default function ProjectsPage(): React.ReactElement {
       waiting: t('projects.status_waiting'),
       done: t('projects.status_done'),
       failed: t('projects.status_failed'),
-      cancelled: t('bench.status.cancelled'),
+      cancelled: t('projects.status_cancelled'),
       paused: t('projects.status_paused'),
     }),
     [t]
@@ -441,11 +442,7 @@ export default function ProjectsPage(): React.ReactElement {
             className="v3-projects-error-wrap"
             data-testid="projects-error-banner"
           >
-            <Banner
-              variant="danger"
-              title={t('projects.error_title')}
-              action={retryButtonElement}
-            >
+            <Banner variant="danger" title={t('projects.error_title')} action={retryButtonElement}>
               <bdi dir="auto">{projectsResult.error?.message || t('common.error')}</bdi>
             </Banner>
           </div>
@@ -559,7 +556,13 @@ export default function ProjectsPage(): React.ReactElement {
                     <h2 className="v3-projects-card-title">
                       <bdi dir="auto">{project.name || t('projects.unnamed')}</bdi>
                     </h2>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)' }}>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 'var(--w-space-2)',
+                      }}
+                    >
                       {runs?.[0]?.runMode && toRunModeChip(runs[0].runMode) !== 'agent' ? (
                         <RunModeChip runMode={runs[0].runMode} />
                       ) : null}
@@ -570,7 +573,9 @@ export default function ProjectsPage(): React.ReactElement {
                   <div className="v3-projects-card-body">
                     <span>{t('projects.stage_label', { stage: t(stageKey) })}</span>
                     <span>
-                      <bdi dir="auto">{t('projects.spend_label', { amount: `$${spendAmount}` })}</bdi>
+                      <bdi dir="auto">
+                        {t('projects.spend_label', { amount: `$${spendAmount}` })}
+                      </bdi>
                     </span>
                   </div>
 

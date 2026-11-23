@@ -26,7 +26,14 @@ import { Link } from 'react-router-dom';
 import { useRemote } from '../bench';
 import { Machine, ScreenTitle } from '../chrome';
 import { clock, clockWithMs, hasCeiling, money, percent, shortId } from '../format';
-import { eventWord, isErrorEvent, isGateEvent, roleWord, runStatusWord, stageWord } from '../labels';
+import {
+  eventWord,
+  isErrorEvent,
+  isGateEvent,
+  roleWord,
+  runStatusWord,
+  stageWord,
+} from '../labels';
 import { UnpairedScreen } from '../pairing';
 import { stageRows, type StagePosition } from '../pipeline';
 
@@ -44,8 +51,9 @@ function runStatusToPill(status: string): StatusPillState {
     case 'failed':
       return 'failed';
     case 'paused':
-    case 'cancelled':
       return 'paused';
+    case 'cancelled':
+      return 'cancelled';
     default:
       return 'idle';
   }
@@ -92,7 +100,9 @@ export function RunScreen() {
   const [followupMissing, setFollowupMissing] = useState(false);
 
   if (session === null) {
-    return <UnpairedScreen heading={t('remote.run_title', {}, locale)} testId="remote-screen-run" />;
+    return (
+      <UnpairedScreen heading={t('remote.run_title', {}, locale)} testId="remote-screen-run" />
+    );
   }
 
   const spentCents = events.reduce((sum, event) => sum + (event.costCents ?? 0), 0);
@@ -113,7 +123,8 @@ export function RunScreen() {
   };
 
   const followupError = followupMissing ? t('remote.followup_needed', {}, locale) : undefined;
-  const hasRunControls = advanceCurrentRun !== null || cancelCurrentRun !== null || sendFollowup !== null;
+  const hasRunControls =
+    advanceCurrentRun !== null || cancelCurrentRun !== null || sendFollowup !== null;
   const hasHandoff = triggerHandoff !== null || applyHandoffBundle !== null;
 
   const transcriptLines: TranscriptLine[] =
@@ -126,13 +137,22 @@ export function RunScreen() {
           : logs.map((line, index) => ({
               id: String(index),
               content: line,
-              stream: /error|fail/i.test(line) ? 'stderr' : /^(\+|ok|pass)/i.test(line) ? 'system' : 'stdout',
+              stream: /error|fail/i.test(line)
+                ? 'stderr'
+                : /^(\+|ok|pass)/i.test(line)
+                  ? 'system'
+                  : 'stdout',
             }));
 
   return (
     <div dir={dir} className="remote-screen" data-testid="remote-screen-run">
       <div dir={dir} className="remote-title">
-        <Link to="/projects" dir={dir} className="remote-link remote-back" data-testid="remote-run-back">
+        <Link
+          to="/projects"
+          dir={dir}
+          className="remote-link remote-back"
+          data-testid="remote-run-back"
+        >
           {t('run.back', {}, locale)}
         </Link>
         <ScreenTitle>{t('remote.run_title', {}, locale)}</ScreenTitle>
@@ -148,7 +168,13 @@ export function RunScreen() {
         <Banner
           variant="danger"
           action={
-            <Button variant="secondary" size="sm" dir={dir} onClick={reloadAll} data-testid="remote-retry-runs">
+            <Button
+              variant="secondary"
+              size="sm"
+              dir={dir}
+              onClick={reloadAll}
+              data-testid="remote-retry-runs"
+            >
               {t('common.retry', {}, locale)}
             </Button>
           }
@@ -205,7 +231,14 @@ export function RunScreen() {
                       <ListRow
                         selected={selected}
                         title={
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)', minInlineSize: 0 }}>
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 'var(--w-space-2)',
+                              minInlineSize: 0,
+                            }}
+                          >
                             <StatusPill
                               status={runStatusToPill(candidate.status)}
                               label={runStatusWord(candidate.status, locale)}
@@ -231,7 +264,9 @@ export function RunScreen() {
           <EmptyState
             title={t('bench.no_run', {}, locale)}
             description={
-              project === null ? t('remote.glance_no_project', {}, locale) : t('remote.glance_no_run_desc', {}, locale)
+              project === null
+                ? t('remote.glance_no_project', {}, locale)
+                : t('remote.glance_no_run_desc', {}, locale)
             }
             action={
               <Link to="/projects" dir={dir} className="warsha-control remote-action">
@@ -337,7 +372,14 @@ export function RunScreen() {
                     ) : !hasCeiling(budget.totalBudgetUsd) ? (
                       <Machine>{`${money(budget.spentUsd)} · ${t('bench.no_ceiling', {}, locale)}`}</Machine>
                     ) : (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--w-space-2)' }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 'var(--w-space-2)',
+                        }}
+                      >
                         <ProgressBar
                           role="meter"
                           value={Number(budget.spentUsd.toFixed(2))}
@@ -377,7 +419,13 @@ export function RunScreen() {
               <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-2)' }}>
                 <Skeleton variant="text" />
                 <Skeleton variant="text" />
-                <p style={{ margin: 0, color: 'var(--w-text-muted)', fontSize: 'var(--w-font-size-xs)' }}>
+                <p
+                  style={{
+                    margin: 0,
+                    color: 'var(--w-text-muted)',
+                    fontSize: 'var(--w-font-size-xs)',
+                  }}
+                >
                   {t('advanced.no_events', {}, locale)}
                 </p>
               </div>
@@ -389,7 +437,15 @@ export function RunScreen() {
                 tabIndex={0}
                 aria-label={t('advanced.stream_label', {}, locale)}
               >
-                <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 'var(--w-space-1)' }}>
+                <ol
+                  style={{
+                    listStyle: 'none',
+                    margin: 0,
+                    padding: 0,
+                    display: 'grid',
+                    gap: 'var(--w-space-1)',
+                  }}
+                >
                   {events.slice(-VISIBLE_EVENTS).map((event) => {
                     const kind = isErrorEvent(event.kind)
                       ? 'fail'
@@ -470,7 +526,10 @@ export function RunScreen() {
                 className="remote-run-controls"
                 style={{ display: 'grid', gap: 'var(--w-space-3)' }}
               >
-                <div dir={dir} style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--w-space-2)' }}>
+                <div
+                  dir={dir}
+                  style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--w-space-2)' }}
+                >
                   {advanceCurrentRun !== null && (
                     <Button
                       variant="primary"
@@ -500,10 +559,17 @@ export function RunScreen() {
                 </div>
 
                 {sendFollowup !== null && (
-                  <form onSubmit={submitFollowup} noValidate dir={dir} className="remote-form" data-testid="remote-followup-form">
+                  <form
+                    onSubmit={submitFollowup}
+                    noValidate
+                    dir={dir}
+                    className="remote-form"
+                    data-testid="remote-followup-form"
+                  >
                     <TextField
                       ref={(node) => {
-                        if (node !== null) node.setAttribute('data-testid', 'remote-followup-input');
+                        if (node !== null)
+                          node.setAttribute('data-testid', 'remote-followup-input');
                       }}
                       label={t('remote.followup_label', {}, locale)}
                       error={followupError}
@@ -516,7 +582,12 @@ export function RunScreen() {
                         if (actionError !== null) clearActionError();
                       }}
                     />
-                    <Button type="submit" variant="secondary" dir={dir} data-testid="remote-followup-submit">
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      dir={dir}
+                      data-testid="remote-followup-submit"
+                    >
                       {t('common.send', {}, locale)}
                     </Button>
                   </form>
@@ -531,7 +602,9 @@ export function RunScreen() {
                 {artifactsState === 'loading' ? (
                   <Skeleton variant="rectangular" />
                 ) : artifacts.length === 0 ? (
-                  <p style={{ margin: 0, color: 'var(--w-text)', fontSize: 'var(--w-font-size-sm)' }}>
+                  <p
+                    style={{ margin: 0, color: 'var(--w-text)', fontSize: 'var(--w-font-size-sm)' }}
+                  >
                     {t('run.no_artifacts', {}, locale)}
                   </p>
                 ) : (
@@ -541,9 +614,18 @@ export function RunScreen() {
                         key={artifact.name}
                         title={artifact.name}
                         subtitle={
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--w-space-2)', minInlineSize: 0 }}>
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 'var(--w-space-2)',
+                              minInlineSize: 0,
+                            }}
+                          >
                             <span>{stageWord(artifact.stage, locale)}</span>
-                            <Machine title={artifact.content}>{artifact.content.split('\n')[0]}</Machine>
+                            <Machine title={artifact.content}>
+                              {artifact.content.split('\n')[0]}
+                            </Machine>
                           </span>
                         }
                         meta={<Machine title={artifact.name}>{`v${artifact.version}`}</Machine>}
@@ -600,7 +682,13 @@ export function RunScreen() {
 
                 {handoffSummary !== null && (
                   <div dir={dir} style={{ display: 'grid', gap: 'var(--w-space-1)' }}>
-                    <p style={{ margin: 0, color: 'var(--w-text)', fontSize: 'var(--w-font-size-sm)' }}>
+                    <p
+                      style={{
+                        margin: 0,
+                        color: 'var(--w-text)',
+                        fontSize: 'var(--w-font-size-sm)',
+                      }}
+                    >
                       {t('review_apply.summary', { count: handoffSummary.applied.length }, locale)}
                     </p>
                     {handoffSummary.applied.map((name) => (
@@ -618,7 +706,13 @@ export function RunScreen() {
         <Banner
           variant="danger"
           action={
-            <Button variant="secondary" size="sm" dir={dir} onClick={clearActionError} data-testid="remote-action-dismiss">
+            <Button
+              variant="secondary"
+              size="sm"
+              dir={dir}
+              onClick={clearActionError}
+              data-testid="remote-action-dismiss"
+            >
               {t('common.close', {}, locale)}
             </Button>
           }

@@ -39,17 +39,16 @@ const SAMPLE_PROJECT: ProjectSummary = {
   name: 'متجر ورشة',
   createdAt: '2026-10-01T08:00:00.000Z',
   updatedAt: '2026-10-02T09:00:00.000Z',
-
 };
 
 const RUNNING_RUN: RunSummary = {
   id: 'run-code' as RunId,
   projectId: 'proj-1' as ProjectId,
   stage: 'code',
-  status: 'running', runMode: 'agent',
+  status: 'running',
+  runMode: 'agent',
   startedAt: '2026-10-02T08:00:00.000Z',
   updatedAt: '2026-10-02T09:00:00.000Z',
-
 };
 
 const AWAITING_GATE_RUN: RunSummary = {
@@ -135,7 +134,9 @@ function createMockClient(overrides: Partial<Record<string, unknown>> = {}): War
     ] satisfies RunArtifact[]),
     subscribeRun: vi.fn().mockResolvedValue(defaultStreamSync),
     approveGate: vi.fn().mockResolvedValue(undefined),
-    advanceRun: vi.fn().mockResolvedValue({ ...AWAITING_GATE_RUN, stage: 'research', status: 'running' }),
+    advanceRun: vi
+      .fn()
+      .mockResolvedValue({ ...AWAITING_GATE_RUN, stage: 'research', status: 'running' }),
     requestChanges: vi.fn().mockResolvedValue(undefined),
     rejectGate: vi.fn().mockResolvedValue(undefined),
     followupRun: vi.fn().mockResolvedValue(RUNNING_RUN),
@@ -193,10 +194,12 @@ describe('ProjectPage helpers', () => {
     expect(gateStages.map((s) => s.state)).toEqual(['waiting', 'todo', 'todo', 'todo', 'todo']);
   });
 
-  it('computes status pill state and extracts code URL and test artifacts', () => {
+  it('computes status pill state and extracts code URL and test artifacts (F4)', () => {
     expect(computeRunStatusPill(RUNNING_RUN, null)).toBe('running');
     expect(computeRunStatusPill(AWAITING_GATE_RUN, ALL_PENDING_GATES[0])).toBe('waiting');
     expect(computeRunStatusPill(FAILED_RUN, null)).toBe('failed');
+    const CANCELLED_RUN = { ...RUNNING_RUN, id: 'run-c' as RunId, status: 'cancelled' as const };
+    expect(computeRunStatusPill(CANCELLED_RUN, null)).toBe('cancelled');
 
     const artifacts: RunArtifact[] = [
       {
@@ -241,7 +244,10 @@ describe('ProjectPage component', () => {
     let resolveProject!: (val: ProjectSummary) => void;
     const pendingClient = createMockClient({
       getProject: vi.fn().mockImplementation(
-        () => new Promise<ProjectSummary>((res) => { resolveProject = res; })
+        () =>
+          new Promise<ProjectSummary>((res) => {
+            resolveProject = res;
+          })
       ),
     });
 
@@ -267,7 +273,10 @@ describe('ProjectPage component', () => {
     });
 
     const errorClient = createMockClient({
-      getProject: vi.fn().mockRejectedValueOnce(new Error('Network down')).mockResolvedValue(SAMPLE_PROJECT),
+      getProject: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Network down'))
+        .mockResolvedValue(SAMPLE_PROJECT),
     });
     renderProject(errorClient);
     await waitFor(() => {
@@ -329,7 +338,9 @@ describe('ProjectPage component', () => {
       expect(screen.getByTestId('project-ready')).toBeDefined();
     });
 
-    const textarea = screen.getByTestId('project-followup-textarea').querySelector('textarea') as HTMLTextAreaElement;
+    const textarea = screen
+      .getByTestId('project-followup-textarea')
+      .querySelector('textarea') as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: 'Add RTL unit tests' } });
     fireEvent.click(document.querySelector('[data-action="project.followup.send"]') as HTMLElement);
     await waitFor(() => {
@@ -358,7 +369,9 @@ describe('ProjectPage component', () => {
     });
 
     expect(screen.getByTestId('project-activity-feed')).toBeDefined();
-    fireEvent.click(document.querySelector('[data-action="project.activity.toggle"]') as HTMLElement);
+    fireEvent.click(
+      document.querySelector('[data-action="project.activity.toggle"]') as HTMLElement
+    );
     expect(screen.queryByTestId('project-activity-feed')).toBeNull();
   });
 
@@ -413,19 +426,33 @@ describe('ProjectPage component', () => {
       expect(document.querySelector('[data-action="project.gate.changes.open"]')).not.toBeNull();
     });
 
-    fireEvent.click(document.querySelector('[data-action="project.gate.changes.open"]') as HTMLElement);
-    const changesInput = screen.getByTestId('project-changes-textarea').querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.click(
+      document.querySelector('[data-action="project.gate.changes.open"]') as HTMLElement
+    );
+    const changesInput = screen
+      .getByTestId('project-changes-textarea')
+      .querySelector('textarea') as HTMLTextAreaElement;
     fireEvent.change(changesInput, { target: { value: 'Clarify auth scope' } });
-    fireEvent.click(document.querySelector('[data-action="project.gate.changes.send"]') as HTMLElement);
+    fireEvent.click(
+      document.querySelector('[data-action="project.gate.changes.send"]') as HTMLElement
+    );
     await waitFor(() => {
-      expect(client.requestChanges).toHaveBeenCalledWith('run-gate', 'gate_a', 'Clarify auth scope');
+      expect(client.requestChanges).toHaveBeenCalledWith(
+        'run-gate',
+        'gate_a',
+        'Clarify auth scope'
+      );
     });
 
-    fireEvent.click(document.querySelector('[data-action="project.gate.reject.open"]') as HTMLElement);
+    fireEvent.click(
+      document.querySelector('[data-action="project.gate.reject.open"]') as HTMLElement
+    );
     await waitFor(() => {
       expect(document.querySelector('[data-action="project.gate.reject.confirm"]')).not.toBeNull();
     });
-    fireEvent.click(document.querySelector('[data-action="project.gate.reject.confirm"]') as HTMLElement);
+    fireEvent.click(
+      document.querySelector('[data-action="project.gate.reject.confirm"]') as HTMLElement
+    );
     await waitFor(() => {
       expect(client.rejectGate).toHaveBeenCalledWith('run-gate', 'gate_a', 'Rejected by owner');
     });

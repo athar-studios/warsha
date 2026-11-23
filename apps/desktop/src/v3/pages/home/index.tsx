@@ -264,9 +264,9 @@ export function computeProjectStatus(
 
   if (latestRun.status === 'cancelled') {
     return {
-      status: 'paused',
+      status: 'cancelled',
       stageKey,
-      summaryKey: 'home.summary_failed',
+      summaryKey: 'home.summary_cancelled',
     };
   }
 
@@ -833,6 +833,7 @@ export default function HomePage(): React.ReactElement {
             waiting: t('home.status_waiting'),
             done: t('home.status_done'),
             failed: t('home.status_failed'),
+            cancelled: t('home.status_cancelled'),
             paused: t('home.status_paused'),
           };
           const latestRun = runs?.[0];
@@ -1206,7 +1207,7 @@ export default function HomePage(): React.ReactElement {
                     waiting: t('home.status_waiting'),
                     done: t('home.status_done'),
                     failed: t('home.status_failed'),
-                    cancelled: t('bench.status.cancelled'),
+                    cancelled: t('home.status_cancelled'),
                     paused: t('home.status_paused'),
                   };
 

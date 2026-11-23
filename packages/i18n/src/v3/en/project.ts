@@ -1,7 +1,7 @@
 export default {
   'project.title': 'Project',
   'project.empty': 'Project not found',
-  'project.empty_description': 'We couldn\'t find this project. It may have been deleted.',
+  'project.empty_description': "We couldn't find this project. It may have been deleted.",
   'project.loading': 'Loading project details…',
   'project.error_title': 'Failed to load project details',
   'project.retry': 'Retry',
@@ -63,5 +63,6 @@ export default {
   'project.status_waiting': 'Waiting',
   'project.status_done': 'Delivered',
   'project.status_failed': 'Failed',
+  'project.status_cancelled': 'Cancelled',
   'project.status_paused': 'Paused',
 };

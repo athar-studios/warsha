@@ -65,11 +65,7 @@ import {
 } from '../../data';
 import { useRoute } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
-import {
-  extractGateCode,
-  findPendingGateAtCurrentStage,
-  formatTime24,
-} from '../inbox/gateHelpers';
+import { extractGateCode, findPendingGateAtCurrentStage, formatTime24 } from '../inbox/gateHelpers';
 
 import SecretaryChat from './SecretaryChat';
 
@@ -97,7 +93,8 @@ export function computeRunStatusPill(
   if (!run) return 'idle';
   if (pendingGate || run.status === 'awaiting_gate') return 'waiting';
   if (run.status === 'completed') return 'done';
-  if (run.status === 'failed' || run.status === 'cancelled') return 'failed';
+  if (run.status === 'failed') return 'failed';
+  if (run.status === 'cancelled') return 'cancelled';
   if (run.status === 'paused') return 'paused';
   return 'running';
 }
@@ -110,7 +107,19 @@ export function buildSimpleStepperStages(
   const activeIndex = SIMPLE_STAGE_ORDER.indexOf(activeSimple);
 
   return SIMPLE_STAGE_ORDER.map((stageKey, index) => {
-    const label = t(getSimpleStageLabelKey(stageKey === 'qa' ? 'review_qa_security' : stageKey === 'delivery' ? 'release' : stageKey === 'build' ? 'code' : stageKey === 'plan' ? 'research' : 'idea'));
+    const label = t(
+      getSimpleStageLabelKey(
+        stageKey === 'qa'
+          ? 'review_qa_security'
+          : stageKey === 'delivery'
+            ? 'release'
+            : stageKey === 'build'
+              ? 'code'
+              : stageKey === 'plan'
+                ? 'research'
+                : 'idea'
+      )
+    );
     if (!run) {
       return { key: stageKey, label, state: index === 0 ? 'current' : 'todo' };
     }
@@ -240,14 +249,7 @@ export default function ProjectPage(): React.ReactElement {
     return () => {
       setReady(true);
     };
-  }, [
-    client,
-    projectResult.status,
-    runsResult.status,
-    gatesResult.status,
-    currentRun,
-    setReady,
-  ]);
+  }, [client, projectResult.status, runsResult.status, gatesResult.status, currentRun, setReady]);
 
   const pendingGate = useMemo(
     () => findPendingGateAtCurrentStage(gatesResult.data, currentRun),
@@ -341,10 +343,7 @@ export default function ProjectPage(): React.ReactElement {
     }
   });
 
-  const codeUrl = useMemo(
-    () => extractCodeUrl(artifactsResult.data),
-    [artifactsResult.data]
-  );
+  const codeUrl = useMemo(() => extractCodeUrl(artifactsResult.data), [artifactsResult.data]);
 
   const codeOpenAction = useAction('project.code.open', async () => {
     if (codeUrl && typeof window !== 'undefined') {
@@ -385,16 +384,30 @@ export default function ProjectPage(): React.ReactElement {
     setPermissionsSheetOpen(true);
   });
 
-  const savePermissionsAction = useAction('project.permissions.save', async (confinement: 'read-only' | 'workspace-write' | 'full-access', approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask') => {
-    if (!client || !projectId || !permissionsDraft) return;
-    const nextPerms = await client.setProjectPermissions(projectId as ProjectId, confinement, approvalMode);
-    setPermissionsDraft(nextPerms);
-    setPermissionsSheetOpen(false);
-  });
+  const savePermissionsAction = useAction(
+    'project.permissions.save',
+    async (
+      confinement: 'read-only' | 'workspace-write' | 'full-access',
+      approvalMode: 'ask-always' | 'ask-for-risky' | 'never-ask'
+    ) => {
+      if (!client || !projectId || !permissionsDraft) return;
+      const nextPerms = await client.setProjectPermissions(
+        projectId as ProjectId,
+        confinement,
+        approvalMode
+      );
+      setPermissionsDraft(nextPerms);
+      setPermissionsSheetOpen(false);
+    }
+  );
 
   const resetPermissionsAction = useAction('project.permissions.reset', async () => {
     if (!client || !projectId) return;
-    const nextPerms = await client.setProjectPermissions(projectId as ProjectId, undefined, undefined);
+    const nextPerms = await client.setProjectPermissions(
+      projectId as ProjectId,
+      undefined,
+      undefined
+    );
     setPermissionsDraft(nextPerms);
     setPermissionsSheetOpen(false);
   });
@@ -438,10 +451,7 @@ export default function ProjectPage(): React.ReactElement {
   });
 
   // Derived view data
-  const stepperStages = useMemo(
-    () => buildSimpleStepperStages(currentRun, t),
-    [currentRun, t]
-  );
+  const stepperStages = useMemo(() => buildSimpleStepperStages(currentRun, t), [currentRun, t]);
 
   const visibleEvents = useMemo<WarshaEvent[]>(() => {
     const raw = eventsResult.data ?? [];
@@ -492,6 +502,7 @@ export default function ProjectPage(): React.ReactElement {
     waiting: t('project.status_waiting'),
     done: t('project.status_done'),
     failed: t('project.status_failed'),
+    cancelled: t('project.status_cancelled'),
     paused: t('project.status_paused'),
   };
 
@@ -525,11 +536,7 @@ export default function ProjectPage(): React.ReactElement {
 
     return (
       <div className="v3-project-page" data-testid="project-error">
-        <Banner
-          variant="danger"
-          title={t('project.error_title')}
-          action={retryButton}
-        >
+        <Banner variant="danger" title={t('project.error_title')} action={retryButton}>
           {projectResult.error?.message ? (
             <bdi dir="auto">{projectResult.error.message}</bdi>
           ) : null}
@@ -542,10 +549,7 @@ export default function ProjectPage(): React.ReactElement {
   if (projectResult.status === 'empty' || !projectResult.data) {
     return (
       <div className="v3-project-page" data-testid="project-empty">
-        <EmptyState
-          title={t('project.empty')}
-          description={t('project.empty_description')}
-        />
+        <EmptyState title={t('project.empty')} description={t('project.empty_description')} />
       </div>
     );
   }
@@ -553,15 +557,13 @@ export default function ProjectPage(): React.ReactElement {
   const project = projectResult.data;
   const preview = previewResult.status === 'ready' ? previewResult.data : null;
   const isPreviewActive =
-    preview !== null &&
-    (preview.status === 'running' || preview.status === 'starting');
+    preview !== null && (preview.status === 'running' || preview.status === 'starting');
 
   const spentStr = formatBudgetUsd(budgetResult.data?.spentUsd);
   const totalStr = formatBudgetUsd(budgetResult.data?.totalBudgetUsd ?? 10);
 
   const isFailedOrCancelled =
-    currentRun !== null &&
-    (currentRun.status === 'failed' || currentRun.status === 'cancelled');
+    currentRun !== null && (currentRun.status === 'failed' || currentRun.status === 'cancelled');
 
   const restartButton = (
     <Button
@@ -593,9 +595,7 @@ export default function ProjectPage(): React.ReactElement {
               data-testid="project-status-pill"
             />
             {currentRun && currentRun.runMode && toRunModeChip(currentRun.runMode) !== 'agent' ? (
-              <RunModeChip
-                runMode={currentRun.runMode}
-              />
+              <RunModeChip runMode={currentRun.runMode} />
             ) : null}
           </div>
 
@@ -667,11 +667,7 @@ export default function ProjectPage(): React.ReactElement {
 
       {/* Failed / Cancelled Banner */}
       {isFailedOrCancelled && (
-        <Banner
-          variant="danger"
-          action={restartButton}
-          data-testid="project-run-ended-banner"
-        >
+        <Banner variant="danger" action={restartButton} data-testid="project-run-ended-banner">
           {currentRun.status === 'cancelled'
             ? t('project.run_cancelled_banner')
             : t('project.run_failed_banner')}
@@ -767,11 +763,7 @@ export default function ProjectPage(): React.ReactElement {
         aria-label={t('project.current_status')}
         data-testid="project-stepper-section"
       >
-        <Stepper
-          stages={stepperStages}
-          size="simple"
-          data-testid="project-stepper"
-        />
+        <Stepper stages={stepperStages} size="simple" data-testid="project-stepper" />
 
         <div className="v3-project-stage-sentence" data-testid="project-latest-sentence">
           {currentRun ? (
@@ -786,9 +778,7 @@ export default function ProjectPage(): React.ReactElement {
                   <span>·</span>
                   <span>{t(getEventKey(latestEvent.kind))}</span>
                   {extractEventSummary(latestEvent.payload) ? (
-                    <bdi dir="auto">
-                      ({extractEventSummary(latestEvent.payload)})
-                    </bdi>
+                    <bdi dir="auto">({extractEventSummary(latestEvent.payload)})</bdi>
                   ) : null}
                 </>
               ) : null}
@@ -808,18 +798,12 @@ export default function ProjectPage(): React.ReactElement {
               <h2 className="v3-project-card-title">{t('project.preview_title')}</h2>
               <StatusPill
                 status={isPreviewActive ? 'running' : 'idle'}
-                label={
-                  isPreviewActive
-                    ? t('project.status_running')
-                    : t('project.status_idle')
-                }
+                label={isPreviewActive ? t('project.status_running') : t('project.status_idle')}
               />
             </div>
 
             <div className="v3-project-meta-line">
-              {isPreviewActive
-                ? t('project.preview_running')
-                : t('project.preview_idle')}
+              {isPreviewActive ? t('project.preview_running') : t('project.preview_idle')}
             </div>
 
             <div className="v3-project-preview-actions">
@@ -981,7 +965,11 @@ export default function ProjectPage(): React.ReactElement {
         closeLabel={t('common.close')}
         data-testid="project-secretary-sheet"
       >
-        <SecretaryChat projectId={projectId as ProjectId | null} t={t} onConfirmed={() => setSecretarySheetOpen(false)} />
+        <SecretaryChat
+          projectId={projectId as ProjectId | null}
+          t={t}
+          onConfirmed={() => setSecretarySheetOpen(false)}
+        />
       </Sheet>
 
       {/* Tests Artifact Sheet */}
@@ -1055,28 +1043,60 @@ export default function ProjectPage(): React.ReactElement {
                 label={t('settings.permissions.confinement_label')}
                 options={[
                   { value: 'read-only', label: t('settings.permissions.confinement.read_only') },
-                  { value: 'workspace-write', label: t('settings.permissions.confinement.workspace_write') },
-                  { value: 'full-access', label: t('settings.permissions.confinement.full_access') },
+                  {
+                    value: 'workspace-write',
+                    label: t('settings.permissions.confinement.workspace_write'),
+                  },
+                  {
+                    value: 'full-access',
+                    label: t('settings.permissions.confinement.full_access'),
+                  },
                 ]}
                 value={permissionsDraft.confinement}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPermissionsDraft((prev: ProjectPermissions | null) => prev ? ({ ...prev, confinement: e.target.value as ProjectPermissions['confinement'] }) : null)}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                  setPermissionsDraft((prev: ProjectPermissions | null) =>
+                    prev
+                      ? {
+                          ...prev,
+                          confinement: e.target.value as ProjectPermissions['confinement'],
+                        }
+                      : null
+                  )
+                }
               />
               <Select
                 label={t('settings.permissions.approval_label')}
                 options={[
                   { value: 'ask-always', label: t('settings.permissions.approval.ask_always') },
-                  { value: 'ask-for-risky', label: t('settings.permissions.approval.ask_for_risky') },
+                  {
+                    value: 'ask-for-risky',
+                    label: t('settings.permissions.approval.ask_for_risky'),
+                  },
                   { value: 'never-ask', label: t('settings.permissions.approval.never_ask') },
                 ]}
                 value={permissionsDraft.approvalMode}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPermissionsDraft((prev: ProjectPermissions | null) => prev ? ({ ...prev, approvalMode: e.target.value as ProjectPermissions['approvalMode'] }) : null)}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                  setPermissionsDraft((prev: ProjectPermissions | null) =>
+                    prev
+                      ? {
+                          ...prev,
+                          approvalMode: e.target.value as ProjectPermissions['approvalMode'],
+                        }
+                      : null
+                  )
+                }
               />
               <div className="v3-project-dock-actions">
                 <Button
                   variant="primary"
                   data-action="project.permissions.save"
                   loading={savePermissionsAction.pending}
-                  onClick={() => void savePermissionsAction.run(permissionsDraft.confinement, permissionsDraft.approvalMode)}
+                  onClick={() =>
+                    void savePermissionsAction.run(
+                      permissionsDraft.confinement,
+                      permissionsDraft.approvalMode
+                    )
+                  }
                 >
                   {t('project.permissions.save')}
                 </Button>

@@ -2,7 +2,14 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { GateSummary, ProjectId, ProjectSummary, RunId, RunSummary, WarshaClient } from '@warsha/client';
+import type {
+  GateSummary,
+  ProjectId,
+  ProjectSummary,
+  RunId,
+  RunSummary,
+  WarshaClient,
+} from '@warsha/client';
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,11 +31,15 @@ function makeProject(id: string, name: string): ProjectSummary {
     name,
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
-
   };
 }
 
-function makeRun(id: string, projectId: string, stage: RunSummary['stage'], status: string): RunSummary {
+function makeRun(
+  id: string,
+  projectId: string,
+  stage: RunSummary['stage'],
+  status: string
+): RunSummary {
   return {
     id: id as RunId,
     projectId: projectId as ProjectId,
@@ -114,7 +125,10 @@ describe('countPendingGatesAtCurrentStage (amendment §5.5-b)', () => {
 
   it('returns 0 when gate at current stage is already approved or rejected', () => {
     const decided: GateSummary[] = [
-      { stage: 'gate_a', state: { state: 'approved', by: 'dev-1' as never, at: '2026-10-01T00:00:00Z' } },
+      {
+        stage: 'gate_a',
+        state: { state: 'approved', by: 'dev-1' as never, at: '2026-10-01T00:00:00Z' },
+      },
       { stage: 'gate_b', state: { state: 'pending' } },
     ];
     expect(countPendingGatesAtCurrentStage(decided, 'gate_a')).toBe(0);
@@ -130,14 +144,25 @@ describe('resolveProjectStatus', () => {
       makeRun('r1', 'p1', 'code', 'running'),
       makeRun('r2', 'p1', 'gate_a', 'awaiting_gate'),
     ];
-    expect(resolveProjectStatus(runs, t)).toEqual({ status: 'waiting', label: 'frame.status_waiting' });
+    expect(resolveProjectStatus(runs, t)).toEqual({
+      status: 'waiting',
+      label: 'frame.status_waiting',
+    });
   });
 
-  it('maps running, completed, failed, and paused states', () => {
-    expect(resolveProjectStatus([makeRun('r1', 'p1', 'code', 'running')], t).status).toBe('running');
-    expect(resolveProjectStatus([makeRun('r1', 'p1', 'feedback', 'completed')], t).status).toBe('done');
+  it('maps running, completed, failed, paused, and cancelled states (F4)', () => {
+    expect(resolveProjectStatus([makeRun('r1', 'p1', 'code', 'running')], t).status).toBe(
+      'running'
+    );
+    expect(resolveProjectStatus([makeRun('r1', 'p1', 'feedback', 'completed')], t).status).toBe(
+      'done'
+    );
     expect(resolveProjectStatus([makeRun('r1', 'p1', 'code', 'failed')], t).status).toBe('failed');
     expect(resolveProjectStatus([makeRun('r1', 'p1', 'code', 'paused')], t).status).toBe('paused');
+    expect(resolveProjectStatus([makeRun('r1', 'p1', 'code', 'cancelled')], t)).toEqual({
+      status: 'cancelled',
+      label: 'frame.status_cancelled',
+    });
   });
 });
 
@@ -209,10 +234,7 @@ describe('Frame component', () => {
 
   it('never displays raw UUIDs in ProjectSwitcher, supports switching, Escape close, and new project', async () => {
     const uuid = '123e4567-e89b-12d3-a456-426614174000';
-    const projects = [
-      makeProject(uuid, uuid),
-      makeProject('p-named', 'Furniture App'),
-    ];
+    const projects = [makeProject(uuid, uuid), makeProject('p-named', 'Furniture App')];
     const client = makeMockClient({
       listProjects: vi.fn().mockResolvedValue(projects),
       listRuns: vi.fn().mockResolvedValue([]),
@@ -230,7 +252,9 @@ describe('Frame component', () => {
     });
     expect(screen.queryByText(uuid)).toBeNull();
 
-    const trigger = container.querySelector('[data-action="frame.project.open"]') as HTMLButtonElement;
+    const trigger = container.querySelector(
+      '[data-action="frame.project.open"]'
+    ) as HTMLButtonElement;
     fireEvent.click(trigger);
     expect(screen.getByRole('listbox')).toBeDefined();
 
@@ -243,15 +267,44 @@ describe('Frame component', () => {
     const search = screen.getByPlaceholderText('Search projects');
     fireEvent.change(search, { target: { value: 'Furniture' } });
 
-    const option = container.querySelector('[data-action="frame.project.switch"]') as HTMLButtonElement;
+    const option = container.querySelector(
+      '[data-action="frame.project.switch"]'
+    ) as HTMLButtonElement;
     expect(option).not.toBeNull();
     fireEvent.click(option);
     expect(window.location.hash).toBe('#/p/p-named');
 
     fireEvent.click(trigger);
-    const newBtn = container.querySelector('[data-action="frame.project.new"]') as HTMLButtonElement;
+    const newBtn = container.querySelector(
+      '[data-action="frame.project.new"]'
+    ) as HTMLButtonElement;
     fireEvent.click(newBtn);
     expect(window.location.hash).toBe('#/');
+  });
+
+  it('renders distinct cancelled status pill in ProjectSwitcher trigger for cancelled run (F4)', async () => {
+    const projects = [makeProject('proj-c', 'Cancelled Project')];
+    const client = makeMockClient({
+      listProjects: vi.fn().mockResolvedValue(projects),
+      listRuns: vi.fn().mockResolvedValue([makeRun('run-c', 'proj-c', 'code', 'cancelled')]),
+    });
+
+    const { container } = await renderFrame({
+      client,
+      initialPath: '/p/proj-c',
+      locale: 'ar',
+      children: <div>body</div>,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cancelled Project')).toBeDefined();
+    });
+
+    const trigger = container.querySelector('[data-action="frame.project.open"]');
+    expect(trigger).not.toBeNull();
+    const pill = trigger?.querySelector('[data-status="cancelled"]');
+    expect(pill).not.toBeNull();
+    expect(pill?.textContent).toContain('ملغاة');
   });
 
   it('switches between simple and advanced modes, persists app_mode via Tauri invoke, and supports arrows', async () => {
@@ -269,14 +322,17 @@ describe('Frame component', () => {
     const root = container.querySelector('.v3-frame-root');
     expect(root?.getAttribute('data-density')).toBe('comfortable');
 
-    const advBtn = container.querySelector('[data-action="frame.mode.advanced"]') as HTMLButtonElement;
+    const advBtn = container.querySelector(
+      '[data-action="frame.mode.advanced"]'
+    ) as HTMLButtonElement;
     fireEvent.click(advBtn);
     expect(root?.getAttribute('data-density')).toBe('compact');
     expect(advBtn.getAttribute('aria-checked')).toBe('true');
 
     expect(
       invokeCalls.some(
-        (c) => c.cmd === 'set_config' && c.args?.key === 'app_mode' && c.args?.value === 'developers'
+        (c) =>
+          c.cmd === 'set_config' && c.args?.key === 'app_mode' && c.args?.value === 'developers'
       )
     ).toBe(true);
 
@@ -314,7 +370,9 @@ describe('Frame component', () => {
       expect(screen.getByText('Cannot reach Warsha daemon — retry')).toBeDefined();
     });
 
-    const retryBtn = container.querySelector('[data-action="frame.daemon.retry"]') as HTMLButtonElement;
+    const retryBtn = container.querySelector(
+      '[data-action="frame.daemon.retry"]'
+    ) as HTMLButtonElement;
 
     // First retry fails -> error toast rendered via ToastProvider
     await act(async () => {
@@ -344,7 +402,9 @@ describe('Frame component', () => {
       expect(screen.getByText('Cannot reach Warsha daemon — retry')).toBeDefined();
     });
 
-    const retryBtn = container.querySelector('[data-action="frame.daemon.retry"]') as HTMLButtonElement;
+    const retryBtn = container.querySelector(
+      '[data-action="frame.daemon.retry"]'
+    ) as HTMLButtonElement;
     expect(retryBtn).not.toBeNull();
 
     await act(async () => {
@@ -353,7 +413,9 @@ describe('Frame component', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getAllByText('Cannot reach Warsha daemon — retry').length).toBeGreaterThanOrEqual(1);
+      expect(
+        screen.getAllByText('Cannot reach Warsha daemon — retry').length
+      ).toBeGreaterThanOrEqual(1);
       expect(container.querySelector('.v3-frame-banner')).not.toBeNull();
     });
   });
@@ -377,11 +439,15 @@ describe('Frame component', () => {
     fireEvent.click(skip);
     expect(document.activeElement).toBe(main);
 
-    const inboxBtn = container.querySelector('[data-action="frame.inbox.open"]') as HTMLButtonElement;
+    const inboxBtn = container.querySelector(
+      '[data-action="frame.inbox.open"]'
+    ) as HTMLButtonElement;
     fireEvent.click(inboxBtn);
     expect(window.location.hash).toBe('#/inbox');
 
-    const settingsBtn = container.querySelector('[data-action="frame.settings.open"]') as HTMLButtonElement;
+    const settingsBtn = container.querySelector(
+      '[data-action="frame.settings.open"]'
+    ) as HTMLButtonElement;
     fireEvent.click(settingsBtn);
     expect(window.location.hash).toBe('#/settings/general');
   });
@@ -389,19 +455,25 @@ describe('Frame component', () => {
   it('navigates to mode routes when mode tabs are clicked (G2/N4)', async () => {
     const { container } = await renderFrame({ locale: 'ar', initialPath: '/' });
 
-    const factoryBtn = container.querySelector('[data-action="frame.mode.factory"]') as HTMLButtonElement;
+    const factoryBtn = container.querySelector(
+      '[data-action="frame.mode.factory"]'
+    ) as HTMLButtonElement;
     expect(factoryBtn).not.toBeNull();
     fireEvent.click(factoryBtn);
     expect(window.location.hash).toBe('#/factory');
     expect(factoryBtn.getAttribute('aria-checked')).toBe('true');
 
-    const advBtn = container.querySelector('[data-action="frame.mode.advanced"]') as HTMLButtonElement;
+    const advBtn = container.querySelector(
+      '[data-action="frame.mode.advanced"]'
+    ) as HTMLButtonElement;
     expect(advBtn).not.toBeNull();
     fireEvent.click(advBtn);
     expect(window.location.hash).toBe('#/developers');
     expect(advBtn.getAttribute('aria-checked')).toBe('true');
 
-    const simpleBtn = container.querySelector('[data-action="frame.mode.simple"]') as HTMLButtonElement;
+    const simpleBtn = container.querySelector(
+      '[data-action="frame.mode.simple"]'
+    ) as HTMLButtonElement;
     expect(simpleBtn).not.toBeNull();
     fireEvent.click(simpleBtn);
     expect(window.location.hash).toBe('#/');
@@ -413,7 +485,9 @@ describe('Frame component', () => {
     const { container } = await renderFrame({ locale: 'ar', initialPath: '/p/proj-run-view' });
     expect(window.location.hash).toBe('#/p/proj-run-view');
 
-    const simpleBtn = container.querySelector('[data-action="frame.mode.simple"]') as HTMLButtonElement;
+    const simpleBtn = container.querySelector(
+      '[data-action="frame.mode.simple"]'
+    ) as HTMLButtonElement;
     expect(simpleBtn).not.toBeNull();
     fireEvent.click(simpleBtn);
     expect(window.location.hash).toBe('#/');
@@ -437,9 +511,15 @@ describe('Frame component', () => {
   it('supports keyboard navigation cycling through modes with consistent data-actions', async () => {
     const { container } = await renderFrame({ locale: 'en', initialPath: '/' });
 
-    const simpleBtn = container.querySelector('[data-action="frame.mode.simple"]') as HTMLButtonElement;
-    const factoryBtn = container.querySelector('[data-action="frame.mode.factory"]') as HTMLButtonElement;
-    const advBtn = container.querySelector('[data-action="frame.mode.advanced"]') as HTMLButtonElement;
+    const simpleBtn = container.querySelector(
+      '[data-action="frame.mode.simple"]'
+    ) as HTMLButtonElement;
+    const factoryBtn = container.querySelector(
+      '[data-action="frame.mode.factory"]'
+    ) as HTMLButtonElement;
+    const advBtn = container.querySelector(
+      '[data-action="frame.mode.advanced"]'
+    ) as HTMLButtonElement;
 
     expect(simpleBtn).not.toBeNull();
     expect(factoryBtn).not.toBeNull();
@@ -462,7 +542,9 @@ describe('Frame component', () => {
 
   it('syncs mode when route changes to a mode-specific area', async () => {
     const { container } = await renderFrame({ locale: 'ar', initialPath: '/factory' });
-    const factoryBtn = container.querySelector('[data-action="frame.mode.factory"]') as HTMLButtonElement;
+    const factoryBtn = container.querySelector(
+      '[data-action="frame.mode.factory"]'
+    ) as HTMLButtonElement;
     await waitFor(() => {
       expect(factoryBtn.getAttribute('aria-checked')).toBe('true');
     });
@@ -502,10 +584,7 @@ describe('Frame component', () => {
         if (listProjectsCalls === 1) {
           return [];
         }
-        return [
-          makeProject('p1', 'Alpha Project'),
-          makeProject('p2', 'Beta Project'),
-        ];
+        return [makeProject('p1', 'Alpha Project'), makeProject('p2', 'Beta Project')];
       }),
       listProviders: vi.fn().mockResolvedValue([]),
       listPreferences: vi.fn().mockResolvedValue([]),
@@ -539,7 +618,9 @@ describe('Frame component', () => {
 
     // Initial state: projects.list returned empty array, chooser shows no projects
     expect(listProjectsCalls).toBe(1);
-    const trigger = container.querySelector('[data-action="frame.project.open"]') as HTMLButtonElement;
+    const trigger = container.querySelector(
+      '[data-action="frame.project.open"]'
+    ) as HTMLButtonElement;
     expect(trigger).not.toBeNull();
     fireEvent.click(trigger);
     expect(screen.getByText('No projects found')).toBeDefined();

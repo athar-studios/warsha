@@ -63,5 +63,6 @@ export default {
   'project.status_waiting': 'ينتظرك',
   'project.status_done': 'سُلِّم',
   'project.status_failed': 'تعثّر',
+  'project.status_cancelled': 'ملغاة',
   'project.status_paused': 'متوقّف',
 };

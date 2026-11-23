@@ -21,6 +21,7 @@ export default {
   'frame.status_waiting': 'ينتظرك',
   'frame.status_done': 'انتهى',
   'frame.status_failed': 'تعثّر',
+  'frame.status_cancelled': 'ملغاة',
   'frame.status_paused': 'متوقّف',
   'frame.quota_gauge_label': 'مقياس حصص المزوّدين',
   'frame.quota_gauge_none': 'لا نعرف حصة أي مزوّد بعد',
