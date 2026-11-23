@@ -582,6 +582,29 @@ pub struct RoutingTarget {
     pub weight: u32,
 }
 
+/// Match paths that belong to internal `.warsha` directories or `.warsha` files
+/// at the root of the worktree, without matching valid project files that share
+/// a prefix like `.warsha-config.json` or nested directories like `docs/.warsha/notes.md`.
+///
+/// Leading current-dir (`.`), root-dir (`/`), and prefix components (e.g. `C:`)
+/// are skipped so repo-relative (`docs/.warsha/x` -> false) and root-anchored
+/// (`/.warsha/x` -> true) paths resolve against the first normal component.
+/// Callers pass repo-relative `git status` paths; a full absolute path such as
+/// `/tmp/repo/.warsha/x` evaluates its first component (`tmp`) and returns false.
+pub fn is_warsha_internal_path(path: &str) -> bool {
+    let clean = path.trim().trim_matches('"');
+    for c in std::path::Path::new(clean).components() {
+        match c {
+            std::path::Component::CurDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => continue,
+            std::path::Component::Normal(name) => return name == ".warsha",
+            _ => return false,
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
@@ -723,5 +746,20 @@ mod tests {
             cost_cents: None,
         };
         assert_eq!(usage.total, usage.input + usage.output);
+    }
+
+    #[test]
+    fn test_is_warsha_internal_path() {
+        assert!(is_warsha_internal_path(".warsha"));
+        assert!(is_warsha_internal_path(".warsha/cli.log"));
+        assert!(is_warsha_internal_path("./.warsha/cli.log"));
+        assert!(is_warsha_internal_path("/.warsha/cli.log"));
+        assert!(is_warsha_internal_path("\".warsha/cli.log\""));
+        assert!(!is_warsha_internal_path(".warsha-config.json"));
+        assert!(!is_warsha_internal_path("docs/.warsha/notes.md"));
+        assert!(!is_warsha_internal_path("./docs/.warsha/notes.md"));
+        assert!(!is_warsha_internal_path("/docs/.warsha/notes.md"));
+        assert!(!is_warsha_internal_path("sub/.warsha"));
+        assert!(!is_warsha_internal_path(""));
     }
 }
