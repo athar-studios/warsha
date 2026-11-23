@@ -55,10 +55,7 @@ export function useRunEvents(
 
     const pollOrSubscribe = async () => {
       try {
-        const sync: RunStreamSync = await client.subscribeRun(
-          runId as RunId,
-          cursorRef.current
-        );
+        const sync: RunStreamSync = await client.subscribeRun(runId as RunId, cursorRef.current);
 
         if (!active) return;
 
