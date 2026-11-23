@@ -130,13 +130,19 @@ pub async fn remove_run_worktree(repo: &Path, worktree: &RunWorktree) -> Result<
     Ok(())
 }
 
-/// Match paths that belong to internal `.warsha` directories or `.warsha` files,
-/// without matching valid project files that share a prefix like `.warsha-config.json`.
+/// Match paths that belong to internal `.warsha` directories or `.warsha` files
+/// at the root of the worktree, without matching valid project files that share
+/// a prefix like `.warsha-config.json` or nested directories like `docs/.warsha/notes.md`.
 pub fn is_warsha_internal_path(path: &str) -> bool {
     let clean = path.trim().trim_matches('"');
-    std::path::Path::new(clean)
-        .components()
-        .any(|c| c.as_os_str() == ".warsha")
+    for c in std::path::Path::new(clean).components() {
+        match c {
+            std::path::Component::CurDir => continue,
+            std::path::Component::Normal(name) => return name == ".warsha",
+            _ => return false,
+        }
+    }
+    false
 }
 
 pub async fn commit_run_worktree(worktree_path: &Path, message: &str) -> Result<()> {
@@ -805,5 +811,96 @@ mod e3 {
             diff_str.contains(".warsha-config.json"),
             ".warsha-config.json must be committed in HEAD, got: {diff_str}"
         );
+    }
+
+    #[tokio::test]
+    async fn nested_docs_warsha_notes_is_committed_and_tracked_in_dirty_set() {
+        let repo = tempfile::tempdir().expect("repo dir");
+        let repo_path = repo.path();
+        std::fs::write(repo_path.join("base.txt"), "base").expect("base file");
+        let docs_dir = repo_path.join("docs");
+        std::fs::create_dir_all(&docs_dir).expect("create docs");
+        std::fs::write(docs_dir.join("guide.md"), "# Guide\n").expect("write guide");
+        git_repo(repo_path);
+
+        // Create nested docs/.warsha/notes.md and root .warsha/cli.log
+        let docs_warsha = docs_dir.join(".warsha");
+        std::fs::create_dir_all(&docs_warsha).expect("create docs/.warsha");
+        std::fs::write(docs_warsha.join("notes.md"), "# Notes\n").expect("write notes");
+
+        let root_warsha = repo_path.join(".warsha");
+        std::fs::create_dir_all(&root_warsha).expect("create root .warsha");
+        std::fs::write(root_warsha.join("cli.log"), "internal log\n").expect("write cli.log");
+
+        // dirty_set must include docs/.warsha/ and exclude root .warsha/
+        let dirty = dirty_set(repo_path).await.expect("dirty_set succeeds");
+        assert!(
+            dirty.iter().any(|d| d.contains("docs/.warsha")),
+            "dirty_set must include docs/.warsha, got: {dirty:?}"
+        );
+        assert!(
+            !dirty
+                .iter()
+                .any(|d| d.contains(".warsha/cli.log") || d.trim() == "?? .warsha/"),
+            "dirty_set must not include root .warsha, got: {dirty:?}"
+        );
+
+        // commit_run_worktree must commit docs/.warsha/notes.md and exclude root .warsha/cli.log
+        commit_run_worktree(repo_path, "commit nested docs warsha")
+            .await
+            .expect("commit succeeds");
+
+        let diff = Command::new("git")
+            .current_dir(repo_path)
+            .args(["diff", "HEAD~1", "HEAD", "--name-only"])
+            .output()
+            .expect("git diff");
+        let diff_str = String::from_utf8_lossy(&diff.stdout);
+        assert!(
+            diff_str.contains("docs/.warsha/notes.md"),
+            "docs/.warsha/notes.md must be committed in HEAD, got: {diff_str}"
+        );
+        assert!(
+            !diff_str.contains(".warsha/cli.log"),
+            "root .warsha/cli.log must NOT be committed in HEAD, got: {diff_str}"
+        );
+
+        let tree = Command::new("git")
+            .current_dir(repo_path)
+            .args(["ls-tree", "-r", "--name-only", "HEAD"])
+            .output()
+            .expect("git ls-tree");
+        let tree_str = String::from_utf8_lossy(&tree.stdout);
+        assert!(
+            tree_str.contains("docs/.warsha/notes.md"),
+            "HEAD commit tree must contain docs/.warsha/notes.md: {tree_str}"
+        );
+        assert!(
+            !tree_str.contains(".warsha/cli.log"),
+            "HEAD commit tree must not contain .warsha/cli.log: {tree_str}"
+        );
+
+        // Now modify docs/.warsha/notes.md - dirty_set must track exact file
+        std::fs::write(docs_warsha.join("notes.md"), "# Notes edited\n").expect("edit notes");
+        let dirty_after_edit = dirty_set(repo_path).await.expect("dirty_set succeeds");
+        assert!(
+            dirty_after_edit
+                .iter()
+                .any(|d| d.contains("docs/.warsha/notes.md")),
+            "dirty_set after edit must include docs/.warsha/notes.md, got: {dirty_after_edit:?}"
+        );
+    }
+
+    #[test]
+    fn test_is_warsha_internal_path_root_only() {
+        assert!(is_warsha_internal_path(".warsha"));
+        assert!(is_warsha_internal_path(".warsha/cli.log"));
+        assert!(is_warsha_internal_path("./.warsha/cli.log"));
+        assert!(is_warsha_internal_path("\".warsha/cli.log\""));
+        assert!(!is_warsha_internal_path(".warsha-config.json"));
+        assert!(!is_warsha_internal_path("docs/.warsha/notes.md"));
+        assert!(!is_warsha_internal_path("./docs/.warsha/notes.md"));
+        assert!(!is_warsha_internal_path("sub/.warsha"));
+        assert!(!is_warsha_internal_path(""));
     }
 }
