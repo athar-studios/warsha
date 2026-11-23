@@ -1,5 +1,19 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 13 Flake-Class Fix (ETXTBSY atomic publish + review correction, D-R13-FLAKE-2)
+- **Tip**: `r-next/integration` at `0caf6c0` (local-only: no push, no tag, no publish, `main` untouched).
+- **Fix**: atomic temp-sibling + rename publish in both `fake_cli` copies; targeted ETXTBSY retries kept (busy-signature only); production `check_cli_health` gains `.kill_on_drop(true)`; timeout test rewritten to absolute-path blocking shim via `tempfile::tempdir()` (no PATH mutation); missing `#[cfg(unix)]` added.
+- **Independent review**: CHANGES REQUESTED (2 HIGH: child leak, PATH mutation; MEDIUM: cfg(unix)) → correction applied in-tree.
+- **Verification & Gates**:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0
+  - `cargo test -p warsha-backends --lib`: 47/0 x6 sweeps (plus 4x post-correction)
+  - `cargo test --workspace --lib`: 47+3+16+35+13+597+71+20+34+27+327 green
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures
+  - `node scripts/check-versions.mjs`: aligned 0.3.1; `check-arch.mjs`: 5/0; `check-wire-contract.mjs`: 11/0
+  - `actions-gate.mjs`: 201/201/1 (pre-existing A6 factory.retry); `i18n-gate.mjs`: 1102 keys, 19 pre-existing Latin violations
+- **Status**: FIXES COMPLETE — round-13 flake class closed at `0caf6c0`.
+
 ## Run 2026-11-23 — Round 13 Lane Residuals Fixes (N5/N8/N9 + F13 coverage gaps, D-R13-RESIDUAL-1)
 - **Worktree**: `.agents/worktrees/fix-r13-residuals` on `r-next/integration` (detached HEAD at `7665343`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Addressed Residuals**:
