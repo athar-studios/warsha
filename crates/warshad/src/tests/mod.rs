@@ -4737,6 +4737,136 @@ mod runs_start_budget {
     }
 
     #[tokio::test]
+    async fn fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let repo_dir = crate::test_util::fresh_tempdir();
+        std::fs::write(repo_dir.path().join("base.txt"), "base").expect("base file");
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+            vec!["add", "."],
+            vec!["commit", "-qm", "base"],
+        ] {
+            let status = std::process::Command::new("git")
+                .current_dir(repo_dir.path())
+                .args(&args)
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?} failed");
+        }
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Fallback Cleanup Proving Project".to_string(),
+                "Testing fallback cleanup arm".to_string(),
+                "en".to_string(),
+                None,
+                None,
+                Some(repo_dir.path().to_str().expect("utf8 path").to_string()),
+            )
+            .await
+            .expect("project created");
+
+        let run_id = RunId::new();
+        let worktrees_root = crate::test_util::fresh_tempdir();
+        let worktree = warsha_pipeline::create_run_worktree(
+            repo_dir.path(),
+            worktrees_root.path(),
+            &run_id.0.to_string(),
+            "HEAD",
+        )
+        .await
+        .expect("worktree created");
+
+        let branch_name = format!("warsha/run-{}", run_id.0);
+
+        assert!(worktree.path.exists());
+        let list_out = std::process::Command::new("git")
+            .current_dir(repo_dir.path())
+            .args(["worktree", "list", "--porcelain"])
+            .output()
+            .expect("worktree list");
+        assert!(String::from_utf8_lossy(&list_out.stdout)
+            .contains(&worktree.path.to_string_lossy().to_string()));
+
+        let branch_out = std::process::Command::new("git")
+            .current_dir(repo_dir.path())
+            .args(["branch", "--list", &branch_name])
+            .output()
+            .expect("branch list");
+        assert!(String::from_utf8_lossy(&branch_out.stdout).contains(&branch_name));
+
+        let run = Run {
+            id: run_id,
+            project_id: project.id,
+            current_stage: Stage::Idea,
+            gate_states: HashMap::new(),
+            artifacts: HashMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            status: RunStatus::Running,
+            budget_cents: None,
+            spent_cents: 0,
+            worktree_path: Some(worktree.path.to_string_lossy().to_string()),
+            worktree_branch: Some(branch_name.clone()),
+            confinement: None,
+            run_mode: warsha_core::RunMode::Agent,
+        };
+        store.create_run(&run).await.expect("run created");
+
+        // Explicitly assert state.run_worktrees map entry is missing
+        assert!(!state.run_worktrees.read().await.contains_key(&run_id));
+
+        // Inject budget update failure
+        sqlx::query(
+            "CREATE TRIGGER fail_budget_update_fallback BEFORE UPDATE OF budget_cents ON runs \
+             BEGIN SELECT RAISE(ABORT, 'injected budget persistence failure'); END;",
+        )
+        .execute(store.pool())
+        .await
+        .expect("trigger created");
+
+        let res = crate::apply_start_budget(&state, project.id, run, Some(500)).await;
+        assert!(res.is_err(), "apply_start_budget must fail");
+
+        // 1. Directory removed
+        assert!(
+            !worktree.path.exists(),
+            "worktree directory must be removed in fallback arm"
+        );
+
+        // 2. Worktree deregistered
+        let list_after = std::process::Command::new("git")
+            .current_dir(repo_dir.path())
+            .args(["worktree", "list", "--porcelain"])
+            .output()
+            .expect("worktree list");
+        let list_str = String::from_utf8_lossy(&list_after.stdout);
+        assert!(
+            !list_str.contains(&worktree.path.to_string_lossy().to_string()),
+            "worktree must be deregistered from git"
+        );
+
+        // 3. Run branch deleted
+        let branch_after = std::process::Command::new("git")
+            .current_dir(repo_dir.path())
+            .args(["branch", "--list", &branch_name])
+            .output()
+            .expect("branch list");
+        let branch_str = String::from_utf8_lossy(&branch_after.stdout);
+        assert!(
+            branch_str.trim().is_empty(),
+            "run branch must be deleted in fallback arm"
+        );
+    }
+
+    #[tokio::test]
     async fn explicit_budget_on_runs_start_lifts_project_exhaustion() {
         let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
