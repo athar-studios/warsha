@@ -717,13 +717,21 @@ impl CodingBackend for CliBackend {
 
 const WARSHA_MANAGED_MARKER: &str = "# warsha-managed";
 
+/// Check if a line is an exact exclusion entry written by Warsha itself.
+fn is_warsha_managed_entry(trimmed: &str) -> bool {
+    trimmed == "/.warsha/" || trimmed == "/.warsha"
+}
+
 /// Compute updated exclude content if necessary.
-/// Preserves EVERY line byte-for-byte unless it is provably Warsha's legacy line
-/// (under `# warsha-managed`). Appends `# warsha-managed`, `/.warsha/`, and `/.warsha`
-/// only when absent.
+/// Preserves EVERY line byte-for-byte unless it is an exact Warsha-managed entry.
+/// The Warsha-managed block starts with `# warsha-managed` and contains only the
+/// exact entries Warsha writes (`/.warsha/` and `/.warsha`). Any other line
+/// (bare `.warsha`, `.warsha/**`, comments, blank lines, or paths like `/.warsha-backup`)
+/// deterministically ends the managed block and is preserved.
+/// Appends `# warsha-managed`, `/.warsha/`, and `/.warsha` only when absent.
+/// Preserves CRLF line endings if present in existing content.
 fn compute_updated_exclude(existing: &str) -> Option<String> {
     let mut in_warsha_block = false;
-    let mut migrated_any = false;
     let mut has_warsha_block = false;
     let mut out_lines: Vec<String> = Vec::new();
 
@@ -737,17 +745,12 @@ fn compute_updated_exclude(existing: &str) -> Option<String> {
         }
 
         if in_warsha_block {
-            // A blank line, another comment, or a non-warsha entry ends the warsha block
-            if trimmed.is_empty()
-                || (trimmed.starts_with('#') && trimmed != WARSHA_MANAGED_MARKER)
-                || !trimmed.contains("warsha")
-            {
-                in_warsha_block = false;
+            if is_warsha_managed_entry(trimmed) {
                 out_lines.push(line.to_string());
-            } else if trimmed == ".warsha" || trimmed == ".warsha/" || trimmed == ".warsha/**" {
-                // Provably Warsha-written legacy bare line under the marker: migrate to anchored
-                migrated_any = true;
             } else {
+                // Any line other than Warsha's own exact entries deterministically
+                // ends the managed block and is preserved.
+                in_warsha_block = false;
                 out_lines.push(line.to_string());
             }
         } else {
@@ -765,7 +768,7 @@ fn compute_updated_exclude(existing: &str) -> Option<String> {
         t == "/.warsha"
     });
 
-    if !migrated_any && has_anchored_dir && has_anchored_file {
+    if has_anchored_dir && has_anchored_file {
         return None;
     }
 
@@ -776,7 +779,7 @@ fn compute_updated_exclude(existing: &str) -> Option<String> {
         {
             let mut insert_pos = pos + 1;
             while insert_pos < out_lines.len()
-                && out_lines[insert_pos].trim().starts_with("/.warsha")
+                && is_warsha_managed_entry(out_lines[insert_pos].trim())
             {
                 insert_pos += 1;
             }
@@ -798,8 +801,13 @@ fn compute_updated_exclude(existing: &str) -> Option<String> {
         }
     }
 
-    let mut result = out_lines.join("\n");
-    result.push('\n');
+    let newline = if existing.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut result = out_lines.join(newline);
+    result.push_str(newline);
     Some(result)
 }
 
@@ -2342,11 +2350,32 @@ mod tests {
             let already = "/.warsha/\n/.warsha\n";
             assert!(compute_updated_exclude(already).is_none());
 
-            // Case 4: legacy migration under marker only
-            let legacy = "user_line\n# warsha-managed\n.warsha\n.warsha/\nuser_line_2\n";
-            let out = compute_updated_exclude(legacy).expect("updates legacy");
-            assert!(out.contains("user_line\n# warsha-managed\n/.warsha/\n/.warsha\nuser_line_2\n"));
+            // Case 4: user bare .warsha and .warsha/** immediately after warsha-managed entries survive
+            let with_user_after = "# warsha-managed\n/.warsha/\n/.warsha\n.warsha\n.warsha/**\n";
+            assert!(
+                compute_updated_exclude(with_user_after).is_none(),
+                "user bare .warsha immediately after warsha entries must survive without update"
+            );
+
+            // Case 5: user lines (bare .warsha and /.warsha-backup) preserved when inserting missing line into managed block
+            let incomplete_with_user = "# warsha-managed\n/.warsha/\n.warsha\n/.warsha-backup\n";
+            let out =
+                compute_updated_exclude(incomplete_with_user).expect("inserts missing /.warsha");
+            assert_eq!(
+                out,
+                "# warsha-managed\n/.warsha/\n/.warsha\n.warsha\n/.warsha-backup\n",
+                "missing /.warsha inserted before user lines; user .warsha and /.warsha-backup preserved"
+            );
             assert!(compute_updated_exclude(&out).is_none());
+
+            // Case 6: CRLF preservation
+            let crlf_input = "# comment\r\n/target/\r\n";
+            let crlf_out = compute_updated_exclude(crlf_input).expect("updates crlf");
+            assert_eq!(
+                crlf_out,
+                "# comment\r\n/target/\r\n# warsha-managed\r\n/.warsha/\r\n/.warsha\r\n"
+            );
+            assert!(compute_updated_exclude(&crlf_out).is_none());
         }
 
         #[cfg(unix)]
@@ -2429,6 +2458,56 @@ mod tests {
             assert_eq!(
                 content, content_after,
                 "ensure_git_exclude via CliBackend::execute must be idempotent"
+            );
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn test_ensure_git_exclude_preserves_user_warsha_immediately_after_managed_block() {
+            let temp = tempfile::tempdir().expect("temp dir");
+            let bin_dir = tempfile::tempdir().expect("bin dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("base file");
+            git_repo(temp.path());
+
+            let exclude_dir = temp.path().join(".git/info");
+            std::fs::create_dir_all(&exclude_dir).expect("create info dir");
+            let exclude_file = exclude_dir.join("exclude");
+
+            // User appended bare .warsha immediately after the Warsha block
+            let initial_content = "# warsha-managed\n/.warsha/\n/.warsha\n.warsha\n";
+            std::fs::write(&exclude_file, initial_content).expect("write exclude");
+
+            let cli = fake_cli(
+                bin_dir.path(),
+                "echo 'working...'\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let mut attempts = 0;
+            let result = loop {
+                match backend
+                    .execute(task("Inspect", "Check user .warsha survival"), &sandbox)
+                    .await
+                {
+                    Ok(res) => break res,
+                    Err(e)
+                        if attempts < 5
+                            && (e.to_string().contains("Text file busy")
+                                || e.to_string().contains("os error 26")) =>
+                    {
+                        attempts += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                    Err(e) => panic!("fake CLI execution failed: {e}"),
+                }
+            };
+            assert!(result.success);
+
+            let content = std::fs::read_to_string(&exclude_file).expect("read exclude");
+            assert_eq!(
+                content, initial_content,
+                "user bare .warsha immediately after Warsha entries must survive untouched"
             );
         }
     }
