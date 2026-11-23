@@ -1,25 +1,34 @@
 # PROGRESS.md — Warsha Build Log
 
-## Run 2026-11-23 — Round 16 Lane Fixes (F1 Blocker, LOW-1..LOW-5, D-R16-*)
-- **Worktree**: `.agents/worktrees/fix-r16-exclude` on `r-next/integration` (base `7b2c132`). Local-only: no push, no tag, no publish, `main` untouched.
+## Run 2026-11-23 — Round 16 Lane Fixes & Reviewer Findings Correction
+- **Worktree**: `.agents/worktrees/fix-r16-exclude` on `r-next/integration` (base `7b2c132`, branch `fix-r16-exclude`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Addressed items**:
   - **F1 Blocker (ensure_git_exclude user line preservation, D-R16-F1-1)**:
-    - In `crates/warsha-backends/src/lib.rs:721-795` (`ensure_git_exclude`), stopped deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with `# warsha-managed` marker comment followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent.
+    - In `crates/warsha-backends/src/lib.rs:718-806` (`compute_updated_exclude`) and `814-858` (`ensure_git_exclude`), stopped deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with `# warsha-managed` marker comment followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent.
     - Preserves every other line byte-for-byte, including user bare `.warsha`, `.warsha/**`, comments, and arbitrary paths.
     - Migrates legacy bare `.warsha` lines only when provably Warsha's (directly under `# warsha-managed`).
     - Maintained atomic write via `.exclude.tmp.<pid>.<ulid>`, `sync_all()`, and `rename`.
-    - Proving test rewritten at `crates/warsha-backends/src/lib.rs:2259` (`test_ensure_git_exclude_atomic_and_preserves_user_lines`): runs production path via `CliBackend::execute` in a git repo with `# comment`, `/target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp`. Verified to fail on baseline `7b2c132` (assertion failed: `lines.contains(&".warsha")`) and pass at tip.
-    - Added unit test `test_compute_updated_exclude` in `crates/warsha-backends/src/lib.rs` verifying empty exclude, line preservation, and marker migration.
+    - Proving test rewritten at `crates/warsha-backends/src/lib.rs:2381` (`test_ensure_git_exclude_atomic_and_preserves_user_lines`): runs production path via `CliBackend::execute` in a git repo with `# comment`, `/target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp`. Verified to fail on baseline `7b2c132` (assertion failed: `lines.contains(&".warsha")`) and pass at tip.
+    - Added unit test `test_compute_updated_exclude` in `crates/warsha-backends/src/lib.rs:2333` verifying empty exclude, line preservation, and marker migration.
     - Appended correction note to `D-R15-N13-1-2` in `DECISIONS.md`.
+  - **Reviewer Findings Correction (HIGH, MEDIUM, LOWs)**:
+    - **HIGH (Deterministic block-end in compute_updated_exclude)**: A user bare `.warsha` appended directly after the Warsha-managed block is no longer treated as Warsha-owned. Warsha-managed block ends deterministically: only the exact lines Warsha writes (`/.warsha/` and `/.warsha`) belong in-block (`is_warsha_managed_entry`). Anything else (bare `.warsha`, `.warsha/**`, comments, blank lines, `/.warsha-backup`) ends the block and is preserved byte-for-byte.
+    - Added regression test `test_ensure_git_exclude_preserves_user_warsha_immediately_after_managed_block` (`crates/warsha-backends/src/lib.rs:2470`) verifying user `.warsha` immediately after Warsha entries survives intact on production path.
+    - **MEDIUM (Fallback worktree branch cleanup hint, D-R16-MED-1)**: In `crates/warshad/src/lib.rs:261-315` (`apply_start_budget`), when `remove_run_worktree`'s porcelain lookup yields None (e.g. worktree already detached or porcelain entry missing), use `run.worktree_branch` as a branch-deletion hint via `delete_branch_hint`. Guarded by `branch.starts_with("warsha/run-")` so non-Warsha branches are never deleted. Added regression tests in `crates/warshad/src/tests/mod.rs:4870` (`fallback_cleanup_uses_worktree_branch_hint_when_porcelain_lookup_yields_none`) and `:4965` (`fallback_cleanup_branch_hint_preserves_non_warsha_branch_prefix_guard`).
+    - **MEDIUM (Deterministic block-end predicate)**: Replaced over-broad `!trimmed.contains("warsha")` with deterministic `is_warsha_managed_entry`.
+    - **LOWs**:
+      - Fixed insertion scan `starts_with("/.warsha")` in `compute_updated_exclude` to use `is_warsha_managed_entry(trimmed)`, preventing skipping user lines like `/.warsha-backup`.
+      - Preserved existing CRLF (`\r\n`) line endings in `compute_updated_exclude` (`newline = if existing.contains("\r\n") { "\r\n" } else { "\n" }`) and tested in `test_compute_updated_exclude` case 6.
+      - Fixed docs line-ref drift in `DECISIONS.md` and `PROGRESS.md`.
   - **LOW-1 (ETXTBSY retry overclaim correction)**:
     - Appended correction notes to `DECISIONS.md:81` (`D-R14-N13-2`), `PROGRESS.md:94` (Round 14 N13-2), and `PROGRESS.md` Round 15 Blocker F1 clarifying that staging+rename does not eliminate the kernel race; the true fix is targeted test-side retry tolerating the race as documented in `D-R15-N13-2-2`.
   - **LOW-2 (Porcelain branch lookup order description)**:
-    - Updated `PROGRESS.md` Residual 3 bullet to what actually shipped: porcelain branch lookup before `git worktree remove --force` in `crates/warsha-pipeline/src/worktree.rs:120-159`.
+    - Updated `PROGRESS.md` Residual 3 bullet to what actually shipped: porcelain branch lookup before `git worktree remove --force` in `crates/warsha-pipeline/src/worktree.rs:119-201`.
   - **LOW-3 (warshad fallback cleanup proving test, D-R16-LOW-3)**:
-    - Added fleet proving test in `crates/warshad/src/tests/mod.rs:4738` (`fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing`): exercises fallback arm when `state.run_worktrees` entry is missing, asserting directory removed, worktree deregistered from porcelain list, and `warsha/run-<id>` branch deleted. Fails on baseline `7b2c132` and passes at tip.
+    - Added fleet proving test in `crates/warshad/src/tests/mod.rs:4740` (`fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing`): exercises fallback arm when `state.run_worktrees` entry is missing, asserting directory removed, worktree deregistered from porcelain list, and `warsha/run-<id>` branch deleted. Fails on baseline `7b2c132` and passes at tip.
   - **LOW-4 (Prefix guard for remove_run_worktree branch deletion, D-R16-LOW-4)**:
-    - In `crates/warsha-pipeline/src/worktree.rs:174-190` (`remove_run_worktree`), guarded `git branch -D` deletion with `branch.starts_with("warsha/run-")`. If branch does not match prefix, skips deletion and logs debug.
-    - Added proving test `removal_preserves_branches_without_warsha_run_prefix` in `crates/warsha-pipeline/src/worktree.rs`.
+    - In `crates/warsha-pipeline/src/worktree.rs:173-198` (`remove_run_worktree`), guarded `git branch -D` deletion with `branch.starts_with("warsha/run-")`. If branch does not match prefix, skips deletion and logs debug.
+    - Added proving test `removal_preserves_branches_without_warsha_run_prefix` in `crates/warsha-pipeline/src/worktree.rs:658`.
   - **LOW-5 (Watcher status honesty, D-R16-WATCH-1)**:
     - Inspected `/home/moe/.dsh/state/session-superagent/watchers.json`: watcher `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29` exists with `enabled: true`, but `lastPoll` is `2026-11-22T21:07:02.171Z` (~21h stale), `nextAt: null`, and `lastDeferred: "会话正忙，下一轮重试"`.
     - Corrected documented status in `DECISIONS.md` (D-R15-WATCH-1 note, D-R16-WATCH-1) and `PROGRESS.md` (Round 15 Open Caveat note) to accurately state the watcher is registered but idle/stale (not actively polling).
@@ -28,9 +37,9 @@
   - `cargo fmt --all -- --check`: 0 diff, exit 0
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, exit 0
   - `cargo test -p warsha-core --lib`: 36 passed, 0 failed, exit 0
-  - `cargo test -p warsha-backends --lib`: 51 passed, 0 failed, exit 0 (12 consecutive loops clean, 0 flakiness)
+  - `cargo test -p warsha-backends --lib`: 52 passed, 0 failed, exit 0
   - `cargo test -p warsha-pipeline --lib worktree`: 13 passed, 0 failed, exit 0
-  - `cargo test -p warshad --lib`: 329 passed, 0 failed, 4 ignored, exit 0
+  - `cargo test -p warshad --lib`: 331 passed, 0 failed, 4 ignored, exit 0
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures, exit 0
   - `node scripts/check-versions.mjs`: versions aligned (0.3.1 across 14 components), exit 0
   - `node scripts/check-arch.mjs`: 5 rules, 0 violations, exit 0

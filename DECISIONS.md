@@ -1,24 +1,33 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
-## 2026-11-23 — D-R16-F1-1: Preserve user lines in .git/info/exclude via # warsha-managed tagging
-- **Decision**: In `crates/warsha-backends/src/lib.rs:721-795` (`ensure_git_exclude`), stop deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with a `# warsha-managed` marker line followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent. Preserve every other line in `.git/info/exclude` byte-for-byte, including user-configured bare `.warsha`, `.warsha/**`, comments, and arbitrary paths. Migrate legacy bare `.warsha` lines only when provably Warsha-owned (i.e. directly preceded by the `# warsha-managed` marker). Maintain atomic publish via `.exclude.tmp.<pid>.<ulid>`.
-- **Reason**: Blocker F1 in Round 16 brief. In Round 15, only the write was made atomic; line handling was baseline-identical and stripped user lines matching `is_warsha_internal_path`.
+## 2026-11-23 — D-R16-F1-1: Preserve user lines in .git/info/exclude via deterministic # warsha-managed tagging
+- **Decision**: In `crates/warsha-backends/src/lib.rs:718-806` (`compute_updated_exclude`) and `814-858` (`ensure_git_exclude`), stop deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with a `# warsha-managed` marker line followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent. The Warsha-managed block is bounded deterministically: only the exact entries Warsha itself writes (`/.warsha/` and `/.warsha`) belong in-block (`is_warsha_managed_entry`). Any other line (user bare `.warsha`, `.warsha/**`, comments, blank lines, or paths like `/.warsha-backup`) deterministically ends the block and is preserved byte-for-byte. The insertion scan similarly uses `is_warsha_managed_entry` instead of `starts_with("/.warsha")` so user lines like `/.warsha-backup` are never skipped. Existing CRLF (`\r\n`) line endings are preserved byte-for-byte. Atomic publish is maintained via `.exclude.tmp.<pid>.<ulid>`.
+- **Reason**: Blocker F1 and Round 16 Code Reviewer findings (HIGH and MEDIUM). In Round 15, only the write was made atomic; line handling was baseline-identical and stripped user lines matching `is_warsha_internal_path`. An earlier draft had an over-broad `!trimmed.contains("warsha")` predicate and dropped user `.warsha` lines appended directly after Warsha entries.
 - **Proving tests**:
-  - `crates/warsha-backends/src/lib.rs`: `test_ensure_git_exclude_atomic_and_preserves_user_lines` (production path via `CliBackend::execute` verifying user lines `# comment`, `target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp` survive; fails on baseline 7b2c132 and passes at tip).
-  - `crates/warsha-backends/src/lib.rs`: `test_compute_updated_exclude` (unit test covering empty exclude, preservation of user entries, and migration of legacy marker entries).
+  - `crates/warsha-backends/src/lib.rs:2381`: `test_ensure_git_exclude_atomic_and_preserves_user_lines` (production path via `CliBackend::execute` verifying user lines `# comment`, `/target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp` survive; fails on baseline 7b2c132 and passes at tip).
+  - `crates/warsha-backends/src/lib.rs:2470`: `test_ensure_git_exclude_preserves_user_warsha_immediately_after_managed_block` (production path verifying user bare `.warsha` directly after Warsha block survives untouched).
+  - `crates/warsha-backends/src/lib.rs:2333`: `test_compute_updated_exclude` (unit test covering empty exclude, preservation of user entries, user entries directly after managed block, preservation during missing entry insertion, and CRLF preservation).
 - **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
 
+## 2026-11-23 — D-R16-MED-1: Fallback worktree branch cleanup hint on budget failure
+- **Decision**: In `crates/warshad/src/lib.rs:261-315` (`apply_start_budget`), when `remove_run_worktree`'s porcelain lookup yields None (e.g. worktree already detached or porcelain entry missing), use `run.worktree_branch` as a branch-deletion hint via `delete_branch_hint`. Guarded with `branch.starts_with("warsha/run-")` so non-Warsha branches are never deleted.
+- **Reason**: Medium review finding in Round 16 correction: fallback cleanup previously ignored `run.worktree_branch`, leaking the branch if porcelain lookup yielded None.
+- **Proving tests**:
+  - `crates/warshad/src/tests/mod.rs:4870`: `fallback_cleanup_uses_worktree_branch_hint_when_porcelain_lookup_yields_none` (asserts branch is deleted via hint when porcelain lookup yields None).
+  - `crates/warshad/src/tests/mod.rs:4965`: `fallback_cleanup_branch_hint_preserves_non_warsha_branch_prefix_guard` (asserts non-`warsha/run-` branches are preserved).
+- **Scope**: `crates/warshad/src/lib.rs`, `crates/warshad/src/tests/mod.rs`. Local-only.
+
 ## 2026-11-23 — D-R16-LOW-3: Fleet proving test for warshad fallback worktree deregistration and branch deletion
-- **Decision**: Add CI test `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing` in `crates/warshad/src/tests/mod.rs:4738` exercising the `apply_start_budget` fallback cleanup arm when `state.run_worktrees` has no map entry for the run. Verify that when budget persistence fails, the worktree directory is removed, git worktree registration is pruned from `git worktree list --porcelain`, and the `warsha/run-<id>` branch is deleted.
+- **Decision**: Add CI test `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing` in `crates/warshad/src/tests/mod.rs:4740` exercising the `apply_start_budget` fallback cleanup arm when `state.run_worktrees` has no map entry for the run. Verify that when budget persistence fails, the worktree directory is removed, git worktree registration is pruned from `git worktree list --porcelain`, and the `warsha/run-<id>` branch is deleted.
 - **Reason**: LOW-3 in Round 16 brief (Residual (f) from Round 15 review).
-- **Proving tests**: `crates/warshad/src/tests/mod.rs`: `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing`.
+- **Proving tests**: `crates/warshad/src/tests/mod.rs:4740`: `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing`.
 - **Scope**: `crates/warshad/src/tests/mod.rs`. Local-only.
 
 ## 2026-11-23 — D-R16-LOW-4: Restrict remove_run_worktree branch deletion to warsha/run- prefix
-- **Decision**: In `crates/warsha-pipeline/src/worktree.rs:174-190` (`remove_run_worktree`), guard the `git branch -D` deletion with `branch.starts_with("warsha/run-")`. If the attached branch does not start with `warsha/run-` (e.g. `main` or a user feature branch), log debug and skip branch deletion, protecting user branches from force deletion.
+- **Decision**: In `crates/warsha-pipeline/src/worktree.rs:173-198` (`remove_run_worktree`), guard the `git branch -D` deletion with `branch.starts_with("warsha/run-")`. If the attached branch does not start with `warsha/run-` (e.g. `main` or a user feature branch), log debug and skip branch deletion, protecting user branches from force deletion.
 - **Reason**: LOW-4 in Round 16 brief. Previously `remove_run_worktree` executed `branch -D` against whatever branch porcelain reported without verifying the prefix.
-- **Proving tests**: `crates/warsha-pipeline/src/worktree.rs`: `removal_preserves_branches_without_warsha_run_prefix`.
+- **Proving tests**: `crates/warsha-pipeline/src/worktree.rs:658`: `removal_preserves_branches_without_warsha_run_prefix`.
 - **Scope**: `crates/warsha-pipeline/src/worktree.rs`. Local-only.
 
 ## 2026-11-23 — D-R16-WATCH-1: session-superagent watcher status documentation reconciliation
@@ -29,7 +38,7 @@
 ## 2026-11-23 — D-R15-N13-2-2: Correction of D-R14-N13-2 and ETXTBSY retry loops on parallel test exec races
 - **Decision**: Prepend correction to D-R14-N13-2's claim that staging+rename "eliminates transient ETXTBSY": staging+rename does NOT eliminate the kernel race because a parallel test thread can fork() while staging fd is open, the child inherits the file descriptor until exec, and rename retains the same inode, causing exec on the sibling/target to return ETXTBSY (os error 26). Implemented option (b) from verifier report: targeted ETXTBSY-only retry (up to 10 attempts, 50ms backoff, matching 0caf6c0 / aadfcff pattern) in the three affected tests:
   1. `crates/warsha-backends/src/catalog.rs:582` (`test_cli_health_timeout_fails_closed`)
-  2. `crates/warsha-backends/src/lib.rs:1285` (`a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log`)
+  2. `crates/warsha-backends/src/lib.rs:1364` (`a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log`)
   3. `crates/warsha-backends/src/tests/streaming_acceptance.rs:535` (`test_opencode_end_to_end_streams_events_and_flags_estimated_usage`)
   Real non-busy errors fail immediately without retry.
 - **Reason**: Blocker F1 in `claude-code-verify-round14-2026-11-23.md`. Measured 4/30 runs failing with ETXTBSY at tip.
