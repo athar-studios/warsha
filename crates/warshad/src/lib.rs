@@ -220,6 +220,33 @@ async fn apply_start_budget(
                 }
             } else if let Some(ref path_str) = run.worktree_path {
                 let path = std::path::PathBuf::from(path_str);
+                // N13-4 / N13-4-3: If git repo exists, also deregister git worktree
+                // and delete branch before falling back to directory removal.
+                if let Ok(project) = state.store.get_project(project_id).await {
+                    if let Some(repo_path) = project
+                        .repo_path
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|p| !p.is_empty())
+                    {
+                        let dummy_worktree = warsha_pipeline::RunWorktree {
+                            path: path.clone(),
+                            base: String::new(),
+                        };
+                        if let Err(e) = warsha_pipeline::remove_run_worktree(
+                            std::path::Path::new(repo_path),
+                            &dummy_worktree,
+                        )
+                        .await
+                        {
+                            warn!(
+                                run_id = %run.id.0,
+                                error = %e,
+                                "failed to remove git worktree registration on budget failure (fallback arm)"
+                            );
+                        }
+                    }
+                }
                 if path.exists() {
                     if let Err(e) = tokio::fs::remove_dir_all(&path).await {
                         warn!(

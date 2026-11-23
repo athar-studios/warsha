@@ -113,8 +113,50 @@ pub async fn create_run_worktree(
 
 /// Remove a run's worktree. Never called automatically: a worktree may hold
 /// uncommitted work, so a caller decides when it is safe.
+///
+/// Deletes the worktree and also removes the run's branch (`warsha/run-<id>`)
+/// best-effort so orphan run branches do not accumulate.
 pub async fn remove_run_worktree(repo: &Path, worktree: &RunWorktree) -> Result<()> {
     ensure_repository(repo).await?;
+    // Best-effort branch lookup BEFORE removal: resolve the attached branch from
+    // `git worktree list --porcelain` so a renamed or moved directory can never
+    // point the later deletion at the wrong branch. Looked up first because the
+    // path disappears from the list once removal succeeds.
+    let target = worktree.path.to_string_lossy().to_string();
+    let target_canon = std::fs::canonicalize(&worktree.path)
+        .ok()
+        .map(|p| p.to_string_lossy().to_string());
+    let branch: Option<String> = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+        .await
+        .ok()
+        .and_then(|list_out| {
+            if !list_out.status.success() {
+                return None;
+            }
+            let text = String::from_utf8_lossy(&list_out.stdout).into_owned();
+            let mut current_path: Option<&str> = None;
+            for line in text.lines() {
+                if let Some(p) = line.strip_prefix("worktree ") {
+                    current_path = Some(p.trim());
+                } else if let Some(b) = line.strip_prefix("branch ") {
+                    let hit = current_path
+                        .map(|p| {
+                            p == target || target_canon.as_deref().map(|c| p == c).unwrap_or(false)
+                        })
+                        .unwrap_or(false);
+                    if hit {
+                        return b.trim().strip_prefix("refs/heads/").map(str::to_string);
+                    }
+                } else if line.is_empty() {
+                    current_path = None;
+                }
+            }
+            None
+        });
     let output = tokio::process::Command::new("git")
         .arg("-C")
         .arg(repo)
@@ -127,23 +169,30 @@ pub async fn remove_run_worktree(repo: &Path, worktree: &RunWorktree) -> Result<
             String::from_utf8_lossy(&output.stderr).trim().to_string(),
         ));
     }
+
+    // Delete the resolved branch; never abort cleanup on failure.
+    if let Some(branch) = branch {
+        let branch_out = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["branch", "-D", &branch])
+            .output()
+            .await;
+        if let Ok(b_out) = branch_out {
+            if !b_out.status.success() {
+                tracing::warn!(
+                    branch = %branch,
+                    error = %String::from_utf8_lossy(&b_out.stderr).trim(),
+                    "best-effort branch deletion after worktree removal failed"
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 
-/// Match paths that belong to internal `.warsha` directories or `.warsha` files
-/// at the root of the worktree, without matching valid project files that share
-/// a prefix like `.warsha-config.json` or nested directories like `docs/.warsha/notes.md`.
-pub fn is_warsha_internal_path(path: &str) -> bool {
-    let clean = path.trim().trim_matches('"');
-    for c in std::path::Path::new(clean).components() {
-        match c {
-            std::path::Component::CurDir => continue,
-            std::path::Component::Normal(name) => return name == ".warsha",
-            _ => return false,
-        }
-    }
-    false
-}
+pub use warsha_core::is_warsha_internal_path;
 
 pub async fn commit_run_worktree(worktree_path: &Path, message: &str) -> Result<()> {
     let status_output = tokio::process::Command::new("git")
@@ -582,6 +631,19 @@ mod e3 {
             .await
             .expect("the worktree is removed");
         assert!(!worktree.path.exists());
+
+        // Verify the warsha/run-<id> branch was also deleted
+        let branches = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["branch", "--list", "warsha/run-run9"])
+            .output()
+            .await
+            .expect("git branch --list");
+        assert!(
+            String::from_utf8_lossy(&branches.stdout).trim().is_empty(),
+            "branch warsha/run-run9 should be deleted by remove_run_worktree"
+        );
     }
 
     #[tokio::test]
