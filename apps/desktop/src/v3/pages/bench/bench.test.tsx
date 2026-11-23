@@ -684,7 +684,7 @@ describe('Advanced Workbench (U4)', () => {
     fireEvent.click(screen.getByTestId('bench-terminal-copy-btn'));
   });
 
-  it('TeamTab renders all 12 roles with metrics and triggers role routing change', () => {
+  it('TeamTab renders all 13 roles with metrics and triggers role routing change', () => {
     const onSetRoleModel = vi.fn();
     const routings: RoleRouting[] = [
       {
@@ -715,11 +715,68 @@ describe('Advanced Workbench (U4)', () => {
     );
 
     const rows = document.querySelectorAll('tr[data-role-row]');
-    expect(rows.length).toBe(12);
+    expect(rows.length).toBe(13);
     expect(screen.getByText('$0.15')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('team-model-apply-btn-coder'));
     expect(onSetRoleModel).toHaveBeenCalledWith('coder', 'ollama', 'qwen-coder');
+  });
+
+  it('TeamTab matches wire-serialized role keys p_m and q_a via canonicalRoleKey (D-R12-ROLES-2)', () => {
+    const onSetRoleModel = vi.fn();
+    const routings: RoleRouting[] = [
+      {
+        role: 'p_m' as Role,
+        targets: [{ provider_id: 'ollama', model_id: 'qwen-pm', weight: 100 }],
+        fallback_enabled: true,
+        budget_cents_per_run: 500,
+        daily_spend_cap_cents: null,
+      },
+      {
+        role: 'q_a' as Role,
+        targets: [{ provider_id: 'ollama', model_id: 'qwen-qa', weight: 100 }],
+        fallback_enabled: false,
+        budget_cents_per_run: 200,
+        daily_spend_cap_cents: null,
+      },
+    ];
+    const models: CustomModelRecord[] = [
+      {
+        provider: 'ollama',
+        modelId: 'qwen-pm',
+        displayName: 'Qwen PM',
+        contextWindow: null,
+        enabled: true,
+      },
+      {
+        provider: 'ollama',
+        modelId: 'qwen-qa',
+        displayName: 'Qwen QA',
+        contextWindow: null,
+        enabled: true,
+      },
+    ];
+
+    renderWithProviders(
+      <TeamTab
+        roles={routings}
+        models={models}
+        events={[]}
+        onSetRoleModel={onSetRoleModel}
+      />
+    );
+
+    const pmSelect = screen.getByTestId('team-model-select-pm').querySelector('select');
+    expect(pmSelect).toHaveValue('ollama::qwen-pm');
+
+    const qaSelect = screen.getByTestId('team-model-select-qa').querySelector('select');
+    expect(qaSelect).toHaveValue('ollama::qwen-qa');
+
+    fireEvent.click(screen.getByTestId('team-model-apply-btn-pm'));
+    expect(onSetRoleModel).toHaveBeenCalledWith('pm', 'ollama', 'qwen-pm');
+
+    fireEvent.click(screen.getByTestId('team-model-apply-btn-qa'));
+    expect(onSetRoleModel).toHaveBeenCalledWith('qa', 'ollama', 'qwen-qa');
   });
 
   it('AssistantTab wires real agent.turn, agent.plan_mode, and agent.approve_mode without fake replies', async () => {

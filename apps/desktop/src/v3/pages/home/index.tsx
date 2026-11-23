@@ -1,10 +1,11 @@
-import type {
-  CostEstimate,
-  GateSummary,
-  ProjectId,
-  ProjectSummary,
-  RoleRouting,
-  RunSummary,
+import {
+  canonicalRoleKey,
+  type CostEstimate,
+  type GateSummary,
+  type ProjectId,
+  type ProjectSummary,
+  type RoleRouting,
+  type RunSummary,
 } from '@warsha/client';
 import { useLocale, useT } from '@warsha/i18n/v3';
 import {
@@ -196,7 +197,9 @@ export function findCoordinatorModel(
     return models?.[0]?.displayName || models?.[0]?.modelId || null;
   }
   const coordinatorRole =
-    roles.find((r) => r.role === 'intake') ?? roles.find((r) => r.role === 'pm') ?? roles[0];
+    roles.find((r) => canonicalRoleKey(r.role) === 'intake') ??
+    roles.find((r) => canonicalRoleKey(r.role) === 'pm') ??
+    roles[0];
   const target = coordinatorRole?.targets?.[0];
   if (!target) {
     return models?.[0]?.displayName || models?.[0]?.modelId || null;

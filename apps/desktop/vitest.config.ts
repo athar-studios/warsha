@@ -4,6 +4,11 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    fs: {
+      allow: ['..', path.resolve(__dirname, '../../../../..')],
+    },
+  },
   resolve: {
     alias: {
       '@warsha/ui': path.resolve(__dirname, '../../packages/ui/src'),

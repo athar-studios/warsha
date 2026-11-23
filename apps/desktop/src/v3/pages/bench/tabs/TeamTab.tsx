@@ -1,5 +1,6 @@
 import {
   ALL_ROLES,
+  canonicalRoleKey,
   type CustomModelRecord,
   type Role,
   type RoleRouting,
@@ -64,7 +65,7 @@ export const TeamTab: React.FC<TeamTabProps> = ({
   ];
 
   const handleApplyModel = (role: Role, overrideKey?: string) => {
-    const routing = roles.find((r) => r.role === role);
+    const routing = roles.find((r) => canonicalRoleKey(r.role) === role);
     const primaryTarget = routing?.targets[0];
     const defaultKey = primaryTarget ? `${primaryTarget.provider_id}::${primaryTarget.model_id}` : '';
     const key = overrideKey ?? selectedModels[role] ?? defaultKey;
@@ -179,7 +180,7 @@ export const TeamTab: React.FC<TeamTabProps> = ({
 
           <tbody>
             {ALL_ROLES.map((role) => {
-              const routing = roles.find((r) => r.role === role);
+              const routing = roles.find((r) => canonicalRoleKey(r.role) === role);
               const primaryTarget = routing?.targets[0];
               const defaultKey = primaryTarget
                 ? `${primaryTarget.provider_id}::${primaryTarget.model_id}`

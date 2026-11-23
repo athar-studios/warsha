@@ -1,6 +1,17 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R12-DEVMODE-1: Wire event roles p_m/q_a decode to canonical roles and Developers page isolates query failures
+- **Decision**: In `packages/client/src/index.ts`, `isRole` and `decodeWarshaEvent` accept snake_case wire roles `p_m` and `q_a` serialized by daemon `Role::PM` and `Role::QA` and decode them to canonical `pm` and `qa` via `canonicalRoleKey`. In `apps/desktop/src/v3/pages/developers/index.tsx`, concurrent fetch operations are wrapped in `Promise.allSettled` instead of `Promise.all` so failures in events or subtasks do not wipe loaded sessions. If any query fails, an error banner is shown with localized text via i18n key `developers.error` (en: "Could not load developer data", ar: "تعذر تحميل بيانات المطورين") and partial data remains interactive.
+- **Reason**: Owner finding F3. Daemon serializes PM and QA as `p_m` and `q_a`, causing client `isRole` to reject with `Malformed event frame: unknown "role"`. The Developers page `Promise.all` rejected, leaving the list empty, and retry attempts wiped state while displaying untranslated error text.
+- **Proving test**: `packages/client/src/index.test.ts` (`decodes wire-serialized p_m and q_a roles to canonical pm and qa (D-R12-DEVMODE-1)`) and `apps/desktop/src/v3/pages/developers/index.test.tsx` (`F3: live-shaped event fixtures with p_m/q_a and screen resilience (D-R12-DEVMODE-1)`).
+- **Scope**: `packages/client/src/index.ts`, `packages/client/src/index.test.ts`, `apps/desktop/src/v3/pages/developers/index.tsx`, `apps/desktop/src/v3/pages/developers/index.test.tsx`, `packages/i18n/src/v3/en/developers.ts`, `packages/i18n/src/v3/ar/developers.ts`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
+## 2026-11-23 — D-R12-ROLES-2: Bench and Home role routing match wire keys via canonicalRoleKey
+- **Decision**: In `apps/desktop/src/v3/pages/bench/tabs/TeamTab.tsx`, `apps/desktop/src/v3/pages/bench/index.tsx`, and `apps/desktop/src/v3/pages/home/index.tsx`, lookups matching role configurations against routing records use `canonicalRoleKey(r.role)` instead of raw string equality (`r.role === role`).
+- **Reason**: Owner finding F8. Stored routing records from the daemon contain `p_m` or `q_a`. Strict string comparison dropped fallback routes and budgets in Bench TeamTab, bench/index, and the Home coordinator role picker.
+- **Proving test**: `apps/desktop/src/v3/pages/bench/bench.test.tsx` (`TeamTab matches wire-serialized role keys p_m and q_a via canonicalRoleKey (D-R12-ROLES-2)` and 13 roles rendering).
+- **Scope**: `apps/desktop/src/v3/pages/bench/tabs/TeamTab.tsx`, `apps/desktop/src/v3/pages/bench/index.tsx`, `apps/desktop/src/v3/pages/home/index.tsx`, `apps/desktop/src/v3/pages/bench/bench.test.tsx`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
 ## 2026-11-23 — D-R12-SESSIONS-1: Failover-aware session row provider/model tracking and cost/tokens window ordering
 - **Decision**:
   1. `crates/warsha-providers/src/lib.rs` adds `FallbackChatResponse` (`response: ChatResponse`, `provider_id: String`, `model_id: String`) and `chat_with_fallback_detailed(...)`. Existing `chat_with_fallback(...)` delegates to it, keeping its signature intact.

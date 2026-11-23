@@ -1,5 +1,25 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 12 F3 + F8 Developers events and Bench roles fix (D-R12-DEVMODE-1, D-R12-ROLES-2)
+- **Scope**: Parallel lane on `.agents/worktrees/fix-r12-devmode` (base `8f2fc72`). Resolves findings F3 and F8 from round 11 verification. Local-only: no push, no tag, no publish, main untouched.
+- **Root Cause & Changes**:
+  - `packages/client/src/index.ts`: `Role::PM` and `Role::QA` are serialized with `#[serde(rename_all = "snake_case")]` as `p_m` and `q_a` in daemon events. `isRole` was strict-matching `ROLE_VALUES` and rejecting with `Malformed event frame: unknown "role"`. Fixed `isRole`, `decodeWarshaEvent`, and `wave2Role` to validate and map via `canonicalRoleKey`, converting wire keys to canonical `pm` and `qa`.
+  - `packages/i18n/src/v3/{en,ar}/developers.ts`: Added translated string `developers.error` (en: "Could not load developer data", ar: "تعذر تحميل بيانات المطورين").
+  - `apps/desktop/src/v3/pages/developers/index.tsx`: Replaced `Promise.all` with `Promise.allSettled` in data fetching so event or subtask query failures do not discard loaded sessions. Shows localized error banner `t('developers.error')` while keeping partial lists visible and interactive. Filter dropdown and visible sessions match via `canonicalRoleKey`.
+  - `apps/desktop/src/v3/pages/bench/tabs/TeamTab.tsx` & `apps/desktop/src/v3/pages/bench/index.tsx`: Replaced raw role equality checks with `canonicalRoleKey(r.role) === role` so `p_m` and `q_a` routings preserve their targets, models, and budgets in Bench views.
+  - `apps/desktop/src/v3/pages/home/index.tsx`: Coordinator lookup line matches intake and pm roles via `canonicalRoleKey(r.role)` (strictly surgical change, keeping parallel lane isolation intact).
+- **Proving tests**:
+  - `packages/client/src/index.test.ts`: `decodes wire-serialized p_m and q_a roles to canonical pm and qa (D-R12-DEVMODE-1)`.
+  - `apps/desktop/src/v3/pages/developers/index.test.tsx`: `F3: live-shaped event fixtures with p_m/q_a and screen resilience (D-R12-DEVMODE-1)` proving live wire frames decode, screen renders events from `p_m`/`q_a`, partial failure preserves session list, and translated banner displays in EN and AR.
+  - `apps/desktop/src/v3/pages/bench/bench.test.tsx`: `TeamTab matches wire-serialized role keys p_m and q_a via canonicalRoleKey (D-R12-ROLES-2)` testing 13 roles and `p_m`/`q_a` model selection and assignment.
+- **Gates & Checks**:
+  - `cargo fmt --all -- --check`: clean (exit code 0).
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean (exit code 0).
+  - `cargo test -p warshad --lib`: 322 passed, 0 failed, 4 ignored.
+  - `npx vitest run src/v3/pages/developers/` (desktop): 26 passed across 2 test files (14 metrics, 12 index).
+  - `npx vitest run src/v3/pages/bench/` (desktop): 74 passed across 2 test files (47 bench, 27 EvidenceCard).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks passed, 0 failures.
+- **Status**: GREEN.
 ## Run 2026-11-23 — Round 12 F5 sessions cost/failover + F6/F9 cli.log containment (D-R12-SESSIONS-1, D-R12-POSTMORTEM-2)
 - **Scope**: Owner verification findings F5, F6, F9, F13 from `claude-code-verify-round11-2026-11-23.md`. Work in `.agents/worktrees/fix-r12-sessions` (base `8f2fc72`). Parallel lane: files owned by other lanes (Home gate cards, Developers page `index.tsx`, status pills, deny lockfile `Cargo.lock`) were not touched. Local-only; no main/push/tag/publish.
 - **Changes**:

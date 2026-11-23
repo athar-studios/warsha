@@ -43,4 +43,5 @@ export default {
   'developers.cost.packet': 'تكلفة الحزمة المدمجة: {value}',
   'developers.cost.packet_def': 'تكلفة الحزمة المدمجة = تكلفة التشغيل ÷ الحزم الناجحة. تعني الشرطة عدم وجود حزمة مدمجة بعد.',
   'developers.swarm.banner': 'تشغيل سرب: {count} وكلاء فرعيين',
+  'developers.error': 'تعذر تحميل بيانات المطورين',
 };
