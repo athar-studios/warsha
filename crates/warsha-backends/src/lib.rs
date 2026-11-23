@@ -1894,10 +1894,33 @@ mod tests {
             let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
             let sandbox = Sandbox::new(read_only_dir.clone());
 
-            let result = backend
-                .execute(task("Task", "Desc"), &sandbox)
-                .await
-                .expect("CLI execution must NOT abort when log creation fails");
+            let mut last_err: Option<String> = None;
+            let mut result = None;
+            for _ in 0..5 {
+                match backend.execute(task("Task", "Desc"), &sandbox).await {
+                    Ok(res) => {
+                        result = Some(res);
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("Text file busy") || msg.contains("os error 26") {
+                            last_err = Some(msg);
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            panic!(
+                                "CLI execution must NOT abort when log creation fails, got: {e}"
+                            );
+                        }
+                    }
+                }
+            }
+            let result = result.unwrap_or_else(|| {
+                panic!(
+                    "CLI execution must NOT abort when log creation fails, last ETXTBSY: {}",
+                    last_err.unwrap_or_default()
+                )
+            });
 
             // Restore write permissions so tempdir can clean up
             let _ =
