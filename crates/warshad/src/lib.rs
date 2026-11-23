@@ -182,6 +182,20 @@ async fn apply_start_budget(
                 error = %e,
                 "failed to apply start budget to newly created run"
             );
+            state.agent_sessions.remove(run.id);
+            state.run_worktrees.write().await.remove(&run.id);
+            state.mcp_approvals.purge_run(&run.id.0.to_string());
+            state.previews.stop_run(&run.id.0.to_string()).await;
+
+            let fail_reason = format!("failed to apply start budget: {e}");
+            if let Err(fail_err) = state.pipeline.fail_run(run.id, Some(fail_reason)).await {
+                warn!(
+                    run_id = %run.id.0,
+                    error = %fail_err,
+                    "failed to transition run to failed after budget application failure"
+                );
+            }
+
             return Err(rpc_error(format!(
                 "failed to apply start budget to newly created run: {e}"
             )));

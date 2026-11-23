@@ -1143,9 +1143,23 @@ mod tests {
 
         #[cfg(unix)]
         fn fake_cli(dir: &std::path::Path, body: &str) -> PathBuf {
+            use std::io::Write;
             use std::os::unix::fs::PermissionsExt;
-            let path = dir.join("fake-coding-cli");
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("the fake CLI is written");
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static CLI_COUNTER: AtomicU64 = AtomicU64::new(0);
+            let id = CLI_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = dir.join(format!("fake-coding-cli-{}-{}", std::process::id(), id));
+            {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&path)
+                    .expect("the fake CLI is opened");
+                file.write_all(format!("#!/bin/sh\n{body}\n").as_bytes())
+                    .expect("the fake CLI is written");
+                file.sync_all().expect("the fake CLI is synced");
+            }
             let mut permissions = std::fs::metadata(&path)
                 .expect("the script exists")
                 .permissions();
@@ -1445,9 +1459,23 @@ mod tests {
 
         #[cfg(unix)]
         fn fake_cli(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
+            use std::io::Write;
             use std::os::unix::fs::PermissionsExt;
-            let path = dir.join("fake-coding-cli");
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("the fake CLI is written");
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static CLI_COUNTER: AtomicU64 = AtomicU64::new(0);
+            let id = CLI_COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = dir.join(format!("fake-coding-cli-{}-{}", std::process::id(), id));
+            {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&path)
+                    .expect("the fake CLI is opened");
+                file.write_all(format!("#!/bin/sh\n{body}\n").as_bytes())
+                    .expect("the fake CLI is written");
+                file.sync_all().expect("the fake CLI is synced");
+            }
             let mut permissions = std::fs::metadata(&path)
                 .expect("the script exists")
                 .permissions();
@@ -1709,10 +1737,24 @@ mod tests {
             let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
             let sandbox = Sandbox::new(temp.path().to_path_buf());
 
-            let result = backend
-                .execute(task("Inspect", "Check files"), &sandbox)
-                .await
-                .expect("the fake CLI succeeds");
+            let mut attempts = 0;
+            let result = loop {
+                match backend
+                    .execute(task("Inspect", "Check files"), &sandbox)
+                    .await
+                {
+                    Ok(res) => break res,
+                    Err(e)
+                        if attempts < 5
+                            && (e.to_string().contains("Text file busy")
+                                || e.to_string().contains("os error 26")) =>
+                    {
+                        attempts += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                    Err(e) => panic!("the fake CLI succeeds, got error: {e}"),
+                }
+            };
 
             assert!(result.success);
             // Must report NO .warsha or .warsha/ in files_changed

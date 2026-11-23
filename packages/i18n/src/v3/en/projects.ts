@@ -34,6 +34,7 @@ export default {
   'projects.summary_done': 'Completed',
   'projects.summary_failed': 'Stopped with error',
   'projects.summary_cancelled': 'Cancelled',
+  'projects.summary_paused': 'Paused',
   'projects.summary_idle': 'Ready to start',
   'projects.table_label': 'Projects table',
   'projects.stage_label': 'Stage: {stage}',
