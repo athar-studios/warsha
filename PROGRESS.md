@@ -1,5 +1,24 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 13 Lane F6/N4/F9 CLI Log Containment (D-R13-CONTAIN-1)
+- **Worktree**: `.agents/worktrees/fix-r13-contain` on `r-next/integration` (detached HEAD at `7665343`). Local-only: no push, no tag, no publish, `main` untouched.
+- **Blockers resolved**:
+  1. F6 tracked/unwritable-exclude: Enforced staging-side containment in `commit_run_worktree` (`crates/warsha-pipeline/src/worktree.rs`) by unstaging `.warsha` paths via `git reset -q HEAD -- .warsha` and pruning any cached index paths matching `is_warsha_internal_path`. If index is clean after unstage, skips commit without empty commit error. Surfaced exclude write errors in `ensure_git_exclude` (`crates/warsha-backends/src/lib.rs`).
+  2. N4 prefix regression: Replaced raw string prefix `!path.starts_with(".warsha")` with exact path component matcher `is_warsha_internal_path` in `warsha-backends` (`capture_changes` and `git diff` exclusion) and `warsha-pipeline` (`commit_run_worktree` and `dirty_set`). Legitimate project files like `.warsha-config.json` are tracked in dirty_set, reported in files_changed, and committed to git.
+  3. F9 non-fatal log-open: Made `open_cli_log` failure non-fatal in `execute_cli_child` (`crates/warsha-backends/src/lib.rs`), falling back to in-memory capture without aborting the run. Clear error `BackendError::Sandbox("work directory is not writable: ...")` is retained when a CLI execution exits non-zero in an unwritable work directory.
+- **Proving & F13 fails-before evidence**:
+  - `already_tracked_warsha_cli_log_is_not_committed_while_legit_file_is`: fails before (diff contained `.warsha/cli.log`), passes after (only `legit.txt` committed, HEAD retains initial log).
+  - `unwritable_git_exclude_still_contains_warsha_log_from_commit`: fails before (diff contained `.warsha/cli.log`), passes after (only `feature.txt` committed, commit tree excludes `.warsha`).
+  - `warsha_config_json_is_committed_and_tracked_in_dirty_set`: fails before (empty `dirty_set`), passes after (`dirty_set` tracks and commit includes `.warsha-config.json`).
+  - `log_open_failure_does_not_abort_cli_run`: fails before (`BackendError::Sandbox("work directory is not writable")`), passes after (`result.success == true`).
+  - `warsha_config_json_is_reported_in_files_changed`: fails before (missing from `files_changed`), passes after.
+- **Checks verified**:
+  - `cargo test -p warsha-backends --lib`: 47 passed, 0 failed.
+  - `cargo test -p warsha-pipeline --lib`: 597 passed, 0 failed, 7 ignored.
+  - `cargo fmt --check`: exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0 (0 warnings).
+  - `node scripts/check-engineering-policy.mjs`: policy 8 checks, 0 failures.
+
 ## Run 2026-11-23 — Round 13 Lane F5: PM/QA session-role telemetry fix (D-R13-SESSION-ROLE-1)
 - **Branch/Worktree**: `fix-r13-session-role` (detached HEAD at `7665343` on `r-next/integration`). Local-only: no main, no push, no tag, no publish. Other lanes untouched.
 - **Problem & Root Cause**: Codex round-12 finding N2/F5. Daemon serializes PM and QA roles as `p_m` and `q_a`. While `decodeWarshaEvent` canonicalized event roles via `canonicalRoleKey`, `decodeSession` in `packages/client/src/index.ts:2081` left `role: wave2String(record, 'role') as Role` raw. As a result, a real PM session had `session.role = 'p_m'` while its cost event had `event.role = 'pm'`. In `apps/desktop/src/v3/pages/developers/metrics.ts:28`, `withinWindow` required exact role equality (`if (event.role !== session.role) return false`), causing all telemetry to be dropped and cost/tokens to display as "unknown".

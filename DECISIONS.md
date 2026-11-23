@@ -1,6 +1,25 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R13-CONTAIN-1: CLI log staging-side containment, non-fatal log-open, and path component filter
+- **Decision**:
+  1. Staging-side containment (F6):
+     - In `crates/warsha-pipeline/src/worktree.rs` (`commit_run_worktree`), after `git add .`, explicitly unstage `.warsha` paths via `git reset -q HEAD -- .warsha` and unstage any staged index paths whose components match `.warsha` via `git diff --cached --name-only`. If nothing remains staged after containment, return `Ok(())` without creating an empty commit.
+     - In `crates/warsha-backends/src/lib.rs` (`ensure_git_exclude`), surface write failures loudly with warnings instead of silently dropping errors.
+  2. Exact path component matching (N4):
+     - Replace raw string prefix check `!path.starts_with(".warsha")` with `is_warsha_internal_path(path)` across `crates/warsha-backends/src/lib.rs` (`capture_changes` porcelain filtering and `git diff HEAD` exclude arguments) and `crates/warsha-pipeline/src/worktree.rs` (`commit_run_worktree` and `dirty_set`).
+     - `is_warsha_internal_path` checks path components for `.warsha`, ensuring legitimate files like `.warsha-config.json` are reported in `files_changed`, tracked in `dirty_set`, and committed to git.
+  3. Non-fatal log-open (F9):
+     - In `crates/warsha-backends/src/lib.rs` (`execute_cli_child`), `open_cli_log` failure is non-fatal: falls back to in-memory capture (`captured_stdout`, `captured_stderr`) without aborting the run.
+     - When a CLI process exits with non-zero exit code in an unwritable work directory, provide a clear error (`BackendError::Sandbox("work directory is not writable: ...")`).
+     - Updated `non_writable_workdir_fails_gracefully_with_clear_error` test to assert clear error when CLI fails in read-only workdir, and added `log_open_failure_does_not_abort_cli_run` to prove non-fatal log-open allows read-only runs to proceed.
+- **Reason**: Codex round-12 blockers N3/F6 (tracked `.warsha/cli.log` and unwritable exclude leak into commits), N4 (prefix filter hides valid `.warsha-config.json`), and N6/F9 (log creation failure in mode-0555 workdirs aborts runs).
+- **Proving tests**:
+  - `crates/warsha-pipeline/src/worktree.rs`: `already_tracked_warsha_cli_log_is_not_committed_while_legit_file_is`, `unwritable_git_exclude_still_contains_warsha_log_from_commit`, `warsha_config_json_is_committed_and_tracked_in_dirty_set`.
+  - `crates/warsha-backends/src/lib.rs`: `log_open_failure_does_not_abort_cli_run`, `warsha_config_json_is_reported_in_files_changed`, `non_writable_workdir_fails_gracefully_with_clear_error`.
+  - Fails-before rule F13 verified for all new tests on pre-fix codebase.
+- **Scope**: `crates/warsha-backends/src/lib.rs`, `crates/warsha-pipeline/src/worktree.rs`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-23 — D-R13-SESSION-ROLE-1: Canonicalize session wire roles in decodeSession for PM/QA telemetry binding
 - **Decision**: In `packages/client/src/index.ts`, `decodeSession` normalizes the raw wire role via `canonicalRoleKey` (`role = (canonicalRoleKey(rawRole) ?? rawRole) as Role`), matching the canonicalization behavior already performed on events in `decodeWarshaEvent`. Exported `decodeWarshaEvent` from `@warsha/client` and `withinWindow` from `apps/desktop/src/v3/pages/developers/metrics.ts` for end-to-end decoding and window binding verification.
 - **Reason**: Codex round-12 finding N2/F5. Event roles are canonicalized on decode (`Role::PM` -> `pm`, `Role::QA` -> `qa`), but `decodeSession` previously left `role: wave2String(record, 'role') as Role` raw, resulting in `session.role = 'p_m'` vs `event.role = 'pm'`. In `apps/desktop/src/v3/pages/developers/metrics.ts:28`, `withinWindow` requires exact role equality (`if (event.role !== session.role) return false`), which dropped all telemetry events for PM and QA sessions (resulting in `null` cost and tokens, rendering as "unknown" on the Developers page).

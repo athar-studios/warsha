@@ -130,6 +130,15 @@ pub async fn remove_run_worktree(repo: &Path, worktree: &RunWorktree) -> Result<
     Ok(())
 }
 
+/// Match paths that belong to internal `.warsha` directories or `.warsha` files,
+/// without matching valid project files that share a prefix like `.warsha-config.json`.
+pub fn is_warsha_internal_path(path: &str) -> bool {
+    let clean = path.trim().trim_matches('"');
+    std::path::Path::new(clean)
+        .components()
+        .any(|c| c.as_os_str() == ".warsha")
+}
+
 pub async fn commit_run_worktree(worktree_path: &Path, message: &str) -> Result<()> {
     let status_output = tokio::process::Command::new("git")
         .arg("-C")
@@ -144,7 +153,7 @@ pub async fn commit_run_worktree(worktree_path: &Path, message: &str) -> Result<
         .lines()
         .filter(|l| {
             let path = l.get(3..).unwrap_or("").trim().trim_matches('"');
-            !path.starts_with(".warsha")
+            !is_warsha_internal_path(path)
         })
         .collect();
 
@@ -159,6 +168,52 @@ pub async fn commit_run_worktree(worktree_path: &Path, message: &str) -> Result<
         .status()
         .await
         .map_err(|e| WorktreeError::Git(e.to_string()))?;
+
+    // D-R13-CONTAIN-1: Enforce containment at STAGING as well as reporting.
+    // 1. Explicitly unstage .warsha directory and files via git reset.
+    let _ = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["reset", "-q", "HEAD", "--", ".warsha"])
+        .status()
+        .await;
+
+    // 2. Scan staged index to unstage any remaining internal path (e.g. subdirectories).
+    if let Ok(cached_output) = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["diff", "--cached", "--name-only"])
+        .output()
+        .await
+    {
+        if cached_output.status.success() {
+            let cached_str = String::from_utf8_lossy(&cached_output.stdout);
+            for p in cached_str.lines() {
+                let p = p.trim().trim_matches('"');
+                if is_warsha_internal_path(p) {
+                    let _ = tokio::process::Command::new("git")
+                        .arg("-C")
+                        .arg(worktree_path)
+                        .args(["reset", "-q", "HEAD", "--", p])
+                        .status()
+                        .await;
+                }
+            }
+        }
+    }
+
+    // 3. If nothing remains staged after containment, do not create an empty commit.
+    let staged_check = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["diff", "--cached", "--quiet"])
+        .status()
+        .await
+        .map_err(|e| WorktreeError::Git(e.to_string()))?;
+
+    if staged_check.success() {
+        return Ok(());
+    }
 
     let output = tokio::process::Command::new("git")
         .arg("-C")
@@ -227,7 +282,7 @@ pub async fn dirty_set(worktree_path: &Path) -> Result<Vec<String>> {
         .lines()
         .filter(|l| {
             let path = l.get(3..).unwrap_or("").trim().trim_matches('"');
-            !path.starts_with(".warsha")
+            !is_warsha_internal_path(path)
         })
         .map(|l| l.to_string())
         .collect();
@@ -588,6 +643,167 @@ mod e3 {
         assert!(
             matches!(err, WorktreeError::Io(_)),
             "expected Io error, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn already_tracked_warsha_cli_log_is_not_committed_while_legit_file_is() {
+        let repo = tempfile::tempdir().expect("repo dir");
+        let repo_path = repo.path();
+        std::fs::write(repo_path.join("base.txt"), "base").expect("base file");
+        git_repo(repo_path);
+
+        // Pre-track .warsha/cli.log in git HEAD
+        let warsha_dir = repo_path.join(".warsha");
+        std::fs::create_dir_all(&warsha_dir).expect("create .warsha");
+        std::fs::write(warsha_dir.join("cli.log"), "initial tracked log\n").expect("write log");
+        Command::new("git")
+            .current_dir(repo_path)
+            .args(["add", ".warsha/cli.log"])
+            .status()
+            .expect("git add tracked log");
+        Command::new("git")
+            .current_dir(repo_path)
+            .args(["commit", "-qm", "track cli.log"])
+            .status()
+            .expect("git commit tracked log");
+
+        // Now simulate a run: modify .warsha/cli.log and create a legit file
+        std::fs::write(warsha_dir.join("cli.log"), "new run log leaked\n").expect("append log");
+        std::fs::write(repo_path.join("legit.txt"), "legitimate content\n").expect("write legit");
+
+        commit_run_worktree(repo_path, "run commit")
+            .await
+            .expect("commit succeeds");
+
+        // Check git diff of the new commit:
+        let diff = Command::new("git")
+            .current_dir(repo_path)
+            .args(["diff", "HEAD~1", "HEAD", "--name-only"])
+            .output()
+            .expect("git diff");
+        let diff_str = String::from_utf8_lossy(&diff.stdout);
+        let changed_files: Vec<&str> = diff_str.lines().map(str::trim).collect();
+
+        assert!(
+            changed_files.contains(&"legit.txt"),
+            "legit file must be committed, got: {diff_str}"
+        );
+        assert!(
+            !changed_files.contains(&".warsha/cli.log"),
+            "already-tracked .warsha/cli.log must NOT be committed in new commit, got: {diff_str}"
+        );
+
+        let head_log = Command::new("git")
+            .current_dir(repo_path)
+            .args(["show", "HEAD:.warsha/cli.log"])
+            .output()
+            .expect("git show");
+        let head_log_str = String::from_utf8_lossy(&head_log.stdout);
+        assert_eq!(
+            head_log_str.trim(),
+            "initial tracked log",
+            "HEAD commit must not contain leaked run log"
+        );
+    }
+
+    #[tokio::test]
+    async fn unwritable_git_exclude_still_contains_warsha_log_from_commit() {
+        let repo = tempfile::tempdir().expect("repo dir");
+        let repo_path = repo.path();
+        std::fs::write(repo_path.join("base.txt"), "base").expect("base file");
+        git_repo(repo_path);
+
+        // Make .git/info/exclude unwritable (mode 0444)
+        let exclude_path = repo_path.join(".git/info/exclude");
+        if let Some(p) = exclude_path.parent() {
+            std::fs::create_dir_all(p).expect("create .git/info");
+        }
+        std::fs::write(&exclude_path, "# unwritable exclude\n").expect("write exclude");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&exclude_path, std::fs::Permissions::from_mode(0o444))
+                .expect("set read-only exclude");
+        }
+
+        // Simulate CLI creating .warsha/cli.log and a legitimate change
+        let warsha_dir = repo_path.join(".warsha");
+        std::fs::create_dir_all(&warsha_dir).expect("create .warsha");
+        std::fs::write(warsha_dir.join("cli.log"), "secret cli log\n").expect("write log");
+        std::fs::write(repo_path.join("feature.txt"), "feature code\n").expect("write feature");
+
+        commit_run_worktree(repo_path, "commit feature")
+            .await
+            .expect("commit succeeds");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&exclude_path, std::fs::Permissions::from_mode(0o644));
+        }
+
+        let diff = Command::new("git")
+            .current_dir(repo_path)
+            .args(["diff", "HEAD~1", "HEAD", "--name-only"])
+            .output()
+            .expect("git diff");
+        let diff_str = String::from_utf8_lossy(&diff.stdout);
+        let changed_files: Vec<&str> = diff_str.lines().map(str::trim).collect();
+
+        assert!(
+            changed_files.contains(&"feature.txt"),
+            "feature.txt must be committed, got: {diff_str}"
+        );
+        assert!(
+            !changed_files.contains(&".warsha/cli.log"),
+            ".warsha/cli.log must NOT be committed even with unwritable exclude, got: {diff_str}"
+        );
+
+        let tree = Command::new("git")
+            .current_dir(repo_path)
+            .args(["ls-tree", "-r", "--name-only", "HEAD"])
+            .output()
+            .expect("git ls-tree");
+        let tree_str = String::from_utf8_lossy(&tree.stdout);
+        assert!(
+            !tree_str.contains(".warsha"),
+            "HEAD commit tree must not contain .warsha: {tree_str}"
+        );
+    }
+
+    #[tokio::test]
+    async fn warsha_config_json_is_committed_and_tracked_in_dirty_set() {
+        let repo = tempfile::tempdir().expect("repo dir");
+        let repo_path = repo.path();
+        std::fs::write(repo_path.join("base.txt"), "base").expect("base file");
+        git_repo(repo_path);
+
+        // Write .warsha-config.json only
+        std::fs::write(repo_path.join(".warsha-config.json"), "{\"version\": 1}\n")
+            .expect("write config");
+
+        // dirty_set must track .warsha-config.json
+        let dirty = dirty_set(repo_path).await.expect("dirty_set succeeds");
+        assert!(
+            dirty.iter().any(|d| d.contains(".warsha-config.json")),
+            "dirty_set must include .warsha-config.json, got: {dirty:?}"
+        );
+
+        // commit_run_worktree must NOT skip committing when only .warsha-config.json changed
+        commit_run_worktree(repo_path, "commit warsha config")
+            .await
+            .expect("commit succeeds");
+
+        let diff = Command::new("git")
+            .current_dir(repo_path)
+            .args(["diff", "HEAD~1", "HEAD", "--name-only"])
+            .output()
+            .expect("git diff");
+        let diff_str = String::from_utf8_lossy(&diff.stdout);
+        assert!(
+            diff_str.contains(".warsha-config.json"),
+            ".warsha-config.json must be committed in HEAD, got: {diff_str}"
         );
     }
 }
