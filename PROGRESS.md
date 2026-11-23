@@ -44,8 +44,8 @@
   - `node scripts/check-versions.mjs`: versions aligned (0.3.1 across 14 components), exit 0
   - `node scripts/check-arch.mjs`: 5 rules, 0 violations, exit 0
   - `node scripts/check-wire-contract.mjs`: 11 checks, 0 violations, exit 0
-- **Status**: ALL ROUND-16 FIXES COMPLETE AND VERIFIED ON LANE.
-- **Plugins used this round**: None.
+- **Status**: ROUND-16 FIXES COMPLETE — merged tip 8985d5b (7 lane commits applied via patch carry-over, order preserved); tip gates re-verified: fmt 0, clippy 0, core 36/0, backends 52/0, worktree 13/0, warshad 331/0/4, policy 8/0, arch 5/0, versions aligned, wire 11/0.
+- **Plugins used this round**: Code Reviewer @ re-review CLEAR (HIGH data-loss edge holds, MEDIUM hints guarded, deterministic block-end, CRLF holds, docs nit only); brooks-review PR Review Health Score 95/100 (1 Warning R3 pre-existing duplication accepted, 3 Suggestions R1/R6/T2; corrected doc count wording in this commit).
 
 ## Run 2026-11-23 — Round 15 Lane Fixes (Blocker F1 ETXTBSY elimination, Residuals 1-7, Open Caveat, D-R15-*)
 - **Worktree**: `.agents/worktrees/fix-r15-etxtbsy` on `r-next/integration` (commit `a7672ae`). Local-only: no push, no tag, no publish, `main` untouched.
