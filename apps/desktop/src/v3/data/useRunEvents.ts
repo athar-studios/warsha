@@ -73,6 +73,7 @@ export function useRunEvents(
         }
 
         const currentEvents = eventsRef.current;
+        setError(null);
         setData(currentEvents);
         setStatus(currentEvents.length === 0 ? 'empty' : 'ready');
       } catch (err) {

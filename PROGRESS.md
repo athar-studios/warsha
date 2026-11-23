@@ -1,5 +1,10 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Clear the stale devmode error and guard secretary decode (D-R11-DEVMODE-1)
+- **Scope**: Owner UI finding #4. Applied directly on tip `1a7568f` because the `fix-r11-devmode` lane sat on base `7de0302` and re-carried the already-merged D-R11-ROLES-1/D-R11-BUDGET-1 client changes. Local-only: no push, no tag, no publish, main untouched.
+- **Changes**: `useRunEvents` clears the error on each successful poll; regression guard that `parseWarshaEvent` accepts `role: 'secretary'` and rejects unknown roles; error-is-null assertions after manual reload and backoff reconnect.
+- **Status**: applied; proving vitest runs in this same change.
+
 ## Run 2026-11-23 — Fix runs.start ignoring budget_cents (D-R11-BUDGET-1)
 - **Scope**: Owner finding #7, merged from `fix-r11-budget` `9e06f19`. `runs.start` records the budget the caller passes. Local-only: no push, no tag, no publish, main untouched.
 - **Changes**: trailing `budget_cents: Option<u64>` on `runs.start`; an explicit value, including `0`, wins over a pending `budget.set` and over the inherited budget. Home start and the MCP `start_run` tool forward it.

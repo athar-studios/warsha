@@ -1106,6 +1106,32 @@ describe('parseWarshaEvent', () => {
     expect(() => parseWarshaEvent(frame)).toThrow('Malformed event frame: unknown "stage"');
   });
 
+  it('decodes a secretary-role event and still rejects an unknown role', () => {
+    const secretary = parseWarshaEvent(
+      JSON.stringify({
+        id: 'evt-sec',
+        run_id: 'run-sec',
+        stage: 'idea',
+        role: 'secretary',
+        kind: 'agent_step',
+        payload: { text: 'noted' },
+        created_at: '2026-10-28T00:00:02Z',
+      })
+    );
+    expect(secretary.role).toBe('secretary');
+    expect(secretary.runId).toBe('run-sec');
+
+    const unknown = JSON.stringify({
+      id: 'evt-bad',
+      run_id: 'run-bad',
+      stage: 'idea',
+      role: 'not-a-role',
+      kind: 'agent_step',
+      created_at: '2026-10-28T00:00:03Z',
+    });
+    expect(() => parseWarshaEvent(unknown)).toThrow('Malformed event frame: unknown "role"');
+  });
+
   it('rejects a non-object frame', () => {
     expect(() => parseWarshaEvent('[]')).toThrow('Malformed event frame: expected a JSON object');
   });

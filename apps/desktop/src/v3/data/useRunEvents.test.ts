@@ -112,6 +112,7 @@ describe('useRunEvents', () => {
     });
 
     expect(result.current.status).toBe('ready');
+    expect(result.current.error).toBeNull();
     expect(result.current.data).toEqual([recoveredEvent]);
   });
 
@@ -156,6 +157,7 @@ describe('useRunEvents', () => {
     });
 
     expect(result.current.status).toBe('ready');
+    expect(result.current.error).toBeNull();
     expect(result.current.data).toHaveLength(1);
     expect(client.subscribeRun).toHaveBeenCalledTimes(2);
   });

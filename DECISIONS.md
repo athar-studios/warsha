@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R11-DEVMODE-1: useRunEvents clears a stale error on the next good poll
+- **Decision**: `useRunEvents` calls `setError(null)` on the success path after `subscribeRun` resolves, so a later good poll clears a previous decode or stream error. Decoder coverage is unchanged: tip `1a7568f` already staffs `secretary` in `ROLE_VALUES`/`ALL_ROLES` (13 rows, D-R11-ROLES-1); a regression test guards that `parseWarshaEvent` accepts `role: 'secretary'` and still throws `Malformed event frame: unknown "role"` for anything else.
+- **Reason**: Owner UI finding #4. A legitimate secretary event must not stay an error on screen, and a stale error must not outlive the next good poll.
+- **Proving test**: `decodes a secretary-role event and still rejects an unknown role` in `packages/client/src/index.test.ts`; error-is-null assertions after reload and backoff recovery in `apps/desktop/src/v3/data/useRunEvents.test.ts`.
+- **Scope**: `apps/desktop/src/v3/data/useRunEvents.ts`, its test, `packages/client/src/index.test.ts`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-23 — D-R11-BUDGET-1: runs.start records the budget it is given
 - **Decision**: `runs.start` takes a trailing `budget_cents: Option<u64>`. When the caller passes a value, including `0`, that value is the budget the new run records (`set_run_budget`), and it wins over both a pending `budget.set` and the previous run's inherited budget. When the argument is absent, the previous behavior stays: the pipeline copies the newest run's budget, and a pending `budget.set` is still consumed. No new default is introduced. The desktop home start sends the budget the owner already entered (`budgetCents`) on `runs.start`. The MCP `start_run` tool forwards an optional non-negative `budget_cents` in the same trailing position.
 - **Reason**: Owner finding #7. The method did not bind a budget, so a client that sent one was ignored by serde and the new run kept the previous run's budget (owner set 5, the run started with 700).
