@@ -17,7 +17,8 @@
   - `cargo test -p warshad --lib runs_start_budget`: 7 passed, 0 failed
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures
   - `pnpm -r test`: 8/8 workspaces passed, 168 test files, 1678 tests passed, exit 0
-- **Status**: FIXES COMPLETE — Round-14 fixes verified on lane.
+- **Status**: FIXES COMPLETE — Round-14 fixes verified on lane, merged to tip `a5eadcf` (merge of `e667bfc`), tip gates re-verified: fmt 0, clippy 0, backends 49/0 x5 sweeps, worktree 12/0, warshad 7/0, policy 8/0.
+- **Plugins used this round**: Code Reviewer (@ pre-merge independent review — 0 HIGH, wording correction applied), brooks-review (brooks-lint PR Review — score 92/100, 1 Warning R3 + 3 Suggestions, 47→49 doc fix applied).
 
 ## Run 2026-11-23 — Round 13 Flake-Class Fix (ETXTBSY atomic publish + review correction, D-R13-FLAKE-2)
 - **Tip**: `r-next/integration` at `0caf6c0` (local-only: no push, no tag, no publish, `main` untouched).
