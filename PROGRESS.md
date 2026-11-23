@@ -1,5 +1,24 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 14 Lane Fixes (F13 blocker, N13-1..N13-4, and count correction, D-R14-*)
+- **Worktree**: `.agents/worktrees/fix-r14-f9stderr` on `r-next/integration` (commit `1536638`). Local-only: no push, no tag, no publish, `main` untouched.
+- **Addressed items**:
+  - **F13 blocker (`crates/warsha-backends/src/lib.rs:1892`)**: Rewrote `non_writable_workdir_fails_gracefully_with_clear_error` to assert child executed (marker file `child_marker.txt` written in parent temp dir outside read-only workdir) and that child stderr `boom-stderr` and `exit 3` are preserved in the `BackendError::Sandbox` error. Verified fails-before on baseline `7665343` (transplanted test fails on the stderr/exit-detail assertions — baseline spawns before `open_cli_log?` aborts, so the marker is still written but the generic error lacks the detail) and passes at tip.
+  - **N13-3 (`crates/warsha-backends/src/lib.rs:668-688`)**: Preserved child stderr and exit code in `execute_cli_child` when child process exits non-zero inside an unwritable work directory (`work directory is not writable: <path> (<exit_info>): <stderr>`).
+  - **N13-1 (`crates/warsha-backends/src/lib.rs:814` + `crates/warsha-pipeline/src/worktree.rs:135`)**: Narrowed `is_warsha_internal_path` to match only leading `.warsha` component (root-level only). Legitimate nested paths like `docs/.warsha/notes.md` are tracked in `dirty_set`, reported in `files_changed`, and committed by `commit_run_worktree`, while root `.warsha/cli.log` remains excluded.
+  - **N13-2 (`crates/warsha-backends/src/catalog.rs:588`)**: Applied atomic-publish pattern to `test_cli_health_timeout_fails_closed` shim writing (write staging `.warsha-block-forever.tmp`, sync_all, rename, chmod 0o755) to eliminate transient ETXTBSY race. Verified 5 consecutive sweeps of `cargo test -p warsha-backends --lib` green with 0 flakiness.
+  - **N13-4 (`crates/warshad/src/lib.rs:185-225`)**: In `apply_start_budget`, added best-effort cleanup of worktree directory (`tokio::fs::remove_dir_all`) and git worktree unregistration (`warsha_pipeline::remove_run_worktree`) on budget application failure. Preserved N5 invariant (run marked Failed, no orphan running row). Added proving test `runs_start_budget_failure_cleans_up_worktree_dir`.
+  - **Count correction (`DECISIONS.md:81` + `PROGRESS.md:85`)**: Corrected monorepo test totals from "1470 tests" to the measured 1678 tests across 168 test files for `pnpm -r test` (88 desktop / 771, 58 ui / 391, 17 remote / 231, 2 client / 203, 1 crypto / 22, 2 i18n / 60).
+- **Verification & Gates**:
+  - `cargo fmt --all -- --check`: exit 0
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0
+  - `cargo test -p warsha-backends --lib`: 49 passed, 0 failed (5x consecutive sweeps)
+  - `cargo test -p warsha-pipeline --lib worktree`: 12 passed, 0 failed
+  - `cargo test -p warshad --lib runs_start_budget`: 7 passed, 0 failed
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures
+  - `pnpm -r test`: 8/8 workspaces passed, 168 test files, 1678 tests passed, exit 0
+- **Status**: FIXES COMPLETE — Round-14 fixes verified on lane.
+
 ## Run 2026-11-23 — Round 13 Flake-Class Fix (ETXTBSY atomic publish + review correction, D-R13-FLAKE-2)
 - **Tip**: `r-next/integration` at `0caf6c0` (local-only: no push, no tag, no publish, `main` untouched).
 - **Fix**: atomic temp-sibling + rename publish in both `fake_cli` copies; targeted ETXTBSY retries kept (busy-signature only); production `check_cli_health` gains `.kill_on_drop(true)`; timeout test rewritten to absolute-path blocking shim via `tempfile::tempdir()` (no PATH mutation); missing `#[cfg(unix)]` added.
@@ -82,7 +101,7 @@
   - Updated `apps/desktop/src/v3/pages/settings/Settings.test.tsx` navigation count assertions from 4 to 5 (simple mode primary) and 18 to 19 (expanded / advanced mode) to reconcile with real Coding Engines section (`apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.tsx`).
   - Added `server.fs.allow` parent directory support in `packages/ui/vitest.config.ts` and `apps/remote/vitest.config.ts` matching `apps/desktop/vitest.config.ts` for worktree Vite resolution.
 - **Proving evidence**:
-  - Monorepo full Vitest suite (`pnpm -r test`): 8/8 workspaces passed, 168 test files, 1470 tests, exit code 0:
+  - Monorepo full Vitest suite (`pnpm -r test`): 8/8 workspaces passed, 168 test files, 1678 tests, exit code 0:
     - `@warsha/desktop`: 88 passed (88 files), 764 passed (764 tests), 0 failed.
     - `@warsha/ui`: 58 passed (58 files), 391 passed (391 tests), 0 failed.
     - `@warsha/remote`: 17 passed (17 files), 231 passed (231 tests), 0 failed.

@@ -1,6 +1,44 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R14-F13-1: True fails-before proving test for non-writable workdir and child execution
+- **Decision**: Rewrite `non_writable_workdir_fails_gracefully_with_clear_error` in `crates/warsha-backends/src/lib.rs:1892` to enforce true fails-before behavior. The child process writes a marker file (`child_marker.txt`) in the temp directory outside the read-only workdir, prints `boom-stderr` to stderr, and exits with code 3. The test asserts that the child actually executed (`marker_file.exists()` is true and contains `child-ran`) and that the resulting `BackendError::Sandbox` error preserves child stderr (`boom-stderr`) and exit status (`exit 3`).
+- **Reason**: Blocker F13 in authoritative verification report `claude-code-verify-round13-2026-11-23.md`. The prior test passed on baseline 7665343 because `open_cli_log` aborted with a generic `BackendError::Sandbox` that discarded child output, proving nothing. When transplanted to baseline 7665343, the rewritten test still fails — via the stderr/exit-detail assertions (baseline spawns the child at `lib.rs:309` before `open_cli_log?` aborts, so the marker is still written, but the generic error lacks `boom-stderr`/`exit 3`) — and passes at tip.
+- **Proving tests**: `crates/warsha-backends/src/lib.rs`: `non_writable_workdir_fails_gracefully_with_clear_error` (passes at tip in 0.00s; transplanted to baseline 7665343 fails on the `boom-stderr`/`exit 3` detail assertions).
+- **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
+
+## 2026-11-23 — D-R14-N13-3: Subprocess error preservation in read-only workdir failures
+- **Decision**: In `crates/warsha-backends/src/lib.rs:668-688` (`execute_cli_child`), preserve child stderr and exit code when a child exits non-zero in an unwritable directory. Instead of discarding child output and returning a generic `BackendError::Sandbox("work directory is not writable: ...")`, append exit status and child stderr detail: `format!("work directory is not writable: {} ({exit_info}): {detail}")`.
+- **Reason**: Finding N13-3: generic sandbox error masked subprocess failure details, hindering debugging when CLI failed inside a read-only workdir.
+- **Proving tests**: `crates/warsha-backends/src/lib.rs`: `non_writable_workdir_fails_gracefully_with_clear_error` asserting child stderr `boom-stderr` and exit code `exit 3` in error message.
+- **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
+
+## 2026-11-23 — D-R14-N13-1: Narrow .warsha internal path matcher to root-only leading component
+- **Decision**: Narrow `is_warsha_internal_path` in `crates/warsha-backends/src/lib.rs:814` and `crates/warsha-pipeline/src/worktree.rs:135` to match only leading `.warsha` components (root-level only). Inspect first non-`CurDir` component: if `Component::Normal(name)` is `.warsha`, it is internal; any nested `.warsha` (such as `docs/.warsha/notes.md`) is treated as user project content. Keep `.warsha-config.json` tracked.
+- **Reason**: Finding N13-1: `.components().any(|c| c == ".warsha")` matched `.warsha` at any depth, wrongly hiding nested user directories like `docs/.warsha/notes.md` from `files_changed`, `dirty_set`, and `commit_run_worktree`.
+- **Proving tests**:
+  - `crates/warsha-backends/src/lib.rs`: `test_is_warsha_internal_path_root_only`, `nested_docs_warsha_notes_is_reported_in_files_changed`.
+  - `crates/warsha-pipeline/src/worktree.rs`: `test_is_warsha_internal_path_root_only`, `nested_docs_warsha_notes_is_committed_and_tracked_in_dirty_set`.
+- **Scope**: `crates/warsha-backends/src/lib.rs`, `crates/warsha-pipeline/src/worktree.rs`. Local-only.
+
+## 2026-11-23 — D-R14-N13-2: Atomic publish pattern for test_cli_health_timeout_fails_closed shim
+- **Decision**: Apply the atomic-publish pattern to `test_cli_health_timeout_fails_closed` in `crates/warsha-backends/src/catalog.rs:588`. Write blocking shim to staging sibling (`.warsha-block-forever.tmp`), call `file.sync_all()`, drop handle, atomically `rename` over final path, then set mode `0o755`. Retain `kill_on_drop(true)`, no `PATH` mutation, and tempdir auto-cleanup.
+- **Reason**: Finding N13-2: direct `std::fs::write` to executable path caused transient ETXTBSY (os error 26) flakiness during parallel test execution when parallel tests fork/exec.
+- **Proving tests**: 5 consecutive sweeps of `cargo test -p warsha-backends --lib` with 0 failures (49/49 passed each sweep, including the 2 new N13-1/F13 tests).
+- **Scope**: `crates/warsha-backends/src/catalog.rs`. Local-only.
+
+## 2026-11-23 — D-R14-N13-4: Best-effort worktree cleanup on budget failure
+- **Decision**: In `crates/warshad/src/lib.rs:185-225` (`apply_start_budget`), perform best-effort cleanup of worktree directory and git worktree registration on budget application failure. If `state.run_worktrees` contains the worktree, unregister with `warsha_pipeline::remove_run_worktree` using project `repo_path` if available, and remove directory with `tokio::fs::remove_dir_all`. Failures warn only and do not fail the RPC. N5 invariant preserved: run is marked `Failed` and no running row remains.
+- **Reason**: Finding N13-4: previous N5 fix evicted the in-memory map entry and marked run failed, but left the physical worktree directory on disk.
+- **Proving tests**: `crates/warshad/src/tests/mod.rs`: `runs_start_budget_failure_cleans_up_worktree_dir` asserting worktree directory is removed from disk and in-memory map cleaned up; `runs_start_budget_failure_marks_run_failed_and_leaves_no_running_row` (N5) passes.
+- **Scope**: `crates/warshad/src/lib.rs`, `crates/warshad/src/tests/mod.rs`. Local-only.
+
+## 2026-11-23 — D-R14-COUNT-1: Monorepo test count reconciliation
+- **Decision**: Reconcile monorepo Vitest test count documentation in `DECISIONS.md:81` and `PROGRESS.md:85`. Correct the historical typo/under-reporting of "1470 tests" to the measured 1678 tests across 168 test files for `pnpm -r test` (88 files / 771 tests in desktop, 58 files / 391 tests in ui, 17 files / 231 tests in remote, 2 files / 203 tests in client, 1 file / 22 tests in crypto, 2 files / 60 tests in i18n).
+- **Reason**: Finding from round 13 verification report noting mismatch between documented "1470 tests" and verified 1678 tests.
+- **Proving tests**: Full run of `pnpm -r test` measuring 168 files, 1678 tests passed, 0 failed.
+- **Scope**: `DECISIONS.md`, `PROGRESS.md`. Local-only.
+
 ## 2026-11-23 — D-R13-FLAKE-2: Atomic fake_cli publish + kill_on_drop + PATH-free timeout (review correction)
 - **Decision**:
   1. `fake_cli` (both copies in `crates/warsha-backends/src/lib.rs` tests): write to temp sibling + `rename` over final path, close handle before chmod/rename — parallel exec never sees half-written script, killing the ETXTBSY class at the source.
@@ -78,7 +116,7 @@
   - Full desktop Vitest suite: 88 test files passed (88/88), 764 tests passed (764/764), 0 failed.
   - Full UI package Vitest suite: 58 test files passed (58/58), 391 tests passed (391/391), 0 failed.
   - Full remote Vitest suite: 17 test files passed (17/17), 231 tests passed (231/231), 0 failed.
-  - Full monorepo Vitest suite (`pnpm -r test`): all 8 workspaces passed (168 test files, 1470 tests), exit code 0.
+  - Full monorepo Vitest suite (`pnpm -r test`): all 8 workspaces passed (168 test files, 1678 tests), exit code 0.
   - `tsc --noEmit` in apps/desktop, apps/remote, packages/ui: 0 errors.
   - ESLint on touched files: 0 errors.
   - `node scripts/check-engineering-policy.mjs`: 8/0 passed.

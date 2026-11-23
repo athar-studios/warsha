@@ -183,7 +183,54 @@ async fn apply_start_budget(
                 "failed to apply start budget to newly created run"
             );
             state.agent_sessions.remove(run.id);
-            state.run_worktrees.write().await.remove(&run.id);
+            let removed_worktree = state.run_worktrees.write().await.remove(&run.id);
+            if let Some(worktree) = removed_worktree {
+                // N13-4: Best-effort cleanup of worktree on budget failure.
+                // Do not fail the RPC on cleanup error; warn only.
+                if let Ok(project) = state.store.get_project(project_id).await {
+                    if let Some(repo_path) = project
+                        .repo_path
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|p| !p.is_empty())
+                    {
+                        if let Err(e) = warsha_pipeline::remove_run_worktree(
+                            std::path::Path::new(repo_path),
+                            &worktree,
+                        )
+                        .await
+                        {
+                            warn!(
+                                run_id = %run.id.0,
+                                error = %e,
+                                "failed to remove git worktree registration on budget failure"
+                            );
+                        }
+                    }
+                }
+                if worktree.path.exists() {
+                    if let Err(e) = tokio::fs::remove_dir_all(&worktree.path).await {
+                        warn!(
+                            run_id = %run.id.0,
+                            path = %worktree.path.display(),
+                            error = %e,
+                            "failed to remove worktree directory on budget failure"
+                        );
+                    }
+                }
+            } else if let Some(ref path_str) = run.worktree_path {
+                let path = std::path::PathBuf::from(path_str);
+                if path.exists() {
+                    if let Err(e) = tokio::fs::remove_dir_all(&path).await {
+                        warn!(
+                            run_id = %run.id.0,
+                            path = %path.display(),
+                            error = %e,
+                            "failed to remove worktree directory on budget failure"
+                        );
+                    }
+                }
+            }
             state.mcp_approvals.purge_run(&run.id.0.to_string());
             state.previews.stop_run(&run.id.0.to_string()).await;
 

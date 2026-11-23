@@ -585,7 +585,20 @@ mod tests {
         // mutating the process-wide PATH.
         let temp = tempfile::tempdir().expect("probe dir");
         let shim = temp.path().join("warsha-block-forever");
-        std::fs::write(&shim, "#!/bin/sh\nexec sleep 30\n").expect("shim written");
+        let staging = temp.path().join(".warsha-block-forever.tmp");
+        {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&staging)
+                .expect("staging shim opened");
+            file.write_all(b"#!/bin/sh\nexec sleep 30\n")
+                .expect("shim written");
+            file.sync_all().expect("shim synced");
+        }
+        std::fs::rename(&staging, &shim).expect("shim published");
         {
             use std::os::unix::fs::PermissionsExt;
             let mut perms = std::fs::metadata(&shim).expect("shim exists").permissions();

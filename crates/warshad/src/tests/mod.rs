@@ -4649,6 +4649,94 @@ mod runs_start_budget {
     }
 
     #[tokio::test]
+    async fn runs_start_budget_failure_cleans_up_worktree_dir() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let repo_dir = crate::test_util::fresh_tempdir();
+        std::fs::write(repo_dir.path().join("base.txt"), "base").expect("base file");
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+            vec!["add", "."],
+            vec!["commit", "-qm", "base"],
+        ] {
+            let status = std::process::Command::new("git")
+                .current_dir(repo_dir.path())
+                .args(&args)
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?} failed");
+        }
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Budget Fail Worktree Cleanup".to_string(),
+                "Budget fail worktree test".to_string(),
+                "en".to_string(),
+                None,
+                None,
+                Some(repo_dir.path().to_str().expect("utf8 path").to_string()),
+            )
+            .await
+            .expect("project created");
+
+        sqlx::query(
+            "CREATE TRIGGER fail_budget_update_cleanup BEFORE UPDATE OF budget_cents ON runs \
+             WHEN OLD.version >= 3 \
+             BEGIN SELECT RAISE(ABORT, 'injected budget persistence failure'); END;",
+        )
+        .execute(store.pool())
+        .await
+        .expect("trigger created");
+
+        let start_res = rpc
+            .start_run(
+                &owner,
+                project.id,
+                "Build something".to_string(),
+                None,
+                None,
+                Some(500),
+            )
+            .await;
+        assert!(
+            start_res.is_err(),
+            "runs.start must fail when budget update fails"
+        );
+
+        let runs = rpc
+            .list_runs(&owner, project.id)
+            .await
+            .expect("runs listed");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].status, warsha_core::RunStatus::Failed);
+
+        let worktree_path_str = runs[0]
+            .worktree_path
+            .as_ref()
+            .expect("worktree path recorded on run");
+        let worktree_path = std::path::PathBuf::from(worktree_path_str);
+
+        // N13-4 proving assertion: worktree directory must be removed from disk
+        assert!(
+            !worktree_path.exists(),
+            "worktree directory `{}` must be cleaned up on budget failure",
+            worktree_path.display()
+        );
+
+        // In-memory map must also be clean
+        assert!(
+            !state.run_worktrees.read().await.contains_key(&runs[0].id),
+            "run_worktrees map must not contain failed run"
+        );
+    }
+
+    #[tokio::test]
     async fn explicit_budget_on_runs_start_lifts_project_exhaustion() {
         let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;

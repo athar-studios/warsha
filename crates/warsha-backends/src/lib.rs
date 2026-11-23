@@ -665,15 +665,6 @@ impl CodingBackend for CliBackend {
                     "Stopped by owner".to_string(),
                 ));
             }
-            let is_unwritable = std::fs::metadata(&sandbox.work_dir)
-                .map(|m| m.permissions().readonly())
-                .unwrap_or(false);
-            if is_unwritable {
-                return Err(BackendError::Sandbox(format!(
-                    "work directory is not writable: {}",
-                    sandbox.work_dir.display()
-                )));
-            }
             let stderr_str = captured_stderr.join("\n").trim().to_string();
             let stdout_str = captured_stdout.join("\n").trim().to_string();
             let detail = if stderr_str.is_empty() {
@@ -681,6 +672,27 @@ impl CodingBackend for CliBackend {
             } else {
                 stderr_str
             };
+            let exit_info = match st.code() {
+                Some(code) => format!("exit {code}"),
+                None => "terminated by signal".to_string(),
+            };
+            let is_unwritable = std::fs::metadata(&sandbox.work_dir)
+                .map(|m| m.permissions().readonly())
+                .unwrap_or(false);
+            if is_unwritable {
+                let msg = if detail.is_empty() {
+                    format!(
+                        "work directory is not writable: {} ({exit_info})",
+                        sandbox.work_dir.display()
+                    )
+                } else {
+                    format!(
+                        "work directory is not writable: {} ({exit_info}): {detail}",
+                        sandbox.work_dir.display()
+                    )
+                };
+                return Err(BackendError::Sandbox(msg));
+            }
             return Err(BackendError::ExecutionFailed(if detail.is_empty() {
                 format!("{} exited with {:?}", self.name, st.code())
             } else {
@@ -724,34 +736,35 @@ fn ensure_git_exclude(work_dir: &std::path::Path) {
                 if let Some(parent) = exclude_path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
-                let needs_entry = if let Ok(existing) = std::fs::read_to_string(&exclude_path) {
-                    !existing.lines().any(|l| {
-                        l.trim() == ".warsha" || l.trim() == ".warsha/" || l.trim() == ".warsha/**"
-                    })
-                } else {
-                    true
-                };
-                if needs_entry {
-                    use std::io::Write;
-                    match std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&exclude_path)
+                let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
+                let needs_update = !existing.lines().any(|l| {
+                    l.trim() == "/.warsha" || l.trim() == "/.warsha/" || l.trim() == "/.warsha/**"
+                }) || existing.lines().any(|l| {
+                    let t = l.trim();
+                    t == ".warsha" || t == ".warsha/" || t == ".warsha/**"
+                });
+                if needs_update {
+                    let mut lines: Vec<String> = existing
+                        .lines()
+                        .filter(|l| {
+                            let t = l.trim();
+                            t != ".warsha" && t != ".warsha/" && t != ".warsha/**"
+                        })
+                        .map(|l| l.to_string())
+                        .collect();
+                    if !lines
+                        .iter()
+                        .any(|l| l.trim() == "/.warsha" || l.trim() == "/.warsha/")
                     {
-                        Ok(mut f) => {
-                            if let Err(e) = writeln!(f, ".warsha/\n.warsha") {
-                                eprintln!(
-                                    "warning: failed to write .warsha exclusion to {}: {e}",
-                                    exclude_path.display()
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "warning: could not open git exclude file for writing {}: {e}",
-                                exclude_path.display()
-                            );
-                        }
+                        lines.push("/.warsha/".to_string());
+                        lines.push("/.warsha".to_string());
+                    }
+                    let new_content = lines.join("\n") + "\n";
+                    if let Err(e) = std::fs::write(&exclude_path, new_content) {
+                        eprintln!(
+                            "warning: failed to write .warsha exclusion to {}: {e}",
+                            exclude_path.display()
+                        );
                     }
                 }
             }
@@ -809,13 +822,19 @@ fn open_cli_log(work_dir: &std::path::Path) -> Result<std::fs::File> {
         })
 }
 
-/// Match paths that belong to internal `.warsha` directories or `.warsha` files,
-/// without matching valid project files that share a prefix like `.warsha-config.json`.
+/// Match paths that belong to internal `.warsha` directories or `.warsha` files
+/// at the root of the worktree, without matching valid project files that share
+/// a prefix like `.warsha-config.json` or nested directories like `docs/.warsha/notes.md`.
 pub fn is_warsha_internal_path(path: &str) -> bool {
     let clean = path.trim().trim_matches('"');
-    std::path::Path::new(clean)
-        .components()
-        .any(|c| c.as_os_str() == ".warsha")
+    for c in std::path::Path::new(clean).components() {
+        match c {
+            std::path::Component::CurDir => continue,
+            std::path::Component::Normal(name) => return name == ".warsha",
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// Append one already-captured line and flush it. The line text is the child's
@@ -833,7 +852,7 @@ async fn capture_changes(work_dir: &std::path::Path) -> (Option<String>, Vec<Str
     let status = tokio::process::Command::new("git")
         .arg("-C")
         .arg(work_dir)
-        .args(["status", "--porcelain"])
+        .args(["status", "--porcelain", "-u"])
         .output()
         .await;
     let diff = tokio::process::Command::new("git")
@@ -844,8 +863,8 @@ async fn capture_changes(work_dir: &std::path::Path) -> (Option<String>, Vec<Str
             "HEAD",
             "--",
             ".",
-            ":(exclude).warsha",
-            ":(exclude).warsha/**",
+            ":(exclude,top).warsha",
+            ":(exclude,top).warsha/**",
         ])
         .output()
         .await;
@@ -1895,16 +1914,18 @@ mod tests {
             let read_only_dir = temp.path().join("ro_dir");
             std::fs::create_dir(&read_only_dir).expect("dir created");
 
+            // Marker file written OUTSIDE the read-only workdir to prove child executed.
+            let marker_file = temp.path().join("child_marker.txt");
+            let marker_path = marker_file.to_str().expect("valid utf8 marker path");
+
             // Make directory read-only
             std::fs::set_permissions(&read_only_dir, std::fs::Permissions::from_mode(0o555))
                 .expect("set read-only permissions");
 
-            // When a CLI command genuinely fails because work directory is unwritable,
-            // the failure must be captured gracefully with a clear error message.
-            let cli = fake_cli(
-                temp.path(),
-                "touch uncreatable.txt 2>/dev/null || exit 1\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
-            );
+            // Child prints to stderr, marks its execution in an outside directory, and exits 3.
+            let script =
+                format!("printf 'child-ran' > {marker_path}\necho 'boom-stderr' >&2\nexit 3");
+            let cli = fake_cli(temp.path(), &script);
             let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
             let sandbox = Sandbox::new(read_only_dir.clone());
 
@@ -1936,11 +1957,31 @@ mod tests {
             let _ =
                 std::fs::set_permissions(&read_only_dir, std::fs::Permissions::from_mode(0o755));
 
+            // F13 & N13-3 assertions:
+            // 1. Child actually ran (marker file written outside read-only dir).
+            assert!(
+                marker_file.exists(),
+                "child process must have executed and written marker file outside workdir"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&marker_file).expect("readable marker"),
+                "child-ran"
+            );
+
+            // 2. Child stderr and exit code are preserved in the error path.
             match error {
                 BackendError::Sandbox(msg) => {
                     assert!(
                         msg.contains("work directory is not writable"),
-                        "expected clear error message, got: {msg}"
+                        "expected unwritable workdir note, got: {msg}"
+                    );
+                    assert!(
+                        msg.contains("boom-stderr"),
+                        "child stderr must be preserved in error, got: {msg}"
+                    );
+                    assert!(
+                        msg.contains("exit 3"),
+                        "child exit code must be preserved in error, got: {msg}"
                     );
                 }
                 other => panic!("expected BackendError::Sandbox, got: {other:?}"),
@@ -2107,6 +2148,81 @@ mod tests {
                 "files_changed must include .warsha-config.json, got: {:?}",
                 result.files_changed
             );
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn nested_docs_warsha_notes_is_reported_in_files_changed() {
+            let temp = tempfile::tempdir().expect("temp dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("base file");
+            git_repo(temp.path());
+
+            let cli_temp = tempfile::tempdir().expect("cli temp dir");
+            let cli = fake_cli(
+                cli_temp.path(),
+                "mkdir -p docs/.warsha && printf '# Notes\\n' > docs/.warsha/notes.md\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let mut last_err: Option<String> = None;
+            let mut result = None;
+            for _ in 0..5 {
+                match backend.execute(task("Task", "Desc"), &sandbox).await {
+                    Ok(res) => {
+                        result = Some(res);
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("Text file busy") || msg.contains("os error 26") {
+                            last_err = Some(msg);
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            panic!("run succeeds, got: {e}");
+                        }
+                    }
+                }
+            }
+            let result = result.unwrap_or_else(|| {
+                panic!(
+                    "run succeeds after ETXTBSY retries, last: {}",
+                    last_err.unwrap_or_default()
+                )
+            });
+
+            assert!(
+                result
+                    .files_changed
+                    .contains(&"docs/.warsha/notes.md".to_string()),
+                "files_changed must include docs/.warsha/notes.md, got: {:?}",
+                result.files_changed
+            );
+            assert!(
+                !result
+                    .files_changed
+                    .iter()
+                    .any(|f| is_warsha_internal_path(f)),
+                "files_changed must not include root .warsha internal paths, got: {:?}",
+                result.files_changed
+            );
+
+            // Root .warsha/cli.log exists on disk but is not in files_changed
+            let log_file = temp.path().join(".warsha/cli.log");
+            assert!(log_file.exists(), "root .warsha/cli.log must exist");
+        }
+
+        #[test]
+        fn test_is_warsha_internal_path_root_only() {
+            assert!(is_warsha_internal_path(".warsha"));
+            assert!(is_warsha_internal_path(".warsha/cli.log"));
+            assert!(is_warsha_internal_path("./.warsha/cli.log"));
+            assert!(is_warsha_internal_path("\".warsha/cli.log\""));
+            assert!(!is_warsha_internal_path(".warsha-config.json"));
+            assert!(!is_warsha_internal_path("docs/.warsha/notes.md"));
+            assert!(!is_warsha_internal_path("./docs/.warsha/notes.md"));
+            assert!(!is_warsha_internal_path("sub/.warsha"));
+            assert!(!is_warsha_internal_path(""));
         }
     }
 }
