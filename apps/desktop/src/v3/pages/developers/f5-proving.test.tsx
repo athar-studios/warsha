@@ -17,8 +17,10 @@ import { ClientProvider } from '../../app/ClientContext';
 import { DataReadyProvider } from '../../app/DataReadyContext';
 import { DensityProvider } from '../../app/DensityContext';
 import { ThemeProvider } from '../../app/ThemeContext';
-import DevelopersPage from './index';
+
 import { sessionMetrics } from './metrics';
+
+import DevelopersPage from './index';
 
 const PROJECT: ProjectSummary = {
   id: 'p-f5' as ProjectId,
