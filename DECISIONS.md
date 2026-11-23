@@ -1,6 +1,16 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R13-FLAKE-2: Atomic fake_cli publish + kill_on_drop + PATH-free timeout (review correction)
+- **Decision**:
+  1. `fake_cli` (both copies in `crates/warsha-backends/src/lib.rs` tests): write to temp sibling + `rename` over final path, close handle before chmod/rename — parallel exec never sees half-written script, killing the ETXTBSY class at the source.
+  2. Kept the targeted up-to-5 50ms ETXTBSY retries on direct-`execute` tests (filter only `Text file busy`/`os error 26`; real errors still panic/assert immediately).
+  3. `check_cli_health` production (`crates/warsha-backends/src/catalog.rs:103-106`): added `.kill_on_drop(true)` so a timed-out `--version` child is reaped (no orphaned `sleep 30`); production behavior otherwise identical.
+  4. `test_cli_health_timeout_fails_closed`: blocking shim via `tempfile::tempdir()` + absolute-path probe (no process-wide `PATH` mutation, auto-cleanup), 200ms timeout, fail-closed asserts kept.
+  5. Added missing `#[cfg(unix)]` on `warsha_config_json_is_reported_in_files_changed`.
+- **Reason**: Independent review of the flake hardening returned CHANGES REQUESTED (2 HIGH: child leak on timeout, global PATH mutation without RAII; MEDIUM: missing cfg(unix)). Verified fmt 0, clippy 0, backends 47/0 x4 sweeps.
+- **Scope**: `crates/warsha-backends/src/lib.rs` + `catalog.rs` tests + one production `kill_on_drop` line. Local-only.
+
 ## 2026-11-23 — D-R13-F9-FLAKE-1: Retry F9 log-open proving test on transient ETXTBSY
 - **Decision**: Wrap the `execute` call in `log_open_failure_does_not_abort_cli_run` (`crates/warsha-backends/src/lib.rs`) with the same up-to-5-attempt 50ms-backoff ETXTBSY retry the N8 test uses. Real non-busy errors still panic immediately; only `Text file busy` / `os error 26` retries.
 - **Reason**: The tip full-suite run failed the F9 proving test with `ExecutionFailed("Text file busy (os error 26)")` — the same kernel write-handle race the N8 hardening already tolerates in `cli_run_changing_nothing`. The retry does not relax the F9 assertion (CLI must still succeed when the log cannot be created); it only tolerates the transient exec race. Verified 5/5 green plus fmt 0 and clippy 0.

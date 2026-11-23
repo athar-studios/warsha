@@ -102,6 +102,7 @@ pub async fn check_cli_health(
 
     let child_future = tokio::process::Command::new(command)
         .arg("--version")
+        .kill_on_drop(true)
         .output();
 
     match tokio::time::timeout(timeout, child_future).await {
@@ -576,14 +577,30 @@ mod tests {
         assert!(!diag.auth_required);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_cli_health_timeout_fails_closed() {
-        // A timeout of 0 nanos immediately fails closed on timeout
-        let diag = check_cli_health("git", "git", std::time::Duration::from_nanos(0)).await;
-        if diag.installed {
-            assert!(!diag.ready, "timeout must fail closed");
-            assert!(diag.version.is_none());
-            assert!(diag.status.contains("Timed out"));
+        // Deterministic: probe a blocking `sh -c 'sleep 30'` shim by absolute path
+        // so exec always succeeds and the 200ms timeout must fail closed without
+        // mutating the process-wide PATH.
+        let temp = tempfile::tempdir().expect("probe dir");
+        let shim = temp.path().join("warsha-block-forever");
+        std::fs::write(&shim, "#!/bin/sh\nexec sleep 30\n").expect("shim written");
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&shim).expect("shim exists").permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&shim, perms).expect("shim executable");
         }
+        let diag = check_cli_health(
+            "blocker",
+            shim.to_str().expect("valid utf8 path"),
+            std::time::Duration::from_millis(200),
+        )
+        .await;
+        assert!(diag.installed, "the blocking shim exists");
+        assert!(!diag.ready, "timeout must fail closed");
+        assert!(diag.version.is_none());
+        assert!(diag.status.contains("Timed out"));
     }
 }

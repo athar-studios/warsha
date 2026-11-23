@@ -1149,22 +1149,33 @@ mod tests {
             static CLI_COUNTER: AtomicU64 = AtomicU64::new(0);
             let id = CLI_COUNTER.fetch_add(1, Ordering::Relaxed);
             let path = dir.join(format!("fake-coding-cli-{}-{}", std::process::id(), id));
+            // Atomic publish: write to a temp sibling and rename over the
+            // final path, so a parallel exec never catches a half-written
+            // file and fails with ETXTBSY (os error 26).
+            let staging = dir.join(format!(
+                ".fake-coding-cli-{}-{}.tmp",
+                std::process::id(),
+                id
+            ));
             {
                 let mut file = std::fs::OpenOptions::new()
                     .write(true)
                     .create(true)
                     .truncate(true)
-                    .open(&path)
-                    .expect("the fake CLI is opened");
+                    .open(&staging)
+                    .expect("the fake CLI staging file is opened");
                 file.write_all(format!("#!/bin/sh\n{body}\n").as_bytes())
                     .expect("the fake CLI is written");
                 file.sync_all().expect("the fake CLI is synced");
+                drop(file);
             }
-            let mut permissions = std::fs::metadata(&path)
-                .expect("the script exists")
+            let mut permissions = std::fs::metadata(&staging)
+                .expect("the staging script exists")
                 .permissions();
             permissions.set_mode(0o755);
-            std::fs::set_permissions(&path, permissions).expect("the script is executable");
+            std::fs::set_permissions(&staging, permissions)
+                .expect("the staging script is executable");
+            std::fs::rename(&staging, &path).expect("the fake CLI is published");
             path
         }
 
@@ -1199,10 +1210,36 @@ mod tests {
             let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
             let sandbox = Sandbox::new(temp.path().to_path_buf());
 
-            let result = backend
-                .execute(task("Add a page", "Make the page render"), &sandbox)
-                .await
-                .expect("the fake CLI succeeds");
+            // ETXTBSY retry: the fake script is written+chmod'ed just before
+            // exec, so a transient write-handle race must not fail the test.
+            let mut last_err: Option<String> = None;
+            let mut result = None;
+            for _ in 0..5 {
+                match backend
+                    .execute(task("Add a page", "Make the page render"), &sandbox)
+                    .await
+                {
+                    Ok(res) => {
+                        result = Some(res);
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("Text file busy") || msg.contains("os error 26") {
+                            last_err = Some(msg);
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            panic!("the fake CLI succeeds, got: {e}");
+                        }
+                    }
+                }
+            }
+            let result = result.unwrap_or_else(|| {
+                panic!(
+                    "the fake CLI succeeds after ETXTBSY retries, last: {}",
+                    last_err.unwrap_or_default()
+                )
+            });
 
             assert!(result.success);
             assert!(
@@ -1264,10 +1301,25 @@ mod tests {
             let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
             let sandbox = Sandbox::new(temp.path().to_path_buf());
 
-            let error = backend
-                .execute(task("T", "D"), &sandbox)
-                .await
-                .expect_err("the CLI failed");
+            // ETXTBSY retry: a transient write-handle race surfaces as
+            // ExecutionFailed("Text file busy") instead of the expected
+            // boom stderr — retry only the busy signature.
+            let mut error = None;
+            for _ in 0..5 {
+                match backend.execute(task("T", "D"), &sandbox).await {
+                    Ok(_) => panic!("the CLI failed"),
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("Text file busy") || msg.contains("os error 26") {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            continue;
+                        }
+                        error = Some(e);
+                        break;
+                    }
+                }
+            }
+            let error = error.expect("the CLI failed with boom after ETXTBSY retries");
 
             assert!(
                 matches!(error, BackendError::ExecutionFailed(_)),
@@ -1311,10 +1363,36 @@ mod tests {
             backend.command = cli.to_str().expect("valid utf8 path").to_string();
 
             let sandbox = Sandbox::new(temp.path().to_path_buf());
-            let result = backend
-                .execute(task("Opencode Task", "Implement feature"), &sandbox)
-                .await
-                .expect("opencode backend executes");
+            // ETXTBSY retry: the fake script is written+chmod'ed just before
+            // exec, so a transient write-handle race must not fail the test.
+            let mut last_err: Option<String> = None;
+            let mut result = None;
+            for _ in 0..5 {
+                match backend
+                    .execute(task("Opencode Task", "Implement feature"), &sandbox)
+                    .await
+                {
+                    Ok(res) => {
+                        result = Some(res);
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("Text file busy") || msg.contains("os error 26") {
+                            last_err = Some(msg);
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            panic!("opencode backend executes, got: {e}");
+                        }
+                    }
+                }
+            }
+            let result = result.unwrap_or_else(|| {
+                panic!(
+                    "opencode backend executes after ETXTBSY retries, last: {}",
+                    last_err.unwrap_or_default()
+                )
+            });
 
             assert!(result.success);
             assert!(result.files_changed.contains(&"base.txt".to_string()));
@@ -1465,22 +1543,33 @@ mod tests {
             static CLI_COUNTER: AtomicU64 = AtomicU64::new(0);
             let id = CLI_COUNTER.fetch_add(1, Ordering::Relaxed);
             let path = dir.join(format!("fake-coding-cli-{}-{}", std::process::id(), id));
+            // Atomic publish: write to a temp sibling and rename over the
+            // final path, so a parallel exec never catches a half-written
+            // file and fails with ETXTBSY (os error 26).
+            let staging = dir.join(format!(
+                ".fake-coding-cli-{}-{}.tmp",
+                std::process::id(),
+                id
+            ));
             {
                 let mut file = std::fs::OpenOptions::new()
                     .write(true)
                     .create(true)
                     .truncate(true)
-                    .open(&path)
-                    .expect("the fake CLI is opened");
+                    .open(&staging)
+                    .expect("the fake CLI staging file is opened");
                 file.write_all(format!("#!/bin/sh\n{body}\n").as_bytes())
                     .expect("the fake CLI is written");
                 file.sync_all().expect("the fake CLI is synced");
+                drop(file);
             }
-            let mut permissions = std::fs::metadata(&path)
-                .expect("the script exists")
+            let mut permissions = std::fs::metadata(&staging)
+                .expect("the staging script exists")
                 .permissions();
             permissions.set_mode(0o755);
-            std::fs::set_permissions(&path, permissions).expect("the script is executable");
+            std::fs::set_permissions(&staging, permissions)
+                .expect("the staging script is executable");
+            std::fs::rename(&staging, &path).expect("the fake CLI is published");
             path
         }
 
@@ -1819,10 +1908,29 @@ mod tests {
             let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
             let sandbox = Sandbox::new(read_only_dir.clone());
 
-            let error = backend
-                .execute(task("Task", "Desc"), &sandbox)
-                .await
-                .expect_err("read-only workdir must fail");
+            let mut last_err: Option<BackendError> = None;
+            let mut error = None;
+            for _ in 0..5 {
+                match backend.execute(task("Task", "Desc"), &sandbox).await {
+                    Ok(_) => panic!("read-only workdir must fail"),
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("Text file busy") || msg.contains("os error 26") {
+                            last_err = Some(e);
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            error = Some(e);
+                            break;
+                        }
+                    }
+                }
+            }
+            let error = error.unwrap_or_else(|| {
+                panic!(
+                    "read-only workdir must fail with Sandbox, last ETXTBSY: {:?}",
+                    last_err.map(|e| e.to_string()).unwrap_or_default()
+                )
+            });
 
             // Restore write permissions so tempdir can clean up
             let _ =
@@ -1863,10 +1971,33 @@ mod tests {
             let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
             let sandbox = Sandbox::new(temp.path().to_path_buf());
 
-            let result = backend
-                .execute(task("Task", "Desc"), &sandbox)
-                .await
-                .expect("mid-run log errors must not abort run");
+            // ETXTBSY retry: the fake script is written+chmod'ed just before
+            // exec, so a transient write-handle race must not fail the test.
+            let mut last_err: Option<String> = None;
+            let mut result = None;
+            for _ in 0..5 {
+                match backend.execute(task("Task", "Desc"), &sandbox).await {
+                    Ok(res) => {
+                        result = Some(res);
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("Text file busy") || msg.contains("os error 26") {
+                            last_err = Some(msg);
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            panic!("mid-run log errors must not abort run, got: {e}");
+                        }
+                    }
+                }
+            }
+            let result = result.unwrap_or_else(|| {
+                panic!(
+                    "run succeeds after ETXTBSY retries, last: {}",
+                    last_err.unwrap_or_default()
+                )
+            });
 
             assert!(
                 result.success,
@@ -1929,6 +2060,7 @@ mod tests {
             assert!(result.success, "run must proceed and succeed");
         }
 
+        #[cfg(unix)]
         #[tokio::test]
         async fn warsha_config_json_is_reported_in_files_changed() {
             let temp = tempfile::tempdir().expect("temp dir");
@@ -1942,10 +2074,31 @@ mod tests {
             let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
             let sandbox = Sandbox::new(temp.path().to_path_buf());
 
-            let result = backend
-                .execute(task("Task", "Desc"), &sandbox)
-                .await
-                .expect("run succeeds");
+            let mut last_err: Option<String> = None;
+            let mut result = None;
+            for _ in 0..5 {
+                match backend.execute(task("Task", "Desc"), &sandbox).await {
+                    Ok(res) => {
+                        result = Some(res);
+                        break;
+                    }
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("Text file busy") || msg.contains("os error 26") {
+                            last_err = Some(msg);
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        } else {
+                            panic!("run succeeds, got: {e}");
+                        }
+                    }
+                }
+            }
+            let result = result.unwrap_or_else(|| {
+                panic!(
+                    "run succeeds after ETXTBSY retries, last: {}",
+                    last_err.unwrap_or_default()
+                )
+            });
 
             assert!(
                 result
