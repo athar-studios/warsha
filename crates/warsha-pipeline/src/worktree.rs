@@ -139,10 +139,16 @@ pub async fn commit_run_worktree(worktree_path: &Path, message: &str) -> Result<
         .await
         .map_err(|e| WorktreeError::Git(e.to_string()))?;
 
-    if String::from_utf8_lossy(&status_output.stdout)
-        .trim()
-        .is_empty()
-    {
+    let stdout_str = String::from_utf8_lossy(&status_output.stdout);
+    let meaningful_changes: Vec<&str> = stdout_str
+        .lines()
+        .filter(|l| {
+            let path = l.get(3..).unwrap_or("").trim().trim_matches('"');
+            !path.starts_with(".warsha")
+        })
+        .collect();
+
+    if meaningful_changes.is_empty() {
         return Ok(());
     }
 
@@ -219,6 +225,10 @@ pub async fn dirty_set(worktree_path: &Path) -> Result<Vec<String>> {
     }
     let mut lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
         .lines()
+        .filter(|l| {
+            let path = l.get(3..).unwrap_or("").trim().trim_matches('"');
+            !path.starts_with(".warsha")
+        })
         .map(|l| l.to_string())
         .collect();
     lines.sort();

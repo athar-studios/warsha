@@ -1,6 +1,30 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R12-SESSIONS-1: Failover-aware session row provider/model tracking and cost/tokens window ordering
+- **Decision**:
+  1. `crates/warsha-providers/src/lib.rs` adds `FallbackChatResponse` (`response: ChatResponse`, `provider_id: String`, `model_id: String`) and `chat_with_fallback_detailed(...)`. Existing `chat_with_fallback(...)` delegates to it, keeping its signature intact.
+  2. `crates/warsha-store/src/lib.rs` adds `update_session_responder(&self, session_id: SessionId, provider: &str, model: &str) -> Result<()>`, updating the session row in SQLite with the actual provider and model that responded.
+  3. `crates/warsha-pipeline/src/lib.rs` tracks `session_id` on `StageCompletion` and updates the session row with the actual responding provider and model upon chat completion (under failover, e.g. mock-503 -> mock, the session row is updated to "mock" / "mock-model", not the failed primary "mock-503").
+  4. Cost/window ordering fix: `finish_session` is moved from immediately after dispatch to AFTER `append_event` with `ended_at = Utc::now().max(event.created_at)`. On error or cancellation, `finish_session` runs fail-closed with `SessionStatus::Failed` / `SessionStatus::Stopped`. This guarantees that `session.ended_at >= event.created_at`, so `withinWindow` in `apps/desktop/src/v3/pages/developers/metrics.ts` does not drop telemetry events, and cost/tokens display as known values in Developers mode.
+- **Reason**: Owner verification findings F5 and F13 (from `claude-code-verify-round11-2026-11-23.md`). Previously, `execute_stage_with_recovery` only recorded the initial routed target from `router.route(role)`. Under failover, the row retained the failed target name. Furthermore, `finish_session` ran before the `AgentStep` event was appended to the store, causing `event.created_at > session.ended_at`, which caused `withinWindow` to drop the cost/token events (8 of 8 completed sessions showed unknown cost/tokens).
+- **Proving tests**:
+  - Backend: `crates/warsha-pipeline/src/lib.rs`: `normal_route_records_responder_and_cost_with_proper_window_order` and `failover_route_updates_session_row_to_responder_and_preserves_cost_window`.
+  - Frontend: `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx`: shipped Developers screen path (`DevelopersPage` on live-shaped daemon data) proving normal route shows responder `test-mock` and cost `5 ¢`, failover route shows responder `mock` (not `mock-503`) and cost `12 ¢`, and both display known costs and tokens without "no telemetry" banners. Includes before/after regression assertions.
+- **Scope**: `crates/warsha-providers/src/lib.rs`, `crates/warsha-store/src/lib.rs`, `crates/warsha-pipeline/src/lib.rs`, `crates/warsha-pipeline/src/swarm_runtime.rs`, `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
+## 2026-11-23 — D-R12-POSTMORTEM-2: Contain .warsha/cli.log out of repository changes and guard against workdir write failures
+- **Decision**:
+  1. Containment: In `crates/warsha-backends/src/lib.rs`, `open_cli_log` calls `ensure_git_exclude(work_dir)` which appends `.warsha` and `.warsha/` to `<work_dir>/.git/info/exclude` (discovered via `git rev-parse --git-path info/exclude` or standard fallback). In `capture_changes`, any file path starting with `.warsha` is filtered out of `files_changed`. In `crates/warsha-pipeline/src/worktree.rs`, `commit_run_worktree` and `dirty_set` filter out `.warsha` entries from `git status --porcelain` output before staging or checking dirty files.
+  2. Non-writable workdir resilience: `open_cli_log` validates workdir existence and writability, returning a graceful `BackendError::Sandbox(format!("work directory is not writable: {}", work_dir.display()))` rather than an unhandled IO error.
+  3. Mid-run write error tolerance: `append_cli_log_line` no longer aborts execution on log write failures (e.g. disk full / ENOSPC). It flushes with best-effort error handling, removing `?` from all 4 call sites in backend stdout/stderr streaming loops.
+- **Reason**: Owner verification findings F6 and F9 (from `claude-code-verify-round11-2026-11-23.md`). Previously, `.warsha/cli.log` was created in the project workdir without exclusion from git, causing `?? .warsha/` to appear in `git status --porcelain`, polluting `files_changed` and getting committed into the run branch by `git add .`. Non-writable workdirs threw raw IO errors, and mid-run log append errors aborted runs.
+- **Proving tests**: `crates/warsha-backends/src/lib.rs`:
+  - `cli_run_changing_nothing_reports_no_warsha_in_files_changed_and_clean_git_status` (verifies `files_changed` has no `.warsha` and `git status --porcelain` is clean).
+  - `non_writable_workdir_fails_gracefully_with_clear_error` (verifies graceful `BackendError::Sandbox` failure).
+  - `mid_run_log_errors_do_not_abort_run` (verifies run succeeds even when log writes fail mid-run via ENOSPC).
+- **Scope**: `crates/warsha-backends/src/lib.rs`, `crates/warsha-pipeline/src/worktree.rs`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-23 — D-R12-INFRA-1: Propagate apply_start_budget failure and lift project budget exhaustion on explicit run budget (F10)
 - **Decision**:
   1. `apply_start_budget` in `crates/warshad/src/lib.rs` propagates any error returned by `state.pipeline.set_run_budget(run.id, cents)` as an `Err(rpc_error(...))` instead of swallowing it with `tracing::warn!`. An explicit start budget supplied by an owner is never silently dropped.

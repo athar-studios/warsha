@@ -427,6 +427,7 @@ impl<S: SettingsProvider + 'static> PipelineEngine<S> {
             cost_known: true,
             tokens: None,
             backend: Some(backend_name.to_string()),
+            session_id: Some(main_session.id),
         })
     }
 

@@ -183,6 +183,14 @@ pub struct ChatResponse {
     pub usage: TokenUsage,
 }
 
+/// Chat completion response carrying the responding provider and model identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FallbackChatResponse {
+    pub response: ChatResponse,
+    pub provider_id: String,
+    pub model_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatChoice {
     pub index: u32,
@@ -1142,12 +1150,14 @@ impl ProviderRouter {
     /// records spend is its own lock, taken and released around two integer adds — so a
     /// second paid call shares the concurrency bound with this one and a `providers.*`
     /// or `roles.set` call is not queued behind a backoff sleep (audit N-3).
-    pub async fn chat_with_fallback(
+    /// Route and execute a chat request with failover, returning the response
+    /// along with the actual responding provider and model identifiers.
+    pub async fn chat_with_fallback_detailed(
         &self,
         role: Role,
         project_id: &str,
         mut request: ChatRequest,
-    ) -> Result<ChatResponse> {
+    ) -> Result<FallbackChatResponse> {
         // Everything the walk reads about the router is snapshotted here, under locks that
         // are gone before the first `await`.
         let (targets, fallback_enabled) = self.routing_for(role)?;
@@ -1215,7 +1225,11 @@ impl ProviderRouter {
 
                         let cost = provider.cost_of(&target.model_id, &response.usage)?;
                         self.record_spend(project_id, cost);
-                        return Ok(response);
+                        return Ok(FallbackChatResponse {
+                            response,
+                            provider_id: target.provider_id.clone(),
+                            model_id: target.model_id.clone(),
+                        });
                     }
                     Err(err) => {
                         let retryable = err.is_retryable();
@@ -1300,6 +1314,17 @@ impl ProviderRouter {
 
         Err(last_error
             .unwrap_or_else(|| ProviderError::NotFound("No available provider".to_string())))
+    }
+
+    pub async fn chat_with_fallback(
+        &self,
+        role: Role,
+        project_id: &str,
+        request: ChatRequest,
+    ) -> Result<ChatResponse> {
+        self.chat_with_fallback_detailed(role, project_id, request)
+            .await
+            .map(|f| f.response)
     }
 }
 

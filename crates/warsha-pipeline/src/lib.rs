@@ -514,6 +514,8 @@ struct StageCompletion {
     tokens: Option<TokenUsage>,
     /// The coding backend that ran the stage, when one did.
     backend: Option<String>,
+    /// The session id associated with this stage execution, when one exists.
+    session_id: Option<warsha_core::SessionId>,
 }
 
 /// Pipeline engine that drives the stage machine
@@ -1126,7 +1128,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 let dispatch_project_id = run.project_id.0.to_string();
                 let stage_timeout = providers.dispatch_timeout();
                 let stage_start = std::time::Instant::now();
-                let response = tokio::select! {
+                let detailed = tokio::select! {
                     biased;
                     _ = cancel_rx.changed() => {
                         let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Stopped, Utc::now()).await;
@@ -1139,9 +1141,17 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                         Self::dispatch_chat(&providers, role, &dispatch_project_id, request),
                     ) => {
                         match timed_res {
-                            Ok(Ok(response)) => {
-                                let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Done, Utc::now()).await;
-                                response
+                            Ok(Ok(detailed)) => {
+                                // Update session row with actual responding provider and model (failover-aware)
+                                let _ = self
+                                    .store
+                                    .update_session_responder(
+                                        session_id,
+                                        &detailed.provider_id,
+                                        &detailed.model_id,
+                                    )
+                                    .await;
+                                detailed
                             }
                             Ok(Err(error)) => {
                                 let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Failed, Utc::now()).await;
@@ -1166,6 +1176,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     }
                 };
 
+                let response = detailed.response;
                 let content = response
                     .choices
                     .first()
@@ -1200,6 +1211,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     cost_known: true,
                     tokens: Some(response.usage),
                     backend: None,
+                    session_id: Some(session_id),
                 }
             }
         };
@@ -1212,6 +1224,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             cost_known,
             tokens,
             backend,
+            session_id: stage_session_id,
         } = completion;
 
         if let Some(worktree_path) = run.worktree_path.as_ref() {
@@ -1226,12 +1239,35 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let (artifact_name, artifact_content, budget_exceeded_info, budget_warn_info) = {
             let _state_guard = ctrl.state_lock.lock().await;
             if *ctrl.cancel_tx.borrow() {
+                if let Some(sid) = stage_session_id {
+                    let _ = self
+                        .store
+                        .finish_session(sid, warsha_core::SessionStatus::Stopped, Utc::now())
+                        .await;
+                }
                 return Err(PipelineError::Other(
                     "Run cancelled before committing stage artifact".to_string(),
                 ));
             }
-            let (mut latest, latest_v) = self.store.get_run_versioned(run.id).await?;
+            let (mut latest, latest_v) = match self.store.get_run_versioned(run.id).await {
+                Ok(v) => v,
+                Err(e) => {
+                    if let Some(sid) = stage_session_id {
+                        let _ = self
+                            .store
+                            .finish_session(sid, warsha_core::SessionStatus::Failed, Utc::now())
+                            .await;
+                    }
+                    return Err(e.into());
+                }
+            };
             if latest.status == RunStatus::Cancelled {
+                if let Some(sid) = stage_session_id {
+                    let _ = self
+                        .store
+                        .finish_session(sid, warsha_core::SessionStatus::Stopped, Utc::now())
+                        .await;
+                }
                 return Err(PipelineError::Other(
                     "Run cancelled before committing stage artifact".to_string(),
                 ));
@@ -1275,7 +1311,18 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             }
 
             // Atomic CAS update: refuses to overwrite if a concurrent cancel or writer bumped version.
-            *version = self.store.update_run_cas(&latest, latest_v).await?;
+            *version = match self.store.update_run_cas(&latest, latest_v).await {
+                Ok(v) => v,
+                Err(e) => {
+                    if let Some(sid) = stage_session_id {
+                        let _ = self
+                            .store
+                            .finish_session(sid, warsha_core::SessionStatus::Failed, Utc::now())
+                            .await;
+                    }
+                    return Err(PipelineError::Store(e));
+                }
+            };
 
             // Sync the caller's snapshot with what was committed: a stage may
             // have moved the row mid-flight (a swarm stage records each
@@ -1295,9 +1342,19 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         };
 
         // Persist artifact file to factory and append events only after CAS succeeded.
-        self.store
+        if let Err(e) = self
+            .store
             .write_artifact(run.project_id, &artifact_name, &artifact_content)
-            .await?;
+            .await
+        {
+            if let Some(sid) = stage_session_id {
+                let _ = self
+                    .store
+                    .finish_session(sid, warsha_core::SessionStatus::Failed, Utc::now())
+                    .await;
+            }
+            return Err(e.into());
+        }
 
         let payload = match (backend.as_deref(), tokens.as_ref()) {
             (Some(backend), Some(_usage)) => {
@@ -1330,7 +1387,23 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             created_at: Utc::now(),
             device_id: None,
         };
-        self.store.append_event(&event).await?;
+        if let Err(e) = self.store.append_event(&event).await {
+            if let Some(sid) = stage_session_id {
+                let _ = self
+                    .store
+                    .finish_session(sid, warsha_core::SessionStatus::Failed, Utc::now())
+                    .await;
+            }
+            return Err(e.into());
+        }
+
+        if let Some(sid) = stage_session_id {
+            let finish_at = Utc::now().max(event.created_at);
+            let _ = self
+                .store
+                .finish_session(sid, warsha_core::SessionStatus::Done, finish_at)
+                .await;
+        }
 
         if let Some((budget, spent)) = budget_exceeded_info {
             let budget_event = Event {
@@ -1592,10 +1665,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
 
         match &result {
             Ok(res) if res.success => {
-                let _ = self
-                    .store
-                    .finish_session(session_id, warsha_core::SessionStatus::Done, Utc::now())
-                    .await;
+                // Session will be finished after event append in advance_to
             }
             _ => {
                 let _ = self
@@ -1642,6 +1712,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             cost_known,
             tokens: result.usage,
             backend: Some(backend_name),
+            session_id: Some(session_id),
         }))
     }
 
@@ -1677,10 +1748,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         role: Role,
         project_id: &str,
         request: ChatRequest,
-    ) -> Result<warsha_providers::ChatResponse> {
+    ) -> Result<warsha_providers::FallbackChatResponse> {
         if providers.route(role).is_some() {
             return Ok(providers
-                .chat_with_fallback(role, project_id, request)
+                .chat_with_fallback_detailed(role, project_id, request)
                 .await?);
         }
 
@@ -1695,15 +1766,26 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 ProviderKind::OpenAI,
                 &env_cfg,
             )?;
+            let model_id = env_cfg.model.clone();
             let request = ChatRequest {
-                model: env_cfg.model.clone(),
+                model: model_id.clone(),
                 ..request
             };
-            return Ok(provider.chat(request).await?);
+            let response = provider.chat(request).await?;
+            return Ok(warsha_providers::FallbackChatResponse {
+                response,
+                provider_id: "env-openai".to_string(),
+                model_id,
+            });
         }
 
         if forced_fake {
-            return Ok(FakeProvider::new().chat(request).await?);
+            let response = FakeProvider::new().chat(request).await?;
+            return Ok(warsha_providers::FallbackChatResponse {
+                response,
+                provider_id: "fake".to_string(),
+                model_id: "fake".to_string(),
+            });
         }
 
         Err(PipelineError::NoProviderRouted(role))
@@ -2333,7 +2415,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let dispatch_project_id = run.project_id.0.to_string();
         let followup_timeout = providers.dispatch_timeout();
         let followup_start = std::time::Instant::now();
-        let response = tokio::select! {
+        let detailed = tokio::select! {
             biased;
             _ = cancel_rx.changed() => {
                 return Err(PipelineError::Other("Run cancelled during followup".to_string()));
@@ -2355,6 +2437,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 }
             }
         };
+        let response = detailed.response;
         let answer = response
             .choices
             .first()
@@ -4378,6 +4461,184 @@ mod tests {
                 ev.payload.get("action").and_then(|a| a.as_str()) == Some("stage_failed")
             });
             assert!(has_stage_failed);
+        }
+
+        /// F5: Normal route shows responder and cost/tokens known, with session.ended_at >= event.created_at
+        #[tokio::test]
+        async fn normal_route_records_responder_and_cost_with_proper_window_order() {
+            let store = temp_store().await;
+            let mut router = ProviderRouter::new();
+            let mock = MockProvider::new("test-mock");
+            router.register_provider(Box::new(mock));
+            router.set_role_routing(RoleRouting {
+                role: Role::Researcher,
+                targets: vec![RoutingTarget {
+                    provider_id: "test-mock".to_string(),
+                    model_id: "mock-model".to_string(),
+                    weight: 100,
+                }],
+                fallback_enabled: false,
+                budget_cents_per_run: None,
+            });
+            let providers = Arc::new(RwLock::new(router));
+            let settings = setup_settings();
+            let engine = PipelineEngine::new(store.clone(), providers, settings);
+
+            let project = Project {
+                id: ProjectId::new(),
+                name: "Normal Route Project".to_string(),
+                description: "Test".to_string(),
+                language: "en".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                ..Default::default()
+            };
+            store.create_project(&project).await.unwrap();
+
+            let run = engine
+                .start_run(project.id, "Normal route run")
+                .await
+                .unwrap();
+
+            let mut updated_run = store.get_run(run.id).await.unwrap();
+            updated_run.current_stage = Stage::GateA;
+            updated_run.gate_states.insert(
+                Stage::GateA,
+                GateState::Approved {
+                    by: warsha_core::DeviceId::new(),
+                    at: Utc::now(),
+                },
+            );
+            store.update_run(&updated_run).await.unwrap();
+
+            let advanced = engine.advance_stage(run.id).await.unwrap();
+            assert_eq!(advanced.current_stage, Stage::Research);
+
+            let sessions = store.list_sessions_by_run(run.id).await.unwrap();
+            let session = sessions
+                .iter()
+                .find(|s| s.role == Role::Researcher)
+                .expect("Researcher session recorded");
+
+            assert_eq!(session.provider, "test-mock");
+            assert_eq!(session.model, "mock-model");
+            assert_eq!(session.status, warsha_core::SessionStatus::Done);
+            assert!(session.ended_at.is_some());
+            let ended_at = session.ended_at.unwrap();
+
+            let events = store.get_events(run.id).await.unwrap();
+            let step_event = events
+                .iter()
+                .find(|e| {
+                    e.kind == warsha_core::EventKind::AgentStep && e.role == Some(Role::Researcher)
+                })
+                .expect("AgentStep event recorded for Researcher");
+
+            // Critical F5 assertion: session.ended_at >= event.created_at so withinWindow never drops it
+            assert!(
+                ended_at >= step_event.created_at,
+                "session.ended_at ({ended_at}) must be >= event.created_at ({})",
+                step_event.created_at
+            );
+            assert!(step_event.cost_cents.is_some(), "cost_cents must be known");
+            assert!(step_event.tokens.is_some(), "tokens must be known");
+        }
+
+        /// F5: Failover route (mock-503 -> mock) updates session row to responder ("mock"), not primary ("mock-503"),
+        /// and records cost/tokens with session.ended_at >= event.created_at.
+        #[tokio::test]
+        async fn failover_route_updates_session_row_to_responder_and_preserves_cost_window() {
+            let store = temp_store().await;
+            let mut router = ProviderRouter::new();
+            let mock_503 = MockProvider::new("mock-503");
+            let mock = MockProvider::new("mock");
+            router.register_provider(Box::new(mock_503));
+            router.register_provider(Box::new(mock));
+            router.set_role_routing(RoleRouting {
+                role: Role::Researcher,
+                targets: vec![
+                    RoutingTarget {
+                        provider_id: "mock-503".to_string(),
+                        model_id: "primary-model".to_string(),
+                        weight: 100,
+                    },
+                    RoutingTarget {
+                        provider_id: "mock".to_string(),
+                        model_id: "mock-model".to_string(),
+                        weight: 0,
+                    },
+                ],
+                fallback_enabled: true,
+                budget_cents_per_run: None,
+            });
+            let providers = Arc::new(RwLock::new(router));
+            let settings = setup_settings();
+            let engine = PipelineEngine::new(store.clone(), providers, settings);
+
+            let project = Project {
+                id: ProjectId::new(),
+                name: "Failover Route Project".to_string(),
+                description: "Test".to_string(),
+                language: "en".to_string(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                ..Default::default()
+            };
+            store.create_project(&project).await.unwrap();
+
+            let run = engine
+                .start_run(project.id, "Failover route run")
+                .await
+                .unwrap();
+
+            let mut updated_run = store.get_run(run.id).await.unwrap();
+            updated_run.current_stage = Stage::GateA;
+            updated_run.gate_states.insert(
+                Stage::GateA,
+                GateState::Approved {
+                    by: warsha_core::DeviceId::new(),
+                    at: Utc::now(),
+                },
+            );
+            store.update_run(&updated_run).await.unwrap();
+
+            // Advance through Research stage (Role::Researcher) with failover to mock
+            let advanced = engine.advance_stage(run.id).await.unwrap();
+            assert_eq!(advanced.current_stage, Stage::Research);
+
+            let sessions = store.list_sessions_by_run(run.id).await.unwrap();
+            let session = sessions
+                .iter()
+                .find(|s| s.role == Role::Researcher)
+                .expect("Researcher session recorded");
+
+            // Session provider and model must be the ACTUAL RESPONDER (mock / mock-model), NOT the failed primary (mock-503)!
+            assert_eq!(
+                session.provider, "mock",
+                "session provider must be updated to actual responder 'mock', got: {}",
+                session.provider
+            );
+            assert_eq!(session.model, "mock-model");
+            assert_eq!(session.status, warsha_core::SessionStatus::Done);
+            assert!(session.ended_at.is_some());
+            let ended_at = session.ended_at.unwrap();
+
+            let events = store.get_events(run.id).await.unwrap();
+            let step_event = events
+                .iter()
+                .find(|e| {
+                    e.kind == warsha_core::EventKind::AgentStep && e.role == Some(Role::Researcher)
+                })
+                .expect("AgentStep event recorded for Researcher");
+
+            // Critical F5 assertion: session.ended_at >= event.created_at
+            assert!(
+                ended_at >= step_event.created_at,
+                "session.ended_at ({ended_at}) must be >= event.created_at ({})",
+                step_event.created_at
+            );
+            assert!(step_event.cost_cents.is_some(), "cost_cents must be known");
+            assert!(step_event.tokens.is_some(), "tokens must be known");
         }
     }
 }

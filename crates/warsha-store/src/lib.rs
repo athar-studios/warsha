@@ -951,6 +951,22 @@ impl Store {
         Ok(())
     }
 
+    /// Update a session's actual responder (provider and model).
+    pub async fn update_session_responder(
+        &self,
+        session_id: SessionId,
+        provider: &str,
+        model: &str,
+    ) -> Result<()> {
+        sqlx::query("UPDATE sessions SET provider = ?, model = ? WHERE id = ?")
+            .bind(provider)
+            .bind(model)
+            .bind(session_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Finish a session.
     pub async fn finish_session(
         &self,
