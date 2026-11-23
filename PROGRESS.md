@@ -1,5 +1,14 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — R11 fix round COMPLETE (FIXES COMPLETE)
+- **Tip**: `773be87` on `r-next/integration`. Clean tree, no uncommitted diff.
+- **Landed**: postmortem MISS-4 (`eaa6839`), sessions D-R11-SESSIONS-1 (`3c649c7`), devices D-R11-DEVICES-1 (`48483c5`), status D-R11-STATUS-1 (`6620915`), roles D-R11-ROLES-1 (`787d286`), budget D-R11-BUDGET-1 (`dd76b9f`), gates D-R11-GATES-1 (`1a7568f`), devmode D-R11-DEVMODE-1 direct on tip (`25b1043` + `773be87`).
+- **Closed by design**: project delete stays removed — re-adding `projects.delete` is a documented W1 violation (`docs/ARCH_RULES.md:350`, `scripts/check-wire-contract.mjs:1336`), never a fix.
+- **Open owners queue**: EX1 implementation (design registered D-EX1-DESIGN-1); per m17239 the design must embed the real agency catalog verbatim — checked, the catalog path `node_modules/@michengai/dsh-agency-agents` does not exist in the integration tree, so EX1 implementation cannot start until the owner supplies it.
+- **Final gates on tip**: fmt 0, gates proving 1/0, budget proving 1/0, client secretary-role 1/0 (177 skipped), useRunEvents 7/7, policy 8/0.
+- **Local-only**: no push, no tag, no publish, `main` at `5f4b742` untouched.
+- **Status**: FIXES COMPLETE.
+
 ## Run 2026-11-23 — Clear the stale devmode error and guard secretary decode (D-R11-DEVMODE-1)
 - **Scope**: Owner UI finding #4. Applied directly on tip `1a7568f` because the `fix-r11-devmode` lane sat on base `7de0302` and re-carried the already-merged D-R11-ROLES-1/D-R11-BUDGET-1 client changes. Local-only: no push, no tag, no publish, main untouched.
 - **Changes**: `useRunEvents` clears the error on each successful poll; regression guard that `parseWarshaEvent` accepts `role: 'secretary'` and rejects unknown roles; error-is-null assertions after manual reload and backoff reconnect.
