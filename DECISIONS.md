@@ -1,6 +1,21 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R13-SESSION-ROLE-1: Canonicalize session wire roles in decodeSession for PM/QA telemetry binding
+- **Decision**: In `packages/client/src/index.ts`, `decodeSession` normalizes the raw wire role via `canonicalRoleKey` (`role = (canonicalRoleKey(rawRole) ?? rawRole) as Role`), matching the canonicalization behavior already performed on events in `decodeWarshaEvent`. Exported `decodeWarshaEvent` from `@warsha/client` and `withinWindow` from `apps/desktop/src/v3/pages/developers/metrics.ts` for end-to-end decoding and window binding verification.
+- **Reason**: Codex round-12 finding N2/F5. Event roles are canonicalized on decode (`Role::PM` -> `pm`, `Role::QA` -> `qa`), but `decodeSession` previously left `role: wave2String(record, 'role') as Role` raw, resulting in `session.role = 'p_m'` vs `event.role = 'pm'`. In `apps/desktop/src/v3/pages/developers/metrics.ts:28`, `withinWindow` requires exact role equality (`if (event.role !== session.role) return false`), which dropped all telemetry events for PM and QA sessions (resulting in `null` cost and tokens, rendering as "unknown" on the Developers page).
+- **F13 Rule Verification (Fails-Before)**:
+  - Pre-fix baseline: with `decodeSession` leaving `p_m` and `q_a` raw:
+    - `packages/client/src/index.test.ts`: `decodeSession` failed with `AssertionError: expected 'p_m' to be 'pm'`.
+    - `apps/desktop/src/v3/pages/developers/metrics.test.ts`: `withinWindow(event, session)` failed with `AssertionError: expected false to be true` for both PM and QA.
+    - `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx`: failed with `Expected element to have text content: 5 ¢; Received: unknown`.
+  - Post-fix: all 3 suites pass (203/203 in client, 16/16 in metrics, 3/3 in f5-proving).
+- **Proving tests**:
+  - `packages/client/src/index.test.ts`: `decodes wire-serialized p_m and q_a roles to canonical pm and qa in decodeSession (D-R13-SESSION-ROLE-1)`.
+  - `apps/desktop/src/v3/pages/developers/metrics.test.ts`: `D-R13-SESSION-ROLE-1: real wire objects with p_m and q_a through decodeSession and decodeWarshaEvent` (verifies `withinWindow` and `sessionMetrics` for PM and QA).
+  - `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx`: `renders decoded real wire PM and QA sessions with known costs and tokens (D-R13-SESSION-ROLE-1)` (page-level mount verifying known `5 ¢` and `8 ¢` in table and detail view).
+- **Scope**: `packages/client/src/index.ts`, `packages/client/src/index.test.ts`, `apps/desktop/src/v3/pages/developers/metrics.ts`, `apps/desktop/src/v3/pages/developers/metrics.test.ts`, `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-23 — D-R13-JS-1: Declare --w-danger-border and --w-space-12 tokens and align Settings navigation counts with Coding Engines section
 - **Decision**:
   1. Token parity (N1/F1):

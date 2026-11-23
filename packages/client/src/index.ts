@@ -1193,7 +1193,7 @@ export function parseWarshaEvent(frame: string): WarshaEvent {
  * The field-by-field half of the decode, shared by the `/events` frame reader and
  * `runs.events` — the same `warsha_core::Event` arriving over two transports.
  */
-function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
+export function decodeWarshaEvent(source: Record<string, unknown>): WarshaEvent {
   const id = requiredString(field(source, 'id'), 'id');
   const runId = requiredString(field(source, 'run_id', 'runId'), 'run_id');
 
@@ -2074,11 +2074,13 @@ export function decodeFileContent(source: unknown): FileContent {
 /** Decodes a `warsha_core::Session` snake_case wire object to `Session`. */
 export function decodeSession(source: unknown): Session {
   const record = wave2Object(source, 'session');
+  const rawRole = wave2String(record, 'role');
+  const role = (canonicalRoleKey(rawRole) ?? rawRole) as Role;
   return {
     id: wave2Id(record, 'id') as SessionId,
     runId: wave2NullableString(record, 'run_id') as RunId | null,
     projectId: wave2Id(record, 'project_id') as ProjectId,
-    role: wave2String(record, 'role') as Role,
+    role,
     backend: wave2String(record, 'backend'),
     provider: wave2String(record, 'provider'),
     model: wave2String(record, 'model'),

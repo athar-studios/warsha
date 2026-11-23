@@ -1,9 +1,8 @@
 // apps/desktop/src/v3/pages/developers/metrics.test.ts
 // E4: every on-screen figure equals its derivation — fixtures here are the same
 // numbers the page tests render (plan §8 E4 acceptance).
-import type { RunSubtask, Session, SessionId, WarshaEvent } from '@warsha/client';
+import { decodeSession, decodeWarshaEvent, type RunSubtask, type Session, type SessionId, type WarshaEvent } from '@warsha/client';
 import { describe, expect, it } from 'vitest';
-
 
 import {
   buildReceipt,
@@ -17,6 +16,7 @@ import {
   hasTelemetry,
   runCostCents,
   sessionMetrics,
+  withinWindow,
 } from './metrics';
 
 function session(overrides: Partial<Session> = {}): Session {
@@ -197,5 +197,91 @@ describe('buildReceipt', () => {
     expect(receipt).not.toContain(CANARY);
     // JSON parses back cleanly.
     expect(() => JSON.parse(receipt)).not.toThrow();
+  });
+});
+
+describe('D-R13-SESSION-ROLE-1: real wire objects with p_m and q_a through decodeSession and decodeWarshaEvent', () => {
+  const RAW_PM_SESSION_WIRE = {
+    id: 's-pm-1',
+    run_id: 'run-1',
+    project_id: 'p-1',
+    role: 'p_m',
+    stage: 'prd_spec',
+    status: 'completed',
+    started_at: '2026-11-18T10:00:00.000Z',
+    ended_at: '2026-11-18T10:00:30.000Z',
+    parent_session_id: null,
+    active_child_session_id: null,
+    provider: 'anthropic',
+    model: 'claude-3-5-sonnet',
+    failover_count: 0,
+    total_tokens: 150,
+    cost_cents: 5,
+  };
+
+  const RAW_PM_EVENT_WIRE = {
+    id: 'e-pm-1',
+    run_id: 'run-1',
+    stage: 'prd_spec',
+    role: 'p_m',
+    kind: 'agent_step',
+    payload: { action: 'write_spec' },
+    cost_cents: 5,
+    tokens: { input: 100, output: 50, total: 150, cost_cents: 5 },
+    created_at: '2026-11-18T10:00:15.000Z',
+    device_id: null,
+  };
+
+  const RAW_QA_SESSION_WIRE = {
+    id: 's-qa-1',
+    run_id: 'run-1',
+    project_id: 'p-1',
+    role: 'q_a',
+    stage: 'review_qa_security',
+    status: 'completed',
+    started_at: '2026-11-18T10:01:00.000Z',
+    ended_at: '2026-11-18T10:01:30.000Z',
+    parent_session_id: null,
+    active_child_session_id: null,
+    provider: 'openai',
+    model: 'gpt-4o',
+    failover_count: 0,
+    total_tokens: 280,
+    cost_cents: 8,
+  };
+
+  const RAW_QA_EVENT_WIRE = {
+    id: 'e-qa-1',
+    run_id: 'run-1',
+    stage: 'review_qa_security',
+    role: 'q_a',
+    kind: 'agent_step',
+    payload: { action: 'verify_tests' },
+    cost_cents: 8,
+    tokens: { input: 200, output: 80, total: 280, cost_cents: 8 },
+    created_at: '2026-11-18T10:01:15.000Z',
+    device_id: null,
+  };
+
+  it('binds decoded PM wire session to decoded PM wire event in withinWindow and sessionMetrics', () => {
+    const session = decodeSession(RAW_PM_SESSION_WIRE);
+    const event = decodeWarshaEvent(RAW_PM_EVENT_WIRE);
+
+    expect(withinWindow(event, session)).toBe(true);
+
+    const metrics = sessionMetrics(session, [event]);
+    expect(metrics.costCents).toBe(5);
+    expect(metrics.tokens).toEqual({ input: 100, output: 50, total: 150 });
+  });
+
+  it('binds decoded QA wire session to decoded QA wire event in withinWindow and sessionMetrics', () => {
+    const session = decodeSession(RAW_QA_SESSION_WIRE);
+    const event = decodeWarshaEvent(RAW_QA_EVENT_WIRE);
+
+    expect(withinWindow(event, session)).toBe(true);
+
+    const metrics = sessionMetrics(session, [event]);
+    expect(metrics.costCents).toBe(8);
+    expect(metrics.tokens).toEqual({ input: 200, output: 80, total: 280 });
   });
 });

@@ -1,5 +1,29 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 13 Lane F5: PM/QA session-role telemetry fix (D-R13-SESSION-ROLE-1)
+- **Branch/Worktree**: `fix-r13-session-role` (detached HEAD at `7665343` on `r-next/integration`). Local-only: no main, no push, no tag, no publish. Other lanes untouched.
+- **Problem & Root Cause**: Codex round-12 finding N2/F5. Daemon serializes PM and QA roles as `p_m` and `q_a`. While `decodeWarshaEvent` canonicalized event roles via `canonicalRoleKey`, `decodeSession` in `packages/client/src/index.ts:2081` left `role: wave2String(record, 'role') as Role` raw. As a result, a real PM session had `session.role = 'p_m'` while its cost event had `event.role = 'pm'`. In `apps/desktop/src/v3/pages/developers/metrics.ts:28`, `withinWindow` required exact role equality (`if (event.role !== session.role) return false`), causing all telemetry to be dropped and cost/tokens to display as "unknown".
+- **Fix**:
+  - `packages/client/src/index.ts`: Updated `decodeSession` to map `rawRole` through `canonicalRoleKey` (`role = (canonicalRoleKey(rawRole) ?? rawRole) as Role`), matching event canonicalization. Exported `decodeWarshaEvent`.
+  - `apps/desktop/src/v3/pages/developers/metrics.ts`: Exported `withinWindow` for explicit window-binding verification.
+- **F13 Rule Verification (Fails-Before Result)**:
+  - Verified on pre-fix baseline (raw wire sessions with `role: 'p_m'` / `'q_a'` vs events with canonical `pm` / `qa`):
+    - `packages/client/src/index.test.ts`: `decodeSession` test failed with `AssertionError: expected 'p_m' to be 'pm'`.
+    - `apps/desktop/src/v3/pages/developers/metrics.test.ts`: `withinWindow(event, session)` failed with `AssertionError: expected false to be true` for both PM and QA; `sessionMetrics` dropped cost/tokens.
+    - `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx`: page test failed with `Expected element to have text content: 5 ¢; Received: unknown`.
+- **Proving Tests**:
+  - `packages/client/src/index.test.ts`: 180 passed (203 passed across client suite).
+  - `apps/desktop/src/v3/pages/developers/metrics.test.ts`: 16 passed.
+  - `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx`: 3 passed.
+  - `apps/desktop/src/v3/pages/developers/index.test.tsx`: 12 passed.
+  - Total touched desktop developers suite: 31 passed across 3 test files.
+- **Gates & Checks**:
+  - `tsc --noEmit` in `apps/desktop`: exit 0.
+  - `tsc --noEmit` in `packages/client`: exit 0.
+  - ESLint on all touched files: 0 errors, 0 warnings.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+- **Status**: GREEN.
+
 ## Run 2026-11-23 — Round 13 Lane F1 JS gate green (D-R13-JS-1)
 - **Worktree**: `.agents/worktrees/fix-r13-js-gate` (detached HEAD at 7665343).
 - **Landed**:
