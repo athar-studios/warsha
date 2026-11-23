@@ -248,6 +248,23 @@ describe('Home helpers', () => {
       'todo',
     ]);
   });
+
+  it('computes cancelled project status accurately (F4)', () => {
+    const cancelledRun: RunSummary = {
+      id: 'run-cancelled' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'code',
+      status: 'cancelled',
+      runMode: 'agent',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    expect(computeProjectStatus([cancelledRun], 0)).toEqual({
+      status: 'cancelled',
+      stageKey: 'stages.build',
+      summaryKey: 'home.summary_cancelled',
+    });
+  });
 });
 
 describe('HomePage', () => {
@@ -636,6 +653,31 @@ describe('HomePage', () => {
     const chips = screen.getAllByTestId('runmode-chip');
     expect(chips.length).toBe(1);
     expect(chips[0].getAttribute('data-runmode')).toBe('plan');
+  });
+
+  it('renders cancelled status pill and summary on home screen for project with cancelled run (F4)', async () => {
+    const cancelledRun: RunSummary = {
+      id: 'run-c1' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'code',
+      status: 'cancelled',
+      runMode: 'agent',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    const client = makeMockClient({
+      listRuns: vi.fn().mockImplementation(async (projectId: string) => {
+        if (projectId === 'proj-1') return [cancelledRun];
+        return [];
+      }),
+    });
+    await renderHome({ client, locale: 'ar' });
+    await waitFor(() => {
+      expect(screen.getByTestId('home-projects-grid')).toBeDefined();
+    });
+    const statusPill = document.querySelector('[data-status="cancelled"]');
+    expect(statusPill).not.toBeNull();
+    expect(statusPill?.textContent).toContain('ملغاة');
   });
 });
 

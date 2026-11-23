@@ -34,6 +34,7 @@ import { BenchHeader } from './components/BenchHeader';
 import { BenchRail } from './components/BenchRail';
 import { BenchTabs } from './components/BenchTabs';
 import { StageStrip } from './components/StageStrip';
+import { getStatusLabelKey, mapRunStatusToPill } from './helpers';
 import { ArtifactsTab } from './tabs/ArtifactsTab';
 import { AssistantTab } from './tabs/AssistantTab';
 import { ChangesTab } from './tabs/ChangesTab';
@@ -44,7 +45,6 @@ import { PlanTab } from './tabs/PlanTab';
 import { PreviewTab } from './tabs/PreviewTab';
 import { TeamTab } from './tabs/TeamTab';
 import { TerminalTab } from './tabs/TerminalTab';
-import { getStatusLabelKey, mapRunStatusToPill } from './helpers';
 
 const SAMPLE_PROJECT: ProjectSummary = {
   id: 'proj-1' as ProjectId,
@@ -139,39 +139,33 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
       },
     ]),
     setRoleConfig: vi.fn().mockResolvedValue(undefined),
-    listCustomModels: vi
-      .fn()
-      .mockResolvedValue([
-        {
-          provider: 'ollama',
-          modelId: 'qwen-coder',
-          displayName: 'Qwen Coder',
-          contextWindow: null,
-          enabled: true,
-        },
-      ]),
+    listCustomModels: vi.fn().mockResolvedValue([
+      {
+        provider: 'ollama',
+        modelId: 'qwen-coder',
+        displayName: 'Qwen Coder',
+        contextWindow: null,
+        enabled: true,
+      },
+    ]),
     listHarnesses: vi.fn().mockResolvedValue([]),
     selectHarness: vi.fn().mockResolvedValue(undefined),
     listRunModes: vi.fn().mockResolvedValue([]),
     // D5: swarm off in the default bench fixture — the picker shows no swarm choice.
     getSwarmSettings: vi.fn().mockResolvedValue({ enableSwarm: false, maxParallelAgents: 4 }),
     setSwarmSettings: vi.fn().mockResolvedValue({ enableSwarm: false, maxParallelAgents: 4 }),
-    setRunMode: vi
-      .fn()
-      .mockResolvedValue({
-        mode: 'local',
-        bindHost: '127.0.0.1',
-        allowedHosts: [],
-        relayUrl: null,
-      }),
+    setRunMode: vi.fn().mockResolvedValue({
+      mode: 'local',
+      bindHost: '127.0.0.1',
+      allowedHosts: [],
+      relayUrl: null,
+    }),
     getFilesTree: vi.fn().mockResolvedValue([]),
-    readFileContent: vi
-      .fn()
-      .mockResolvedValue({
-        path: 'src/index.ts',
-        content: 'export const x = 1;',
-        mimeType: 'text/typescript',
-      }),
+    readFileContent: vi.fn().mockResolvedValue({
+      path: 'src/index.ts',
+      content: 'export const x = 1;',
+      mimeType: 'text/typescript',
+    }),
     createHandoff: vi.fn().mockResolvedValue('/tmp/handoff.zip'),
     applyHandoff: vi
       .fn()
@@ -196,26 +190,22 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     returnAgentToPlanMode: vi
       .fn()
       .mockResolvedValue({ from: 'agent', to: 'plan', approved_by: 'dev-1', approved_at: 200 }),
-    previewStatus: vi
-      .fn()
-      .mockResolvedValue({
-        projectId: 'proj-1',
-        processId: 'p1',
-        command: 'npm',
-        args: ['run', 'dev'],
-        status: 'stopped',
-        url: null,
-      }),
-    startPreview: vi
-      .fn()
-      .mockResolvedValue({
-        projectId: 'proj-1',
-        processId: 'p1',
-        command: 'npm',
-        args: ['run', 'dev'],
-        status: 'running',
-        url: 'http://127.0.0.1:3000',
-      }),
+    previewStatus: vi.fn().mockResolvedValue({
+      projectId: 'proj-1',
+      processId: 'p1',
+      command: 'npm',
+      args: ['run', 'dev'],
+      status: 'stopped',
+      url: null,
+    }),
+    startPreview: vi.fn().mockResolvedValue({
+      projectId: 'proj-1',
+      processId: 'p1',
+      command: 'npm',
+      args: ['run', 'dev'],
+      status: 'running',
+      url: 'http://127.0.0.1:3000',
+    }),
     stopPreview: vi.fn().mockResolvedValue(undefined),
     setBackendRouting: vi.fn().mockResolvedValue({ default_backend: null }),
     listCodingBackends: vi.fn().mockResolvedValue([]),

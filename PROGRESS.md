@@ -1,5 +1,27 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 12 F4 status fixes + F1 gate regressions (D-R12-STATUS-1)
+- **Branch**: `fix-r12-status` based on `8f2fc72` (`r-next/integration`).
+- **Landed**:
+  - Distinct `cancelled` status and label end-to-end across `Home` (`computeProjectStatus`), `Projects` (`computeProjectStatus`), `FrameProjectSwitcher` (`resolveProjectStatus`), and Remote `RunScreen` (`runStatusToPill`).
+  - Native i18n keys added to `packages/i18n/src/v3/{ar,en}/{home,projects,project,frame}.ts`: `home.status_cancelled`, `home.summary_cancelled`, `projects.status_cancelled`, `projects.summary_cancelled`, `project.status_cancelled`, `frame.status_cancelled`.
+  - Typecheck TS2741 resolved in `home/index.tsx:830` and `project/index.tsx:489` with `cancelled` statusLabels entry.
+  - ESLint `import/order` fixed in `bench.test.tsx:47`.
+  - Fixed Home `startRun` 5-argument test expectation with trailing budget_cents (2500) from D-R11-BUDGET-1.
+  - Fixed TeamTab 13-role test expectation in `bench.test.tsx` from D-R11-ROLES-1 Secretary addition.
+  - Repaired Wire Contract W8 violations in `packages/client/src/index.ts` for `runs.start` and `projects.create`.
+  - Added shipped-screen tests across `Home.test.tsx`, `Projects.test.tsx`, `Frame.test.tsx`, and `run.test.tsx`.
+- **Gates status**:
+  - `check-engineering-policy.mjs`: 8 checks, 0 failures.
+  - `check-wire-contract.mjs`: 11 checks, 0 violations.
+  - `cargo fmt --check`: exit 0; `cargo clippy`: exit 0 (0 warnings).
+  - ESLint: 0 errors across workspace.
+  - Typecheck: 0 errors across workspace.
+  - Vitest `packages/client`: 2 passed (2), 201 passed (201).
+  - Vitest `apps/remote`: 17 passed (17), 231 passed (231).
+  - Vitest `apps/desktop`: 85 passed (87), 748 passed (751); only 2 pre-existing unrelated failures (`Settings.test.tsx` due to `CodingEnginesSection` in commit 7d661fa, `tokenUsage.test.ts` due to `--w-space-12` and `--w-danger-border`).
+- **Local-only**: no push, no tag, no publish, `main` untouched.
+
 ## Run 2026-11-23 — Round 12 F3 + F8 Developers events and Bench roles fix (D-R12-DEVMODE-1, D-R12-ROLES-2)
 - **Scope**: Parallel lane on `.agents/worktrees/fix-r12-devmode` (base `8f2fc72`). Resolves findings F3 and F8 from round 11 verification. Local-only: no push, no tag, no publish, main untouched.
 - **Root Cause & Changes**:

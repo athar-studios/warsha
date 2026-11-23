@@ -1,6 +1,30 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R12-STATUS-1: End-to-end cancelled run status and F1/F4 gate regressions repair
+- **Decision**:
+  1. Complete end-to-end `cancelled` status support across all surfaces (F4):
+     - `computeProjectStatus` in `apps/desktop/src/v3/pages/home/index.tsx` returns `{ status: 'cancelled', stageKey, summaryKey: 'home.summary_cancelled' }` for cancelled runs, mapping to distinct label `home.status_cancelled` (ar `ملغاة`, en `Cancelled`) and summary `home.summary_cancelled` (ar `أُلغي`, en `Cancelled`).
+     - `computeProjectStatus` in `apps/desktop/src/v3/pages/projects/index.tsx` uses distinct `projects.status_cancelled` and `projects.summary_cancelled`.
+     - `computeRunStatusPill` in `apps/desktop/src/v3/pages/project/index.tsx` returns `'cancelled'` and maps to `project.status_cancelled`.
+     - `resolveProjectStatus` in `apps/desktop/src/v3/pages/frame/FrameProjectSwitcher.tsx` returns `{ status: 'cancelled', label: t('frame.status_cancelled') }` (ar `ملغاة`, en `Cancelled`).
+     - `runStatusToPill` in `apps/remote/src/screens/RunScreen.tsx` returns `'cancelled'` (rendering with neutral status pill instead of paused fallback).
+     - Added native Arabic and English localization keys across `packages/i18n/src/v3/{ar,en}/{home,projects,project,frame}.ts`.
+  2. Gate regressions repair (F1, F13):
+     - Repaired TS2741 typecheck errors in `apps/desktop/src/v3/pages/home/index.tsx:830` and `project/index.tsx:489` by adding `cancelled` to the `Record<StatusPillState, string>` dictionaries.
+     - Repaired ESLint `import/order` violation in `apps/desktop/src/v3/pages/bench/bench.test.tsx:47`.
+     - Repaired `Home.test.tsx` 5-argument `startRun` call expectation (`['proj-first', 'فكرة...', undefined, undefined, 2500]`) caused by trailing `budget_cents` from D-R11-BUDGET-1.
+     - Repaired `TeamTab` 13-role expectation in `bench.test.tsx` caused by Secretary role addition from D-R11-ROLES-1.
+     - Repaired Wire Contract W8 violations in `packages/client/src/index.ts` for `runs.start` and `projects.create`.
+  3. Shipped-screen tests:
+     - `apps/desktop/src/v3/pages/home/Home.test.tsx`: tested `computeProjectStatus` returns cancelled and `HomePage` renders cancelled status pill with Arabic text `ملغاة`.
+     - `apps/desktop/src/v3/pages/projects/Projects.test.tsx`: tested simple mode renders `ملغاة` and developers mode table renders `Cancelled`.
+     - `apps/desktop/src/v3/pages/frame/Frame.test.tsx`: tested `resolveProjectStatus` returns cancelled and `FrameProjectSwitcher` trigger renders cancelled status pill.
+     - `apps/remote/src/run.test.tsx`: tested `RunScreen` renders distinct cancelled status pill and words in both Arabic and English locales.
+- **Reason**: F4 owner finding and F1 gate regressions. A cancelled run previously fell back to paused or failed states and labels, while gate checks suffered from typecheck TS2741, ESLint import order, and obsolete test assumptions.
+- **Proving tests**: `Home.test.tsx` (17 passed), `Projects.test.tsx` (12 passed), `Frame.test.tsx` (21 passed), `Project.test.tsx` (11 passed), `bench.test.tsx` (46 passed), `run.test.tsx` (21 passed).
+- **Scope**: `apps/desktop/src/v3/pages/{home,projects,project,frame,bench}`, `apps/remote/src/{screens/RunScreen.tsx,run.test.tsx}`, `packages/i18n/src/v3/{ar,en}`, `packages/client/src/index.ts`, `DECISIONS.md`, `PROGRESS.md`. Local-only; no main/push/tag/publish.
+
 ## 2026-11-23 — D-R12-DEVMODE-1: Wire event roles p_m/q_a decode to canonical roles and Developers page isolates query failures
 - **Decision**: In `packages/client/src/index.ts`, `isRole` and `decodeWarshaEvent` accept snake_case wire roles `p_m` and `q_a` serialized by daemon `Role::PM` and `Role::QA` and decode them to canonical `pm` and `qa` via `canonicalRoleKey`. In `apps/desktop/src/v3/pages/developers/index.tsx`, concurrent fetch operations are wrapped in `Promise.allSettled` instead of `Promise.all` so failures in events or subtasks do not wipe loaded sessions. If any query fails, an error banner is shown with localized text via i18n key `developers.error` (en: "Could not load developer data", ar: "تعذر تحميل بيانات المطورين") and partial data remains interactive.
 - **Reason**: Owner finding F3. Daemon serializes PM and QA as `p_m` and `q_a`, causing client `isRole` to reject with `Malformed event frame: unknown "role"`. The Developers page `Promise.all` rejected, leaving the list empty, and retry attempts wiped state while displaying untranslated error text.

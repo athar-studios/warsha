@@ -41,14 +41,12 @@ const SAMPLE_PROJECTS: ProjectSummary[] = [
     name: 'متجر ورشة',
     createdAt: '2026-10-01T08:00:00.000Z',
     updatedAt: '2026-10-02T09:00:00.000Z',
-
   },
   {
     id: 'proj-2' as ProjectId,
     name: 'Alpha Store',
     createdAt: '2026-10-03T08:00:00.000Z',
     updatedAt: '2026-10-04T09:00:00.000Z',
-
   },
 ];
 
@@ -57,10 +55,10 @@ const SAMPLE_RUNS_P1: RunSummary[] = [
     id: 'run-1' as RunId,
     projectId: 'proj-1' as ProjectId,
     stage: 'code',
-    status: 'running', runMode: 'agent',
+    status: 'running',
+    runMode: 'agent',
     startedAt: '2026-10-02T08:00:00.000Z',
     updatedAt: '2026-10-05T10:00:00.000Z',
-
   },
 ];
 
@@ -188,10 +186,15 @@ describe('Projects helpers', () => {
 
   it('filters projects by name and stage label', () => {
     const runsMap = { 'proj-1': SAMPLE_RUNS_P1, 'proj-2': SAMPLE_RUNS_P2 };
-    const t = (key: string) => (key === 'stages.build' ? 'Build' : key === 'stages.idea' ? 'Idea' : key);
+    const t = (key: string) =>
+      key === 'stages.build' ? 'Build' : key === 'stages.idea' ? 'Idea' : key;
 
-    expect(filterProjects(SAMPLE_PROJECTS, runsMap, 'alpha', t).map((p) => p.id)).toEqual(['proj-2']);
-    expect(filterProjects(SAMPLE_PROJECTS, runsMap, 'build', t).map((p) => p.id)).toEqual(['proj-1']);
+    expect(filterProjects(SAMPLE_PROJECTS, runsMap, 'alpha', t).map((p) => p.id)).toEqual([
+      'proj-2',
+    ]);
+    expect(filterProjects(SAMPLE_PROJECTS, runsMap, 'build', t).map((p) => p.id)).toEqual([
+      'proj-1',
+    ]);
     expect(filterProjects(SAMPLE_PROJECTS, runsMap, 'nonexistent', t)).toEqual([]);
   });
 });
@@ -379,5 +382,39 @@ describe('ProjectsPage', () => {
     const chips = screen.getAllByTestId('runmode-chip');
     expect(chips.length).toBe(1);
     expect(chips[0].getAttribute('data-runmode')).toBe('plan');
+  });
+
+  it('renders cancelled status pill on projects screen in simple and advanced modes (F4)', async () => {
+    const cancelledRun: RunSummary = {
+      id: 'run-c1' as RunId,
+      projectId: 'proj-1' as ProjectId,
+      stage: 'code',
+      status: 'cancelled',
+      runMode: 'agent',
+      startedAt: '2026-10-02T08:00:00.000Z',
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    };
+    const client = makeMockClient({
+      listRuns: vi.fn().mockImplementation(async (projectId: string) => {
+        if (projectId === 'proj-1') return [cancelledRun];
+        return [];
+      }),
+    });
+    const { unmount } = await renderProjects({ client, locale: 'ar', mode: 'simple' });
+    await waitFor(() => {
+      expect(screen.getByTestId('projects-grid')).toBeDefined();
+    });
+    const statusPill = document.querySelector('[data-status="cancelled"]');
+    expect(statusPill).not.toBeNull();
+    expect(statusPill?.textContent).toContain('ملغاة');
+    unmount();
+
+    await renderProjects({ client, locale: 'en', mode: 'developers' });
+    await waitFor(() => {
+      expect(screen.getByTestId('projects-table')).toBeDefined();
+    });
+    const tablePill = document.querySelector('[data-status="cancelled"]');
+    expect(tablePill).not.toBeNull();
+    expect(tablePill?.textContent).toContain('Cancelled');
   });
 });
