@@ -715,7 +715,95 @@ impl CodingBackend for CliBackend {
     }
 }
 
-/// Ensure `.warsha/` and `.warsha` are listed in `.git/info/exclude` if `work_dir`
+const WARSHA_MANAGED_MARKER: &str = "# warsha-managed";
+
+/// Compute updated exclude content if necessary.
+/// Preserves EVERY line byte-for-byte unless it is provably Warsha's legacy line
+/// (under `# warsha-managed`). Appends `# warsha-managed`, `/.warsha/`, and `/.warsha`
+/// only when absent.
+fn compute_updated_exclude(existing: &str) -> Option<String> {
+    let mut in_warsha_block = false;
+    let mut migrated_any = false;
+    let mut has_warsha_block = false;
+    let mut out_lines: Vec<String> = Vec::new();
+
+    for line in existing.lines() {
+        let trimmed = line.trim();
+        if trimmed == WARSHA_MANAGED_MARKER {
+            in_warsha_block = true;
+            has_warsha_block = true;
+            out_lines.push(line.to_string());
+            continue;
+        }
+
+        if in_warsha_block {
+            // A blank line, another comment, or a non-warsha entry ends the warsha block
+            if trimmed.is_empty()
+                || (trimmed.starts_with('#') && trimmed != WARSHA_MANAGED_MARKER)
+                || !trimmed.contains("warsha")
+            {
+                in_warsha_block = false;
+                out_lines.push(line.to_string());
+            } else if trimmed == ".warsha" || trimmed == ".warsha/" || trimmed == ".warsha/**" {
+                // Provably Warsha-written legacy bare line under the marker: migrate to anchored
+                migrated_any = true;
+            } else {
+                out_lines.push(line.to_string());
+            }
+        } else {
+            // Outside warsha-managed block: preserve user lines byte-for-byte!
+            out_lines.push(line.to_string());
+        }
+    }
+
+    let has_anchored_dir = out_lines.iter().any(|l| {
+        let t = l.trim();
+        t == "/.warsha/" || t == "/.warsha/**"
+    });
+    let has_anchored_file = out_lines.iter().any(|l| {
+        let t = l.trim();
+        t == "/.warsha"
+    });
+
+    if !migrated_any && has_anchored_dir && has_anchored_file {
+        return None;
+    }
+
+    if has_warsha_block {
+        if let Some(pos) = out_lines
+            .iter()
+            .position(|l| l.trim() == WARSHA_MANAGED_MARKER)
+        {
+            let mut insert_pos = pos + 1;
+            while insert_pos < out_lines.len()
+                && out_lines[insert_pos].trim().starts_with("/.warsha")
+            {
+                insert_pos += 1;
+            }
+            if !has_anchored_dir {
+                out_lines.insert(insert_pos, "/.warsha/".to_string());
+                insert_pos += 1;
+            }
+            if !has_anchored_file {
+                out_lines.insert(insert_pos, "/.warsha".to_string());
+            }
+        }
+    } else {
+        out_lines.push(WARSHA_MANAGED_MARKER.to_string());
+        if !has_anchored_dir {
+            out_lines.push("/.warsha/".to_string());
+        }
+        if !has_anchored_file {
+            out_lines.push("/.warsha".to_string());
+        }
+    }
+
+    let mut result = out_lines.join("\n");
+    result.push('\n');
+    Some(result)
+}
+
+/// Ensure `/.warsha/` and `/.warsha` are listed in `.git/info/exclude` if `work_dir`
 /// is in a git repository. This keeps `.warsha/cli.log` out of `git status` and
 /// `git add` without editing the user's tracked `.gitignore`.
 fn ensure_git_exclude(work_dir: &std::path::Path) {
@@ -737,29 +825,7 @@ fn ensure_git_exclude(work_dir: &std::path::Path) {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
-                let needs_update = !existing.lines().any(|l| {
-                    l.trim() == "/.warsha" || l.trim() == "/.warsha/" || l.trim() == "/.warsha/**"
-                }) || existing.lines().any(|l| {
-                    let t = l.trim();
-                    t == ".warsha" || t == ".warsha/" || t == ".warsha/**"
-                });
-                if needs_update {
-                    let mut lines: Vec<String> = existing
-                        .lines()
-                        .filter(|l| {
-                            let t = l.trim();
-                            t != ".warsha" && t != ".warsha/" && t != ".warsha/**"
-                        })
-                        .map(|l| l.to_string())
-                        .collect();
-                    if !lines
-                        .iter()
-                        .any(|l| l.trim() == "/.warsha" || l.trim() == "/.warsha/")
-                    {
-                        lines.push("/.warsha/".to_string());
-                        lines.push("/.warsha".to_string());
-                    }
-                    let new_content = lines.join("\n") + "\n";
+                if let Some(new_content) = compute_updated_exclude(&existing) {
                     let parent = exclude_path
                         .parent()
                         .unwrap_or_else(|| std::path::Path::new("."));
@@ -2256,8 +2322,38 @@ mod tests {
         }
 
         #[test]
-        fn test_ensure_git_exclude_atomic_and_preserves_user_lines() {
+        fn test_compute_updated_exclude() {
+            // Case 1: empty file
+            let out = compute_updated_exclude("").expect("updates empty");
+            assert_eq!(out, "# warsha-managed\n/.warsha/\n/.warsha\n");
+            // Idempotent
+            assert!(compute_updated_exclude(&out).is_none());
+
+            // Case 2: existing lines with bare .warsha and user lines
+            let initial = "# comment\n/target/\n.warsha\n.warsha/**\ndocs/.warsha/\n*.tmp\n";
+            let out = compute_updated_exclude(initial).expect("updates initial");
+            assert!(out.contains(".warsha\n"));
+            assert!(out.contains(".warsha/**\n"));
+            assert!(out.contains("# warsha-managed\n/.warsha/\n/.warsha\n"));
+            // Idempotent
+            assert!(compute_updated_exclude(&out).is_none());
+
+            // Case 3: already contains /.warsha/ and /.warsha
+            let already = "/.warsha/\n/.warsha\n";
+            assert!(compute_updated_exclude(already).is_none());
+
+            // Case 4: legacy migration under marker only
+            let legacy = "user_line\n# warsha-managed\n.warsha\n.warsha/\nuser_line_2\n";
+            let out = compute_updated_exclude(legacy).expect("updates legacy");
+            assert!(out.contains("user_line\n# warsha-managed\n/.warsha/\n/.warsha\nuser_line_2\n"));
+            assert!(compute_updated_exclude(&out).is_none());
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn test_ensure_git_exclude_atomic_and_preserves_user_lines() {
             let temp = tempfile::tempdir().expect("temp dir");
+            let bin_dir = tempfile::tempdir().expect("bin dir");
             std::fs::write(temp.path().join("base.txt"), "base").expect("base file");
             git_repo(temp.path());
 
@@ -2265,31 +2361,74 @@ mod tests {
             std::fs::create_dir_all(&exclude_dir).expect("create info dir");
             let exclude_file = exclude_dir.join("exclude");
 
-            let initial_content = "# User comment\ntarget/\n.warsha\n*.tmp\n";
+            let initial_content =
+                "# comment\n/target/\n.warsha\n.warsha/**\ndocs/.warsha/\n*.tmp\n";
             std::fs::write(&exclude_file, initial_content).expect("write exclude");
 
-            ensure_git_exclude(temp.path());
+            let cli = fake_cli(
+                bin_dir.path(),
+                "echo 'working...'\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let mut attempts = 0;
+            let result = loop {
+                match backend
+                    .execute(task("Inspect", "Check exclude"), &sandbox)
+                    .await
+                {
+                    Ok(res) => break res,
+                    Err(e)
+                        if attempts < 5
+                            && (e.to_string().contains("Text file busy")
+                                || e.to_string().contains("os error 26")) =>
+                    {
+                        attempts += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                    Err(e) => panic!("fake CLI execution failed: {e}"),
+                }
+            };
+            assert!(result.success);
 
             let content = std::fs::read_to_string(&exclude_file).expect("read exclude");
-            assert!(content.contains("# User comment"), "user comment preserved");
-            assert!(content.contains("target/"), "user target/ preserved");
+            assert!(content.contains("# comment"), "user comment preserved");
+            assert!(content.contains("/target/"), "user /target/ preserved");
             assert!(content.contains("*.tmp"), "user *.tmp preserved");
-            assert!(content.contains("/.warsha/"), "anchored /.warsha/ added");
-            assert!(content.contains("/.warsha"), "anchored /.warsha added");
-
-            // Bare unanchored .warsha must be stripped
-            let lines: Vec<&str> = content.lines().map(str::trim).collect();
             assert!(
-                !lines.contains(&".warsha"),
-                "bare .warsha should be replaced by anchored variants"
+                content.contains("docs/.warsha/"),
+                "user docs/.warsha/ preserved"
             );
 
-            // Idempotency: second call makes no spurious changes
-            ensure_git_exclude(temp.path());
+            let lines: Vec<&str> = content.lines().map(str::trim).collect();
+            assert!(
+                lines.contains(&".warsha"),
+                "user's bare .warsha MUST survive in exclude"
+            );
+            assert!(
+                lines.contains(&".warsha/**"),
+                "user's .warsha/** MUST survive in exclude"
+            );
+            assert!(
+                lines.contains(&"/.warsha/"),
+                "anchored /.warsha/ must be added"
+            );
+            assert!(
+                lines.contains(&"/.warsha"),
+                "anchored /.warsha must be added"
+            );
+
+            // Idempotency: second run via CliBackend::execute makes no spurious changes
+            let res2 = backend
+                .execute(task("Inspect", "Second run"), &sandbox)
+                .await
+                .expect("second execute succeeds");
+            assert!(res2.success);
             let content_after = std::fs::read_to_string(&exclude_file).expect("read exclude again");
             assert_eq!(
                 content, content_after,
-                "ensure_git_exclude must be idempotent"
+                "ensure_git_exclude via CliBackend::execute must be idempotent"
             );
         }
     }
