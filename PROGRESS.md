@@ -1,5 +1,43 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 16 Lane Fixes (F1 Blocker, LOW-1..LOW-5, D-R16-*)
+- **Worktree**: `.agents/worktrees/fix-r16-exclude` on `r-next/integration` (base `7b2c132`). Local-only: no push, no tag, no publish, `main` untouched.
+- **Addressed items**:
+  - **F1 Blocker (ensure_git_exclude user line preservation, D-R16-F1-1)**:
+    - In `crates/warsha-backends/src/lib.rs:721-795` (`ensure_git_exclude`), stopped deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with `# warsha-managed` marker comment followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent.
+    - Preserves every other line byte-for-byte, including user bare `.warsha`, `.warsha/**`, comments, and arbitrary paths.
+    - Migrates legacy bare `.warsha` lines only when provably Warsha's (directly under `# warsha-managed`).
+    - Maintained atomic write via `.exclude.tmp.<pid>.<ulid>`, `sync_all()`, and `rename`.
+    - Proving test rewritten at `crates/warsha-backends/src/lib.rs:2259` (`test_ensure_git_exclude_atomic_and_preserves_user_lines`): runs production path via `CliBackend::execute` in a git repo with `# comment`, `/target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp`. Verified to fail on baseline `7b2c132` (assertion failed: `lines.contains(&".warsha")`) and pass at tip.
+    - Added unit test `test_compute_updated_exclude` in `crates/warsha-backends/src/lib.rs` verifying empty exclude, line preservation, and marker migration.
+    - Appended correction note to `D-R15-N13-1-2` in `DECISIONS.md`.
+  - **LOW-1 (ETXTBSY retry overclaim correction)**:
+    - Appended correction notes to `DECISIONS.md:81` (`D-R14-N13-2`), `PROGRESS.md:94` (Round 14 N13-2), and `PROGRESS.md` Round 15 Blocker F1 clarifying that staging+rename does not eliminate the kernel race; the true fix is targeted test-side retry tolerating the race as documented in `D-R15-N13-2-2`.
+  - **LOW-2 (Porcelain branch lookup order description)**:
+    - Updated `PROGRESS.md` Residual 3 bullet to what actually shipped: porcelain branch lookup before `git worktree remove --force` in `crates/warsha-pipeline/src/worktree.rs:120-159`.
+  - **LOW-3 (warshad fallback cleanup proving test, D-R16-LOW-3)**:
+    - Added fleet proving test in `crates/warshad/src/tests/mod.rs:4738` (`fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing`): exercises fallback arm when `state.run_worktrees` entry is missing, asserting directory removed, worktree deregistered from porcelain list, and `warsha/run-<id>` branch deleted. Fails on baseline `7b2c132` and passes at tip.
+  - **LOW-4 (Prefix guard for remove_run_worktree branch deletion, D-R16-LOW-4)**:
+    - In `crates/warsha-pipeline/src/worktree.rs:174-190` (`remove_run_worktree`), guarded `git branch -D` deletion with `branch.starts_with("warsha/run-")`. If branch does not match prefix, skips deletion and logs debug.
+    - Added proving test `removal_preserves_branches_without_warsha_run_prefix` in `crates/warsha-pipeline/src/worktree.rs`.
+  - **LOW-5 (Watcher status honesty, D-R16-WATCH-1)**:
+    - Inspected `/home/moe/.dsh/state/session-superagent/watchers.json`: watcher `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29` exists with `enabled: true`, but `lastPoll` is `2026-11-22T21:07:02.171Z` (~21h stale), `nextAt: null`, and `lastDeferred: "会话正忙，下一轮重试"`.
+    - Corrected documented status in `DECISIONS.md` (D-R15-WATCH-1 note, D-R16-WATCH-1) and `PROGRESS.md` (Round 15 Open Caveat note) to accurately state the watcher is registered but idle/stale (not actively polling).
+  - **Brooks T3/R6**: Deferred per instructions (no action).
+- **Verification & Gates**:
+  - `cargo fmt --all -- --check`: 0 diff, exit 0
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, exit 0
+  - `cargo test -p warsha-core --lib`: 36 passed, 0 failed, exit 0
+  - `cargo test -p warsha-backends --lib`: 51 passed, 0 failed, exit 0 (12 consecutive loops clean, 0 flakiness)
+  - `cargo test -p warsha-pipeline --lib worktree`: 13 passed, 0 failed, exit 0
+  - `cargo test -p warshad --lib`: 329 passed, 0 failed, 4 ignored, exit 0
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures, exit 0
+  - `node scripts/check-versions.mjs`: versions aligned (0.3.1 across 14 components), exit 0
+  - `node scripts/check-arch.mjs`: 5 rules, 0 violations, exit 0
+  - `node scripts/check-wire-contract.mjs`: 11 checks, 0 violations, exit 0
+- **Status**: ALL ROUND-16 FIXES COMPLETE AND VERIFIED ON LANE.
+- **Plugins used this round**: None.
+
 ## Run 2026-11-23 — Round 15 Lane Fixes (Blocker F1 ETXTBSY elimination, Residuals 1-7, Open Caveat, D-R15-*)
 - **Worktree**: `.agents/worktrees/fix-r15-etxtbsy` on `r-next/integration` (commit `a7672ae`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Addressed items**:
@@ -11,12 +49,13 @@
       3. `crates/warsha-backends/src/tests/streaming_acceptance.rs:535` (`test_opencode_end_to_end_streams_events_and_flags_estimated_usage`)
     - Proving: Executed 32 consecutive full-suite runs of `cargo test -p warsha-backends --lib` with 0 failures (50/50 tests passed each run). Exact run log recorded below.
     - Correction: Corrected D-R14-N13-2 false claim via D-R15-N13-2-2.
+    - *Correction note (Round 16)*: The phrase "ETXTBSY elimination" in this section's heading and commit e6287e0 is an overclaim; staging+rename does not eliminate the kernel race. The actual fix implemented is targeted test-side retry tolerating the race (as documented in D-R15-N13-2-2), not kernel-level elimination.
   - **Residual 1 (F13 fails-before wording correction, D-R15-F13-2)**:
     - Corrected D-R14-F13-1 and PROGRESS.md line 6 to the verifier's observed behavior: on baseline `7665343`, the transplanted test fails at the `marker_file.exists()` assertion (marker file is absent when error returns because `open_cli_log` aborts before spawning child).
   - **Residual 2 (Stale desktop count 764 -> 771, D-R15-COUNT-2)**:
     - Corrected both `DECISIONS.md:173` (originally 116) and `PROGRESS.md:106` from 764 to 771 (88 files / 771 tests).
   - **Residual 3 (Leftover warsha/run-<id> branch cleanup, D-R15-N13-4-2)**:
-    - In `crates/warsha-pipeline/src/worktree.rs:116` (`remove_run_worktree`), added best-effort `git branch -D warsha/{name}` in `repo_path` after `git worktree remove --force`.
+    - In `crates/warsha-pipeline/src/worktree.rs:120-159` (`remove_run_worktree`), resolve the attached branch from `git worktree list --porcelain` BEFORE `git worktree remove --force` (the path disappears from the list once removal succeeds), then best-effort `git branch -D` the resolved branch (restricted to `warsha/run-` prefix in Round 16). Never derive the branch from directory name.
     - Proving test: `removal_takes_the_worktree_away` asserting `git branch --list warsha/run-run9` is empty after removal.
   - **Residual 4 (Atomic ensure_git_exclude write preserving user lines, D-R15-N13-1-2)**:
     - In `crates/warsha-backends/src/lib.rs:721` (`ensure_git_exclude`), made file write atomic by writing to `.exclude.tmp.<pid>.<ulid>`, calling `sync_all()`, and renaming over `.git/info/exclude`. Preserves existing user comments and patterns while normalizing unanchored `.warsha` lines to `/.warsha/` and `/.warsha`.
@@ -37,6 +76,7 @@
     - Verified active watcher in `/home/moe/.dsh/state/session-superagent/watchers.json`:
       ID: `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29`
       Enabled: `true`, Interval: `60s`, Ack label: `"主理鱼:已处理"`.
+    - *Correction note (Round 16)*: The watcher is registered in `watchers.json` but is idle/stale (`lastPoll: 2026-11-22T21:07:02.171Z`, `nextAt: null`, `lastDeferred: "会话正忙，下一轮重试"`). Documented accurately in D-R16-WATCH-1 rather than claiming active.
 - **Blocker F1 Proving Run Log (32 consecutive full-suite runs of `cargo test -p warsha-backends --lib`, 0 failures)**:
   - Run 1: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
   - Run 2: test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
@@ -90,6 +130,7 @@
   - **N13-3 (`crates/warsha-backends/src/lib.rs:668-688`)**: Preserved child stderr and exit code in `execute_cli_child` when child process exits non-zero inside an unwritable work directory (`work directory is not writable: <path> (<exit_info>): <stderr>`).
   - **N13-1 (`crates/warsha-backends/src/lib.rs:814` + `crates/warsha-pipeline/src/worktree.rs:135`)**: Narrowed `is_warsha_internal_path` to match only leading `.warsha` component (root-level only). Legitimate nested paths like `docs/.warsha/notes.md` are tracked in `dirty_set`, reported in `files_changed`, and committed by `commit_run_worktree`, while root `.warsha/cli.log` remains excluded.
   - **N13-2 (`crates/warsha-backends/src/catalog.rs:588`)**: Applied atomic-publish pattern to `test_cli_health_timeout_fails_closed` shim writing (write staging `.warsha-block-forever.tmp`, sync_all, rename, chmod 0o755) to eliminate transient ETXTBSY race. Verified 5 consecutive sweeps of `cargo test -p warsha-backends --lib` green with 0 flakiness.
+    - *Correction note (Round 16)*: The description "to eliminate transient ETXTBSY race" is an overclaim. Staging+rename does not prevent parallel fork/exec descriptor leaks; see D-R15-N13-2-2 and Round 15 notes clarifying the fix is test-side retry tolerating the race, not elimination.
   - **N13-4 (`crates/warshad/src/lib.rs:185-225`)**: In `apply_start_budget`, added best-effort cleanup of worktree directory (`tokio::fs::remove_dir_all`) and git worktree unregistration (`warsha_pipeline::remove_run_worktree`) on budget application failure. Preserved N5 invariant (run marked Failed, no orphan running row). Added proving test `runs_start_budget_failure_cleans_up_worktree_dir`.
   - **Count correction (`DECISIONS.md:81` + `PROGRESS.md:85`)**: Corrected monorepo test totals from "1470 tests" to the measured 1678 tests across 168 test files for `pnpm -r test` (88 desktop / 771, 58 ui / 391, 17 remote / 231, 2 client / 203, 1 crypto / 22, 2 i18n / 60).
 - **Verification & Gates**:

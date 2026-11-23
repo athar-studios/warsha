@@ -1,6 +1,31 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R16-F1-1: Preserve user lines in .git/info/exclude via # warsha-managed tagging
+- **Decision**: In `crates/warsha-backends/src/lib.rs:721-795` (`ensure_git_exclude`), stop deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with a `# warsha-managed` marker line followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent. Preserve every other line in `.git/info/exclude` byte-for-byte, including user-configured bare `.warsha`, `.warsha/**`, comments, and arbitrary paths. Migrate legacy bare `.warsha` lines only when provably Warsha-owned (i.e. directly preceded by the `# warsha-managed` marker). Maintain atomic publish via `.exclude.tmp.<pid>.<ulid>`.
+- **Reason**: Blocker F1 in Round 16 brief. In Round 15, only the write was made atomic; line handling was baseline-identical and stripped user lines matching `is_warsha_internal_path`.
+- **Proving tests**:
+  - `crates/warsha-backends/src/lib.rs`: `test_ensure_git_exclude_atomic_and_preserves_user_lines` (production path via `CliBackend::execute` verifying user lines `# comment`, `target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp` survive; fails on baseline 7b2c132 and passes at tip).
+  - `crates/warsha-backends/src/lib.rs`: `test_compute_updated_exclude` (unit test covering empty exclude, preservation of user entries, and migration of legacy marker entries).
+- **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
+
+## 2026-11-23 — D-R16-LOW-3: Fleet proving test for warshad fallback worktree deregistration and branch deletion
+- **Decision**: Add CI test `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing` in `crates/warshad/src/tests/mod.rs:4738` exercising the `apply_start_budget` fallback cleanup arm when `state.run_worktrees` has no map entry for the run. Verify that when budget persistence fails, the worktree directory is removed, git worktree registration is pruned from `git worktree list --porcelain`, and the `warsha/run-<id>` branch is deleted.
+- **Reason**: LOW-3 in Round 16 brief (Residual (f) from Round 15 review).
+- **Proving tests**: `crates/warshad/src/tests/mod.rs`: `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing`.
+- **Scope**: `crates/warshad/src/tests/mod.rs`. Local-only.
+
+## 2026-11-23 — D-R16-LOW-4: Restrict remove_run_worktree branch deletion to warsha/run- prefix
+- **Decision**: In `crates/warsha-pipeline/src/worktree.rs:174-190` (`remove_run_worktree`), guard the `git branch -D` deletion with `branch.starts_with("warsha/run-")`. If the attached branch does not start with `warsha/run-` (e.g. `main` or a user feature branch), log debug and skip branch deletion, protecting user branches from force deletion.
+- **Reason**: LOW-4 in Round 16 brief. Previously `remove_run_worktree` executed `branch -D` against whatever branch porcelain reported without verifying the prefix.
+- **Proving tests**: `crates/warsha-pipeline/src/worktree.rs`: `removal_preserves_branches_without_warsha_run_prefix`.
+- **Scope**: `crates/warsha-pipeline/src/worktree.rs`. Local-only.
+
+## 2026-11-23 — D-R16-WATCH-1: session-superagent watcher status documentation reconciliation
+- **Decision**: Document the accurate state of the `session-superagent` watcher on `athar-studios/warsha`: the watcher is registered in `/home/moe/.dsh/state/session-superagent/watchers.json` (`id: athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29`, `enabled: true`), but is currently idle/stale with `lastPoll: 2026-11-22T21:07:02.171Z` (~21h stale), `nextAt: null`, and `lastDeferred: "会话正忙，下一轮重试"`. Correct earlier claims of "active" polling to reflect that the watcher is registered but not actively polling.
+- **Reason**: LOW-5 in Round 16 brief (watcher honesty).
+- **Scope**: Documentation (`DECISIONS.md`, `PROGRESS.md`). Local-only.
+
 ## 2026-11-23 — D-R15-N13-2-2: Correction of D-R14-N13-2 and ETXTBSY retry loops on parallel test exec races
 - **Decision**: Prepend correction to D-R14-N13-2's claim that staging+rename "eliminates transient ETXTBSY": staging+rename does NOT eliminate the kernel race because a parallel test thread can fork() while staging fd is open, the child inherits the file descriptor until exec, and rename retains the same inode, causing exec on the sibling/target to return ETXTBSY (os error 26). Implemented option (b) from verifier report: targeted ETXTBSY-only retry (up to 10 attempts, 50ms backoff, matching 0caf6c0 / aadfcff pattern) in the three affected tests:
   1. `crates/warsha-backends/src/catalog.rs:582` (`test_cli_health_timeout_fails_closed`)
@@ -34,6 +59,7 @@
 - **Reason**: Residual 4 in verifier report: previous implementation used non-atomic `fs::write` and stripped bare user lines.
 - **Proving tests**: `crates/warsha-backends/src/lib.rs`: `test_ensure_git_exclude_atomic_and_preserves_user_lines`.
 - **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
+- **Correction note (Round 16)**: The claim that Round 15 "preserves user comments and patterns while normalizing unanchored `.warsha` lines" was inaccurate. In Round 15 only the atomic write was implemented; line handling remained baseline-identical and stripped user lines matching `is_warsha_internal_path` (including bare `.warsha` and `.warsha/**`). True preservation of user lines via `# warsha-managed` tagging and migration of only provably Warsha-owned lines was implemented in Round 16 (see D-R16-F1-1).
 
 ## 2026-11-23 — D-R15-N13-1-3: Unify is_warsha_internal_path into warsha-core with root/prefix handling
 - **Decision**: Consolidate `is_warsha_internal_path` into `crates/warsha-core/src/lib.rs`. Handle `Component::CurDir`, `Component::RootDir`, and `Component::Prefix` by skipping them so repo-relative (`.warsha/cli.log`) and root-anchored (`/.warsha/cli.log`) paths resolve against the first normal component. Callers pass repo-relative `git status` paths (documented on the fn); a full absolute checkout path like `/tmp/repo/.warsha/x` intentionally returns false. Re-export `is_warsha_internal_path` in `warsha-backends` and `warsha-pipeline`.
@@ -57,6 +83,7 @@
 - **Decision**: Verified that `session-superagent` watch on `athar-studios/warsha` is already active and registered in this environment: `/home/moe/.dsh/state/session-superagent/watchers.json` contains watcher ID `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29` with `enabled: true`, `intervalSec: 60`, `ackLabel: "主理鱼:已处理"`. Recorded live evidence in PROGRESS.md.
 - **Reason**: Open Caveat in Round 15 brief.
 - **Scope**: Documentation (`PROGRESS.md`, `DECISIONS.md`). Local-only.
+- **Correction note (Round 16)**: While the watcher registration exists in `/home/moe/.dsh/state/session-superagent/watchers.json` with `enabled: true`, claiming it was "active" was inaccurate: `lastPoll` has been frozen at `2026-11-22T21:07:02.171Z` with `nextAt: null` and `lastDeferred: "会话正忙，下一轮重试"`, meaning the watcher is registered but idle/stale (not actively polling). Reconciled in D-R16-WATCH-1.
 
 ## 2026-11-23 — D-R14-F13-1: True fails-before proving test for non-writable workdir and child execution
 - **Decision**: Rewrite `non_writable_workdir_fails_gracefully_with_clear_error` in `crates/warsha-backends/src/lib.rs:1892` to enforce true fails-before behavior. The child process writes a marker file (`child_marker.txt`) in the temp directory outside the read-only workdir, prints `boom-stderr` to stderr, and exits with code 3. The test asserts that the child actually executed (`marker_file.exists()` is true and contains `child-ran`) and that the resulting `BackendError::Sandbox` error preserves child stderr (`boom-stderr`) and exit status (`exit 3`).
@@ -83,6 +110,7 @@
 - **Reason**: Finding N13-2: direct `std::fs::write` to executable path caused transient ETXTBSY (os error 26) flakiness during parallel test execution when parallel tests fork/exec.
 - **Proving tests**: 5 consecutive sweeps of `cargo test -p warsha-backends --lib` with 0 failures (49/49 passed each sweep, including the 2 new N13-1/F13 tests).
 - **Scope**: `crates/warsha-backends/src/catalog.rs`. Local-only.
+- **Correction note (Round 16)**: The claim that staging+rename "eliminates transient ETXTBSY" is an overclaim and historically inaccurate. Staging+rename does not eliminate the kernel race when parallel test threads fork while staging fds are open (the inherited fd keeps the inode busy). See D-R15-N13-2-2 for the definitive correction: the true fix is targeted test-side retry tolerating the transient kernel race, not elimination.
 
 ## 2026-11-23 — D-R14-N13-4: Best-effort worktree cleanup on budget failure
 - **Decision**: In `crates/warshad/src/lib.rs:185-225` (`apply_start_budget`), perform best-effort cleanup of worktree directory and git worktree registration on budget application failure. If `state.run_worktrees` contains the worktree, unregister with `warsha_pipeline::remove_run_worktree` using project `repo_path` if available, and remove directory with `tokio::fs::remove_dir_all`. Failures warn only and do not fail the RPC. N5 invariant preserved: run is marked `Failed` and no running row remains.
