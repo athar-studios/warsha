@@ -1,10 +1,67 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-23 — D-R15-N13-2-2: Correction of D-R14-N13-2 and ETXTBSY retry loops on parallel test exec races
+- **Decision**: Prepend correction to D-R14-N13-2's claim that staging+rename "eliminates transient ETXTBSY": staging+rename does NOT eliminate the kernel race because a parallel test thread can fork() while staging fd is open, the child inherits the file descriptor until exec, and rename retains the same inode, causing exec on the sibling/target to return ETXTBSY (os error 26). Implemented option (b) from verifier report: targeted ETXTBSY-only retry (up to 10 attempts, 50ms backoff, matching 0caf6c0 / aadfcff pattern) in the three affected tests:
+  1. `crates/warsha-backends/src/catalog.rs:582` (`test_cli_health_timeout_fails_closed`)
+  2. `crates/warsha-backends/src/lib.rs:1285` (`a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log`)
+  3. `crates/warsha-backends/src/tests/streaming_acceptance.rs:535` (`test_opencode_end_to_end_streams_events_and_flags_estimated_usage`)
+  Real non-busy errors fail immediately without retry.
+- **Reason**: Blocker F1 in `claude-code-verify-round14-2026-11-23.md`. Measured 4/30 runs failing with ETXTBSY at tip.
+- **Proving tests**: 32 consecutive full-suite runs of `cargo test -p warsha-backends --lib` with 0 failures (50/50 tests passed each run). Exact run log recorded in PROGRESS.md.
+- **Scope**: `crates/warsha-backends/src/catalog.rs`, `crates/warsha-backends/src/lib.rs`, `crates/warsha-backends/src/tests/streaming_acceptance.rs`. Local-only.
+
+## 2026-11-23 — D-R15-F13-2: Correction of D-R14-F13-1 fails-before observed behavior on baseline 7665343
+- **Decision**: Correct the fails-before description in D-R14-F13-1 and PROGRESS.md. On baseline 7665343, `open_cli_log` returns an error before the child process is spawned, so no child executes and `marker_file.exists()` is false. The transplanted test fails at the `marker_file.exists()` assertion ("assertion failed: marker_file.exists()"), not at the stderr/exit-detail assertions. At tip (with non-fatal log-open and error preservation), the child executes, marker is written, and stderr/exit status are preserved.
+- **Reason**: Residual 1 in verifier report: D-R14-F13-1 and PROGRESS claimed the marker was "still written" on 7665343, whereas verifier observed failure at the marker assertion (marker absent at error time).
+- **Proving tests**: `crates/warsha-backends/src/lib.rs`: `non_writable_workdir_fails_gracefully_with_clear_error`.
+- **Scope**: Documentation (`DECISIONS.md`, `PROGRESS.md`). Local-only.
+
+## 2026-11-23 — D-R15-COUNT-2: Desktop Vitest test count reconciliation (764 -> 771)
+- **Decision**: Update historical desktop Vitest test count from 764 to the measured 771 tests across 88 test files in `DECISIONS.md:116` and `PROGRESS.md:106`.
+- **Reason**: Residual 2 in verifier report: verifier measured 88 files / 771 tests for `@warsha/desktop` (total monorepo tests 1678).
+- **Proving tests**: Vitest suite execution (`pnpm -r test`).
+- **Scope**: Documentation (`DECISIONS.md`, `PROGRESS.md`). Local-only.
+
+## 2026-11-23 — D-R15-N13-4-2: Delete leftover warsha/run-<id> branch on worktree removal
+- **Decision**: In `crates/warsha-pipeline/src/worktree.rs` (`remove_run_worktree`), resolve the attached branch from `git worktree list --porcelain` BEFORE `git worktree remove --force` (the path leaves the list after removal), then best-effort `git branch -D` the resolved branch. Never derive the branch from the directory name. Failures warn only and never abort cleanup.
+- **Reason**: Residual 3 in verifier report: `remove_run_worktree` removed the worktree registration but left the `warsha/run-<id>` branch in git refs. Per Code Reviewer R-BRANCH: directory-name derivation risks `-D` on the wrong branch after a rename/move, so the porcelain lookup (with canonicalized-path tolerance) is the safe resolution.
+- **Proving tests**: `crates/warsha-pipeline/src/worktree.rs`: `removal_takes_the_worktree_away` asserting `git branch --list warsha/run-run9` is empty after removal.
+- **Scope**: `crates/warsha-pipeline/src/worktree.rs`. Local-only.
+
+## 2026-11-23 — D-R15-N13-1-2: Atomic ensure_git_exclude write preserving user lines
+- **Decision**: In `crates/warsha-backends/src/lib.rs:721` (`ensure_git_exclude`), make the write atomic by writing to a unique temp file (`.exclude.tmp.<pid>.<ulid>`) in the exclude directory, calling `file.sync_all()`, dropping the handle, and renaming over the exclude file. Parse existing lines to preserve user comments and patterns while normalizing unanchored `.warsha` lines to `/.warsha/` and `/.warsha`.
+- **Reason**: Residual 4 in verifier report: previous implementation used non-atomic `fs::write` and stripped bare user lines.
+- **Proving tests**: `crates/warsha-backends/src/lib.rs`: `test_ensure_git_exclude_atomic_and_preserves_user_lines`.
+- **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
+
+## 2026-11-23 — D-R15-N13-1-3: Unify is_warsha_internal_path into warsha-core with root/prefix handling
+- **Decision**: Consolidate `is_warsha_internal_path` into `crates/warsha-core/src/lib.rs`. Handle `Component::CurDir`, `Component::RootDir`, and `Component::Prefix` by skipping them so repo-relative (`.warsha/cli.log`) and root-anchored (`/.warsha/cli.log`) paths resolve against the first normal component. Callers pass repo-relative `git status` paths (documented on the fn); a full absolute checkout path like `/tmp/repo/.warsha/x` intentionally returns false. Re-export `is_warsha_internal_path` in `warsha-backends` and `warsha-pipeline`.
+- **Reason**: Residual 5 in verifier report: code duplication across two crates and lack of absolute path component skipping.
+- **Proving tests**: `crates/warsha-core/src/lib.rs`: `test_is_warsha_internal_path`; all caller tests in `warsha-backends` and `warsha-pipeline`.
+- **Scope**: `crates/warsha-core`, `crates/warsha-backends`, `crates/warsha-pipeline`. Local-only.
+
+## 2026-11-23 — D-R15-N13-4-3: Git worktree deregistration in warshad fallback cleanup
+- **Decision**: In `crates/warshad/src/lib.rs:221-233` (`apply_start_budget`), when the fallback cleanup arm runs after a budget application failure, invoke `warsha_pipeline::remove_run_worktree` if the project has a configured `repo_path` before invoking `tokio::fs::remove_dir_all`. Failures warn only.
+- **Reason**: Residual 6 in verifier report: fallback cleanup arm deleted the directory without deregistering the git worktree and branch.
+- **Proving tests**: `crates/warshad/src/lib.rs` (328/328 tests passed).
+- **Scope**: `crates/warshad/src/lib.rs`. Local-only.
+
+## 2026-11-23 — D-R15-HOUSEKEEPING-1: Nested lane worktree documentation for PM cleanup
+- **Decision**: Document the exact command for the PM to clean up the nested worktree from the parent integration checkout: `git worktree remove --force .agents/worktrees/fix-r15-etxtbsy && rm -rf .agents`. Because this session executes from within the nested worktree directory itself, git refuses in-situ deletion. Documented in PROGRESS.md and verified `git status` shows no untracked files other than the active session path.
+- **Reason**: Residual 7 in verifier report: nested lane worktree leaves `?? .agents/` in integration git status.
+- **Proving tests**: Clean git status within lane; cleanup command documented in PROGRESS.md.
+- **Scope**: Documentation (`PROGRESS.md`, `DECISIONS.md`). Local-only.
+
+## 2026-11-23 — D-R15-WATCH-1: session-superagent watch status on athar-studios/warsha
+- **Decision**: Verified that `session-superagent` watch on `athar-studios/warsha` is already active and registered in this environment: `/home/moe/.dsh/state/session-superagent/watchers.json` contains watcher ID `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29` with `enabled: true`, `intervalSec: 60`, `ackLabel: "主理鱼:已处理"`. Recorded live evidence in PROGRESS.md.
+- **Reason**: Open Caveat in Round 15 brief.
+- **Scope**: Documentation (`PROGRESS.md`, `DECISIONS.md`). Local-only.
+
 ## 2026-11-23 — D-R14-F13-1: True fails-before proving test for non-writable workdir and child execution
 - **Decision**: Rewrite `non_writable_workdir_fails_gracefully_with_clear_error` in `crates/warsha-backends/src/lib.rs:1892` to enforce true fails-before behavior. The child process writes a marker file (`child_marker.txt`) in the temp directory outside the read-only workdir, prints `boom-stderr` to stderr, and exits with code 3. The test asserts that the child actually executed (`marker_file.exists()` is true and contains `child-ran`) and that the resulting `BackendError::Sandbox` error preserves child stderr (`boom-stderr`) and exit status (`exit 3`).
-- **Reason**: Blocker F13 in authoritative verification report `claude-code-verify-round13-2026-11-23.md`. The prior test passed on baseline 7665343 because `open_cli_log` aborted with a generic `BackendError::Sandbox` that discarded child output, proving nothing. When transplanted to baseline 7665343, the rewritten test still fails — via the stderr/exit-detail assertions (baseline spawns the child at `lib.rs:309` before `open_cli_log?` aborts, so the marker is still written, but the generic error lacks `boom-stderr`/`exit 3`) — and passes at tip.
-- **Proving tests**: `crates/warsha-backends/src/lib.rs`: `non_writable_workdir_fails_gracefully_with_clear_error` (passes at tip in 0.00s; transplanted to baseline 7665343 fails on the `boom-stderr`/`exit 3` detail assertions).
+- **Reason**: Blocker F13 in authoritative verification report `claude-code-verify-round13-2026-11-23.md`. The prior test passed on baseline 7665343 because `open_cli_log` aborted with a generic `BackendError::Sandbox` that discarded child output, proving nothing. When transplanted to baseline 7665343, the rewritten test fails at the marker-exists assertion (`assertion failed: marker_file.exists()` — no marker file when error returns because `open_cli_log` aborts before child spawn) and passes at tip.
+- **Proving tests**: `crates/warsha-backends/src/lib.rs`: `non_writable_workdir_fails_gracefully_with_clear_error` (passes at tip in 0.00s; transplanted to baseline 7665343 fails at the marker-exists assertion).
 - **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
 
 ## 2026-11-23 — D-R14-N13-3: Subprocess error preservation in read-only workdir failures
@@ -113,7 +170,7 @@
      - In `packages/ui/vitest.config.ts` and `apps/remote/vitest.config.ts`, align `server.fs.allow` to allow parent workspace directories (`../../../../..`), matching `apps/desktop/vitest.config.ts` so Vitest can resolve monorepo dependencies when running inside worktrees.
 - **Reason**: Round-12 Codex finding N1/F1 JS gate failures. `tokenUsage.test.ts` flagged undefined `--w-danger-border` and `--w-space-12`, and `Settings.test.tsx` failed because the Coding Engines section increased primary sections from 4 to 5 and total nav sections from 18 to 19.
 - **Proving tests**:
-  - Full desktop Vitest suite: 88 test files passed (88/88), 764 tests passed (764/764), 0 failed.
+  - Full desktop Vitest suite: 88 test files passed (88/88), 771 tests passed (771/771), 0 failed.
   - Full UI package Vitest suite: 58 test files passed (58/58), 391 tests passed (391/391), 0 failed.
   - Full remote Vitest suite: 17 test files passed (17/17), 231 tests passed (231/231), 0 failed.
   - Full monorepo Vitest suite (`pnpm -r test`): all 8 workspaces passed (168 test files, 1678 tests), exit code 0.
