@@ -2664,7 +2664,7 @@ export class WarshaClient
       language,
       confinement,
       approval_mode: approvalMode,
-      repo_path: resolvedRepoPath,
+      repo_path: resolvedRepoPath ?? null,
     });
     return decodeProjectSummary(row);
   }
