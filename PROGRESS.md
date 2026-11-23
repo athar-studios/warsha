@@ -1,5 +1,19 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 12 FIXES COMPLETE (F2/F3/F1/F4/F5/F7 + F6/F8/F9-F13, D-R12-*)
+- **Tip**: `96fa03f` on `r-next/integration` (chain: deny `eb3c105` → gates `346a023` → infra `80a0e1d` → sessions `de09d3c` → devmode `c0810e8` → status `bc86757` → repo_path `0522645` → tsc `0e5e52b` → eslint `96fa03f`). Local-only: no push, no tag, no publish, `main` untouched.
+- **Verified on tip (this session)**:
+  - `cargo fmt --all -- --check`: exit 0; `cargo clippy --workspace --all-targets -- -D warnings`: exit 0.
+  - `cargo test -p warsha-pipeline --lib`: 594 passed, 0 failed, 7 ignored (one transient parallel-worker failure, green on rerun).
+  - `cargo test -p warshad --lib`: 326 passed, 0 failed, 4 ignored; `warsha-backends`: 45/0; `warsha-store`: 27/0 (backends one transient, green on rerun).
+  - Desktop vitest (Home/Projects/Frame/Project/Bench/Developers): 8 files, 142/142. Client: 179/179. Remote: 21/21.
+  - Desktop `tsc --noEmit`: exit 0. Remote `tsc --noEmit`: exit 0. ESLint on touched screens: 0.
+  - `check-engineering-policy.mjs`: 8/0. `check-versions.mjs --expect 0.3.1`: aligned. `check-arch.mjs`: 5/0. `check-wire-contract.mjs`: 11/0. `check-ds-v3.mjs`: 0.
+  - `cargo deny check advisories`: 0 hits for `RUSTSEC-2026-0592` (url bump `eb3c105` holds); only owner-accepted `chrono RUSTSEC-2026-0543` remains.
+  - `actions-gate.mjs`: 201/201, 1 violation (pre-existing A6 `factory.retry`, unchanged). `i18n-gate.mjs`: 1100 keys, 19 violations (pre-existing Latin, unchanged).
+- **F13 note**: proving tests mount shipped screens (Home gate cards incl. cancelled-zero-card, Developers F5 normal/failover responder + cost, RunScreen cancelled pill); live repro before/after captured in lane proving tests (sessions window order, devmode p_m/q_a decode, gates pending-stage filter).
+- **Status**: FIXES COMPLETE — round 12 done, awaiting round-12 verification.
+
 ## Run 2026-11-23 — Round 12 F4 status fixes + F1 gate regressions (D-R12-STATUS-1)
 - **Branch**: `fix-r12-status` based on `8f2fc72` (`r-next/integration`).
 - **Landed**:
