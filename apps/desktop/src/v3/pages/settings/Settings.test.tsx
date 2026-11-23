@@ -433,29 +433,29 @@ describe('SettingsPage (Slice 1)', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows 4 primary sections and advanced toggle in Simple mode', async () => {
+  it('shows 5 primary sections and advanced toggle in Simple mode', async () => {
     renderSettings('/settings/general');
     await waitFor(() => expect(screen.getByTestId('settings-section-general')).toBeDefined());
 
     const nav = screen.getByRole('navigation');
     const links = nav.querySelectorAll('a[data-action="settings.nav.open"]');
-    expect(links.length).toBe(4);
+    expect(links.length).toBe(5);
 
     const toggle = nav.querySelector('button[data-action="settings.advanced.toggle"]');
     expect(toggle).not.toBeNull();
     fireEvent.click(toggle as HTMLElement);
 
     const expandedLinks = nav.querySelectorAll('a[data-action="settings.nav.open"]');
-    expect(expandedLinks.length).toBe(18);
+    expect(expandedLinks.length).toBe(19);
   });
 
-  it('shows all 18 nav sections immediately in Advanced mode', async () => {
+  it('shows all 19 nav sections immediately in Advanced mode', async () => {
     renderSettings('/settings/general', createMockClient(), 'developers');
     await waitFor(() => expect(screen.getByTestId('settings-section-general')).toBeDefined());
 
     const nav = screen.getByRole('navigation');
     const links = nav.querySelectorAll('a[data-action="settings.nav.open"]');
-    expect(links.length).toBe(18);
+    expect(links.length).toBe(19);
     expect(nav.querySelector('button[data-action="settings.advanced.toggle"]')).toBeNull();
   });
 

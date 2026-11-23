@@ -1,5 +1,26 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-23 — Round 13 Lane F1 JS gate green (D-R13-JS-1)
+- **Worktree**: `.agents/worktrees/fix-r13-js-gate` (detached HEAD at 7665343).
+- **Landed**:
+  - Declared `--w-danger-border` (#E09590 light, #6E2B25 dark) and `--w-space-12` (96px) in `packages/ui/src/v3/tokens/tokens.css`.
+  - Updated `apps/desktop/src/v3/pages/settings/Settings.test.tsx` navigation count assertions from 4 to 5 (simple mode primary) and 18 to 19 (expanded / advanced mode) to reconcile with real Coding Engines section (`apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.tsx`).
+  - Added `server.fs.allow` parent directory support in `packages/ui/vitest.config.ts` and `apps/remote/vitest.config.ts` matching `apps/desktop/vitest.config.ts` for worktree Vite resolution.
+- **Proving evidence**:
+  - Monorepo full Vitest suite (`pnpm -r test`): 8/8 workspaces passed, 168 test files, 1470 tests, exit code 0:
+    - `@warsha/desktop`: 88 passed (88 files), 764 passed (764 tests), 0 failed.
+    - `@warsha/ui`: 58 passed (58 files), 391 passed (391 tests), 0 failed.
+    - `@warsha/remote`: 17 passed (17 files), 231 passed (231 tests), 0 failed.
+    - `@warsha/client`: 2 passed (2 files), 202 passed (202 tests), 0 failed.
+    - `@warsha/crypto`: 1 passed (1 file), 22 passed (22 tests), 0 failed.
+    - `@warsha/i18n`: 2 passed (2 files), 60 passed (60 tests), 0 failed.
+  - Typecheck:
+    - `apps/desktop`: `tsc --noEmit` exit 0 (0 errors).
+    - `apps/remote`: `tsc --noEmit` exit 0 (0 errors).
+    - `packages/ui`: `tsc --noEmit` exit 0 (0 errors).
+  - ESLint on touched files: 0 errors, 0 warnings.
+  - Engineering policy: `node scripts/check-engineering-policy.mjs` passed (8 checks, 0 failures; --self-test passed 8/8).
+
 ## Run 2026-11-23 — Round 12 FIXES COMPLETE (F2/F3/F1/F4/F5/F7 + F6/F8/F9-F13, D-R12-*)
 - **Tip**: `96fa03f` on `r-next/integration` (chain: deny `eb3c105` → gates `346a023` → infra `80a0e1d` → sessions `de09d3c` → devmode `c0810e8` → status `bc86757` → repo_path `0522645` → tsc `0e5e52b` → eslint `96fa03f`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Verified on tip (this session)**:
