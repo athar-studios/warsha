@@ -148,6 +148,50 @@ pub use runtime::{AgentLoopSnapshot, BackendRoutingsConfig};
 static PENDING_PROJECT_BUDGETS: std::sync::LazyLock<std::sync::RwLock<HashMap<ProjectId, u64>>> =
     std::sync::LazyLock::new(|| std::sync::RwLock::new(HashMap::new()));
 
+/// Best-effort deletion of a run branch using `run.worktree_branch` as a hint
+/// when porcelain lookup yields None or worktree metadata was missing.
+/// Guarded to only delete branches starting with `warsha/run-` (prefix guard).
+async fn delete_branch_hint(
+    repo_path: &std::path::Path,
+    branch: &str,
+    run_id: &warsha_core::RunId,
+) {
+    if !branch.starts_with("warsha/run-") {
+        tracing::debug!(
+            branch = %branch,
+            "skipping branch deletion hint: does not match warsha/run- prefix"
+        );
+        return;
+    }
+    let branch_check = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["branch", "--list", branch])
+        .output()
+        .await;
+    if let Ok(out) = branch_check {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if !stdout.trim().is_empty() {
+            let del_out = tokio::process::Command::new("git")
+                .arg("-C")
+                .arg(repo_path)
+                .args(["branch", "-D", branch])
+                .output()
+                .await;
+            if let Ok(d_out) = del_out {
+                if !d_out.status.success() {
+                    warn!(
+                        run_id = %run_id.0,
+                        branch = %branch,
+                        error = %String::from_utf8_lossy(&d_out.stderr).trim(),
+                        "failed to delete branch via fallback hint"
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Record the budget `runs.start` was given.
 ///
 /// An explicit `budget_cents` is the budget the new run stores, including `0`.
@@ -206,6 +250,10 @@ async fn apply_start_budget(
                                 "failed to remove git worktree registration on budget failure"
                             );
                         }
+                        if let Some(ref branch) = run.worktree_branch {
+                            delete_branch_hint(std::path::Path::new(repo_path), branch, &run.id)
+                                .await;
+                        }
                     }
                 }
                 if worktree.path.exists() {
@@ -222,6 +270,7 @@ async fn apply_start_budget(
                 let path = std::path::PathBuf::from(path_str);
                 // N13-4 / N13-4-3: If git repo exists, also deregister git worktree
                 // and delete branch before falling back to directory removal.
+                let mut repo_path_buf = None;
                 if let Ok(project) = state.store.get_project(project_id).await {
                     if let Some(repo_path) = project
                         .repo_path
@@ -229,6 +278,7 @@ async fn apply_start_budget(
                         .map(str::trim)
                         .filter(|p| !p.is_empty())
                     {
+                        repo_path_buf = Some(std::path::PathBuf::from(repo_path));
                         let dummy_worktree = warsha_pipeline::RunWorktree {
                             path: path.clone(),
                             base: String::new(),
@@ -255,6 +305,25 @@ async fn apply_start_budget(
                             error = %e,
                             "failed to remove worktree directory on budget failure"
                         );
+                    }
+                }
+                // When porcelain lookup in remove_run_worktree yields None (or worktree was already detached/untracked),
+                // use run.worktree_branch as a branch-deletion hint (leak otherwise).
+                if let (Some(ref branch), Some(ref repo_path)) =
+                    (&run.worktree_branch, &repo_path_buf)
+                {
+                    delete_branch_hint(repo_path, branch, &run.id).await;
+                }
+            } else if let Some(ref branch) = run.worktree_branch {
+                // When worktree_path is absent but worktree_branch was recorded, clean up branch hint.
+                if let Ok(project) = state.store.get_project(project_id).await {
+                    if let Some(repo_path) = project
+                        .repo_path
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|p| !p.is_empty())
+                    {
+                        delete_branch_hint(std::path::Path::new(repo_path), branch, &run.id).await;
                     }
                 }
             }

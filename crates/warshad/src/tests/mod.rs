@@ -4867,6 +4867,193 @@ mod runs_start_budget {
     }
 
     #[tokio::test]
+    async fn fallback_cleanup_uses_worktree_branch_hint_when_porcelain_lookup_yields_none() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let repo_dir = crate::test_util::fresh_tempdir();
+        std::fs::write(repo_dir.path().join("base.txt"), "base").expect("base file");
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+            vec!["add", "."],
+            vec!["commit", "-qm", "base"],
+        ] {
+            let status = std::process::Command::new("git")
+                .current_dir(repo_dir.path())
+                .args(&args)
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?} failed");
+        }
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Fallback Hint Proving Project".to_string(),
+                "Testing fallback branch hint".to_string(),
+                "en".to_string(),
+                None,
+                None,
+                Some(repo_dir.path().to_str().expect("utf8 path").to_string()),
+            )
+            .await
+            .expect("project created");
+
+        let run_id = RunId::new();
+        let branch_name = format!("warsha/run-{}", run_id.0);
+
+        // Create the branch in the git repo directly without registering a worktree
+        // so porcelain lookup yields None
+        let status = std::process::Command::new("git")
+            .current_dir(repo_dir.path())
+            .args(["branch", &branch_name])
+            .status()
+            .expect("git branch created");
+        assert!(status.success());
+
+        // Create a non-existent dummy worktree path
+        let non_existent_wt_path = repo_dir.path().join("does-not-exist-worktree");
+
+        let run = Run {
+            id: run_id,
+            project_id: project.id,
+            current_stage: Stage::Idea,
+            gate_states: HashMap::new(),
+            artifacts: HashMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            status: RunStatus::Running,
+            budget_cents: None,
+            spent_cents: 0,
+            worktree_path: Some(non_existent_wt_path.to_string_lossy().to_string()),
+            worktree_branch: Some(branch_name.clone()),
+            confinement: None,
+            run_mode: warsha_core::RunMode::Agent,
+        };
+        store.create_run(&run).await.expect("run created");
+
+        // Inject budget update failure
+        sqlx::query(
+            "CREATE TRIGGER fail_budget_update_fallback_hint BEFORE UPDATE OF budget_cents ON runs \
+             BEGIN SELECT RAISE(ABORT, 'injected budget persistence failure'); END;",
+        )
+        .execute(store.pool())
+        .await
+        .expect("trigger created");
+
+        let res = crate::apply_start_budget(&state, project.id, run, Some(500)).await;
+        assert!(res.is_err(), "apply_start_budget must fail");
+
+        // Verify run branch was deleted using run.worktree_branch hint
+        let branch_after = std::process::Command::new("git")
+            .current_dir(repo_dir.path())
+            .args(["branch", "--list", &branch_name])
+            .output()
+            .expect("branch list");
+        let branch_str = String::from_utf8_lossy(&branch_after.stdout);
+        assert!(
+            branch_str.trim().is_empty(),
+            "run branch must be deleted via fallback branch hint when porcelain lookup yields None"
+        );
+    }
+
+    #[tokio::test]
+    async fn fallback_cleanup_branch_hint_preserves_non_warsha_branch_prefix_guard() {
+        let temp = crate::test_util::fresh_tempdir();
+        let (state, store) = test_state(temp.path()).await;
+        let rpc = WarshaRpc::new(state.clone());
+        let owner = owner_ext();
+
+        let repo_dir = crate::test_util::fresh_tempdir();
+        std::fs::write(repo_dir.path().join("base.txt"), "base").expect("base file");
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+            vec!["add", "."],
+            vec!["commit", "-qm", "base"],
+        ] {
+            let status = std::process::Command::new("git")
+                .current_dir(repo_dir.path())
+                .args(&args)
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?} failed");
+        }
+
+        let project = rpc
+            .create_project(
+                &owner,
+                "Prefix Guard Proving Project".to_string(),
+                "Testing prefix guard on branch hint".to_string(),
+                "en".to_string(),
+                None,
+                None,
+                Some(repo_dir.path().to_str().expect("utf8 path").to_string()),
+            )
+            .await
+            .expect("project created");
+
+        // Create a custom branch without warsha/run- prefix
+        let safe_branch = "user-protected-branch";
+        let status = std::process::Command::new("git")
+            .current_dir(repo_dir.path())
+            .args(["branch", safe_branch])
+            .status()
+            .expect("git branch created");
+        assert!(status.success());
+
+        let run_id = RunId::new();
+        let non_existent_wt_path = repo_dir.path().join("does-not-exist-worktree");
+
+        let run = Run {
+            id: run_id,
+            project_id: project.id,
+            current_stage: Stage::Idea,
+            gate_states: HashMap::new(),
+            artifacts: HashMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            status: RunStatus::Running,
+            budget_cents: None,
+            spent_cents: 0,
+            worktree_path: Some(non_existent_wt_path.to_string_lossy().to_string()),
+            worktree_branch: Some(safe_branch.to_string()),
+            confinement: None,
+            run_mode: warsha_core::RunMode::Agent,
+        };
+        store.create_run(&run).await.expect("run created");
+
+        // Inject budget update failure
+        sqlx::query(
+            "CREATE TRIGGER fail_budget_update_prefix_guard BEFORE UPDATE OF budget_cents ON runs \
+             BEGIN SELECT RAISE(ABORT, 'injected budget persistence failure'); END;",
+        )
+        .execute(store.pool())
+        .await
+        .expect("trigger created");
+
+        let res = crate::apply_start_budget(&state, project.id, run, Some(500)).await;
+        assert!(res.is_err(), "apply_start_budget must fail");
+
+        // Verify protected branch was NOT deleted because of prefix guard
+        let branch_after = std::process::Command::new("git")
+            .current_dir(repo_dir.path())
+            .args(["branch", "--list", safe_branch])
+            .output()
+            .expect("branch list");
+        let branch_str = String::from_utf8_lossy(&branch_after.stdout);
+        assert!(
+            branch_str.contains(safe_branch),
+            "protected branch without warsha/run- prefix must not be deleted by fallback hint"
+        );
+    }
+
+    #[tokio::test]
     async fn explicit_budget_on_runs_start_lifts_project_exhaustion() {
         let temp = crate::test_util::fresh_tempdir();
         let (state, _store) = test_state(temp.path()).await;
