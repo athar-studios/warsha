@@ -1,13 +1,27 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
-## 2026-11-23 — D-R16-F1-1: Preserve user lines in .git/info/exclude via deterministic # warsha-managed tagging
-- **Decision**: In `crates/warsha-backends/src/lib.rs:718-806` (`compute_updated_exclude`) and `814-858` (`ensure_git_exclude`), stop deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with a `# warsha-managed` marker line followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent. The Warsha-managed block is bounded deterministically: only the exact entries Warsha itself writes (`/.warsha/` and `/.warsha`) belong in-block (`is_warsha_managed_entry`). Any other line (user bare `.warsha`, `.warsha/**`, comments, blank lines, or paths like `/.warsha-backup`) deterministically ends the block and is preserved byte-for-byte. The insertion scan similarly uses `is_warsha_managed_entry` instead of `starts_with("/.warsha")` so user lines like `/.warsha-backup` are never skipped. Existing CRLF (`\r\n`) line endings are preserved byte-for-byte. Atomic publish is maintained via `.exclude.tmp.<pid>.<ulid>`.
-- **Reason**: Blocker F1 and Round 16 Code Reviewer findings (HIGH and MEDIUM). In Round 15, only the write was made atomic; line handling was baseline-identical and stripped user lines matching `is_warsha_internal_path`. An earlier draft had an over-broad `!trimmed.contains("warsha")` predicate and dropped user `.warsha` lines appended directly after Warsha entries.
+## 2026-11-24 — D-R17-LOW-2: Skip .git/info/exclude rewrite on non-UTF-8 or read error to prevent file wipe
+- **Decision**: In `crates/warsha-backends/src/lib.rs:825-876` (`ensure_git_exclude`), read the exclude file using `std::fs::read` into raw bytes and validate UTF-8 via `std::str::from_utf8`. If reading the file returns an I/O error (other than NotFound) or contains invalid UTF-8 bytes, return early and skip the exclude rewrite entirely, leaving the file untouched on disk.
+- **Reason**: LOW-2 in Round 17 brief. Previously, `std::fs::read_to_string().unwrap_or_default()` caused non-UTF-8 exclude files (or files with read errors) to resolve as empty string, wiping the existing non-UTF-8 user exclude file and overwriting it with Warsha's default block.
+- **Proving test**: `crates/warsha-backends/src/lib.rs:2544`: `test_ensure_git_exclude_non_utf8_leaves_file_untouched` (writes non-UTF-8 bytes `[0xFF, 0xFE, b'u', b's', b'e', b'r', 0xFF, 0x00]` into `.git/info/exclude`, executes `CliBackend::execute`, asserts file bytes are unchanged; fails on baseline 0d1e34d where the file was wiped and replaced with Warsha defaults, passes at tip).
+- **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
+
+## 2026-11-24 — D-R17-LOW-3: Preserve line terminators and missing trailing newlines in compute_updated_exclude
+- **Decision**: In `crates/warsha-backends/src/lib.rs:733-820` (`compute_updated_exclude`), split the exclude content using `split_inclusive('\n')` to retain each line's own terminator (`\r\n` vs `\n`) and handle missing trailing newlines. Lines are preserved and concatenated directly without re-joining via a single global newline separator. When inserting into or appending Warsha-managed entries, use the local block terminator or document-default terminator.
+- **Reason**: LOW-3 in Round 17 brief. Previously, `str::lines()` stripped line terminators and `join(newline)` normalized mixed endings to CRLF if any CRLF was present, failing byte-for-byte preservation on mixed line endings.
 - **Proving tests**:
-  - `crates/warsha-backends/src/lib.rs:2381`: `test_ensure_git_exclude_atomic_and_preserves_user_lines` (production path via `CliBackend::execute` verifying user lines `# comment`, `/target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp` survive; fails on baseline 7b2c132 and passes at tip).
-  - `crates/warsha-backends/src/lib.rs:2470`: `test_ensure_git_exclude_preserves_user_warsha_immediately_after_managed_block` (production path verifying user bare `.warsha` directly after Warsha block survives untouched).
-  - `crates/warsha-backends/src/lib.rs:2333`: `test_compute_updated_exclude` (unit test covering empty exclude, preservation of user entries, user entries directly after managed block, preservation during missing entry insertion, and CRLF preservation).
+  - `crates/warsha-backends/src/lib.rs:2381`: `test_compute_updated_exclude` Case 7 (asserts user lines `# comment\n`, `/target/\r\n`, `user_pattern\n` retain their exact line endings byte-for-byte; fails on baseline 0d1e34d, passes at tip).
+  - `crates/warsha-backends/src/lib.rs:2593`: `test_ensure_git_exclude_preserves_mixed_line_endings` (production path via `CliBackend::execute` verifying mixed line endings in user lines survive untouched; fails on baseline 0d1e34d, passes at tip).
+- **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
+
+## 2026-11-23 — D-R16-F1-1: Preserve user lines in .git/info/exclude via deterministic # warsha-managed tagging
+- **Decision**: In `crates/warsha-backends/src/lib.rs:733-820` (`compute_updated_exclude`) and `825-876` (`ensure_git_exclude`), stop deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with a `# warsha-managed` marker line followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent. The Warsha-managed block is bounded deterministically: only the exact entries Warsha itself writes (`/.warsha/` and `/.warsha`) belong in-block (`is_warsha_managed_entry`). Any other line (user bare `.warsha`, `.warsha/**`, comments, blank lines, or paths like `/.warsha-backup`) deterministically ends the block and is preserved byte-for-byte. The insertion scan similarly uses `is_warsha_managed_entry` instead of `starts_with("/.warsha")` so user lines like `/.warsha-backup` are never skipped. Existing CRLF (`\r\n`) line endings are preserved byte-for-byte. Atomic publish is maintained via `.exclude.tmp.<pid>.<ulid>`.
+- **Reason**: Blocker F1 and Round 16 Code Reviewer findings (HIGH and MEDIUM). In Round 15, only the write was made atomic; line handling was baseline-identical and stripped user lines by literal comparison with `.warsha` / `.warsha/` / `.warsha/**` patterns, NOT by `is_warsha_internal_path` (that helper is for git-status paths at `lib.rs:941/981`). An earlier draft had an over-broad `!trimmed.contains("warsha")` predicate and dropped user `.warsha` lines appended directly after Warsha entries.
+- **Proving tests**:
+  - `crates/warsha-backends/src/lib.rs:2411`: `test_ensure_git_exclude_atomic_and_preserves_user_lines` (production path via `CliBackend::execute` verifying user lines `# comment`, `/target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp` survive; fails on baseline 7b2c132 and passes at tip).
+  - `crates/warsha-backends/src/lib.rs:2494`: `test_ensure_git_exclude_preserves_user_warsha_immediately_after_managed_block` (production path verifying user bare `.warsha` directly after Warsha block survives untouched).
+  - `crates/warsha-backends/src/lib.rs:2349`: `test_compute_updated_exclude` (unit test covering empty exclude, preservation of user entries, user entries directly after managed block, preservation during missing entry insertion, and CRLF preservation).
 - **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
 
 ## 2026-11-23 — D-R16-MED-1: Fallback worktree branch cleanup hint on budget failure
@@ -21,7 +35,7 @@
 ## 2026-11-23 — D-R16-LOW-3: Fleet proving test for warshad fallback worktree deregistration and branch deletion
 - **Decision**: Add CI test `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing` in `crates/warshad/src/tests/mod.rs:4740` exercising the `apply_start_budget` fallback cleanup arm when `state.run_worktrees` has no map entry for the run. Verify that when budget persistence fails, the worktree directory is removed, git worktree registration is pruned from `git worktree list --porcelain`, and the `warsha/run-<id>` branch is deleted.
 - **Reason**: LOW-3 in Round 16 brief (Residual (f) from Round 15 review).
-- **Proving tests**: `crates/warshad/src/tests/mod.rs:4740`: `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing`.
+- **Proving tests**: `crates/warshad/src/tests/mod.rs:4740`: `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing` (fails on `a7672ae` and passes at tip).
 - **Scope**: `crates/warshad/src/tests/mod.rs`. Local-only.
 
 ## 2026-11-23 — D-R16-LOW-4: Restrict remove_run_worktree branch deletion to warsha/run- prefix
