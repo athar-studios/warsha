@@ -1,5 +1,24 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-24 — Round 18 LOW Residuals Fix (LOW-1..LOW-4, D-R18-LOW)
+- **Worktree**: `.agents/worktrees/fix-r18-low-residuals` on `r-next/integration` (base `e368837` = `e577bb4` + F1 remedy `adb9739` + docs `e368837`). Local-only: no push, no tag, no publish, `main` untouched.
+- **Addressed items**:
+  - **LOW-1**: In round-17 Brooks PR review section, corrected line citations and counts for the reviewed range `7b2c132..0d1e34d`: baseline `0d1e34d` `compute_updated_exclude` `733-812` (managed block const at 718), `ensure_git_exclude` `817-869` (tip `e368837` compute `733-820`, ensure `825-885`; current worktree ensure `825-897` after +12 eprintln lines); ETXTBSY retry loops to 14 test sites at `crates/warsha-backends/src/lib.rs:1256,1330,1383,1435,1503,1670,1961,2042,2130,2182,2231,2281,2414,2497`; round-16 addition count to 2.
+  - **LOW-2**: Added explicit `Deferred (next round)` list in round-17 summary: R3 ETXTBSY helper, R1 split, R3 `RUN_BRANCH_PREFIX`, CR silent-skip `eprintln!` (fixed this round).
+  - **LOW-3**: In `crates/warsha-backends/src/lib.rs:843-863` (`ensure_git_exclude`), added `eprintln!` warnings on non-NotFound read error (`warning: failed to read .warsha exclusion from {}: {e}`) and UTF-8 decoding error (`warning: failed to parse .warsha exclusion from {}: {e}`) matching existing write-failure path style, leaving file untouched and returning early.
+  - **LOW-4**: In Round 16 bullet, updated test line numbers (`:2455` and `:2361`), replaced "marker migration" with exact unit test coverage description (empty exclude, line preservation, block-end, insertion, CRLF), and clarified `ensure_git_exclude` citations from `825-876` to `825-885` (which was the tip `e368837` span; current worktree ensure is `825-897` after the +12 eprintln lines) across `PROGRESS.md` and `DECISIONS.md`.
+- **Proving evidence**:
+  - LOW-3: `cargo test -p warsha-backends --lib test_ensure_git_exclude_non_utf8_leaves_file_untouched -- --nocapture` demonstrates warning eprintln fires to stderr on non-UTF-8 input and test passes with file byte-for-byte untouched.
+  - LOW-1/2/4: Grep and diff confirm line citations, counts, and deferred items.
+  - F1 proving tests: `test_compute_updated_exclude` Cases 8/9/10 and `test_ensure_git_exclude_handles_unterminated_managed_entry` remain green (55 passed, 0 failed).
+- **Verification & Gates**:
+  - `cargo fmt --all -- --check`: 0 diff, exit 0
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, exit 0
+  - `cargo test -p warsha-backends --lib`: 55 passed, 0 failed, exit 0
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures, exit 0
+- **Plugins used this round**: Coder lane (LOW-1..LOW-4 implementation) + lead verification (fmt/clippy/test/policy gates); no new brooks/Reviewer pass — LOW-1..LOW-4 are doc-accuracy + eprintln only, F1 remedy logic untouched.
+- **Status**: UNCOMMITTED in worktree `fix-r18-low-residuals` for lead review/merge.
+
 ## Run 2026-11-24 — Round 18 F1 Fix (unterminated managed entry, D-R18-F1)
 - **Worktree**: `.agents/worktrees/fix-r18-f1-exclude` on `r-next/integration` (base `e577bb4`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Root cause**: `compute_updated_exclude` `has_warsha_block` branch only terminated the marker line; an unterminated last managed entry (`/.warsha/` or `/.warsha` with no trailing newline) got the missing entry glued onto it (`/.warsha//.warsha`), breaking both exclusions (round-17 verifier F1).
@@ -16,7 +35,7 @@
   - **LOW-1 (Residual (f) fallback test baseline correction)**:
     - Corrected wording in `PROGRESS.md:28` and `DECISIONS.md:24` (`D-R16-LOW-3`): `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing` fails on baseline `a7672ae` (not `7b2c132`, where it actually passed) and passes at tip.
   - **LOW-2 (Non-UTF-8 .git/info/exclude skip rewrite, D-R17-LOW-2)**:
-    - In `crates/warsha-backends/src/lib.rs:825-876` (`ensure_git_exclude`), read file with `std::fs::read` into raw bytes and validate UTF-8 with `std::str::from_utf8`. On non-NotFound read error or non-UTF-8 bytes, return early and leave the file completely untouched.
+    - In `crates/warsha-backends/src/lib.rs:825-885` (`ensure_git_exclude`), read file with `std::fs::read` into raw bytes and validate UTF-8 with `std::str::from_utf8`. On non-NotFound read error or non-UTF-8 bytes, return early and leave the file completely untouched.
     - Added proving test `test_ensure_git_exclude_non_utf8_leaves_file_untouched` (`crates/warsha-backends/src/lib.rs:2544`): writes non-UTF-8 bytes `[0xFF, 0xFE, b'u', b's', b'e', b'r', 0xFF, 0x00]` into `.git/info/exclude`, executes `CliBackend::execute`, asserts file bytes are unchanged. Verified to fail on baseline `0d1e34d` (file was wiped to Warsha default block) and pass at tip.
   - **LOW-3 (Preserve per-line endings and missing trailing newlines, D-R17-LOW-3)**:
     - In `crates/warsha-backends/src/lib.rs:733-820` (`compute_updated_exclude`), split existing exclude lines with `split_inclusive('\n')` carrying each line's own terminator (`\r\n` vs `\n`) and missing trailing newlines, concatenating directly without global separator re-joining.
@@ -47,14 +66,14 @@ Round-16 preservation logic is sound and honestly documented; one recurring test
 ---
 ## Findings
 ### 🟡 Warning
-**[R3] Knowledge Duplication — ETXTBSY retry loop copy-pasted across ~10 test sites (Warning)**
-Symptom: the same ~15-line `loop { match backend.execute(..) { Ok(res) => break res, Err(e) if attempts < N && (msg.contains("Text file busy") || msg.contains("os error 26")) => { attempts += 1; sleep(50ms) } ...` shape appears at `crates/warsha-backends/src/lib.rs:1272,1331,1399,1442,1504,1686,1975,2058,2134,2146,2198,2297`, and round-16 added one more copy in `test_ensure_git_exclude_atomic_and_preserves_user_lines`.
+**[R3] Knowledge Duplication — ETXTBSY retry loop copy-pasted across 14 test sites (Warning)**
+Symptom: the same ~15-line `loop { match backend.execute(..) { Ok(res) => break res, Err(e) if attempts < N && (msg.contains("Text file busy") || msg.contains("os error 26")) => { attempts += 1; sleep(50ms) } ...` shape appears at `crates/warsha-backends/src/lib.rs:1256,1330,1383,1435,1503,1670,1961,2042,2130,2182,2231,2281,2414,2497`, and round-16 added 2 copies in `test_ensure_git_exclude_atomic_and_preserves_user_lines` and `test_ensure_git_exclude_preserves_user_warsha_immediately_after_managed_block`.
 Source: The Pragmatic Programmer — DRY Principle; Refactoring — Duplicated Code.
-Consequence: every retry-policy change (attempts, backoff, busy-signature) must be edited at ~10 sites; rounds 14→16 each added copies, proving the burden recurs, and sites already drift (`attempts < 5` vs `< 10`).
+Consequence: every retry-policy change (attempts, backoff, busy-signature) must be edited at 14 sites; rounds 14→16 each added copies, proving the burden recurs, and sites already drift (`attempts < 5` vs `< 10`).
 Remedy: extract one shared async test helper (e.g. `execute_tolerating_etxtbsy`) and call it from all sites.
 ### 🟢 Suggestion
 **[R1] Cognitive Overload — `compute_updated_exclude` mixes scan and repair in one 88-line fn (Suggestion)**
-Symptom: `crates/warsha-backends/src/lib.rs:733-820` classifies lines into the managed block AND splices missing entries in a single pass with index arithmetic (`insert_pos`).
+Symptom: `crates/warsha-backends/src/lib.rs:733-812` (managed block const at 718; tip `e368837`: `733-820`) classifies lines into the managed block AND splices missing entries in a single pass with index arithmetic (`insert_pos`).
 Source: Clean Code — Functions Should Do One Thing; Code Complete — managing complexity.
 Consequence: the round-16 HIGH (user `.warsha` swallowed after the managed block) lived in exactly this intertwined logic; future block-rule changes must re-reason about both phases at once.
 Remedy: split into pure `classify_lines` (returns block span) + `repair_block`; keep the 7-case unit test as the contract.
@@ -66,16 +85,17 @@ Remedy: publish one `pub const RUN_BRANCH_PREFIX: &str` from `warsha-core` (both
 ---
 ## Summary
 No Critical defects; the round-16 HIGH stays fixed and user-line preservation holds under the 7-case contract. The highest-leverage action is unifying the ETXTBSY retry loops behind one helper before the next round adds more copies. Supplementary checks: Quick Test Check clean (tests drive the production path via `CliBackend::execute` against real temp git repos; busy-retries are documented race-tolerance per D-R15-N13-2-2, not behavior-masking); no `.brooks-lint.yaml` (defaults, balanced); history file absent (first recorded run — no trend data).
+- **Deferred (next round)**: R3 ETXTBSY helper, R1 split, R3 `RUN_BRANCH_PREFIX`, CR silent-skip `eprintln!` (fixed this round).
 
 ## Run 2026-11-23 — Round 16 Lane Fixes & Reviewer Findings Correction
 - **Worktree**: `.agents/worktrees/fix-r16-exclude` on `r-next/integration` (base `7b2c132`, branch `fix-r16-exclude`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Addressed items**:
   - **F1 Blocker (ensure_git_exclude user line preservation, D-R16-F1-1)**:
-    - In `crates/warsha-backends/src/lib.rs:718-806` (`compute_updated_exclude`) and `814-858` (`ensure_git_exclude`), stopped deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with `# warsha-managed` marker comment followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent.
+    - In `crates/warsha-backends/src/lib.rs:733-812` (`compute_updated_exclude`, managed block const at 718) and `817-869` (`ensure_git_exclude`) at `0d1e34d` (tip `e368837`: `733-820` and `825-885`), stopped deleting lines Warsha cannot prove it wrote. Tag Warsha-managed entries with `# warsha-managed` marker comment followed by `/.warsha/` and `/.warsha`. Only append the marker and entries when absent.
     - Preserves every other line byte-for-byte, including user bare `.warsha`, `.warsha/**`, comments, and arbitrary paths.
     - Maintained atomic write via `.exclude.tmp.<pid>.<ulid>`, `sync_all()`, and `rename`.
-    - Proving test rewritten at `crates/warsha-backends/src/lib.rs:2381` (`test_ensure_git_exclude_atomic_and_preserves_user_lines`): runs production path via `CliBackend::execute` in a git repo with `# comment`, `/target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp`. Verified to fail on baseline `7b2c132` (assertion failed: `lines.contains(&".warsha")`) and pass at tip.
-    - Added unit test `test_compute_updated_exclude` in `crates/warsha-backends/src/lib.rs:2333` verifying empty exclude, line preservation, and marker migration.
+    - Proving test rewritten at `crates/warsha-backends/src/lib.rs:2455` (`test_ensure_git_exclude_atomic_and_preserves_user_lines`): runs production path via `CliBackend::execute` in a git repo with `# comment`, `/target/`, `.warsha`, `.warsha/**`, `docs/.warsha/`, `*.tmp`. Verified to fail on baseline `7b2c132` (assertion failed: `lines.contains(&".warsha")`) and pass at tip.
+    - Added unit test `test_compute_updated_exclude` in `crates/warsha-backends/src/lib.rs:2361` covering empty exclude, line preservation, block-end, insertion, and CRLF.
     - Appended correction note to `D-R15-N13-1-2` in `DECISIONS.md`.
   - **Reviewer Findings Correction (HIGH, MEDIUM, LOWs)**:
     - **HIGH (Deterministic block-end in compute_updated_exclude)**: A user bare `.warsha` appended directly after the Warsha-managed block is no longer treated as Warsha-owned. Warsha-managed block ends deterministically: only the exact lines Warsha writes (`/.warsha/` and `/.warsha`) belong in-block (`is_warsha_managed_entry`). Anything else (bare `.warsha`, `.warsha/**`, comments, blank lines, `/.warsha-backup`) ends the block and is preserved byte-for-byte.
