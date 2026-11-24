@@ -832,8 +832,16 @@ fn ensure_git_exclude(work_dir: &std::path::Path) {
                 if let Some(parent) = exclude_path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
-                let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
-                if let Some(new_content) = compute_updated_exclude(&existing) {
+                let bytes = match std::fs::read(&exclude_path) {
+                    Ok(b) => b,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                    Err(_) => return,
+                };
+                let existing = match std::str::from_utf8(&bytes) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                if let Some(new_content) = compute_updated_exclude(existing) {
                     let parent = exclude_path
                         .parent()
                         .unwrap_or_else(|| std::path::Path::new("."));
@@ -2508,6 +2516,55 @@ mod tests {
             assert_eq!(
                 content, initial_content,
                 "user bare .warsha immediately after Warsha entries must survive untouched"
+            );
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn test_ensure_git_exclude_non_utf8_leaves_file_untouched() {
+            let temp = tempfile::tempdir().expect("temp dir");
+            let bin_dir = tempfile::tempdir().expect("bin dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("base file");
+            git_repo(temp.path());
+
+            let exclude_dir = temp.path().join(".git/info");
+            std::fs::create_dir_all(&exclude_dir).expect("create info dir");
+            let exclude_file = exclude_dir.join("exclude");
+
+            let non_utf8: &[u8] = &[0xFF, 0xFE, b'u', b's', b'e', b'r', 0xFF, 0x00];
+            std::fs::write(&exclude_file, non_utf8).expect("write non-utf8 exclude");
+
+            let cli = fake_cli(
+                bin_dir.path(),
+                "echo 'working...'\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let mut attempts = 0;
+            let result = loop {
+                match backend
+                    .execute(task("Inspect", "Check non-utf8 exclude"), &sandbox)
+                    .await
+                {
+                    Ok(res) => break res,
+                    Err(e)
+                        if attempts < 5
+                            && (e.to_string().contains("Text file busy")
+                                || e.to_string().contains("os error 26")) =>
+                    {
+                        attempts += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                    Err(e) => panic!("fake CLI execution failed: {e}"),
+                }
+            };
+            assert!(result.success);
+
+            let bytes_after = std::fs::read(&exclude_file).expect("read exclude");
+            assert_eq!(
+                bytes_after, non_utf8,
+                "non-UTF-8 exclude file must be left untouched byte-for-byte"
             );
         }
     }
