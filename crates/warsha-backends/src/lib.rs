@@ -729,13 +729,13 @@ fn is_warsha_managed_entry(trimmed: &str) -> bool {
 /// (bare `.warsha`, `.warsha/**`, comments, blank lines, or paths like `/.warsha-backup`)
 /// deterministically ends the managed block and is preserved.
 /// Appends `# warsha-managed`, `/.warsha/`, and `/.warsha` only when absent.
-/// Preserves CRLF line endings if present in existing content.
+/// Preserves each line's own terminator (\r\n vs \n), including missing trailing newlines.
 fn compute_updated_exclude(existing: &str) -> Option<String> {
     let mut in_warsha_block = false;
     let mut has_warsha_block = false;
     let mut out_lines: Vec<String> = Vec::new();
 
-    for line in existing.lines() {
+    for line in existing.split_inclusive('\n') {
         let trimmed = line.trim();
         if trimmed == WARSHA_MANAGED_MARKER {
             in_warsha_block = true;
@@ -747,16 +747,12 @@ fn compute_updated_exclude(existing: &str) -> Option<String> {
         if in_warsha_block {
             if is_warsha_managed_entry(trimmed) {
                 out_lines.push(line.to_string());
-            } else {
-                // Any line other than Warsha's own exact entries deterministically
-                // ends the managed block and is preserved.
-                in_warsha_block = false;
-                out_lines.push(line.to_string());
+                continue;
             }
-        } else {
-            // Outside warsha-managed block: preserve user lines byte-for-byte!
-            out_lines.push(line.to_string());
+            in_warsha_block = false;
         }
+
+        out_lines.push(line.to_string());
     }
 
     let has_anchored_dir = out_lines.iter().any(|l| {
@@ -772,11 +768,25 @@ fn compute_updated_exclude(existing: &str) -> Option<String> {
         return None;
     }
 
+    let default_nl = if existing.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+
     if has_warsha_block {
         if let Some(pos) = out_lines
             .iter()
             .position(|l| l.trim() == WARSHA_MANAGED_MARKER)
         {
+            let block_nl = if out_lines[pos].ends_with("\r\n") {
+                "\r\n"
+            } else {
+                default_nl
+            };
+            if !out_lines[pos].ends_with('\n') {
+                out_lines[pos].push_str(block_nl);
+            }
             let mut insert_pos = pos + 1;
             while insert_pos < out_lines.len()
                 && is_warsha_managed_entry(out_lines[insert_pos].trim())
@@ -784,31 +794,29 @@ fn compute_updated_exclude(existing: &str) -> Option<String> {
                 insert_pos += 1;
             }
             if !has_anchored_dir {
-                out_lines.insert(insert_pos, "/.warsha/".to_string());
+                out_lines.insert(insert_pos, format!("/.warsha/{block_nl}"));
                 insert_pos += 1;
             }
             if !has_anchored_file {
-                out_lines.insert(insert_pos, "/.warsha".to_string());
+                out_lines.insert(insert_pos, format!("/.warsha{block_nl}"));
             }
         }
     } else {
-        out_lines.push(WARSHA_MANAGED_MARKER.to_string());
+        if let Some(last) = out_lines.last_mut() {
+            if !last.ends_with('\n') {
+                last.push_str(default_nl);
+            }
+        }
+        out_lines.push(format!("{WARSHA_MANAGED_MARKER}{default_nl}"));
         if !has_anchored_dir {
-            out_lines.push("/.warsha/".to_string());
+            out_lines.push(format!("/.warsha/{default_nl}"));
         }
         if !has_anchored_file {
-            out_lines.push("/.warsha".to_string());
+            out_lines.push(format!("/.warsha{default_nl}"));
         }
     }
 
-    let newline = if existing.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    let mut result = out_lines.join(newline);
-    result.push_str(newline);
-    Some(result)
+    Some(out_lines.concat())
 }
 
 /// Ensure `/.warsha/` and `/.warsha` are listed in `.git/info/exclude` if `work_dir`
@@ -832,8 +840,16 @@ fn ensure_git_exclude(work_dir: &std::path::Path) {
                 if let Some(parent) = exclude_path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
-                let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
-                if let Some(new_content) = compute_updated_exclude(&existing) {
+                let bytes = match std::fs::read(&exclude_path) {
+                    Ok(b) => b,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                    Err(_) => return,
+                };
+                let existing = match std::str::from_utf8(&bytes) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                if let Some(new_content) = compute_updated_exclude(existing) {
                     let parent = exclude_path
                         .parent()
                         .unwrap_or_else(|| std::path::Path::new("."));
@@ -2376,6 +2392,18 @@ mod tests {
                 "# comment\r\n/target/\r\n# warsha-managed\r\n/.warsha/\r\n/.warsha\r\n"
             );
             assert!(compute_updated_exclude(&crlf_out).is_none());
+
+            // Case 7: Mixed line endings preservation
+            let mixed_input = "# comment\n/target/\r\nuser_pattern\n";
+            let mixed_out = compute_updated_exclude(mixed_input).expect("updates mixed");
+            assert!(
+                mixed_out.starts_with(mixed_input),
+                "every user line's bytes and line ending must be preserved unchanged"
+            );
+            assert!(mixed_out.contains("# comment\n"));
+            assert!(mixed_out.contains("/target/\r\n"));
+            assert!(mixed_out.contains("user_pattern\n"));
+            assert!(compute_updated_exclude(&mixed_out).is_none());
         }
 
         #[cfg(unix)]
@@ -2509,6 +2537,110 @@ mod tests {
                 content, initial_content,
                 "user bare .warsha immediately after Warsha entries must survive untouched"
             );
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn test_ensure_git_exclude_non_utf8_leaves_file_untouched() {
+            let temp = tempfile::tempdir().expect("temp dir");
+            let bin_dir = tempfile::tempdir().expect("bin dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("base file");
+            git_repo(temp.path());
+
+            let exclude_dir = temp.path().join(".git/info");
+            std::fs::create_dir_all(&exclude_dir).expect("create info dir");
+            let exclude_file = exclude_dir.join("exclude");
+
+            let non_utf8: &[u8] = &[0xFF, 0xFE, b'u', b's', b'e', b'r', 0xFF, 0x00];
+            std::fs::write(&exclude_file, non_utf8).expect("write non-utf8 exclude");
+
+            let cli = fake_cli(
+                bin_dir.path(),
+                "echo 'working...'\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let mut attempts = 0;
+            let result = loop {
+                match backend
+                    .execute(task("Inspect", "Check non-utf8 exclude"), &sandbox)
+                    .await
+                {
+                    Ok(res) => break res,
+                    Err(e)
+                        if attempts < 5
+                            && (e.to_string().contains("Text file busy")
+                                || e.to_string().contains("os error 26")) =>
+                    {
+                        attempts += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                    Err(e) => panic!("fake CLI execution failed: {e}"),
+                }
+            };
+            assert!(result.success);
+
+            let bytes_after = std::fs::read(&exclude_file).expect("read exclude");
+            assert_eq!(
+                bytes_after, non_utf8,
+                "non-UTF-8 exclude file must be left untouched byte-for-byte"
+            );
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn test_ensure_git_exclude_preserves_mixed_line_endings() {
+            let temp = tempfile::tempdir().expect("temp dir");
+            let bin_dir = tempfile::tempdir().expect("bin dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("base file");
+            git_repo(temp.path());
+
+            let exclude_dir = temp.path().join(".git/info");
+            std::fs::create_dir_all(&exclude_dir).expect("create info dir");
+            let exclude_file = exclude_dir.join("exclude");
+
+            let mixed_content = "# user comment\n/target/\r\nuser_pattern\n";
+            std::fs::write(&exclude_file, mixed_content).expect("write mixed exclude");
+
+            let cli = fake_cli(
+                bin_dir.path(),
+                "echo 'working...'\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let mut attempts = 0;
+            let result = loop {
+                match backend
+                    .execute(
+                        task("Inspect", "Check mixed line endings exclude"),
+                        &sandbox,
+                    )
+                    .await
+                {
+                    Ok(res) => break res,
+                    Err(e)
+                        if attempts < 5
+                            && (e.to_string().contains("Text file busy")
+                                || e.to_string().contains("os error 26")) =>
+                    {
+                        attempts += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                    Err(e) => panic!("fake CLI execution failed: {e}"),
+                }
+            };
+            assert!(result.success);
+
+            let content_after = std::fs::read_to_string(&exclude_file).expect("read exclude");
+            assert!(
+                content_after.starts_with(mixed_content),
+                "mixed line endings in user lines must be preserved byte-for-byte"
+            );
+            assert!(content_after.contains("# user comment\n"));
+            assert!(content_after.contains("/target/\r\n"));
+            assert!(content_after.contains("user_pattern\n"));
         }
     }
 }
