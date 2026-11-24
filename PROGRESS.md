@@ -21,7 +21,7 @@
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures, exit 0
   - `XDG_DATA_HOME=/tmp/xdg-data pnpm --filter warsha-desktop exec vitest run src/v3/pages/developers/f5-proving.test.tsx`: 3 passed, 0 failed, exit 0
 - **Plugins used this round**: brooks-review (PR Review pass on e577bb4..0c09b96, real Health Score 98/100, 0 Critical, 0 Warning, 2 Suggestions).
-- **Status**: ROUND-19 FIXES COMPLETE — uncommitted working tree changes ready for lead review/verify/merge. Main untouched.
+- **Status**: ROUND-19 FIXES COMPLETE — merged `b94ebc2` into `r-next/integration` as `32f42b2` (LOW-1..LOW-4 brooks 98/100 + D-R19-JUNK + f5 timeouts). Local-only. Awaiting comprehensive GUI test + Claude review; any notes return as a new fix round.
 
 ### Brooks-Lint PR Review (real pass, round-19) — `e577bb4..0c09b96`
 **Mode:** PR Review
