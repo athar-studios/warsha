@@ -1,5 +1,50 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — Round 19 LOW Residuals Fix (LOW-1..LOW-4, D-R19-JUNK)
+- **Worktree**: `.agents/worktrees/fix-r19-residuals` on `r-next/integration` (base `0c09b96`, branch `fix-r19-residuals`). Local-only: no push, no tag, no publish, `main` untouched.
+- **Addressed items**:
+  - **LOW-1 (Brooks PR Review & Watcher Observation)**:
+    - Loaded `brooks-review` skill and performed real PR Review pass on `git diff e577bb4..0c09b96 -- crates/warsha-backends/src/lib.rs` (+68/-4 lines; F1 unterminated entry fix + warning eprintln additions). Recorded real Health Score 98/100 (0 Critical, 0 Warning, 2 Suggestions: lone-CR line ending handling and 15th ETXTBSY test retry loop; see review report below).
+    - Inspected `~/.dsh/state/session-superagent/watchers.json` key `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29`: watcher enabled (`true`), lastPoll `2026-11-22T21:07:02.171Z` (stale ~51h), `lastDeferred: "会话正忙，下一轮重试"`, `nextAt: null`. Watcher registration is present but idle/stale (external daemon host state, not polling). Documented as stale/external per instructions; no network writes attempted.
+  - **LOW-2 (D-R19-JUNK Decision — Inert Junk Line Artifact)**:
+    - Documented decision D-R19-JUNK in `DECISIONS.md`: accepted and documented intermediate build artifact (`/.warsha//.warsha` or `/.warsha/.warsha/`) as known inert artifact. Under D-R16-F1-1's preserve-everything contract, unmanaged lines are kept byte-for-byte; because both valid entries (`/.warsha/` and `/.warsha`) are present in `.git/info/exclude`, `.warsha/cli.log` and the directory are ignored with zero operational impact. The artifact only originated in local intermediate `e577bb4` builds on `r-next/integration` and never reached `main`. Adopted preferred docs-only approach without touching Rust production code.
+  - **LOW-3 (Doc Nits & Lone-`\r` Limitation)**:
+    - Verified test line numbers with `git show 0c09b96:crates/warsha-backends/src/lib.rs | grep -n ...`: `test_compute_updated_exclude` at line 2361, `test_ensure_git_exclude_atomic_and_preserves_user_lines` at line 2455, `test_ensure_git_exclude_non_utf8_leaves_file_untouched` at line 2588.
+    - Updated `DECISIONS.md`: line 23 `:2544` -> `:2588`, line 38 `:2411` -> `:2455`, and line 40 `:2349` -> `:2361`.
+    - Documented lone-`\r` input limitation in D-R19-JUNK: `ends_with('\n')` does not match lone `\r`, appending `\r\n` to produce `\r\r\n`; git strips one CR, leaving trailing CR, but directory ignore semantics remain fully functional. No code change made for lone `\r`.
+  - **LOW-4 (f5-proving.test.tsx Load-Sensitivity Timeout Increase)**:
+    - In `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx`, added explicit `{ timeout: 10000 }` to the two `waitFor(() => expect(screen.getAllByTestId('developers-row')).toHaveLength(2))` calls and the two `screen.findByTestId('developers-detail', {}, { timeout: 10000 })` calls to prevent test failure under heavy parallel machine load. No logic, i18n, or RTL changes.
+- **Verification & Gates**:
+  - `cargo fmt --all -- --check`: 0 diff, exit 0
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, exit 0
+  - `cargo test -p warsha-backends --lib`: 55 passed, 0 failed, exit 0
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures, exit 0
+  - `XDG_DATA_HOME=/tmp/xdg-data pnpm --filter warsha-desktop exec vitest run src/v3/pages/developers/f5-proving.test.tsx`: 3 passed, 0 failed, exit 0
+- **Plugins used this round**: brooks-review (PR Review pass on e577bb4..0c09b96, real Health Score 98/100, 0 Critical, 0 Warning, 2 Suggestions).
+- **Status**: ROUND-19 FIXES COMPLETE — uncommitted working tree changes ready for lead review/verify/merge. Main untouched.
+
+### Brooks-Lint PR Review (real pass, round-19) — `e577bb4..0c09b96`
+**Mode:** PR Review
+**Scope:** `crates/warsha-backends/src/lib.rs` (diff `e577bb4..0c09b96`, 1 file, +68/-4 lines)
+**Health Score:** 98/100
+Changes resolve round-17 F1 unterminated exclude entries cleanly with rigorous proving tests; no critical or warning risks detected.
+---
+## Findings
+### 🟢 Suggestion
+**[R4] Accidental Complexity — Lone carriage return handling in exclude line termination (Suggestion)**
+Symptom: In `crates/warsha-backends/src/lib.rs:793`, `compute_updated_exclude` tests `!out_lines[insert_pos - 1].ends_with('\n')`. An exclude line ending with a lone `\r` (without `\n`) causes `ends_with('\n')` to evaluate to false, resulting in `push_str(block_nl)` appending `\r\n` (or `\n`), yielding `\r\r\n`.
+Source: Kernighan & Plauger — The Elements of Programming Style; Fowler — Refactoring (Accidental Complexity).
+Consequence: In git exclude parsing, only one trailing CR is stripped, leaving a trailing CR on the first entry; however, the directory ignore pattern remains effective and `.warsha` directory is ignored without operational failure.
+Remedy: If lone-CR input support is ever required, strip optional trailing `\r` before appending line terminators during line normalization.
+**[R3] Knowledge Duplication — Additional ETXTBSY retry loop in integration test (Suggestion)**
+Symptom: In `crates/warsha-backends/src/lib.rs:2711-2729`, `test_ensure_git_exclude_handles_unterminated_managed_entry` adds another 15-line ETXTBSY retry loop (`attempts < 5 && (msg.contains("Text file busy") || msg.contains("os error 26"))`), bringing the total to 15 sites in `crates/warsha-backends/src/lib.rs`.
+Source: The Pragmatic Programmer — DRY Principle; Refactoring — Duplicated Code.
+Consequence: Maintenance burden when modifying retry count, backoff interval, or error matching across test cases.
+Remedy: Extract a shared async test execution helper (`execute_tolerating_etxtbsy`) in a test utility module and reuse across test sites.
+---
+## Summary
+Zero Critical or Warning defects. The F1 fix cleanly resolves the unterminated managed entry issue without regressing user-line preservation or CRLF handling. All proving tests (Cases 8, 9, 10 and live execution) verify proper termination and idempotency. Supplementary checks: Quick Test Check clean; no `.brooks-lint.yaml` (defaults, balanced preset); history file absent.
+
 ## Run 2026-11-24 — Round 18 LOW Residuals Fix (LOW-1..LOW-4, D-R18-LOW)
 - **Worktree**: `.agents/worktrees/fix-r18-low-residuals` on `r-next/integration` (base `e368837` = `e577bb4` + F1 remedy `adb9739` + docs `e368837`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Addressed items**:

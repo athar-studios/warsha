@@ -161,7 +161,7 @@ describe('F5 Shipped Developers Screen Proving Test', () => {
     renderDevelopersScreen(client);
 
     // Wait for rows to load on the Developers screen
-    await waitFor(() => expect(screen.getAllByTestId('developers-row')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('developers-row')).toHaveLength(2), { timeout: 10000 });
 
     const rows = screen.getAllByTestId('developers-row');
     const [normalRow, failoverRow] = rows;
@@ -179,7 +179,7 @@ describe('F5 Shipped Developers Screen Proving Test', () => {
 
     // 3. Inspect normal session detail
     fireEvent.click(normalRow);
-    const detail = await screen.findByTestId('developers-detail');
+    const detail = await screen.findByTestId('developers-detail', {}, { timeout: 10000 });
     expect(within(detail).getByTestId('developers-detail-cost')).toHaveTextContent('5 ¢');
     expect(within(detail).getByTestId('developers-detail-tokens')).toHaveTextContent('150 (100+50)');
     expect(screen.queryByTestId('developers-detail-no-telemetry')).toBeNull();
@@ -264,7 +264,7 @@ describe('F5 Shipped Developers Screen Proving Test', () => {
     const client = createProvingClient([pmSession, qaSession], [pmEvent, qaEvent]);
     renderDevelopersScreen(client);
 
-    await waitFor(() => expect(screen.getAllByTestId('developers-row')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('developers-row')).toHaveLength(2), { timeout: 10000 });
     const [pmRow, qaRow] = screen.getAllByTestId('developers-row');
 
     // Cost column must NOT be 'unknown' / t('developers.unknown'), must be known '5 ¢' and '8 ¢'
@@ -275,7 +275,7 @@ describe('F5 Shipped Developers Screen Proving Test', () => {
 
     // Inspect PM session detail: known cost & tokens, no "no telemetry" state
     fireEvent.click(pmRow);
-    const detail = await screen.findByTestId('developers-detail');
+    const detail = await screen.findByTestId('developers-detail', {}, { timeout: 10000 });
     expect(within(detail).getByTestId('developers-detail-cost')).toHaveTextContent('5 ¢');
     expect(within(detail).getByTestId('developers-detail-tokens')).toHaveTextContent('150 (100+50)');
     expect(screen.queryByTestId('developers-detail-no-telemetry')).toBeNull();
