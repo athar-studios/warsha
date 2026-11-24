@@ -28,7 +28,36 @@
   - `cargo test -p warsha-pipeline --lib worktree`: 13 passed, 0 failed, exit 0
   - `cargo test -p warshad --lib`: 331 passed, 0 failed, 4 ignored, exit 0
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures, exit 0
-- **Status**: ROUND-17 FIXES COMPLETE — lane branch ready for review; all gate counts verified and evidence-backed.
+- **Status**: ROUND-17 FIXES COMPLETE — merged tip `5803d7f` (merge of `2de9ec0`), tip gates re-verified: fmt 0, clippy 0, core 36/0, backends 54/0, worktree 13/0, warshad 331/0/4, policy 8/0, versions/arch/wire 0. Main untouched.
+- **Plugins used this round**: Code Reviewer (verdict CLEAR, 2 doc-nit line refs fixed); brooks-review (real PR Review pass below on `7b2c132..0d1e34d`, score 93/100, 1 Warning + 2 Suggestions, no fabricated score).
+
+### Brooks-Lint PR Review (real pass, round-17) — `7b2c132..0d1e34d`
+**Mode:** PR Review
+**Scope:** branch changes `7b2c132..0d1e34d` (6 files, +804/-53): `crates/warsha-backends/src/lib.rs`, `crates/warsha-pipeline/src/worktree.rs`, `crates/warshad/src/lib.rs`, `crates/warshad/src/tests/mod.rs`, `DECISIONS.md`, `PROGRESS.md`
+**Health Score:** 93/100
+Round-16 preservation logic is sound and honestly documented; one recurring test-maintenance burden and two small maintainability notes remain.
+---
+## Findings
+### 🟡 Warning
+**[R3] Knowledge Duplication — ETXTBSY retry loop copy-pasted across ~10 test sites (Warning)**
+Symptom: the same ~15-line `loop { match backend.execute(..) { Ok(res) => break res, Err(e) if attempts < N && (msg.contains("Text file busy") || msg.contains("os error 26")) => { attempts += 1; sleep(50ms) } ...` shape appears at `crates/warsha-backends/src/lib.rs:1272,1331,1399,1442,1504,1686,1975,2058,2134,2146,2198,2297`, and round-16 added one more copy in `test_ensure_git_exclude_atomic_and_preserves_user_lines`.
+Source: The Pragmatic Programmer — DRY Principle; Refactoring — Duplicated Code.
+Consequence: every retry-policy change (attempts, backoff, busy-signature) must be edited at ~10 sites; rounds 14→16 each added copies, proving the burden recurs, and sites already drift (`attempts < 5` vs `< 10`).
+Remedy: extract one shared async test helper (e.g. `execute_tolerating_etxtbsy`) and call it from all sites.
+### 🟢 Suggestion
+**[R1] Cognitive Overload — `compute_updated_exclude` mixes scan and repair in one 88-line fn (Suggestion)**
+Symptom: `crates/warsha-backends/src/lib.rs:733-820` classifies lines into the managed block AND splices missing entries in a single pass with index arithmetic (`insert_pos`).
+Source: Clean Code — Functions Should Do One Thing; Code Complete — managing complexity.
+Consequence: the round-16 HIGH (user `.warsha` swallowed after the managed block) lived in exactly this intertwined logic; future block-rule changes must re-reason about both phases at once.
+Remedy: split into pure `classify_lines` (returns block span) + `repair_block`; keep the 7-case unit test as the contract.
+**[R3] Knowledge Duplication — `warsha/run-` prefix literal in two crates (Suggestion)**
+Symptom: the branch-guard literal `"warsha/run-"` is hard-coded in `crates/warsha-pipeline/src/worktree.rs:176` and again in `crates/warshad/src/lib.rs:159`, with `format!("warsha/run-..")` at `worktree.rs:94` and `warshad/src/lib.rs:928`.
+Source: The Pragmatic Programmer — DRY Principle.
+Consequence: renaming the run-branch convention requires finding every literal; a missed site silently skips branch deletion (leak) or deletes a user branch.
+Remedy: publish one `pub const RUN_BRANCH_PREFIX: &str` from `warsha-core` (both crates already depend on it) and use it at all four sites.
+---
+## Summary
+No Critical defects; the round-16 HIGH stays fixed and user-line preservation holds under the 7-case contract. The highest-leverage action is unifying the ETXTBSY retry loops behind one helper before the next round adds more copies. Supplementary checks: Quick Test Check clean (tests drive the production path via `CliBackend::execute` against real temp git repos; busy-retries are documented race-tolerance per D-R15-N13-2-2, not behavior-masking); no `.brooks-lint.yaml` (defaults, balanced); history file absent (first recorded run — no trend data).
 
 ## Run 2026-11-23 — Round 16 Lane Fixes & Reviewer Findings Correction
 - **Worktree**: `.agents/worktrees/fix-r16-exclude` on `r-next/integration` (base `7b2c132`, branch `fix-r16-exclude`). Local-only: no push, no tag, no publish, `main` untouched.
