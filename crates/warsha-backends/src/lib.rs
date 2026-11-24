@@ -784,14 +784,14 @@ fn compute_updated_exclude(existing: &str) -> Option<String> {
             } else {
                 default_nl
             };
-            if !out_lines[pos].ends_with('\n') {
-                out_lines[pos].push_str(block_nl);
-            }
             let mut insert_pos = pos + 1;
             while insert_pos < out_lines.len()
                 && is_warsha_managed_entry(out_lines[insert_pos].trim())
             {
                 insert_pos += 1;
+            }
+            if insert_pos > 0 && !out_lines[insert_pos - 1].ends_with('\n') {
+                out_lines[insert_pos - 1].push_str(block_nl);
             }
             if !has_anchored_dir {
                 out_lines.insert(insert_pos, format!("/.warsha/{block_nl}"));
@@ -2404,6 +2404,38 @@ mod tests {
             assert!(mixed_out.contains("/target/\r\n"));
             assert!(mixed_out.contains("user_pattern\n"));
             assert!(compute_updated_exclude(&mixed_out).is_none());
+
+            // Case 8: unterminated managed directory entry
+            let unterminated_dir = "# warsha-managed\n/.warsha/";
+            let out_dir = compute_updated_exclude(unterminated_dir)
+                .expect("updates unterminated managed dir");
+            assert_eq!(
+                out_dir,
+                "# warsha-managed\n/.warsha/\n/.warsha\n",
+                "unterminated managed directory must receive newline before missing /.warsha is inserted"
+            );
+            assert!(compute_updated_exclude(&out_dir).is_none());
+
+            // Case 9: unterminated managed file entry
+            let unterminated_file = "# warsha-managed\n/.warsha";
+            let out_file = compute_updated_exclude(unterminated_file)
+                .expect("updates unterminated managed file");
+            assert_eq!(
+                out_file,
+                "# warsha-managed\n/.warsha\n/.warsha/\n",
+                "unterminated managed file must receive newline before missing /.warsha/ is inserted"
+            );
+            assert!(compute_updated_exclude(&out_file).is_none());
+
+            // Case 10: CRLF variant with unterminated managed directory entry
+            let crlf_unterminated = "x\r\n# warsha-managed\r\n/.warsha/";
+            let out_crlf = compute_updated_exclude(crlf_unterminated)
+                .expect("updates crlf unterminated managed dir");
+            assert_eq!(
+                out_crlf, "x\r\n# warsha-managed\r\n/.warsha/\r\n/.warsha\r\n",
+                "CRLF block must preserve CRLF line endings and properly terminate managed entry"
+            );
+            assert!(compute_updated_exclude(&out_crlf).is_none());
         }
 
         #[cfg(unix)]
@@ -2641,6 +2673,62 @@ mod tests {
             assert!(content_after.contains("# user comment\n"));
             assert!(content_after.contains("/target/\r\n"));
             assert!(content_after.contains("user_pattern\n"));
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn test_ensure_git_exclude_handles_unterminated_managed_entry() {
+            let temp = tempfile::tempdir().expect("temp dir");
+            let bin_dir = tempfile::tempdir().expect("bin dir");
+            std::fs::write(temp.path().join("base.txt"), "base").expect("base file");
+            git_repo(temp.path());
+
+            let exclude_dir = temp.path().join(".git/info");
+            std::fs::create_dir_all(&exclude_dir).expect("create info dir");
+            let exclude_file = exclude_dir.join("exclude");
+
+            let initial_content = "# warsha-managed\n/.warsha/";
+            std::fs::write(&exclude_file, initial_content).expect("write exclude");
+
+            let cli = fake_cli(
+                bin_dir.path(),
+                "echo 'working...'\ncat <<'JSON'\n{\"result\":\"done\"}\nJSON",
+            );
+            let backend = CliBackend::new("fake", cli.to_str().expect("a utf8 path"), vec![]);
+            let sandbox = Sandbox::new(temp.path().to_path_buf());
+
+            let mut attempts = 0;
+            let result = loop {
+                match backend
+                    .execute(task("Inspect", "Check unterminated exclude"), &sandbox)
+                    .await
+                {
+                    Ok(res) => break res,
+                    Err(e)
+                        if attempts < 5
+                            && (e.to_string().contains("Text file busy")
+                                || e.to_string().contains("os error 26")) =>
+                    {
+                        attempts += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    }
+                    Err(e) => panic!("fake CLI execution failed: {e}"),
+                }
+            };
+            assert!(result.success);
+
+            let content = std::fs::read_to_string(&exclude_file).expect("read exclude");
+            assert_eq!(content, "# warsha-managed\n/.warsha/\n/.warsha\n");
+
+            let status = std::process::Command::new("git")
+                .current_dir(temp.path())
+                .args(["check-ignore", ".warsha/cli.log"])
+                .status()
+                .expect("git check-ignore runs");
+            assert!(
+                status.success(),
+                "git check-ignore must succeed for .warsha/cli.log after ensure_git_exclude updates unterminated entry"
+            );
         }
     }
 }
