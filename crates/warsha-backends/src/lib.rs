@@ -843,11 +843,23 @@ fn ensure_git_exclude(work_dir: &std::path::Path) {
                 let bytes = match std::fs::read(&exclude_path) {
                     Ok(b) => b,
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-                    Err(_) => return,
+                    Err(e) => {
+                        eprintln!(
+                            "warning: failed to read .warsha exclusion from {}: {e}",
+                            exclude_path.display()
+                        );
+                        return;
+                    }
                 };
                 let existing = match std::str::from_utf8(&bytes) {
                     Ok(s) => s,
-                    Err(_) => return,
+                    Err(e) => {
+                        eprintln!(
+                            "warning: failed to parse .warsha exclusion from {}: {e}",
+                            exclude_path.display()
+                        );
+                        return;
+                    }
                 };
                 if let Some(new_content) = compute_updated_exclude(existing) {
                     let parent = exclude_path
