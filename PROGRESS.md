@@ -17,7 +17,7 @@
   - `cargo test -p warsha-backends --lib`: 55 passed, 0 failed, exit 0
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures, exit 0
 - **Plugins used this round**: Coder lane (LOW-1..LOW-4 implementation) + lead verification (fmt/clippy/test/policy gates); no new brooks/Reviewer pass — LOW-1..LOW-4 are doc-accuracy + eprintln only, F1 remedy logic untouched.
-- **Status**: UNCOMMITTED in worktree `fix-r18-low-residuals` for lead review/merge.
+- **Status**: ROUND-18 FIXES COMPLETE — merged `e64a492` into `r-next/integration` as `eea1dc3` (F1 `adb9739` + LOW-1..LOW-4). Local-only. Awaiting comprehensive GUI test + Claude review; any notes return as a new fix round.
 
 ## Run 2026-11-24 — Round 18 F1 Fix (unterminated managed entry, D-R18-F1)
 - **Worktree**: `.agents/worktrees/fix-r18-f1-exclude` on `r-next/integration` (base `e577bb4`). Local-only: no push, no tag, no publish, `main` untouched.
