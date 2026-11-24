@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-24 — Round 18 F1 Fix (unterminated managed entry, D-R18-F1)
+- **Worktree**: `.agents/worktrees/fix-r18-f1-exclude` on `r-next/integration` (base `e577bb4`). Local-only: no push, no tag, no publish, `main` untouched.
+- **Root cause**: `compute_updated_exclude` `has_warsha_block` branch only terminated the marker line; an unterminated last managed entry (`/.warsha/` or `/.warsha` with no trailing newline) got the missing entry glued onto it (`/.warsha//.warsha`), breaking both exclusions (round-17 verifier F1).
+- **Fix**: before first `insert`, ensure `out_lines[insert_pos-1]` ends with `'\n'` (push `block_nl` if not); folds the marker-only fix-up into the general case. Scope: `crates/warsha-backends/src/lib.rs` only.
+- **Proving tests**: `test_compute_updated_exclude` Cases 8/9/10 (LF dir, LF file, CRLF variant — exact output + idempotent `None` on second call) and `test_ensure_git_exclude_handles_unterminated_managed_entry` (production `CliBackend::execute` + `git check-ignore .warsha/cli.log`). Verified fail-before on `e577bb4` logic (`left: "# warsha-managed\n/.warsha//.warsha\n"`) and pass-after (55/0).
+- **Verification & Gates (merged tip `adb9739`)**: `cargo fmt --all -- --check` exit 0; `cargo test -p warsha-backends --lib` 55 passed 0 failed; `node scripts/check-engineering-policy.mjs` 8 checks 0 failures; `cargo clippy --workspace --all-targets -- -D warnings` exit 0 (verified pre-merge via delegation_verify).
+- **Status**: ROUND-18 FIXES COMPLETE — merged `a3e5fbd` into `r-next/integration` as `adb9739`. Local-only. Awaiting comprehensive GUI test + Claude review; any notes return as a new fix round.
+
 ## Run 2026-11-24 — Round 17 Evidence-Only Fixes (F1 Blocker honesty, LOW-1 to LOW-6, D-R17-*)
 - **Worktree**: `.agents/worktrees/fix-r17-evidence` on `r-next/integration` (base `0d1e34d`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Addressed items**:

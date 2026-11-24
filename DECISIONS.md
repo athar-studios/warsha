@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-24 — D-R18-F1: Terminate last managed entry before inserting missing exclude line
+- **Decision**: In `compute_updated_exclude` `has_warsha_block` branch, before the first `insert`, ensure `out_lines[insert_pos-1]` ends with `'\n'` (push `block_nl` when missing). This folds the marker-only fix-up into the general case covering any unterminated last managed entry.
+- **Reason**: Round-17 verifier F1: an unterminated `/.warsha/` or `/.warsha` last line got the missing entry glued onto it (`/.warsha//.warsha`), breaking both exclusions. Baseline `0d1e34d` handled this correctly.
+- **Proving tests**: `test_compute_updated_exclude` Cases 8/9/10 + `test_ensure_git_exclude_handles_unterminated_managed_entry` (fail on `e577bb4`, pass at tip; `git check-ignore .warsha/cli.log` succeeds).
+- **Scope**: `crates/warsha-backends/src/lib.rs`. Local-only.
+
 ## 2026-11-24 — D-R17-LOW-2: Skip .git/info/exclude rewrite on non-UTF-8 or read error to prevent file wipe
 - **Decision**: In `crates/warsha-backends/src/lib.rs:825-876` (`ensure_git_exclude`), read the exclude file using `std::fs::read` into raw bytes and validate UTF-8 via `std::str::from_utf8`. If reading the file returns an I/O error (other than NotFound) or contains invalid UTF-8 bytes, return early and skip the exclude rewrite entirely, leaving the file untouched on disk.
 - **Reason**: LOW-2 in Round 17 brief. Previously, `std::fs::read_to_string().unwrap_or_default()` caused non-UTF-8 exclude files (or files with read errors) to resolve as empty string, wiping the existing non-UTF-8 user exclude file and overwriting it with Warsha's default block.
