@@ -12,13 +12,13 @@
     - Added proving test `test_ensure_git_exclude_non_utf8_leaves_file_untouched` (`crates/warsha-backends/src/lib.rs:2544`): writes non-UTF-8 bytes `[0xFF, 0xFE, b'u', b's', b'e', b'r', 0xFF, 0x00]` into `.git/info/exclude`, executes `CliBackend::execute`, asserts file bytes are unchanged. Verified to fail on baseline `0d1e34d` (file was wiped to Warsha default block) and pass at tip.
   - **LOW-3 (Preserve per-line endings and missing trailing newlines, D-R17-LOW-3)**:
     - In `crates/warsha-backends/src/lib.rs:733-820` (`compute_updated_exclude`), split existing exclude lines with `split_inclusive('\n')` carrying each line's own terminator (`\r\n` vs `\n`) and missing trailing newlines, concatenating directly without global separator re-joining.
-    - Added proving tests `test_compute_updated_exclude` Case 7 (`crates/warsha-backends/src/lib.rs:2381`) and `test_ensure_git_exclude_preserves_mixed_line_endings` (`crates/warsha-backends/src/lib.rs:2593`). Verified to fail on baseline `0d1e34d` (normalized LF to CRLF) and pass at tip.
+    - Added proving tests `test_compute_updated_exclude` Case 7 (`crates/warsha-backends/src/lib.rs:2396`) and `test_ensure_git_exclude_preserves_mixed_line_endings` (`crates/warsha-backends/src/lib.rs:2593`). Verified to fail on baseline `0d1e34d` (normalized LF to CRLF) and pass at tip.
   - **LOW-4 (Delete incorrect migration claim in Round 16 F1)**:
     - Deleted the sentence `Migrates legacy bare .warsha lines only when provably Warsha's (directly under # warsha-managed).` from `PROGRESS.md` round-16 F1 bullet.
   - **LOW-5 (No nested worktrees under .agents/worktrees/<anything>/.agents/)**:
     - Verified diff creates no nested worktrees under `.agents/worktrees/<anything>/.agents/`. PM will handle removal and pruning of stale nested lane worktree.
   - **LOW-6 (D-R16-F1-1 wording and line ref correction)**:
-    - In `DECISIONS.md` `D-R16-F1-1`, corrected wording: round-15 baseline stripped user lines by literal comparison with `.warsha` / `.warsha/` / `.warsha/**` patterns, NOT by `is_warsha_internal_path` (which is for git-status paths at `lib.rs:941/981`).
+    - In `DECISIONS.md` `D-R16-F1-1`, corrected wording: round-15 baseline stripped user lines by literal comparison with `.warsha` / `.warsha/` / `.warsha/**` patterns, NOT by `is_warsha_internal_path` (which is for git-status paths, re-exported in this file).
     - Corrected true line numbers for `test_compute_updated_exclude` (`:2349`), `test_ensure_git_exclude_atomic_and_preserves_user_lines` (`:2411`), and `test_ensure_git_exclude_preserves_user_warsha_immediately_after_managed_block` (`:2494`).
 - **Verification & Gates**:
   - `cargo fmt --all -- --check`: 0 diff, exit 0
