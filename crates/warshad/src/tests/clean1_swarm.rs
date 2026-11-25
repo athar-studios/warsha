@@ -19,6 +19,19 @@ use warsha_backends::{
 use warsha_core::{Role, RoleRouting, RoutingTarget, RunSubtaskStatus, Stage};
 use warsha_providers::{FAKE_MODEL_ID, FAKE_PROVIDER_ID};
 
+/// Serializes the two CLEAN-1 walks that mutate the same process state.
+///
+/// Race: `clean1_swarm_four_lanes_materialize_real_files` sets
+/// `WARSHA_CODING_BACKEND_FIXTURE=materialize`, and
+/// `clean1_swarm_four_lanes_scripted_backend_derives_files` removes it.
+/// `FIXTURE_IN_FLIGHT` and `FIXTURE_PEAK` are process-global atomics, and both
+/// walks call `reset_fixture_materialize_peak`. Run beside each other, one test
+/// restores or clears the switch while the other is inside `execute`, so the
+/// materialize path never writes and the peak stays at 2. One test's reset can
+/// also zero the other's count. Held from before the switch changes until after
+/// it is restored, so neither walk observes the other's mutation.
+static CLEAN1_SWARM_PROCESS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 const EXPECTED_FILES: [&str; 4] = [
     "src/scaffold.rs",
     "src/domain.rs",
@@ -59,19 +72,21 @@ fn git_show(worktree: &std::path::Path, spec: &str) -> String {
 
 #[tokio::test]
 async fn clean1_swarm_four_lanes_materialize_real_files() {
+    // See `CLEAN1_SWARM_PROCESS_LOCK`: the fixture switch and peak counters are
+    // process-global, and the scripted walk clears both.
+    let _swarm_process = CLEAN1_SWARM_PROCESS_LOCK.lock().await;
     let temp = crate::test_util::fresh_tempdir();
     // Process-global on purpose: the builtin backend reads it at execute time,
     // which is the same switch a daemon started with the env would see. Restored
-    // before the test returns so a later test in this process keeps the no-write path.
-    let previous = std::env::var(CODING_BACKEND_FIXTURE_ENV).ok();
-    std::env::set_var(CODING_BACKEND_FIXTURE_ENV, "materialize");
+    // before the lock drops so a later test in this process keeps the no-write path.
+    let _fixture = FixtureEnv::set("materialize");
     let result = std::panic::AssertUnwindSafe(run_clean1(temp.path()))
         .catch_unwind()
         .await;
-    match previous {
-        Some(value) => std::env::set_var(CODING_BACKEND_FIXTURE_ENV, value),
-        None => std::env::remove_var(CODING_BACKEND_FIXTURE_ENV),
-    }
+    // Restore before the lock drops, including when the walk panicked. Drop order
+    // would also restore first, but an explicit restore keeps the switch clear
+    // before `resume_unwind` runs other destructors.
+    drop(_fixture);
     match result {
         Ok(Ok(())) => {}
         Ok(Err(message)) => panic!("{message}"),
@@ -88,20 +103,52 @@ async fn clean1_swarm_four_lanes_materialize_real_files() {
 /// `Dispatched` rows never sees four.
 #[tokio::test]
 async fn clean1_swarm_four_lanes_scripted_backend_derives_files() {
-    let previous = std::env::var(CODING_BACKEND_FIXTURE_ENV).ok();
-    std::env::remove_var(CODING_BACKEND_FIXTURE_ENV);
+    // See `CLEAN1_SWARM_PROCESS_LOCK`: removing the fixture switch, or resetting
+    // the shared peak, while the materialize walk is inside `execute` is the race.
+    let _swarm_process = CLEAN1_SWARM_PROCESS_LOCK.lock().await;
+    let _fixture = FixtureEnv::remove();
     let temp = crate::test_util::fresh_tempdir();
     let result = std::panic::AssertUnwindSafe(run_clean1_scripted(temp.path()))
         .catch_unwind()
         .await;
-    match previous {
-        Some(value) => std::env::set_var(CODING_BACKEND_FIXTURE_ENV, value),
-        None => std::env::remove_var(CODING_BACKEND_FIXTURE_ENV),
-    }
+    drop(_fixture);
     match result {
         Ok(Ok(())) => {}
         Ok(Err(message)) => panic!("{message}"),
         Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+/// Puts `WARSHA_CODING_BACKEND_FIXTURE` back the way the test found it.
+///
+/// Drop restores even when the walk panics, so the process-global switch cannot
+/// stay `materialize` after this test is gone. The swarm process lock is declared
+/// first, so this guard drops before the lock and the next waiter never sees a
+/// half-restored switch.
+struct FixtureEnv {
+    previous: Option<String>,
+}
+
+impl FixtureEnv {
+    fn set(value: &str) -> Self {
+        let previous = std::env::var(CODING_BACKEND_FIXTURE_ENV).ok();
+        std::env::set_var(CODING_BACKEND_FIXTURE_ENV, value);
+        Self { previous }
+    }
+
+    fn remove() -> Self {
+        let previous = std::env::var(CODING_BACKEND_FIXTURE_ENV).ok();
+        std::env::remove_var(CODING_BACKEND_FIXTURE_ENV);
+        Self { previous }
+    }
+}
+
+impl Drop for FixtureEnv {
+    fn drop(&mut self) {
+        match &self.previous {
+            Some(value) => std::env::set_var(CODING_BACKEND_FIXTURE_ENV, value),
+            None => std::env::remove_var(CODING_BACKEND_FIXTURE_ENV),
+        }
     }
 }
 
