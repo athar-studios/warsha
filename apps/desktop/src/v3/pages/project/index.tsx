@@ -161,6 +161,21 @@ export function extractEventSummary(payload: unknown): string {
   return base || hint;
 }
 
+export function extractRetryHint(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return '';
+  const rec = payload as Record<string, unknown>;
+  return typeof rec.retry_hint === 'string' ? rec.retry_hint.trim() : '';
+}
+
+export function findRetryHint(events: readonly WarshaEvent[] | null | undefined): string {
+  if (!events || events.length === 0) return '';
+  for (let i = events.length - 1; i >= 0; i--) {
+    const hint = extractRetryHint(events[i]?.payload);
+    if (hint) return hint;
+  }
+  return '';
+}
+
 export function formatBudgetUsd(amount: number | null | undefined): string {
   const safe = typeof amount === 'number' && Number.isFinite(amount) ? amount : 0;
   return `$${safe.toFixed(2)}`;
@@ -502,6 +517,14 @@ export default function ProjectPage(): React.ReactElement {
     [artifactsResult.data]
   );
 
+  const isFailedOrCancelled =
+    currentRun !== null && (currentRun.status === 'failed' || currentRun.status === 'cancelled');
+
+  const retryHint = useMemo(() => {
+    if (!isFailedOrCancelled) return '';
+    return findRetryHint(eventsResult.data);
+  }, [isFailedOrCancelled, eventsResult.data]);
+
   const statusPillState = computeRunStatusPill(currentRun, pendingGate);
   const statusLabels: Record<StatusPillState, string> = {
     idle: t('project.status_idle'),
@@ -568,9 +591,6 @@ export default function ProjectPage(): React.ReactElement {
 
   const spentStr = formatBudgetUsd(budgetResult.data?.spentUsd);
   const totalStr = formatBudgetUsd(budgetResult.data?.totalBudgetUsd ?? 10);
-
-  const isFailedOrCancelled =
-    currentRun !== null && (currentRun.status === 'failed' || currentRun.status === 'cancelled');
 
   const restartButton = (
     <Button
@@ -675,9 +695,26 @@ export default function ProjectPage(): React.ReactElement {
       {/* Failed / Cancelled Banner */}
       {isFailedOrCancelled && (
         <Banner variant="danger" action={restartButton} data-testid="project-run-ended-banner">
-          {currentRun.status === 'cancelled'
-            ? t('project.run_cancelled_banner')
-            : t('project.run_failed_banner')}
+          <div>
+            <div>
+              {currentRun.status === 'cancelled'
+                ? t('project.run_cancelled_banner')
+                : t('project.run_failed_banner')}
+            </div>
+            {retryHint ? (
+              <div
+                className="v3-project-banner-retry-hint"
+                data-testid="project-banner-retry-hint"
+                style={{
+                  marginBlockStart: 'var(--w-space-1)',
+                  fontSize: 'var(--w-font-size-xs)',
+                  color: 'var(--w-text-muted)',
+                }}
+              >
+                <bdi dir="auto">{t(retryHint)}</bdi>
+              </div>
+            ) : null}
+          </div>
         </Banner>
       )}
 

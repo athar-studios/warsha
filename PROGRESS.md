@@ -1,5 +1,53 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — Round 21 Secondary Residuals (Banner Retry Hint, Arabic Units, Docs, Hygiene)
+- **Worktree**: `.agents/worktrees/fix-r21-secondary` on detached HEAD `5890c2b`. Local-only: no push, no tag, no publish, `main` untouched. Left uncommitted for lead review.
+- **Addressed items**:
+  - **1 (Surface retry_hint in danger banner)**:
+    - In `apps/desktop/src/v3/pages/project/index.tsx`, added `extractRetryHint(payload)` and `findRetryHint(events)` helpers. In `ProjectPage`, computed `retryHint = useMemo(...)` before early returns to preserve Hook ordering, and rendered `<bdi dir="auto">{t(retryHint)}</bdi>` inside `data-testid="project-banner-retry-hint"` with RTL logical styling (`marginBlockStart: 'var(--w-space-1)'`).
+    - In `apps/desktop/src/v3/pages/project/Project.test.tsx`, added unit tests for `extractRetryHint` and `findRetryHint`, English and Arabic integration tests asserting `retry_hint` surfaces in the danger banner, and a negative test verifying the banner stays free of hints when no event carries one.
+  - **2 (Arabic duration units in formatRelativeDuration & Home waiting card)**:
+    - In `apps/desktop/src/date.ts`, implemented non-polymorphic duration formatters: `formatUptime(seconds, fallback)` and `formatRelativeDuration(iso, nowMs, fallback)` default strictly to English units (`DURATION_UNITS_EN`), while `formatUptimeLocalized(seconds, locale, fallback)` and `formatRelativeDurationLocalized(iso, locale, nowMs, fallback)` emit Arabic units (`DURATION_UNITS_AR`: `ي`, `س`, `د`, `ث`) when `locale === 'ar'`.
+    - In `apps/desktop/src/v3/pages/home/index.tsx:1005-1006`, updated the Needs-You strip to call `formatRelativeDurationLocalized(row.since, locale)`.
+    - In `apps/desktop/src/v3/pages/home/Home.test.tsx`, added proving test asserting waiting gate card renders Arabic duration units (`ينتظر منذ 15د 30ث`) without Latin m/s (`not.toMatch(/\d[mhsd]\b/)`), keeping existing English test green.
+    - In `apps/desktop/src/date.test.ts`, added 4 tests verifying Arabic units for uptime and relative duration, English preservation, and fallback text safety.
+  - **3 (f5 fail-before proof)**:
+    - Proved fail-before on `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx` by reverting canonical role mapping in `packages/client/src/index.ts:2078` to `const role = rawRole as Role;` → failed with `Expected element to have text content: 5 ¢; Received: unknown`. Restored to HEAD → 3/3 passed cleanly.
+  - **4 (Doc citations and intake alignment)**:
+    - Updated `DECISIONS.md` and `PROGRESS.md` citations to match current file offsets: `mod.rs` :8288, :8454, :8535, :8624; `e2e_real_arabic_request.rs` fn at :625; `crates/warsha-backends/src/lib.rs` 825-897, :2408, :2538, :2637; brooks review diff header +105/-5.
+    - Updated D-R20-INTAKE item 1 and PROGRESS intake statements to reflect B2 code end-state (removal of narrow `intake_routed` gate; unrouted intake pauses immediately with `provider_required`).
+  - **5 (Watcher state inspection and re-arm)**:
+    - Inspected `~/.dsh/state/session-superagent/watchers.json`. Documented stale legacy watcher `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29` (~3814 min idle). Re-armed active watcher under current session `athar-studios/warsha#6d00ea8d-2853-4ce3-9d08-5fce4547d7c2` with active polling confirmed (`lastPoll = 2026-11-25T12:40:21.326Z`, <1 min age).
+  - **6 (Cargo.lock hygiene)**:
+    - Inspected `apps/desktop/src-tauri/Cargo.lock`: completely clean (0 diff) in this worktree. Noted staged main diff carries 434 additions / 154 deletions for Tauri v2 plugin dependencies (`tauri-plugin-opener`, `zbus`, `async-broadcast`) required for native desktop links. Main left untouched.
+  - **7 (Rust gates with CARGO_INCREMENTAL=0)**:
+    - Ran all checks with `CARGO_INCREMENTAL=0` to prevent ICE recurrence.
+- **Verification & Gates**:
+  - `pnpm exec vitest run src/date.test.ts src/v3/pages/home/Home.test.tsx src/v3/pages/project/Project.test.tsx`: 60 passed, 0 failed.
+  - `pnpm exec tsc --noEmit`: 0 errors.
+  - `pnpm exec eslint src/date.ts src/date.test.ts src/v3/pages/home/index.tsx src/v3/pages/home/Home.test.tsx src/v3/pages/project/index.tsx src/v3/pages/project/Project.test.tsx`: 0 errors.
+  - `CARGO_INCREMENTAL=0 cargo fmt --all -- --check`: 0 diff, clean.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+- **Plugins used this round**: brooks-review (real PR Review pass on worktree diff, Health Score 99/100, 0 Critical, 0 Warning, 1 Suggestion; Reviewer re-review pending as separate step, not fabricated).
+- **Status**: ROUND-21 SECONDARY RESIDUALS COMPLETE — changes uncommitted for lead review.
+
+### Brooks-Lint PR Review (real pass, round-21) — fix-r21-secondary diff against 5890c2b
+**Mode:** PR Review
+**Scope:** `apps/desktop/src/date.ts`, `apps/desktop/src/date.test.ts`, `apps/desktop/src/v3/pages/home/index.tsx`, `apps/desktop/src/v3/pages/home/Home.test.tsx`, `apps/desktop/src/v3/pages/project/index.tsx`, `apps/desktop/src/v3/pages/project/Project.test.tsx` (6 files, +196/-15 lines)
+**Health Score:** 99/100
+Changes surface retry_hint in the project danger banner, provide clean non-polymorphic Arabic duration formatters, and update test coverage with zero any types, full RTL logical properties, and no regression to English renders.
+---
+## Findings
+### 🟢 Suggestion
+**[R4] Accidental Complexity — Duration unit pluralization in Arabic (Suggestion)**
+Symptom: In `apps/desktop/src/date.ts:107-112`, `DURATION_UNITS_AR` uses single-character abbreviations (`ي`, `س`, `د`, `ث`) matching the English single-letter abbreviations (`d`, `h`, `m`, `s`) without dual/plural grammatical forms.
+Source: Kernighan & Plauger — The Elements of Programming Style; Fowler — Refactoring.
+Consequence: While ideal for compact UI badges and scannable cards, if full Arabic words (يومان/أيام, دقيقتان/دقائق) are needed in narrative text, an Intl.RelativeTimeFormat or Intl.NumberFormat plural-rule catalog will be required.
+Remedy: Retain compact abbreviations for tabular/badge UI; add narrative pluralized helper if long-form sentences are introduced in future rounds.
+---
+## Summary
+Zero Critical or Warning defects. The retry_hint hook ordering issue was caught and resolved before submission; all React hook rules and RTL logical styling constraints are satisfied. Non-polymorphic localized helpers avoid accidental argument hijacking. Reviewer re-review pending as separate step (not fabricated).
+
 ## Run 2026-11-25 — Round 20 BLOCKER F-R20-1 HIGH (Intake Dispatch Stall & Stalled Watchdog Reaping)
 - **Worktree**: `.agents/worktrees/fix-r20-intake-dispatch` on `fix-r20-intake-dispatch` (base `e68e4cf`). Local-only: no push, no tag, no publish, `main` untouched. Left uncommitted for lead review.
 - **Root Cause Analysis**:
@@ -11,16 +59,16 @@
 - **Decision & Fix (D-R20-INTAKE)**:
   - `crates/warsha-pipeline/src/lib.rs:880-920` (`advance_stage_locked`): When `run.current_stage == Stage::Idea` and `run.run_mode != RunMode::SpecFile`, if intake session is not Done, call `self.execute_stage_with_feedback(&mut run, &mut version, ctrl, None)` to execute Intake and generate the brief before advancing to `Stage::GateA`. Narrow provider check removed so `dispatch_chat` resolves routes (and surfaces `NoProviderRouted` / `provider_required` if unrouted).
   - `crates/warsha-pipeline/src/lib.rs:1320-1388` (`execute_stage_with_feedback`): For `stage == Stage::Idea`, preserve the user's raw prompt in `"idea"` artifact and save the intake agent's output as `"brief"` artifact. Persist the file artifact to factory disk as `"brief"` (`brief.md`) so disk matches the SQLite brief artifact without clobbering `idea.md`.
-  - `crates/warshad/src/lib.rs:990-1015` (`start_run`): For runs with non-zero budget (Plan and SpecFile early-returned at line 850), chain `self.state.pipeline.advance_to_next_gate(run.id)` to execute intake and advance to `Stage::GateA` (or pause with `provider_required` if unrouted). Redundant mode re-guards and narrow provider gates removed.
+  - `start_run` (`crates/warshad/src/lib.rs`): For runs with a non-zero budget (Plan and SpecFile modes do not reach this path), chain `self.state.pipeline.advance_to_next_gate(run.id)` unconditionally to execute intake and advance the run to `Stage::GateA`. No narrow pre-flight provider check guards the call: the adjacent `intake_routed` probe is removed, so an unrouted intake reaches `dispatch_chat` and `record_stage_failure` records the `NoProviderRouted` failure as `Paused` carrying `action: "provider_required"` instead of stalling at `Stage::Idea`. That code lives in the B2 lane with proving test `unrouted_agent_run_start_pauses_immediately_with_provider_required` in `crates/warshad/src/tests/mod.rs`.
   - `crates/warsha-pipeline/src/lib.rs:2390-2440` (`check_stale_run`): Detect stalled runs in `RunStatus::Running` at non-gate stages with NO working sessions at all (`!sessions.iter().any(|s| s.status == SessionStatus::Working)`) when `now.signed_duration_since(run.updated_at) > timeout_chrono`. Sweep them to `RunStatus::Failed`, appending `EventKind::Error` with `action: "stage_failed"` and `retry_hint: "Check model provider configuration and retry stage"`, followed by `EventKind::RunFinished` with `status: "failed"`. Active runs with fresh working sessions are immune to false-positive reaping.
-  - `apps/desktop/src/v3/pages/project/index.tsx:145-155`: Update `extractEventSummary` to surface `retry_hint` alongside the summary in danger banners.
+  - `apps/desktop/src/v3/pages/project/index.tsx:145-162`: Update `extractEventSummary` to surface `retry_hint` alongside the summary in the activity feed (and in the danger banner via `findRetryHint` in round 21).
   - `crates/warsha-pipeline/src/run_integrity.rs:242`: Reset mock call counter in concurrent advance test.
 - **Proving Tests**:
-  - `crates/warshad/src/tests/mod.rs:8420`: `start_run_in_agent_mode_executes_intake_and_advances_to_gate_a` (passes: proves `start_run` in Agent mode executes intake, creates session row for `Role::Intake` in `Done` status, updates brief/idea artifacts, records `AgentStep` event, and advances run to `Stage::GateA`).
-  - `crates/warshad/src/tests/mod.rs:8500`: `watchdog_reaps_stalled_stage_without_sessions` (passes: proves watchdog sweeps a stalled non-gate run with zero sessions to `Failed` with `stage_failed` and `retry_hint`).
-  - `crates/warshad/src/tests/mod.rs:8585`: `active_run_with_fresh_working_session_is_not_reaped` (passes: proves active run with fresh Working session is not falsely reaped by watchdog even when run.updated_at is older than timeout).
-  - `crates/warshad/src/tests/mod.rs:8260`: `cancel_during_hung_stage_stops_promptly` (passes: proving watchdog cancellation test remains green).
-  - `crates/warshad/tests/e2e_real_arabic_request.rs`: `e2e_real_arabic_request_clinic_flow` (passes: full end-to-end integration through shipped daemon path that passes intake, reaches Gate A, advances through all stages to Build, and produces real code files in project repo).
+  - `crates/warshad/src/tests/mod.rs:8454`: `start_run_in_agent_mode_executes_intake_and_advances_to_gate_a` (passes: proves `start_run` in Agent mode executes intake, creates session row for `Role::Intake` in `Done` status, updates brief/idea artifacts, records `AgentStep` event, and advances run to `Stage::GateA`).
+  - `crates/warshad/src/tests/mod.rs:8535`: `watchdog_reaps_stalled_stage_without_sessions` (passes: proves watchdog sweeps a stalled non-gate run with zero sessions to `Failed` with `stage_failed` and `retry_hint`).
+  - `crates/warshad/src/tests/mod.rs:8624`: `active_run_with_fresh_working_session_is_not_reaped` (passes: proves active run with fresh Working session is not falsely reaped by watchdog even when run.updated_at is older than timeout).
+  - `crates/warshad/src/tests/mod.rs:8288`: `cancel_during_hung_stage_stops_promptly` (passes: proving watchdog cancellation test remains green).
+  - `crates/warshad/tests/e2e_real_arabic_request.rs` (fn at line 625): `e2e_real_arabic_request_clinic_flow` (passes: full end-to-end integration through shipped daemon path that passes intake, reaches Gate A, advances through all stages to Build, and produces real code files in project repo).
 - **Verification & Gates**:
   - `cargo fmt --all -- --check`: 0 diff, clean.
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, clean.
@@ -57,7 +105,7 @@
 - **Worktree**: `.agents/worktrees/fix-r19-residuals` on `r-next/integration` (base `0c09b96`, branch `fix-r19-residuals`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Addressed items**:
   - **LOW-1 (Brooks PR Review & Watcher Observation)**:
-    - Loaded `brooks-review` skill and performed real PR Review pass on `git diff e577bb4..0c09b96 -- crates/warsha-backends/src/lib.rs` (+68/-4 lines; F1 unterminated entry fix + warning eprintln additions). Recorded real Health Score 98/100 (0 Critical, 0 Warning, 2 Suggestions: lone-CR line ending handling and 15th ETXTBSY test retry loop; see review report below).
+    - Loaded `brooks-review` skill and performed real PR Review pass on `git diff e577bb4..0c09b96 -- crates/warsha-backends/src/lib.rs` (+105/-5 lines; F1 unterminated entry fix + warning eprintln additions). Recorded real Health Score 98/100 (0 Critical, 0 Warning, 2 Suggestions: lone-CR line ending handling and 15th ETXTBSY test retry loop; see review report below).
     - Inspected `~/.dsh/state/session-superagent/watchers.json` key `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29`: watcher enabled (`true`), lastPoll `2026-11-22T21:07:02.171Z` (stale ~51h), `lastDeferred: "会话正忙，下一轮重试"`, `nextAt: null`. Watcher registration is present but idle/stale (external daemon host state, not polling). Documented as stale/external per instructions; no network writes attempted.
   - **LOW-2 (D-R19-JUNK Decision — Inert Junk Line Artifact)**:
     - Documented decision D-R19-JUNK in `DECISIONS.md`: accepted and documented intermediate build artifact (`/.warsha//.warsha` or `/.warsha/.warsha/`) as known inert artifact. Under D-R16-F1-1's preserve-everything contract, unmanaged lines are kept byte-for-byte; because both valid entries (`/.warsha/` and `/.warsha`) are present in `.git/info/exclude`, `.warsha/cli.log` and the directory are ignored with zero operational impact. The artifact only originated in local intermediate `e577bb4` builds on `r-next/integration` and never reached `main`. Adopted preferred docs-only approach without touching Rust production code.
@@ -78,7 +126,7 @@
 
 ### Brooks-Lint PR Review (real pass, round-19) — `e577bb4..0c09b96`
 **Mode:** PR Review
-**Scope:** `crates/warsha-backends/src/lib.rs` (diff `e577bb4..0c09b96`, 1 file, +68/-4 lines)
+**Scope:** `crates/warsha-backends/src/lib.rs` (diff `e577bb4..0c09b96`, 1 file, +105/-5 lines)
 **Health Score:** 98/100
 Changes resolve round-17 F1 unterminated exclude entries cleanly with rigorous proving tests; no critical or warning risks detected.
 ---
@@ -133,7 +181,7 @@ Zero Critical or Warning defects. The F1 fix cleanly resolves the unterminated m
   - **LOW-1 (Residual (f) fallback test baseline correction)**:
     - Corrected wording in `PROGRESS.md:28` and `DECISIONS.md:24` (`D-R16-LOW-3`): `fallback_cleanup_deregisters_worktree_and_deletes_branch_when_map_entry_missing` fails on baseline `a7672ae` (not `7b2c132`, where it actually passed) and passes at tip.
   - **LOW-2 (Non-UTF-8 .git/info/exclude skip rewrite, D-R17-LOW-2)**:
-    - In `crates/warsha-backends/src/lib.rs:825-885` (`ensure_git_exclude`), read file with `std::fs::read` into raw bytes and validate UTF-8 with `std::str::from_utf8`. On non-NotFound read error or non-UTF-8 bytes, return early and leave the file completely untouched.
+    - In `crates/warsha-backends/src/lib.rs:825-897` (`ensure_git_exclude`), read file with `std::fs::read` into raw bytes and validate UTF-8 with `std::str::from_utf8`. On non-NotFound read error or non-UTF-8 bytes, return early and leave the file completely untouched.
     - Added proving test `test_ensure_git_exclude_non_utf8_leaves_file_untouched` (`crates/warsha-backends/src/lib.rs:2544`): writes non-UTF-8 bytes `[0xFF, 0xFE, b'u', b's', b'e', b'r', 0xFF, 0x00]` into `.git/info/exclude`, executes `CliBackend::execute`, asserts file bytes are unchanged. Verified to fail on baseline `0d1e34d` (file was wiped to Warsha default block) and pass at tip.
   - **LOW-3 (Preserve per-line endings and missing trailing newlines, D-R17-LOW-3)**:
     - In `crates/warsha-backends/src/lib.rs:733-820` (`compute_updated_exclude`), split existing exclude lines with `split_inclusive('\n')` carrying each line's own terminator (`\r\n` vs `\n`) and missing trailing newlines, concatenating directly without global separator re-joining.

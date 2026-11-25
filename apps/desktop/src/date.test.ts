@@ -9,8 +9,10 @@ import {
   formatDate,
   formatInstant,
   formatRelativeDuration,
+  formatRelativeDurationLocalized,
   formatTime,
   formatUptime,
+  formatUptimeLocalized,
   parseSafeDate,
 } from './date';
 
@@ -96,6 +98,29 @@ describe('formatUptime', () => {
       expect(formatUptime(broken, 'N/A')).toBe('N/A');
     }
   });
+
+  it('emits Arabic units and no Latin m/s when locale is ar', () => {
+    expect(formatUptimeLocalized(0, 'ar')).toBe('0ث');
+    expect(formatUptimeLocalized(45, 'ar')).toBe('45ث');
+    expect(formatUptimeLocalized(125, 'ar')).toBe('2د 5ث');
+    expect(formatUptimeLocalized(3665, 'ar')).toBe('1س 1د 5ث');
+    expect(formatUptimeLocalized(90060, 'ar')).toBe('1ي 1س 1د');
+    for (const value of [0, 45, 125, 3665, 90060]) {
+      expect(formatUptimeLocalized(value, 'ar')).not.toMatch(/\d[mhsd]\b/);
+    }
+  });
+
+  it('keeps the Latin render when locale is omitted or en', () => {
+    expect(formatUptime(125)).toBe('2m 5s');
+    expect(formatUptimeLocalized(125, 'en')).toBe('2m 5s');
+    expect(formatUptimeLocalized(125, 'ar-EG')).toBe('2m 5s');
+  });
+
+  it('treats a non-locale fallback argument as fallback text, never as a locale', () => {
+    const broken = 'garbage';
+    expect(formatUptime(broken, 'N/A')).toBe('N/A');
+    expect(formatUptimeLocalized(broken, 'ar', 'N/A')).toBe('N/A');
+  });
 });
 
 describe('formatRelativeDuration', () => {
@@ -120,5 +145,16 @@ describe('formatRelativeDuration', () => {
       expect(formatRelativeDuration(broken)).toBe(DATE_FALLBACK);
       expect(formatRelativeDuration(broken, baseTime, 'N/A')).toBe('N/A');
     }
+  });
+
+  it('renders Arabic units with no Latin m/s when locale is ar', () => {
+    expect(formatRelativeDurationLocalized(iso, 'ar', baseTime)).toBe('0ث');
+    expect(formatRelativeDurationLocalized(iso, 'ar', baseTime + 45 * 1000)).toBe('45ث');
+    expect(formatRelativeDurationLocalized(iso, 'ar', baseTime + 125 * 1000)).toBe('2د 5ث');
+    expect(formatRelativeDurationLocalized(iso, 'ar', baseTime + 3665 * 1000)).toBe('1س 1د 5ث');
+    expect(formatRelativeDurationLocalized(iso, 'ar', baseTime + 90060 * 1000)).toBe('1ي 1س 1د');
+    expect(formatRelativeDurationLocalized(iso, 'ar', baseTime + 125 * 1000)).not.toMatch(
+      /\d[mhsd]\b/
+    );
   });
 });

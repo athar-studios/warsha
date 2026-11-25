@@ -25,8 +25,10 @@ import ProjectPage, {
   buildSimpleStepperStages,
   computeRunStatusPill,
   extractCodeUrl,
+  extractRetryHint,
   extractTestArtifacts,
   findPendingGateAtCurrentStage,
+  findRetryHint,
 } from './index';
 
 function ReadyInspector(): React.ReactElement {
@@ -159,11 +161,11 @@ function createRunEndingClient(overrides: Partial<Record<string, unknown>> = {})
   });
 }
 
-function renderProject(client: WarshaClient | null, path = '/p/proj-1') {
+function renderProject(client: WarshaClient | null, path = '/p/proj-1', locale: 'en' | 'ar' = 'en') {
   return render(
     <ClientProvider client={client ?? undefined}>
       <CapabilitiesProvider client={client ?? undefined}>
-        <I18nProvider initialLocale="en">
+        <I18nProvider initialLocale={locale}>
           <DensityProvider initialMode="simple">
             <DataReadyProvider>
               <RouterProvider initialPath={path}>
@@ -232,6 +234,38 @@ describe('ProjectPage helpers', () => {
     ];
     expect(extractCodeUrl(artifacts)).toBe('https://github.com/org/repo/pull/42');
     expect(extractTestArtifacts(artifacts)).toHaveLength(1);
+  });
+
+  it('extracts retry_hint from event payload and searches events list', () => {
+    expect(extractRetryHint(null)).toBe('');
+    expect(extractRetryHint({})).toBe('');
+    expect(extractRetryHint({ retry_hint: '  Check API key  ' })).toBe('Check API key');
+    expect(
+      findRetryHint([
+        {
+          id: 'evt-1',
+          runId: 'run-1' as RunId,
+          stage: 'code',
+          role: null,
+          kind: 'error',
+          payload: { retry_hint: 'Verify model endpoint' },
+          costCents: null,
+          createdAt: '2026-10-02T09:00:00.000Z',
+          deviceId: null,
+        },
+        {
+          id: 'evt-2',
+          runId: 'run-1' as RunId,
+          stage: 'code',
+          role: null,
+          kind: 'run_finished',
+          payload: { status: 'failed' },
+          costCents: null,
+          createdAt: '2026-10-02T09:01:00.000Z',
+          deviceId: null,
+        },
+      ])
+    ).toBe('Verify model endpoint');
   });
 });
 
@@ -394,6 +428,131 @@ describe('ProjectPage component', () => {
     await waitFor(() => {
       expect(document.documentElement.getAttribute('data-mode')).toBe('developers');
     });
+  });
+
+  it('surfaces retry_hint in danger banner on failed run (English)', async () => {
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([FAILED_RUN]),
+      subscribeRun: vi.fn().mockResolvedValue({
+        seq: 2,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: FAILED_RUN,
+        events: [
+          {
+            id: 'evt-err',
+            runId: 'run-failed' as RunId,
+            stage: 'code',
+            role: 'coder',
+            kind: 'error',
+            payload: {
+              action: 'stage_failed',
+              retry_hint: 'Check model provider configuration and retry stage',
+            },
+            costCents: null,
+            createdAt: '2026-10-02T09:05:00.000Z',
+            deviceId: null,
+          },
+          {
+            id: 'evt-fin',
+            runId: 'run-failed' as RunId,
+            stage: 'code',
+            role: null,
+            kind: 'run_finished',
+            payload: { status: 'failed' },
+            costCents: null,
+            createdAt: '2026-10-02T09:05:01.000Z',
+            deviceId: null,
+          },
+        ],
+      }),
+    });
+
+    renderProject(client, '/p/proj-1', 'en');
+    await waitFor(() => {
+      expect(screen.getByTestId('project-run-ended-banner')).toBeDefined();
+    });
+
+    const banner = screen.getByTestId('project-run-ended-banner');
+    expect(banner.textContent).toContain('This run failed before completion');
+    const hintEl = screen.getByTestId('project-banner-retry-hint');
+    expect(hintEl.textContent).toBe('Check model provider configuration and retry stage');
+  });
+
+  it('surfaces retry_hint in danger banner on failed run (Arabic) with RTL logical styling', async () => {
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([FAILED_RUN]),
+      subscribeRun: vi.fn().mockResolvedValue({
+        seq: 2,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: FAILED_RUN,
+        events: [
+          {
+            id: 'evt-err',
+            runId: 'run-failed' as RunId,
+            stage: 'code',
+            role: 'coder',
+            kind: 'error',
+            payload: {
+              action: 'stage_failed',
+              retry_hint: 'Check model provider configuration and retry stage',
+            },
+            costCents: null,
+            createdAt: '2026-10-02T09:05:00.000Z',
+            deviceId: null,
+          },
+        ],
+      }),
+    });
+
+    renderProject(client, '/p/proj-1', 'ar');
+    await waitFor(() => {
+      expect(screen.getByTestId('project-run-ended-banner')).toBeDefined();
+    });
+
+    const banner = screen.getByTestId('project-run-ended-banner');
+    expect(banner.textContent).toContain('تعثّر هذا التشغيل قبل الاكتمال');
+    const hintEl = screen.getByTestId('project-banner-retry-hint');
+    expect(hintEl.textContent).toBe('Check model provider configuration and retry stage');
+  });
+
+  it('keeps the danger banner free of a retry hint when no event carries one', async () => {
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([FAILED_RUN]),
+      subscribeRun: vi.fn().mockResolvedValue({
+        seq: 1,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: FAILED_RUN,
+        events: [
+          {
+            id: 'evt-fin',
+            runId: 'run-failed' as RunId,
+            stage: 'code',
+            role: null,
+            kind: 'run_finished',
+            payload: { status: 'failed' },
+            costCents: null,
+            createdAt: '2026-10-02T09:05:01.000Z',
+            deviceId: null,
+          },
+        ],
+      }),
+    });
+
+    renderProject(client);
+    await waitFor(() => {
+      expect(screen.getByTestId('project-run-ended-banner')).toBeDefined();
+    });
+
+    expect(screen.getByTestId('project-run-ended-banner').textContent).toContain(
+      'This run failed before completion'
+    );
+    expect(screen.queryByTestId('project-banner-retry-hint')).toBeNull();
   });
 
   it('hides the run-ending controls when the daemon does not advertise them', async () => {
