@@ -1,5 +1,16 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — scripted coding backend derives the four proofcalc files
+
+- **Worktree**: `.agents/worktrees/fix-writer`, branch `r-next/fix-writer`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.
+- **Decision**: D-RN-WRITER-1.
+- **What changed**: `ScriptedBackend` (`name` `scripted`) writes each declared file from the lane title, not from a path-keyed table. A title word selects the SPEC §4.1–4.4 contract; no match or two matches writes nothing and returns `success: false`. Absolute paths and `..` are refused. The materialize fixture is unchanged. Production startup does not register the scripted backend. A second daemon test registers it, sets no fixture env var, and walks the same RPC path.
+- **Evidence** (this worktree, stdout redirected):
+  - `cargo test -p warsha-backends --lib scripted` — 4 passed, 0 failed, 57 filtered out.
+  - `cargo test -p warshad --lib tests::clean1_swarm -- --test-threads=1` — 2 passed, 0 failed, 343 filtered out, finished in 3.57s. Both `clean1_swarm_four_lanes_materialize_real_files` and `clean1_swarm_four_lanes_scripted_backend_derives_files` passed.
+  - `cargo fmt --all -- --check` — clean. `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures.
+- **Not exercised**: no network, no model API, no keychain. The scripted backend is not in `BackendFactory::all()`.
+
 ## Run 2026-11-26 — provisioning write on interview completion
 
 - **Worktree**: `.agents/worktrees/fix-provision`, branch `r-next/fix-provision`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.
