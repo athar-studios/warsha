@@ -36,8 +36,55 @@ pub(crate) struct CliUsage {
 
 use which::which;
 
+/// Env switch that makes [`BuiltinBackend`] write the subtask's declared files.
+///
+/// Unset, or any value other than `materialize`, keeps the historical no-write
+/// success. Tests set `materialize` so a swarm Code stage can land real files
+/// without a model and without a coding CLI. A real installed CLI is a different
+/// backend and never reads this switch.
+pub const CODING_BACKEND_FIXTURE_ENV: &str = "WARSHA_CODING_BACKEND_FIXTURE";
+
+const FIXTURE_MATERIALIZE: &str = "materialize";
+
+/// How long a materializing execute stays in flight so a concurrent poller can
+/// observe every disjoint subtask at once. Short enough that a four-lane merge
+/// still finishes inside a test timeout.
+const FIXTURE_HOLD_MS: u64 = 400;
+
+/// In-flight materialize calls and the high-water mark of that count.
+///
+/// The swarm dispatcher joins the first lane before it can start the fourth, so
+/// a store poll of `Dispatched` rows never sees four. These counters are the
+/// witness that four executes overlapped inside the backend. Tests read them
+/// only while the fixture switch is on.
+static FIXTURE_IN_FLIGHT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static FIXTURE_PEAK: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Peak concurrent `materialize` executes since the last reset. `0` when the
+/// fixture switch has never run in this process.
+pub fn fixture_materialize_peak() -> usize {
+    FIXTURE_PEAK.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Zero the peak and the in-flight count. A test calls this before the walk so
+/// an earlier materialize in the same process cannot inflate the peak.
+pub fn reset_fixture_materialize_peak() {
+    FIXTURE_IN_FLIGHT.store(0, std::sync::atomic::Ordering::SeqCst);
+    FIXTURE_PEAK.store(0, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Built-in test backend (minimal implementation for testing)
 pub struct BuiltinBackend;
+
+impl BuiltinBackend {
+    /// `true` only for the explicit fixture value. Anything else, including an
+    /// empty string, stays on the production no-write path.
+    fn fixture_materialize() -> bool {
+        std::env::var(CODING_BACKEND_FIXTURE_ENV)
+            .map(|value| value.trim() == FIXTURE_MATERIALIZE)
+            .unwrap_or(false)
+    }
+}
 
 #[async_trait]
 impl CodingBackend for BuiltinBackend {
@@ -50,6 +97,9 @@ impl CodingBackend for BuiltinBackend {
     }
 
     async fn execute(&self, task: CodingTask, sandbox: &Sandbox) -> Result<CodingResult> {
+        if Self::fixture_materialize() {
+            return materialize_declared_files(&task, sandbox).await;
+        }
         let session_id = sandbox.session_id.unwrap_or_default();
         if let Some(sender) = &sandbox.event_sender {
             let start_event = warsha_core::Event {
@@ -89,7 +139,8 @@ impl CodingBackend for BuiltinBackend {
             let _ = sender.send(end_event);
         }
 
-        // Minimal implementation - just return success with no changes
+        // Minimal implementation - just return success with no changes.
+        // The fixture switch above is the only path that writes.
         Ok(CodingResult {
             task_id: task.id,
             success: true,
@@ -100,6 +151,124 @@ impl CodingBackend for BuiltinBackend {
             duration_ms: 0,
         })
     }
+}
+
+/// Write one small, fixed, valid file per path the swarm runtime declared.
+///
+/// Paths come from the `Declared files:` line `run_subtask_agent` already puts
+/// in the task description. The hold keeps four disjoint subtasks in flight
+/// together. No network, no keychain, no model.
+async fn materialize_declared_files(task: &CodingTask, sandbox: &Sandbox) -> Result<CodingResult> {
+    let started = std::time::Instant::now();
+    let in_flight = FIXTURE_IN_FLIGHT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    FIXTURE_PEAK.fetch_max(in_flight, std::sync::atomic::Ordering::SeqCst);
+    struct InFlightGuard;
+    impl Drop for InFlightGuard {
+        fn drop(&mut self) {
+            FIXTURE_IN_FLIGHT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let _guard = InFlightGuard;
+    let paths = declared_files_from_description(&task.description);
+    if paths.is_empty() {
+        return Err(BackendError::ExecutionFailed(
+            "fixture materialize found no declared files".to_string(),
+        ));
+    }
+    let title = task
+        .context
+        .get("subtask")
+        .map(String::as_str)
+        .unwrap_or("subtask");
+    let mut files_changed = Vec::new();
+    for relative in &paths {
+        let dest = safe_worktree_path(&sandbox.work_dir, relative)?;
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|err| {
+                BackendError::ExecutionFailed(format!(
+                    "fixture could not create {}: {err}",
+                    parent.display()
+                ))
+            })?;
+        }
+        let body = fixture_file_body(title, relative);
+        tokio::fs::write(&dest, body.as_bytes())
+            .await
+            .map_err(|err| {
+                BackendError::ExecutionFailed(format!(
+                    "fixture could not write {}: {err}",
+                    dest.display()
+                ))
+            })?;
+        files_changed.push(relative.clone());
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(FIXTURE_HOLD_MS)).await;
+    Ok(CodingResult {
+        task_id: task.id,
+        success: true,
+        diff: None,
+        files_changed,
+        usage: None,
+        error: None,
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+fn declared_files_from_description(description: &str) -> Vec<String> {
+    let Some(line) = description
+        .lines()
+        .find(|line| line.trim_start().starts_with("Declared files:"))
+    else {
+        return Vec::new();
+    };
+    let raw = line
+        .split_once(':')
+        .map(|(_, rest)| rest)
+        .unwrap_or("")
+        .trim();
+    if raw.is_empty() || raw == "(none declared)" {
+        return Vec::new();
+    }
+    raw.split(',')
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn safe_worktree_path(work_dir: &std::path::Path, relative: &str) -> Result<std::path::PathBuf> {
+    let relative_path = std::path::Path::new(relative);
+    if relative_path.is_absolute()
+        || relative_path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(BackendError::ExecutionFailed(format!(
+            "fixture refused a path outside the worktree: {relative}"
+        )));
+    }
+    Ok(work_dir.join(relative_path))
+}
+
+fn fixture_file_body(title: &str, relative: &str) -> String {
+    let stem = std::path::Path::new(relative)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("fixture");
+    let ident = stem
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect::<String>();
+    format!(
+        "//! Fixture file materialized by the builtin coding backend.\n\
+         //! Subtask: {title}\n\
+         //! Path: {relative}\n\
+         \n\
+         /// Deterministic marker the merger must keep.\n\
+         pub fn {ident}_marker() -> &'static str {{\n\
+             \"clean1:{relative}\"\n\
+         }}\n"
+    )
 }
 
 /// CLI backend base - runs a command

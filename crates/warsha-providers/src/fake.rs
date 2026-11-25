@@ -143,17 +143,21 @@ fn artifact_for(stage: &str, hash: &str, slug: &str) -> String {
              ## RTL & accessibility\n\
              - Logical properties throughout; Arabic catalog complete.\n"
         ),
+        // Numbered items only. `decompose` treats every `- ` line as a subtask,
+        // and a subtask with no `files:` marker runs alone, so metadata and the
+        // definition of done stay as prose. The four `files:` markers are disjoint
+        // so the scheduler can run all four at the project's max parallelism.
         "plan_tasks" => format!(
             "# {title}\n\n\
-             - id: fake-plan-{hash}\n\
-             - excerpt: {slug}\n\n\
+             Plan id: fake-plan-{hash}\n\
+             Excerpt: {slug}\n\n\
              ## Tasks\n\
-             1. Scaffold the project and workspace.\n\
-             2. Implement the domain model and store.\n\
-             3. Wire the stage engine and gates.\n\
-             4. Add the provider layer and router.\n\n\
+             1. Scaffold the project and workspace. files: src/scaffold.rs\n\
+             2. Implement the domain model and store. files: src/domain.rs\n\
+             3. Wire the stage engine and gates. files: src/engine.rs\n\
+             4. Add the provider layer and router. files: src/provider.rs\n\n\
              ## Definition of done\n\
-             - Every task is test-covered and the walk is green.\n"
+             Every task is test-covered and the walk is green.\n"
         ),
         "code" => format!(
             "# {title}\n\n\

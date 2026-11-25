@@ -49,7 +49,9 @@ impl std::fmt::Display for SubtaskStatus {
 pub struct BudgetReservations {
     max_parallel: u32,
     reserved: u64,
-    last_cap: u64,
+    /// Caps actually held, oldest first. Release pops the oldest so a settle
+    /// frees the amount that was reserved, not whatever the next cap would be.
+    held: std::collections::VecDeque<u64>,
 }
 
 impl BudgetReservations {
@@ -57,24 +59,33 @@ impl BudgetReservations {
         Self {
             max_parallel,
             reserved: 0,
-            last_cap: 0,
+            held: std::collections::VecDeque::new(),
         }
     }
 
     pub fn try_reserve(&mut self, current_spend: u64, total_run_budget: u64) -> Result<(), String> {
-        let subtask_cap = total_run_budget / self.max_parallel as u64;
-        if total_run_budget < current_spend + self.reserved + subtask_cap {
+        // Each lane reserves an equal share of what is still unspent, not of the
+        // original total. A stage that recorded a few cents before Code must not
+        // make `spend + N * (total / N)` exceed the budget and refuse a lane the
+        // project asked to run in parallel. A zero share (budget already spent)
+        // is still a refusal: nothing left to reserve.
+        let remaining = total_run_budget.saturating_sub(current_spend);
+        let subtask_cap = remaining / self.max_parallel as u64;
+        if subtask_cap == 0 || remaining < self.reserved + subtask_cap {
             return Err("subtask budget cap reached".to_string());
         }
         self.reserved += subtask_cap;
-        self.last_cap = subtask_cap;
+        self.held.push_back(subtask_cap);
         Ok(())
     }
 
     /// A16.7: a reservation frees when the agent's session ends and its
-    /// recorded spend has joined the run.
+    /// recorded spend has joined the run. The freed amount is the oldest held
+    /// cap. Using a single `last_cap` under-releases once spend changes the
+    /// next cap, which stalls a lane that the project asked to run in parallel.
     pub fn release(&mut self) {
-        self.reserved = self.reserved.saturating_sub(self.last_cap);
+        let released = self.held.pop_front().unwrap_or(0);
+        self.reserved = self.reserved.saturating_sub(released);
     }
 }
 
