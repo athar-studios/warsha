@@ -204,6 +204,12 @@ impl CostRecord {
     }
 }
 
+/// Test seam: armed before the first CAS in [`Store::recover_interrupted_runs`]
+/// so a concurrent writer can commit between the stale snapshot and the retry.
+#[cfg(test)]
+static RECOVER_BEFORE_CAS: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>> =
+    std::sync::Mutex::new(None);
+
 /// Thin wrapper around a SQLite connection pool.
 ///
 /// The store also owns the live event bus: every [`Store::append_event`] that
@@ -651,6 +657,17 @@ impl Store {
         for row in rows {
             let mut run = run_from_row(&row)?;
             let version = column_int(&row, "version")?.unsigned_abs();
+            #[cfg(test)]
+            {
+                let tx = RECOVER_BEFORE_CAS
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .take();
+                if let Some(tx) = tx {
+                    let _ = tx.send(());
+                    tokio::task::yield_now().await;
+                }
+            }
             run.status = RunStatus::Paused;
             run.updated_at = Utc::now();
             // A benign VersionConflict means another writer (a late intake task, or a
@@ -668,18 +685,32 @@ impl Store {
                         actual,
                         "recover_interrupted_runs hit VersionConflict; retrying once"
                     );
-                    let fresh = match self.get_run_version(run.id).await {
-                        Ok(v) => v,
+                    // Re-read the full row. Writing the stale snapshot would
+                    // clobber a late intake brief or a cancel committed between
+                    // the two CAS attempts. Only re-apply Paused.
+                    let (mut fresh_run, fresh_version) = match self.get_run_versioned(run.id).await
+                    {
+                        Ok(pair) => pair,
                         Err(e) => {
                             tracing::warn!(
                                 run_id = %run.id.0,
                                 error = %e,
-                                "could not re-read version after VersionConflict; skipping run"
+                                "could not re-read run after VersionConflict; skipping run"
                             );
                             continue;
                         }
                     };
-                    if let Err(e) = self.update_run_cas(&run, fresh).await {
+                    if fresh_run.status != RunStatus::Running {
+                        tracing::info!(
+                            run_id = %run.id.0,
+                            status = ?fresh_run.status,
+                            "run is no longer Running after VersionConflict; skipping recover"
+                        );
+                        continue;
+                    }
+                    fresh_run.status = RunStatus::Paused;
+                    fresh_run.updated_at = Utc::now();
+                    if let Err(e) = self.update_run_cas(&fresh_run, fresh_version).await {
                         tracing::warn!(
                             run_id = %run.id.0,
                             error = %e,
@@ -687,6 +718,7 @@ impl Store {
                         );
                         continue;
                     }
+                    run = fresh_run;
                 }
                 Err(e) => return Err(e),
             }
@@ -2124,6 +2156,7 @@ fn cost_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<CostRecord> {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     /// A fresh temp directory for one test's workspace.
@@ -2945,6 +2978,71 @@ mod tests {
             assert!(events
                 .iter()
                 .any(|e| e.payload["action"] == "run_interrupted"));
+        }
+
+        /// R21-REVIEW2 HIGH-2: a VersionConflict retry must re-read the full row
+        /// and pause only that fresh row. A concurrent writer that changed
+        /// artifacts between the first CAS and the retry keeps those artifacts.
+        #[tokio::test]
+        async fn recover_version_conflict_keeps_concurrent_artifacts() {
+            let store = Arc::new(temp_store().await);
+            let project = sample_project();
+            store.create_project(&project).await.unwrap();
+
+            let run = sample_run(project.id);
+            store.create_run(&run).await.unwrap();
+            let stale_brief = "stale brief the recovery snapshot still holds".to_string();
+            let mut seeded = store.get_run(run.id).await.unwrap();
+            seeded.artifacts.insert(
+                "brief".to_string(),
+                Artifact {
+                    name: "brief".to_string(),
+                    content: stale_brief.clone(),
+                    stage: Stage::Idea,
+                    role: Some(Role::Intake),
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                    version: 1,
+                },
+            );
+            store.update_run(&seeded).await.unwrap();
+
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+            *RECOVER_BEFORE_CAS
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(ready_tx);
+
+            let recovering = {
+                let store = Arc::clone(&store);
+                tokio::spawn(async move { store.recover_interrupted_runs().await })
+            };
+            ready_rx.await.expect("recovery reaches the CAS seam");
+
+            let (mut fresh, version) = store.get_run_versioned(run.id).await.unwrap();
+            let late_brief = "late intake brief the retry must keep".to_string();
+            fresh.artifacts.insert(
+                "brief".to_string(),
+                Artifact {
+                    name: "brief".to_string(),
+                    content: late_brief.clone(),
+                    stage: Stage::Idea,
+                    role: Some(Role::Intake),
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                    version: 2,
+                },
+            );
+            store.update_run_cas(&fresh, version).await.unwrap();
+
+            let recovered = recovering.await.unwrap().unwrap();
+            assert_eq!(recovered.len(), 1);
+            let kept = store.get_run(run.id).await.unwrap();
+            assert_eq!(kept.status, RunStatus::Paused);
+            assert_eq!(
+                kept.artifacts.get("brief").map(|a| a.content.as_str()),
+                Some(late_brief.as_str()),
+                "the retry must not write the stale snapshot back over the concurrent brief"
+            );
         }
     }
 

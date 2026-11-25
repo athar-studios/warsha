@@ -1,6 +1,18 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-25 — D-R21-REVIEW2: A placeholder brief is not intake, and recovery must not write a stale row
+
+Independent Reviewer on `e9c9b3d` returned NOT CLEAR. Two HIGH claims were confirmed by reading the files.
+
+- **HIGH-1 / MEDIUM-1**: `resume_run` must not treat a `"brief"` artifact as intake-done. Agent, Simple, and SpecFile runs all get a placeholder brief at creation. Resume of an Idea run re-dispatches Intake via `execute_stage_with_feedback` unless a real Intake session is already `SessionStatus::Done`. SpecFile still skips intake. An unrouted re-dispatch hits `NoProviderRouted`, pauses again with `provider_required`, and the resume call returns that paused run. No fabricated `provider: "unrouted"` / `model: "none"` Done session is inserted, so a session-write error cannot fail the resume after the status CAS. A session-list error after the CAS is logged and leaves the run Running.
+- **HIGH-2**: `recover_interrupted_runs` on `VersionConflict` re-reads the full row. If that row is no longer Running, it is skipped. Otherwise only `status = Paused` and `updated_at` are applied, then CAS'd with the fresh version. A second conflict is logged and skipped so daemon start does not abort.
+- **MEDIUM-2**: the About uptime assertion matches the locale the test renders (`ar` → `2د 5ث` for 125s).
+- **MEDIUM-3 / LOW-3**: a paused run with a retry hint renders `project-paused-notice` and the catalog string for the two known daemon sentences. An unknown hint renders the raw daemon sentence, not an empty banner.
+- **LOW-1**: `DaemonHandle::Drop` aborts `intake_tasks` the same way `shutdown` does, recovering a poisoned mutex. Spawning a new intake task drops finished handles first.
+- **LOW-2**: the zero-budget comment no longer claims a later resume moves the run. The run stays Running at Idea with no sessions until an explicit `runs.advance`. The reap skip is unchanged and only prevents a false `stage_failed`.
+- **MCP round-trip**: an unrouted daemon cannot resume-then-advance without a fabricated Done session. The test waits for the async pause and advances only if the run is Running at a gate. A pause at Idea still completes the other assertions and does not call `runs.advance`.
+
 ## 2026-11-25 — D-R21-REVIEW-FIX: Close the Round-21 independent-review findings on eaa9bde
 
 The combined Round-21 tip returned Idea from `runs.start` and spawned intake, but three tests still asserted the old synchronous GateA contract, the fake e2e router omitted Intake, and the spawned task was unowned so a restart could fatal on `VersionConflict`.

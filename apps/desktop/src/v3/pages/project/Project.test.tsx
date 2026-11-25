@@ -11,7 +11,7 @@ import type {
   RunSummary,
   WarshaClient,
 } from '@warsha/client';
-import { I18nProvider } from '@warsha/i18n/v3';
+import { I18nProvider, enCatalog } from '@warsha/i18n/v3';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,6 +30,7 @@ import ProjectPage, {
   findPendingGateAtCurrentStage,
   findRetryHint,
   retryHintKey,
+  retryHintText,
 } from './index';
 
 function ReadyInspector(): React.ReactElement {
@@ -59,6 +60,16 @@ const AWAITING_GATE_RUN: RunSummary = {
   projectId: 'proj-1' as ProjectId,
   stage: 'gate_a',
   status: 'awaiting_gate',
+  runMode: 'agent',
+  startedAt: '2026-10-02T08:00:00.000Z',
+  updatedAt: '2026-10-02T09:00:00.000Z',
+};
+
+const PAUSED_RUN: RunSummary = {
+  id: 'run-paused' as RunId,
+  projectId: 'proj-1' as ProjectId,
+  stage: 'idea',
+  status: 'paused',
   runMode: 'agent',
   startedAt: '2026-10-02T08:00:00.000Z',
   updatedAt: '2026-10-02T09:00:00.000Z',
@@ -523,6 +534,51 @@ describe('ProjectPage component', () => {
     expect(hintEl.textContent).toBe('راجع إعداد مزوّد النموذج ثم أعد محاولة هذه المرحلة');
     expect(hintEl.querySelector('bdi')?.getAttribute('dir')).toBe('auto');
     expect((hintEl as HTMLElement).style.marginBlockStart).toBe('var(--w-space-1)');
+  });
+
+  it('renders the paused-notice catalog string and falls back to a raw hint', async () => {
+    const daemonHint = 'Configure a provider route for this role in Settings -> Models';
+    const catalogHint = enCatalog['project.retry_hint.provider_required'];
+    expect(catalogHint).toBeTruthy();
+    expect(catalogHint).not.toBe(daemonHint);
+
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([PAUSED_RUN]),
+      subscribeRun: vi.fn().mockResolvedValue({
+        seq: 1,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: PAUSED_RUN,
+        events: [
+          {
+            id: 'evt-pause',
+            runId: 'run-paused' as RunId,
+            stage: 'idea',
+            role: 'intake',
+            kind: 'error',
+            payload: {
+              action: 'provider_required',
+              retry_hint: daemonHint,
+            },
+            costCents: null,
+            createdAt: '2026-10-02T09:05:00.000Z',
+            deviceId: null,
+          },
+        ],
+      }),
+    });
+
+    renderProject(client, '/p/proj-1', 'en');
+    await waitFor(() => {
+      expect(screen.getByTestId('project-paused-notice')).toBeDefined();
+    });
+    expect(screen.queryByTestId('project-run-ended-banner')).toBeNull();
+    expect(screen.getByTestId('project-banner-retry-hint').textContent).toBe(catalogHint);
+
+    expect(retryHintText('provider route was reworded by the daemon')).toBe(
+      'provider route was reworded by the daemon'
+    );
   });
 
   it('keeps the danger banner free of a retry hint when no event carries one', async () => {

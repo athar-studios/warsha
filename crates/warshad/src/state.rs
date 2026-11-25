@@ -345,10 +345,13 @@ impl DaemonHandle {
         // Abort any in-flight async intake tasks so they cannot race a restart
         // over the same data dir (H-3).
         if let Some(state) = self.state.take() {
-            if let Ok(mut tasks) = state.intake_tasks.lock() {
-                for handle in tasks.drain(..) {
-                    handle.abort();
-                }
+            // A poisoned mutex must not skip the abort.
+            let mut tasks = state
+                .intake_tasks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            for handle in tasks.drain(..) {
+                handle.abort();
             }
         }
         let killed = self.processes.kill_all().await;
@@ -371,6 +374,17 @@ impl Drop for DaemonHandle {
         self.http_task.abort();
         if let Some(loopback_http) = &self.loopback_http_task {
             loopback_http.abort();
+        }
+        // Same abort as shutdown(). A poisoned mutex must not skip it.
+        // shutdown() takes state, so a drop after shutdown finds None.
+        if let Some(state) = self.state.as_ref() {
+            let mut tasks = state
+                .intake_tasks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            for handle in tasks.drain(..) {
+                handle.abort();
+            }
         }
 
         let processes = Arc::clone(&self.processes);

@@ -573,6 +573,111 @@ mod tests {
         assert_eq!(resumed.current_stage, Stage::GateB);
     }
 
+    /// R21-REVIEW2 HIGH-1: a placeholder brief written at run creation is not
+    /// intake. Resume of a paused Idea run must re-dispatch Intake unless a real
+    /// Intake session is already Done.
+    #[tokio::test]
+    async fn resume_of_idea_run_redispatches_intake_despite_placeholder_brief() {
+        let (store, engine, project_id, router) = test_fixture().await;
+        let tracking = TestTrackingProvider::new("intake-resume");
+        let call_count = tracking.call_count.clone();
+        {
+            let mut r = router.write().await;
+            r.register_provider(Box::new(tracking));
+            r.set_role_routing(RoleRouting {
+                role: Role::Intake,
+                targets: vec![RoutingTarget {
+                    provider_id: "intake-resume".to_string(),
+                    model_id: "test-model".to_string(),
+                    weight: 100,
+                }],
+                fallback_enabled: false,
+                budget_cents_per_run: None,
+            });
+        }
+
+        let run = engine
+            .start_run(project_id, "Idea that still needs intake")
+            .await
+            .unwrap();
+        assert!(
+            run.artifacts.contains_key("brief"),
+            "start writes the placeholder brief before intake runs"
+        );
+        assert!(
+            store.list_sessions_by_run(run.id).await.unwrap().is_empty(),
+            "the placeholder brief is not an Intake session"
+        );
+
+        let (mut paused, version) = store.get_run_versioned(run.id).await.unwrap();
+        paused.status = RunStatus::Paused;
+        store.update_run_cas(&paused, version).await.unwrap();
+
+        let resumed = engine
+            .resume_run(run.id)
+            .await
+            .expect("routed resume re-dispatches Intake and returns the run");
+        assert!(
+            call_count.load(Ordering::SeqCst) >= 1,
+            "resume must re-dispatch Intake; a placeholder brief is not intake-done"
+        );
+        let sessions = store.list_sessions_by_run(run.id).await.unwrap();
+        assert!(
+            sessions.iter().any(|s| {
+                s.role == Role::Intake
+                    && s.status == warsha_core::SessionStatus::Done
+                    && s.provider != "unrouted"
+                    && s.model != "none"
+            }),
+            "resume must not fabricate an unrouted Done Intake session: {sessions:?}"
+        );
+        assert_eq!(resumed.status, RunStatus::Running);
+        assert_eq!(resumed.current_stage, Stage::GateA);
+    }
+
+    /// R21-REVIEW2 HIGH-1: an unrouted Idea resume re-dispatches Intake, hits
+    /// NoProviderRouted, and pauses again with provider_required. It must not
+    /// walk to GateA on a fabricated Done session.
+    #[tokio::test]
+    async fn unrouted_idea_resume_pauses_again_without_fabricated_session() {
+        let (store, engine, project_id, _router) = test_fixture().await;
+        let run = engine
+            .start_run(project_id, "Unrouted idea resume")
+            .await
+            .unwrap();
+        assert!(run.artifacts.contains_key("brief"));
+
+        let (mut paused, version) = store.get_run_versioned(run.id).await.unwrap();
+        paused.status = RunStatus::Paused;
+        store.update_run_cas(&paused, version).await.unwrap();
+
+        let resumed = engine
+            .resume_run(run.id)
+            .await
+            .expect("unrouted resume pauses the run and returns it");
+        assert_eq!(resumed.status, RunStatus::Paused);
+        assert_eq!(
+            resumed.current_stage,
+            Stage::Idea,
+            "unrouted resume must not walk a placeholder brief to GateA"
+        );
+        let sessions = store.list_sessions_by_run(run.id).await.unwrap();
+        assert!(
+            sessions
+                .iter()
+                .all(|s| s.status != warsha_core::SessionStatus::Done
+                    || (s.provider != "unrouted" && s.model != "none")),
+            "resume must not insert a fabricated Done session: {sessions:?}"
+        );
+        let events = store.get_events(run.id).await.unwrap();
+        assert!(
+            events.iter().any(|e| {
+                e.payload.get("action").and_then(|a| a.as_str()) == Some("provider_required")
+            }),
+            "the re-dispatch must pause with provider_required: {events:?}"
+        );
+    }
+
     #[tokio::test]
     async fn two_different_runs_can_advance_concurrently() {
         let (_store, engine, project_id, _router) = test_fixture().await;

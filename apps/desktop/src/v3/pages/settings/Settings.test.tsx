@@ -624,7 +624,8 @@ describe('SettingsPage (Slice 1)', () => {
     });
     renderSettings('/settings/about', client);
     await waitFor(() => expect(screen.getByTestId('settings-section-about')).toBeDefined());
-    await waitFor(() => expect(screen.getByText('2m 5s')).toBeDefined());
+    // renderSettings defaults locale 'ar'; 125s is '2د 5ث', not the English '2m 5s'.
+    await waitFor(() => expect(screen.getByText('2د 5ث')).toBeDefined());
 
     fireEvent.click(document.querySelector('button[data-action="settings.about.health.refresh"]') as HTMLElement);
     await waitFor(() => expect(client.health).toHaveBeenCalled());

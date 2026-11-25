@@ -1,5 +1,31 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — Round 21 Review-2 (HIGH-1, HIGH-2, MEDIUM-1..3, LOW-1..3)
+
+- **Worktree**: `.agents/worktrees/fix-r21-review2`, branch `fix-r21-review2`, base `e9c9b3d`. Local-only: no commit, no merge, no push, `main` and `r-next/integration` untouched. Left uncommitted.
+- **Decision**: D-R21-REVIEW2.
+- **Plugins**: Coder lane (implementation) + lead verification.
+- **Addressed findings**:
+  - **HIGH-1 / MEDIUM-1**: `crates/warsha-pipeline/src/lib.rs` `resume_run` re-dispatches Intake unless a real Intake session is `Done`. A placeholder brief does not count. No fabricated unrouted Done session. Unrouted resume pauses again with `provider_required` and returns the paused run.
+  - **HIGH-2**: `crates/warsha-store/src/lib.rs` `recover_interrupted_runs` re-reads the full row on `VersionConflict` and re-applies only `Paused` plus `updated_at`. A non-Running fresh row is skipped. A second conflict logs and continues.
+  - **MEDIUM-2**: `Settings.test.tsx` asserts `2د 5ث` for the `ar` locale the helper actually renders.
+  - **MEDIUM-3 / LOW-3**: `Project.test.tsx` covers `project-paused-notice` with the English catalog string. Unknown hints render the raw daemon sentence.
+  - **LOW-1**: `DaemonHandle::Drop` aborts intake tasks, including after a poisoned mutex. New spawns prune finished handles.
+  - **LOW-2**: zero-budget comment corrected. The reap skip is unchanged.
+  - **MCP**: `binary_stdio_mcp_round_trip_against_loopback_daemon` no longer requires a fabricated Done session. It advances only when the run is Running at a gate.
+- **Fail-before** (tests added against `e9c9b3d` behavior, then the production fix):
+  - `resume_of_idea_run_redispatches_intake_despite_placeholder_brief` panicked: `resume must re-dispatch Intake; a placeholder brief is not intake-done`.
+  - `unrouted_idea_resume_pauses_again_without_fabricated_session` panicked: left `Running`, right `Paused`.
+  - `recover_version_conflict_keeps_concurrent_artifacts` panicked: left the stale brief, right the late brief.
+- **Pass-after**: those three tests returned `test result: ok. 1 passed`.
+- **Verification** (this tree, after the production fix):
+  - `cargo fmt --all -- --check`: exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0.
+  - `CARGO_INCREMENTAL=0 cargo test --workspace --all-targets`: exit 0. An earlier run of the same command exited 101 because `e2e_real_arabic_request_clinic_flow` asserted `events.len() == 3` and saw 2 (`crates/warshad/tests/e2e_real_arabic_request.rs:718`). That file was not edited here. The rerun exited 0.
+  - `node scripts/check-engineering-policy.mjs`: exit 0 (`8 checks, 0 failures`).
+  - Desktop vitest `src/v3/pages/settings/Settings.test.tsx` and `src/v3/pages/project/Project.test.tsx`: exit 0, 2 files, 57 tests passed. The worktree has no `node_modules`; vitest ran through a temporary symlink to the root checkout and was removed afterward. `pnpm exec` was not used.
+- **Status**: ROUND-21 REVIEW-2 COMPLETE — left uncommitted. Local-only. No brooks score.
+
 ## Run 2026-11-25 — Round 21 Review Corrections (H-1..H-3, M-1..M-4, L-1..L-4)
 - **Worktree**: `.agents/worktrees/fix-r21-review-corrections` detached at `eaa9bde`. Local-only: no push, no tag, no publish, `main` untouched. Left uncommitted for lead review.
 - **Decision**: D-R21-REVIEW-FIX.
