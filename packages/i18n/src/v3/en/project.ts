@@ -14,7 +14,7 @@ export default {
   'project.permissions.sheet_title': 'Project permissions',
   'project.permissions.save': 'Save for this project',
   'project.permissions.reset': 'Use the default permissions',
-  'project.open_advanced': 'Advanced mode',
+  'project.open_advanced': 'Developers',
   'project.menu_label': 'Project options',
   'project.current_status': 'Current status',
   'project.stage_now': 'Current stage: {stage}',

@@ -131,6 +131,7 @@ function createProvingClient(sessions: Session[], events: WarshaEvent[]): Warsha
     getRunEvents: vi.fn().mockResolvedValue(events),
     listRunSubtasks: vi.fn().mockResolvedValue([]),
     getProjectBudget: vi.fn().mockResolvedValue({ totalBudgetUsd: 5, spentUsd: 0.17, remainingUsd: 4.83 }),
+    listProvisioning: vi.fn().mockResolvedValue([]),
     getRun: vi.fn().mockResolvedValue(RUN),
     getProjectPermissions: vi.fn().mockResolvedValue({ confinement: 'workspace-write', approvalMode: 'never-ask', isOverride: false }),
     getDefaultPermissions: vi.fn().mockResolvedValue({ confinement: 'workspace-write', approvalMode: 'never-ask', isOverride: false }),

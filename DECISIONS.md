@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-VITEST-1: a missing provisioning method must not blank Developers, and Advanced copy says Developers
+
+CLEAN-1 added `client.listProvisioning(projectId).catch(() => null)` inside the Developers load. A test double with no such method throws `TypeError` before `.catch` attaches, so the outer catch showed the error banner and 12 tests could not find `developers-row`. Separately, `frame.mode_advanced` was changed to Developers / المطورون in `bf7a89f` and the Frame test, plus two sibling keys, still said Advanced / متقدّم.
+
+- **Call**: `Promise.resolve().then(() => client.listProvisioning(projectId)).catch(() => null)`. A missing method is the same as an empty assignment: the run list still loads. Both Developers test clients stub `listProvisioning` to `[]`, and one test renders `developers-provisioning-row` from a non-empty record so the view is exercised.
+- **Copy**: `settings.general.mode.advanced` and `project.open_advanced` are Developers / المطورون in both catalogs, matching `frame.mode_advanced`. No other string changed. `Frame.test.tsx` expects المطورون.
+- **Not now**: no Rust change, no merge, no push. FIXES COMPLETE is not declared.
+
 ## 2026-11-26 — D-RN-PANEL-1: the agent panel names the same state the list already shows
 
 Clicking an agent opened the panel on "Doing now" (the last event kind) and never named `agent.state`. The list already says "Waiting on you" for `waiting_on_owner`. A person on the panel could not tell the agent was waiting.

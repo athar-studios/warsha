@@ -4,6 +4,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   parseWarshaEvent,
+  type ProvisioningRecord,
   type RunSubtask,
   type RunSummary,
   type Session,
@@ -97,6 +98,7 @@ function createClient(): WarshaClient {
     getRunEvents: vi.fn().mockResolvedValue(EVENTS),
     listRunSubtasks: vi.fn().mockResolvedValue(SUBTASKS),
     getProjectBudget: vi.fn().mockResolvedValue({ totalBudgetUsd: 2, spentUsd: 0.07, remainingUsd: 1.93 }),
+    listProvisioning: vi.fn().mockResolvedValue([]),
     getRun: vi.fn().mockResolvedValue(RUN),
     getProjectPermissions: vi.fn().mockResolvedValue({ confinement: 'workspace-write', approvalMode: 'ask-for-risky', isOverride: false }),
     getDefaultPermissions: vi.fn().mockResolvedValue({ confinement: 'workspace-write', approvalMode: 'never-ask', isOverride: false }),
@@ -372,5 +374,44 @@ describe('DevelopersPage (E4)', () => {
       expect(errorBanner).toBeVisible();
       expect(errorBanner).toHaveTextContent('تعذر تحميل بيانات المطورين');
     });
+  });
+
+  it('renders a provisioning row from a non-empty record', async () => {
+    const record: ProvisioningRecord = {
+      projectId: 'p1',
+      agentId: 'agent-pm',
+      role: 'pm',
+      skills: ['secretary-interview'],
+      tools: ['runs.list'],
+      source: 'builtin:warsha',
+      audited: true,
+      createdAt: '2026-11-25T10:00:00.000Z',
+    };
+    const client = {
+      ...createClient(),
+      listProvisioning: vi.fn().mockResolvedValue([record]),
+    } as unknown as WarshaClient;
+
+    render(
+      <I18nProvider initialLocale="en">
+        <ThemeProvider>
+          <DensityProvider>
+            <ClientProvider client={client}>
+              <DataReadyProvider>
+                <DevelopersPage />
+              </DataReadyProvider>
+            </ClientProvider>
+          </DensityProvider>
+        </ThemeProvider>
+      </I18nProvider>
+    );
+
+    const row = await screen.findByTestId('developers-provisioning-row');
+    expect(row).toHaveTextContent('agent-pm');
+    expect(row).toHaveTextContent('Product Manager');
+    expect(row).toHaveTextContent('secretary-interview');
+    expect(row).toHaveTextContent('runs.list');
+    expect(row).toHaveTextContent('builtin:warsha');
+    expect(row).toHaveTextContent('Audited');
   });
 });
