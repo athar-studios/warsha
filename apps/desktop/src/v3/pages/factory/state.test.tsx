@@ -1,7 +1,7 @@
-import type { WarshaEvent } from '@warsha/client';
+import type { RunSummary, WarshaEvent } from '@warsha/client';
 import { describe, expect, it } from 'vitest';
 
-import { idleMsOf, reduceEvents } from './state';
+import { idleMsOf, placeWaitingAgents, reduceEvents } from './state';
 
 function event(overrides: Partial<WarshaEvent> = {}): WarshaEvent {
   return {
@@ -76,5 +76,77 @@ describe('factory floor state machine (E3)', () => {
   it('keeps the model from the payload when a backend reports one', () => {
     const agents = reduceEvents([event({ payload: { model: 'qwen-coder' } })]);
     expect(agents.get('run-1:coder')?.model).toBe('qwen-coder');
+  });
+
+  it('waits on the owner when the last role-bearing event is an AgentStep at a gate', () => {
+    const agents = reduceEvents([
+      event({ kind: 'AgentStep', stage: 'gate_a', payload: { role: 'coder', stage: 'gate_a' } }),
+      event({
+        id: 'e2',
+        kind: 'StageStarted',
+        role: null,
+        stage: 'gate_a',
+        payload: { action: 'followup' },
+        createdAt: '2026-11-18T10:00:01.000Z',
+      }),
+    ]);
+    const agent = agents.get('run-1:coder');
+    expect(agent?.state).toBe('waiting_on_owner');
+    expect(agent?.stage).toBe('gate_a');
+  });
+
+  it('places a run at an undecided gate from the role-less StageStarted the pipeline writes', () => {
+    // advance_stage_locked emits StageStarted with role: None and stage = next.
+    // The last role-bearing event is the previous stage's AgentStep.
+    const agents = reduceEvents([
+      event({ kind: 'AgentStep', stage: 'design', payload: { role: 'designer' } }),
+      event({
+        id: 'e2',
+        kind: 'StageStarted',
+        role: null,
+        stage: 'gate_a',
+        payload: { from: 'design', to: 'gate_a' },
+        createdAt: '2026-11-18T10:00:01.000Z',
+      }),
+    ]);
+    const agent = agents.get('run-1:coder');
+    expect(agent?.state).toBe('waiting_on_owner');
+    expect(agent?.stage).toBe('gate_a');
+  });
+
+  it('does not treat a finished or cancelled run as waiting', () => {
+    const finished = reduceEvents([
+      event({ kind: 'AgentStep', stage: 'gate_a' }),
+      event({
+        id: 'e2',
+        kind: 'RunFinished',
+        role: null,
+        payload: { status: 'cancelled' },
+        createdAt: '2026-11-18T10:00:02.000Z',
+      }),
+    ]);
+    expect(finished.get('run-1:coder')?.state).toBe('done');
+  });
+
+  it('leaves an idle agent with no gate in the idle state', () => {
+    const agents = reduceEvents([event({ kind: 'CostRecorded', stage: 'code' })]);
+    expect(agents.get('run-1:coder')?.state).toBe('idle');
+  });
+
+  it('derives waiting from a non-terminal run row whose stage is still a gate', () => {
+    const run = {
+      id: 'run-9',
+      projectId: 'p1',
+      stage: 'gate_b',
+      status: 'running',
+      updatedAt: '2026-11-18T10:00:00.000Z',
+    } as RunSummary;
+    const empty = placeWaitingAgents(new Map(), [run]);
+    expect(empty.get('run-9:owner')?.state).toBe('waiting_on_owner');
+    expect(empty.get('run-9:owner')?.stage).toBe('gate_b');
+    const cancelled = placeWaitingAgents(new Map(), [{ ...run, status: 'cancelled' }]);
+    expect(cancelled.size).toBe(0);
+    const working = placeWaitingAgents(new Map(), [{ ...run, stage: 'code' }]);
+    expect(working.size).toBe(0);
   });
 });

@@ -8,7 +8,7 @@ import { useClient } from '../../app/ClientContext';
 import { AgentPanel, lastFileOf } from './AgentPanel';
 import { Floor } from './Floor';
 import type { AgentStatus } from './state';
-import { reduceEvents } from './state';
+import { placeWaitingAgents, reduceEvents } from './state';
 import './factory.css';
 
 /**
@@ -51,15 +51,28 @@ function useFactoryData(
         const active = runs.filter((run) => ACTIVE_STATUSES.has(run.status));
         if (cancelled) return;
         setActiveRunIds(active.map((run) => run.id));
+        // Cold open reads the persisted history (`runs.events`). `subscribeRun`
+        // with no cursor returns only the in-memory ring, which is empty after a
+        // daemon restart — that is what painted every agent Idle in the break
+        // area. The ring stays as an incremental update, merged by event id.
         const eventLists = await Promise.all(
-          active.map(async (run) => ({
-            runId: run.id,
-            events: (await client.subscribeRun(run.id as RunId)).events,
-          }))
+          active.map(async (run) => {
+            const [persisted, live] = await Promise.all([
+              client.getRunEvents(run.id as RunId).catch(() => [] as WarshaEvent[]),
+              client
+                .subscribeRun(run.id as RunId)
+                .then((stream) => stream.events)
+                .catch(() => [] as WarshaEvent[]),
+            ]);
+            const byId = new Map<string, WarshaEvent>();
+            for (const event of persisted) byId.set(event.id, event);
+            for (const event of live) byId.set(event.id, event);
+            return { runId: run.id, events: [...byId.values()] };
+          })
         );
         if (cancelled) return;
         const merged = eventLists.flatMap((entry) => entry.events);
-        const derived = Array.from(reduceEvents(merged).values());
+        const derived = Array.from(placeWaitingAgents(reduceEvents(merged), active).values());
         setAgents(derived);
         setEventsByRun(new Map(eventLists.map((entry) => [entry.runId as string, entry.events])));
         setProjectByRun(new Map(runs.map((run) => [run.id, run.projectId])));

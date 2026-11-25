@@ -1,5 +1,9 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — factory floor places a gate wait at Your decisions
+
+- **Worktree**: `.agents/worktrees/fix-floor`, branch `r-next/fix-floor`. No push, no merge. A cold Factory open reads persisted `runs.events` (the live ring stays an incremental merge) and a non-terminal run whose stage is still a gate is `waiting_on_owner` at Your decisions. Decision: D-RN-FLOOR-1. No new event kind.
+
 ## Run 2026-11-25 — CLEAN-1 proofcalc contracts compile from a daemon walk
 
 - **Worktree**: `.agents/worktrees/clean1-proof`, branch `clean1-proof`, base `c6fef27`. No push, no merge, `main` untouched. No model API, no keychain, no Playwright. proofcalc is not a workspace member.

@@ -5,10 +5,26 @@ import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { Floor } from './Floor';
+import { Floor, markerPosition } from './Floor';
 import type { AgentStatus } from './state';
 
 const t = (key: string): string => key;
+
+function agent(overrides: Partial<AgentStatus> = {}): AgentStatus {
+  return {
+    key: 'run-1:coder',
+    runId: 'run-1',
+    role: 'coder',
+    state: 'idle',
+    stage: null,
+    lastAction: '',
+    lastUpdated: '1970-01-01T00:00:00.000Z',
+    costCents: 0,
+    model: null,
+    handoffFrom: null,
+    ...overrides,
+  };
+}
 
 function idler(key: string): AgentStatus {
   return {
@@ -75,6 +91,19 @@ describe('Factory floor geometry', () => {
     // Planning (the first station) moves from the left edge to the right edge.
     expect(num(first, 'x') + num(first, 'width')).toBe(1000 - ltrFirstStation);
     expect(screen.getByTestId('factory-agent-a1').getAttribute('transform')).not.toBe(ltrIdler);
+  });
+
+  it('stands an agent waiting on the owner at Your decisions, not in the break area', () => {
+    const waiting = markerPosition(
+      agent({ state: 'waiting_on_owner', stage: 'gate_a' }),
+      0,
+      [agent({ state: 'waiting_on_owner', stage: 'gate_a' })]
+    );
+    expect(waiting.stationKey).toBe('gates');
+    expect(waiting.y).not.toBe(258);
+    const idle = markerPosition(agent({ state: 'idle', stage: null }), 0, [agent()]);
+    expect(idle.stationKey).toBeNull();
+    expect(idle.y).toBe(258);
   });
 
   it('draws markers with declared status tokens only', () => {

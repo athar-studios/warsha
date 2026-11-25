@@ -1,6 +1,15 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-25 — D-RN-FLOOR-1: a cold floor reads persisted history, and a gate stage is a wait
+
+The factory painted every agent Idle in the break area after a daemon restart, including a run sitting at an undecided gate. Two sources already on disk are enough. No new event kind.
+
+- **Persisted history**: `useFactoryData` loads `client.getRunEvents` (`runs.events`) and merges `subscribeRun` ring frames by event id. A missing subscribe cursor still returns only the in-memory ring (`subscribe_run` → `events.sync`); that ring is an incremental update, not the cold-open source.
+- **Waiting from events the pipeline already writes**: `advance_stage_locked` appends a role-less `StageStarted` whose `stage` is the next stage (`payload.to`). When that stage is `gate_a|gate_b|gate_c|gate_d`, every non-done agent of the run becomes `waiting_on_owner`. A role-less `StageStarted` for a non-gate stage clears that wait to working and never sets idle. A role-bearing `AgentStep` whose own stage is a gate is the same wait. `payload.from_gate` is a resume away from the gate (changes requested / rejected) and is not a wait. A role-less `RunFinished` still wins as done, so a cancelled run is not waiting.
+- **Waiting from the run row**: `runs.list` already returns `stage` and `status` (not `gate_states` — the wire contract drops those). A non-terminal run whose `stage` is still a gate has not passed `advance_stage_locked` (`GateState::Approved` is required to leave). `placeWaitingAgents` marks its live agents waiting, and synthesizes one marker when the stream created none, so a cold floor is not empty. `completed|failed|cancelled` are not waiting. Idle with no gate stays in the break area.
+- **Not now**: no warshad or pipeline change, no new event, no layout change, no new dependency.
+
 ## 2026-11-25 — D-RN-CLEAN1-PROOF-RUN: the materialize fixture writes the proofcalc contracts, and the daemon test compiles them
 
 The walk in `tests::clean1_swarm::clean1_swarm_four_lanes_materialize_real_files` now produces the four proofcalc lane files as real code. The crate is not vendored into the Warsha workspace.

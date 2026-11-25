@@ -45,6 +45,7 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
   return {
     listProjects: vi.fn().mockResolvedValue([PROJECT]),
     listRuns: vi.fn().mockResolvedValue([run('run-1', 'running'), run('run-2', 'completed')]),
+    getRunEvents: vi.fn().mockResolvedValue([]),
     subscribeRun: vi.fn().mockImplementation((runId: string) =>
       Promise.resolve({
         seq: 2,
@@ -144,6 +145,34 @@ describe('Factory floor (E3)', () => {
     fireEvent.keyDown(window, { key: 'l' });
     await waitFor(() => expect(screen.getByTestId('factory-list-view')).toBeDefined());
     expect(screen.getByTestId('factory-list-status').getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('places a waiting agent from persisted history when the live ring is empty', async () => {
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([run('run-1', 'running')]),
+      getRunEvents: vi.fn().mockResolvedValue([
+        event({ kind: 'AgentStep', stage: 'design', role: 'designer' }),
+        event({
+          id: 'e2',
+          kind: 'StageStarted',
+          role: null,
+          stage: 'gate_a',
+          payload: { from: 'design', to: 'gate_a' },
+          createdAt: '2026-11-18T10:00:01.000Z',
+        }),
+      ]),
+      subscribeRun: vi.fn().mockResolvedValue({
+        seq: 0,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: null,
+        events: [],
+      }),
+    });
+    renderFactory(client);
+    await waitFor(() => expect(screen.getByTestId('factory-agent-run-1:designer')).toBeDefined());
+    expect(screen.getByTestId('factory-needs-you')).toBeDefined();
   });
 
   it('lays out 32 concurrent agents without overlap artefacts', async () => {
