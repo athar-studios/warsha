@@ -203,6 +203,36 @@ async fn wait_for_stage(
     }
 }
 
+/// Poll `runs.events` until at least `min` events are persisted, or fail after 5s.
+///
+/// `wait_for_stage` returns when the run row shows the target stage. The
+/// `StageStarted` event for that stage is written in the same advance, but the
+/// events read can still observe the row first. Waiting on the count, not the
+/// stage, is what the assertions below require. The exact event checks stay.
+async fn wait_for_min_events(
+    rpc: &WarshaRpc,
+    ext: &warshad::RpcExtensions,
+    run_id: warsha_core::RunId,
+    min: usize,
+) -> Vec<Event> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let events = rpc
+            .get_events(ext, run_id)
+            .await
+            .expect("the run's events are readable");
+        if events.len() >= min {
+            return events;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "events stayed at {} instead of reaching {min}: {events:?}",
+            events.len()
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 #[tokio::test]
 async fn e2e_request_to_artifact() {
     // ---- 1. Setup: a temporary tree, a store, and the daemon state over it.
@@ -256,12 +286,10 @@ async fn e2e_request_to_artifact() {
         run.artifacts.contains_key("brief"),
         "brief artifact must be present after intake execution"
     );
-    // The run's append-only log is written before any gate decision, so it is
-    // readable here: stage_started(idea), agent_step(idea), stage_started(gate_a).
-    let started = rpc
-        .get_events(&ext, run.id)
-        .await
-        .expect("the run's events are readable");
+    // The run's append-only log is written before any gate decision:
+    // stage_started(idea), agent_step(idea), stage_started(gate_a). The third
+    // can land just after the stage row flips, so wait for the count first.
+    let started = wait_for_min_events(&rpc, &ext, run.id, 3).await;
     assert_eq!(started.len(), 3, "unexpected events: {started:?}");
     assert_eq!(started[0].kind, EventKind::StageStarted);
     assert_eq!(started[0].stage, Stage::Idea);
