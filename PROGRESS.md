@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — CLEAN-1 proof project spec (docs only)
+
+- **Worktree**: `.agents/worktrees/clean1-swarm`, branch `r-next/clean1-swarm`, base `77dd1ea`. No push, no merge, `main` untouched. No daemon, swarm not enabled, no model API, no Rust change.
+- **Decision**: D-RN-CLEAN1-PROOF.
+- **Spec**: `docs/proof-project/SPEC.md` — crate `proofcalc`, four disjoint lane files (`src/scaffold.rs`, `src/domain.rs`, `src/engine.rs`, `src/provider.rs`) plus `src/lib.rs` and `tests/proof.rs`. Execution waits until the harness lane and the Secretary lane have landed on `r-next/integration`.
+
 ## Run 2026-11-25 — CLEAN-1 swarm four lanes (mock, local only)
 
 - **Worktree**: `.agents/worktrees/clean1-swarm`, branch `r-next/clean1-swarm`, base `c7520f8`. No push, no merge, `main` untouched.

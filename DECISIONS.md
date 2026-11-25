@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-25 — D-RN-CLEAN1-PROOF: proofcalc is the proof project, and it does not run yet
+
+The small real project a later Warsha run will build end to end is specified, not executed.
+
+- **Spec**: `docs/proof-project/SPEC.md`. Crate `proofcalc`, library only, four pure functions, no I/O, no network, no dependencies. `src/scaffold.rs` owns `add`, `src/domain.rs` owns `Money::checked_add`, `src/engine.rs` owns `apply_fee`, `src/provider.rs` owns the `RateSource` trait. `src/lib.rs` mods and re-exports the four. `tests/proof.rs` calls each once.
+- **Disjoint lanes**: the four implementation files share no path and do not import each other. A later plan must declare them as four numbered items with one `files:` marker each (`src/scaffold.rs`, `src/domain.rs`, `src/engine.rs`, `src/provider.rs`). A missing marker runs alone, and `SwarmScheduler::has_overlap` serializes two subtasks that list the same path. `src/lib.rs` and `tests/proof.rs` name every module, so they are sequential follow-ups, not a fifth parallel lane.
+- **Not now**: this spec is the proof project. Execution waits until the harness lane and the Secretary lane have landed on `r-next/integration`. No daemon, no swarm enablement, no model API, no Rust change in this packet.
+
 ## 2026-11-25 — D-RN-CLEAN1-1: mock swarm writes declared files, and a lane reserves the unspent share
 
 CLEAN-1 needs four real files from a swarm Code stage with no model and no coding CLI. The production CLI backends stay unchanged.
