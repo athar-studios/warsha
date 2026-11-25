@@ -9317,3 +9317,12 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 - The Judge read `contract_kind_from_task` at `crates/warsha-backends/src/scripted.rs:205` and confirmed the title is the only selector. A path cannot select a contract. It ran the walk itself: 2 passed in 3.63s. The coordinator's own run was 2 passed in 3.47s.
 - The five-point deduction is the commit subject saying "from the task title" while the file list still comes from the `Declared files:` line. That is accurate, and it is not a path-keyed table.
 - Honest limit, unchanged: the file bytes are rendered from templates. What the task decides is which contract, not the bytes.
+
+## Run 2026-11-26 — independent re-verification, CLEAR
+
+- Verifier: Claude Code, second pass, report `/home/moe/Downloads/Warsha/claude-code-verify-clean1-2026-11-26-r2.md`.
+- Tip verified: `10db8a8`. First line of the report: CLEAR.
+- Its own counts, not the coordinator's: desktop vitest 89 files / 801 passed; `tests::clean1_swarm` 2 passed in 3.68s; the provisioning walk 1 passed in 0.66s; policy 8 checks, 0 failures; fmt clean; main still `5f4b742`.
+- Accepted limits it restated: the proofcalc bytes come from templates, the titles that select them come from the FakeProvider's canned plan, and there is no owner-accept handler for a roster.
+- Residuals it carried and did not re-check: the `e2e_request_to_artifact` flake, overlapping "Needs you" labels, marker initials cut to "int", raw `agent_step` / `intake` / `¢` in the panel, and `capture_changes` missing untracked files.
+- FIXES COMPLETE is not declared.
