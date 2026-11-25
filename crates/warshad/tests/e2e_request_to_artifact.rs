@@ -175,6 +175,34 @@ fn fresh_tempdir() -> TempDir {
     TempDir::new().expect("tempdir for the daemon data dir")
 }
 
+/// Poll `runs.get` until the run reaches `target`, or fail after 10s.
+///
+/// `runs.start` returns at Idea and intake advances asynchronously (M-1), so a
+/// test that needs GateA waits here rather than asserting it on the start reply.
+async fn wait_for_stage(
+    rpc: &WarshaRpc,
+    ext: &warshad::RpcExtensions,
+    run_id: warsha_core::RunId,
+    target: Stage,
+) -> warsha_core::Run {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let run = rpc
+            .get_run(ext, run_id)
+            .await
+            .expect("runs.get succeeds while waiting for intake");
+        if run.current_stage == target {
+            return run;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "run stayed at {:?} instead of reaching {target:?}",
+            run.current_stage
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 #[tokio::test]
 async fn e2e_request_to_artifact() {
     // ---- 1. Setup: a temporary tree, a store, and the daemon state over it.
@@ -214,7 +242,9 @@ async fn e2e_request_to_artifact() {
         )
         .await
         .expect("runs.start succeeds");
-    assert_eq!(run.current_stage, Stage::GateA);
+    // M-1: runs.start returns immediately at Idea; intake advances to GateA asynchronously.
+    assert_eq!(run.current_stage, Stage::Idea);
+    let run = wait_for_stage(&rpc, &ext, run.id, Stage::GateA).await;
     assert_eq!(
         run.artifacts
             .get("idea")
@@ -620,6 +650,7 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
         // sequencer simply starts empty; direct RPC calls read the store, not this.
         events: std::sync::Arc::new(warshad::EventSequencer::new()),
         start_time: std::time::Instant::now(),
+        intake_tasks: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
     })
 }
 

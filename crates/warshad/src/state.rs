@@ -267,6 +267,8 @@ pub struct DaemonHandle {
     pub(crate) pairing_origin: Option<String>,
     /// The one spawner, so shutdown can take the daemon's children with it.
     pub(crate) processes: Arc<dyn ProcessManager>,
+    /// The daemon state, kept so shutdown can abort in-flight intake tasks.
+    pub(crate) state: Option<std::sync::Arc<DaemonState>>,
     /// The runtime this daemon is running on, kept for the sweep a `Drop` has to run
     /// without an `.await` (see [`DaemonHandle::drop`]).
     pub(crate) runtime: tokio::runtime::Handle,
@@ -339,6 +341,15 @@ impl DaemonHandle {
         self.http_task.abort();
         if let Some(loopback_http) = self.loopback_http_task.take() {
             loopback_http.abort();
+        }
+        // Abort any in-flight async intake tasks so they cannot race a restart
+        // over the same data dir (H-3).
+        if let Some(state) = self.state.take() {
+            if let Ok(mut tasks) = state.intake_tasks.lock() {
+                for handle in tasks.drain(..) {
+                    handle.abort();
+                }
+            }
         }
         let killed = self.processes.kill_all().await;
         self.reaped.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -607,6 +618,9 @@ pub struct DaemonState {
     /// Single source of truth for daemon uptime across HTTP `/health` and JSON-RPC
     /// `health` so both endpoints report truthful, monotonically increasing uptime.
     pub start_time: std::time::Instant,
+    /// Handles of spawned async intake tasks, so shutdown can abort them before
+    /// a restart over the same data dir races `recover_interrupted_runs`.
+    pub intake_tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 /// Whether a paired actor's device is still in the active pairing set.

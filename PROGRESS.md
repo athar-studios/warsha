@@ -1,5 +1,36 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — Round 21 Review Corrections (H-1..H-3, M-1..M-4, L-1..L-4)
+- **Worktree**: `.agents/worktrees/fix-r21-review-corrections` detached at `eaa9bde`. Local-only: no push, no tag, no publish, `main` untouched. Left uncommitted for lead review.
+- **Decision**: D-R21-REVIEW-FIX.
+- **Addressed findings**:
+  - **H-1**: `crates/warshad/tests/e2e_request_to_artifact.rs` and `crates/warshad/tests/e2e_real_arabic_request.rs` now assert `Stage::Idea` on the `runs.start` reply, then poll `runs.get` (10s) until `Stage::GateA`. `crates/warsha-cli/tests/mcp_serve.rs` waits for the unrouted pause, calls `runs.resume`, then `runs.advance`.
+  - **H-2**: `crates/warsha-pipeline/tests/fake_e2e.rs` `STAGE_ROLES` includes `Role::Intake` so the routed walk does not panic `NoProviderRouted(Intake)`.
+  - **H-3**: `crates/warshad/src/state.rs` tracks spawned intake `JoinHandle`s on `DaemonState::intake_tasks`; `DaemonHandle::shutdown` aborts them. `crates/warsha-store/src/lib.rs` `recover_interrupted_runs` retries a `VersionConflict` once and then logs-and-continues, so a benign race never fails daemon start.
+  - **M-1**: `packages/i18n/src/v3/en/project.ts` and `packages/i18n/src/v3/ar/project.ts` carry `project.retry_hint.stage_failed` and `project.retry_hint.provider_required`. The banner renders `t(retryHintKey(...))`. Arabic catalog strings are written natively, not transliterated.
+  - **M-2**: `apps/desktop/src/v3/pages/project/index.tsx` surfaces the same hint for a `paused` run whose event carries the provider-required sentence (`data-testid="project-paused-notice"`).
+  - **M-3**: `Project.test.tsx` Arabic case asserts the Arabic catalog string, `bdi dir="auto"`, and `marginBlockStart`.
+  - **M-4 / L-1**: citations below are read from the files at this tip. Gate numbers in the Round-20 section are historical and do not reproduce on `eaa9bde` (see the honest counts in this section's verification, filled after the runs).
+  - **L-2**: `apps/desktop/src/v3/pages/settings/sections/AboutSection.tsx` calls `formatUptimeLocalized(seconds, locale)` at both the copy line and the uptime row.
+  - **L-3**: `crates/warshad/src/lib.rs` intake comment now matches the guard (`budget_cents != Some(0)`; Plan and SpecFile return earlier; a zero budget is not dispatched).
+  - **L-4**: `crates/warsha-pipeline/src/lib.rs` `check_stale_run` excludes a never-dispatched Idea run with `budget_cents == Some(0)` from the no-session reap.
+- **Citation corrections** (read from the files, not copied from the prior log):
+  - `crates/warshad/src/tests/mod.rs:8300` `cancel_during_hung_stage_stops_promptly` (was :8288).
+  - `crates/warshad/src/tests/mod.rs:8488` `start_run_in_agent_mode_executes_intake_and_advances_to_gate_a` (was :8454).
+  - `crates/warshad/src/tests/mod.rs:8592` `unrouted_agent_run_start_pauses_immediately_with_provider_required`.
+  - `crates/warshad/src/tests/mod.rs:8659` `watchdog_reaps_stalled_stage_without_sessions` (was :8535).
+  - `crates/warshad/src/tests/mod.rs:8748` `active_run_with_fresh_working_session_is_not_reaped` (was :8624).
+  - `apps/desktop/src/v3/pages/home/index.tsx:993` `formatRelativeDurationLocalized(row.since, locale)` (was :1005-1006).
+  - `crates/warshad/src/lib.rs` async intake spawn is the block that tracks `intake_tasks` (the call site that used to be cited near :993).
+- **Plugins used this round**: brooks-review — binary `brooks-lint` is not on PATH and not in the repo; no PR Review pass was run. Not fabricated.
+- **Verification (this tree, `CARGO_INCREMENTAL=0`, `--offline`)**:
+  - `cargo fmt --all -- --check`: exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0.
+  - `cargo test --workspace --all-targets`: exit 0. Touched suites inside that run: `warshad --lib` 335 passed / 0 failed / 4 ignored; `e2e_real_arabic_request` 2/0; `e2e_request_to_artifact` 1/0; `agent_provider` 8/0 (includes the restart that previously fataled on `VersionConflict`); `mcp_serve` 2/0; `fake_e2e` 6/0; `harness_skills_wiring` 4/0. A second `cargo test -p warshad --lib` also returned 335/0/4.
+  - Desktop: `vitest run src/v3/pages/project/Project.test.tsx src/v3/pages/settings/sections/AboutSection.test.tsx` 1 file, 15 passed. `eslint` on `index.tsx`, `Project.test.tsx`, `AboutSection.tsx`: exit 0. `tsc --noEmit` still exits 2 on `apps/desktop/src/v3/components/code/CodeViewer.tsx` (`@codemirror/*` missing). The same 11 errors reproduce in the root checkout, which also has no `@codemirror` install; not introduced here. The worktree has no `node_modules` of its own, so vitest ran against a local link of the root checkout's store.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+- **Status**: ROUND-21 REVIEW CORRECTIONS COMPLETE — left uncommitted for lead review. Local-only.
+
 ## Run 2026-11-25 — Round 21 Secondary Residuals (Banner Retry Hint, Arabic Units, Docs, Hygiene)
 - **Worktree**: `.agents/worktrees/fix-r21-secondary` on detached HEAD `5890c2b`. Local-only: no push, no tag, no publish, `main` untouched. Left uncommitted for lead review.
 - **Addressed items**:
@@ -8,13 +39,13 @@
     - In `apps/desktop/src/v3/pages/project/Project.test.tsx`, added unit tests for `extractRetryHint` and `findRetryHint`, English and Arabic integration tests asserting `retry_hint` surfaces in the danger banner, and a negative test verifying the banner stays free of hints when no event carries one.
   - **2 (Arabic duration units in formatRelativeDuration & Home waiting card)**:
     - In `apps/desktop/src/date.ts`, implemented non-polymorphic duration formatters: `formatUptime(seconds, fallback)` and `formatRelativeDuration(iso, nowMs, fallback)` default strictly to English units (`DURATION_UNITS_EN`), while `formatUptimeLocalized(seconds, locale, fallback)` and `formatRelativeDurationLocalized(iso, locale, nowMs, fallback)` emit Arabic units (`DURATION_UNITS_AR`: `ي`, `س`, `د`, `ث`) when `locale === 'ar'`.
-    - In `apps/desktop/src/v3/pages/home/index.tsx:1005-1006`, updated the Needs-You strip to call `formatRelativeDurationLocalized(row.since, locale)`.
+    - In `apps/desktop/src/v3/pages/home/index.tsx:993`, updated the Needs-You strip to call `formatRelativeDurationLocalized(row.since, locale)`.
     - In `apps/desktop/src/v3/pages/home/Home.test.tsx`, added proving test asserting waiting gate card renders Arabic duration units (`ينتظر منذ 15د 30ث`) without Latin m/s (`not.toMatch(/\d[mhsd]\b/)`), keeping existing English test green.
     - In `apps/desktop/src/date.test.ts`, added 4 tests verifying Arabic units for uptime and relative duration, English preservation, and fallback text safety.
   - **3 (f5 fail-before proof)**:
     - Proved fail-before on `apps/desktop/src/v3/pages/developers/f5-proving.test.tsx` by reverting canonical role mapping in `packages/client/src/index.ts:2078` to `const role = rawRole as Role;` → failed with `Expected element to have text content: 5 ¢; Received: unknown`. Restored to HEAD → 3/3 passed cleanly.
   - **4 (Doc citations and intake alignment)**:
-    - Updated `DECISIONS.md` and `PROGRESS.md` citations to match current file offsets: `mod.rs` :8288, :8454, :8535, :8624; `e2e_real_arabic_request.rs` fn at :625; `crates/warsha-backends/src/lib.rs` 825-897, :2408, :2538, :2637; brooks review diff header +105/-5.
+    - Updated `DECISIONS.md` and `PROGRESS.md` citations. Round-21 review correction re-read them: `mod.rs` :8300, :8488, :8592, :8659, :8748; home call at :993. The offsets written here originally (:8288, :8454, :8535, :8624, home :1005) do not match `eaa9bde`.
     - Updated D-R20-INTAKE item 1 and PROGRESS intake statements to reflect B2 code end-state (removal of narrow `intake_routed` gate; unrouted intake pauses immediately with `provider_required`).
   - **5 (Watcher state inspection and re-arm)**:
     - Inspected `~/.dsh/state/session-superagent/watchers.json`. Documented stale legacy watcher `athar-studios/warsha#session-90ae37ae-b135-4407-8163-81476d9c3e29` (~3814 min idle). Re-armed active watcher under current session `athar-studios/warsha#6d00ea8d-2853-4ce3-9d08-5fce4547d7c2` with active polling confirmed (`lastPoll = 2026-11-25T12:40:21.326Z`, <1 min age).
@@ -64,18 +95,18 @@ Zero Critical or Warning defects. The retry_hint hook ordering issue was caught 
   - `apps/desktop/src/v3/pages/project/index.tsx:145-162`: Update `extractEventSummary` to surface `retry_hint` alongside the summary in the activity feed (and in the danger banner via `findRetryHint` in round 21).
   - `crates/warsha-pipeline/src/run_integrity.rs:242`: Reset mock call counter in concurrent advance test.
 - **Proving Tests**:
-  - `crates/warshad/src/tests/mod.rs:8454`: `start_run_in_agent_mode_executes_intake_and_advances_to_gate_a` (passes: proves `start_run` in Agent mode executes intake, creates session row for `Role::Intake` in `Done` status, updates brief/idea artifacts, records `AgentStep` event, and advances run to `Stage::GateA`).
-  - `crates/warshad/src/tests/mod.rs:8535`: `watchdog_reaps_stalled_stage_without_sessions` (passes: proves watchdog sweeps a stalled non-gate run with zero sessions to `Failed` with `stage_failed` and `retry_hint`).
-  - `crates/warshad/src/tests/mod.rs:8624`: `active_run_with_fresh_working_session_is_not_reaped` (passes: proves active run with fresh Working session is not falsely reaped by watchdog even when run.updated_at is older than timeout).
-  - `crates/warshad/src/tests/mod.rs:8288`: `cancel_during_hung_stage_stops_promptly` (passes: proving watchdog cancellation test remains green).
+  - `crates/warshad/src/tests/mod.rs:8488`: `start_run_in_agent_mode_executes_intake_and_advances_to_gate_a` (passes: proves `start_run` in Agent mode executes intake, creates session row for `Role::Intake` in `Done` status, updates brief/idea artifacts, records `AgentStep` event, and advances run to `Stage::GateA`).
+  - `crates/warshad/src/tests/mod.rs:8659`: `watchdog_reaps_stalled_stage_without_sessions` (passes: proves watchdog sweeps a stalled non-gate run with zero sessions to `Failed` with `stage_failed` and `retry_hint`).
+  - `crates/warshad/src/tests/mod.rs:8748`: `active_run_with_fresh_working_session_is_not_reaped` (passes: proves active run with fresh Working session is not falsely reaped by watchdog even when run.updated_at is older than timeout).
+  - `crates/warshad/src/tests/mod.rs:8300`: `cancel_during_hung_stage_stops_promptly` (passes: proving watchdog cancellation test remains green).
   - `crates/warshad/tests/e2e_real_arabic_request.rs` (fn at line 625): `e2e_real_arabic_request_clinic_flow` (passes: full end-to-end integration through shipped daemon path that passes intake, reaches Gate A, advances through all stages to Build, and produces real code files in project repo).
 - **Verification & Gates**:
   - `cargo fmt --all -- --check`: 0 diff, clean.
   - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, clean.
   - `cargo test -p warsha-pipeline --lib`: 600 passed, 0 failed, 7 ignored.
-  - `cargo test -p warshad --lib`: 334 passed, 0 failed, 4 ignored.
-  - `cargo test -p warshad --test e2e_real_arabic_request`: 2 passed, 0 failed.
-  - `cargo test -p warshad --test e2e_request_to_artifact`: 1 passed, 0 failed.
+  - `cargo test -p warshad --lib`: claimed 334/0. Does not reproduce on `eaa9bde` (a later test was added; the Round-21 correction section records the count from a fresh run).
+  - `cargo test -p warshad --test e2e_real_arabic_request`: claimed 2/0. On `eaa9bde` before this correction the suite was 1 passed / 1 failed (`e2e_real_arabic_request_clinic_flow` asserted GateA synchronously).
+  - `cargo test -p warshad --test e2e_request_to_artifact`: claimed 1/0. On `eaa9bde` before this correction the suite was 0 passed / 1 failed (same synchronous GateA assert).
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
 - **Status**: BLOCKER F-R20-1 COMPLETE — merged `f7cad98` into `r-next/integration` as `332e060` (reviewer correction applied). Tip gates green: fmt 0, clippy 0, pipeline 600/0, warshad 334/0, e2e_real_arabic_request 2/2, e2e_request_to_artifact 1/1, policy 8/0. Local-only.
 

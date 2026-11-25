@@ -1,6 +1,18 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-25 — D-R21-REVIEW-FIX: Close the Round-21 independent-review findings on eaa9bde
+
+The combined Round-21 tip returned Idea from `runs.start` and spawned intake, but three tests still asserted the old synchronous GateA contract, the fake e2e router omitted Intake, and the spawned task was unowned so a restart could fatal on `VersionConflict`.
+
+- **Async contract in tests (H-1)**: assert Idea on the start reply, then poll `runs.get` until GateA (10s). The MCP stdio round-trip waits for the unrouted pause and calls `runs.resume` before `runs.advance`, because advance on a paused run returns "not running".
+- **Intake on the fake router (H-2)**: `STAGE_ROLES` includes `Role::Intake`. The walk executes Idea first; omitting the role panics `NoProviderRouted(Intake)`.
+- **Owned intake tasks (H-3)**: `DaemonState::intake_tasks` holds the `JoinHandle`s; `DaemonHandle::shutdown` aborts them before killing children. `recover_interrupted_runs` retries one `VersionConflict` and then logs and skips that run. Daemon start must not fail on a race that already settled the row.
+- **Hint catalog (M-1, M-3)**: the two daemon sentences map to `project.retry_hint.stage_failed` and `project.retry_hint.provider_required` in both catalogs. Arabic is written as Arabic, not a transliteration of the English sentence. Unknown hints stay unrendered rather than shown as raw English under `ar`.
+- **Paused surface (M-2)**: a paused run whose latest hint is the provider-required sentence shows the same hint in a warning notice. Other pauses do not, so a budget pause does not grow a misleading banner.
+- **Zero-budget reap (L-4)**: an Idea run with `budget_cents == Some(0)` was never dispatched (`ensure_budget` would reject it). The no-session reap skips it. Raising the budget and resuming remains the owner's path; this change adds no new stall.
+- **Docs (M-4, L-1, L-3)**: citations are re-read from the files. Historical gate claims that do not reproduce are marked as claims, not as current evidence.
+
 ## 2026-11-25 — D-R20-INTAKE: Automatic Intake Dispatch on Run Start and Stalled Run Watchdog Reaping
 - **Decision**:
   1. Intake Stage Execution and Advancement on `start_run`:

@@ -269,6 +269,7 @@ pub(super) async fn test_state_with_all_seams(
         // the real-daemon tests.
         events: Arc::new(EventSequencer::new()),
         start_time: std::time::Instant::now(),
+        intake_tasks: Arc::new(std::sync::Mutex::new(Vec::new())),
     });
     (state, store)
 }

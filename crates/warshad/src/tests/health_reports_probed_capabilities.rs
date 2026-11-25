@@ -93,6 +93,7 @@ async fn health_reports_probed_capabilities() {
         pairing_origin: std::sync::OnceLock::new(),
         events: state.events.clone(),
         start_time: state.start_time,
+        intake_tasks: state.intake_tasks.clone(),
     };
     let degraded_rpc = WarshaRpc::new(Arc::new(degraded_state));
     let degraded_health = degraded_rpc
@@ -334,6 +335,7 @@ fn state_with_secret_store(state: &Arc<DaemonState>, secrets: Arc<dyn SecretStor
         pairing_origin: std::sync::OnceLock::new(),
         events: state.events.clone(),
         start_time: state.start_time,
+        intake_tasks: state.intake_tasks.clone(),
     }
 }
 

@@ -1,6 +1,6 @@
 // apps/desktop/src/v3/pages/settings/sections/AboutSection.tsx
 import { invoke } from '@tauri-apps/api/core';
-import { useT } from '@warsha/i18n/v3';
+import { useLocale, useT } from '@warsha/i18n/v3';
 import {
   Banner,
   Button,
@@ -13,7 +13,7 @@ import {
 } from '@warsha/ui/v3';
 import React, { useEffect, useState } from 'react';
 
-import { formatUptime } from '../../../../date';
+import { formatUptimeLocalized } from '../../../../date';
 import { useAction } from '../../../actions';
 import { useClient, useReloadClient } from '../../../app/ClientContext';
 import { useDataReady } from '../../../app/DataReadyContext';
@@ -21,6 +21,7 @@ import { isDaemonHealthy, useHealth } from '../../../data';
 
 export function AboutSection(): React.ReactElement {
   const t = useT();
+  const { locale } = useLocale();
   const client = useClient();
   const reloadClient = useReloadClient();
   const { setReady } = useDataReady();
@@ -57,7 +58,7 @@ export function AboutSection(): React.ReactElement {
   const isOnline = isDaemonHealthy(health?.status) && status === 'ready';
 
   const handleCopy = (): void => {
-    const uptimeStr = formatUptime(health?.uptimeSeconds);
+    const uptimeStr = formatUptimeLocalized(health?.uptimeSeconds, locale);
     const info = `Warsha Daemon ${health?.version ?? '—'} (Status: ${isOnline ? health?.status : 'down'}, Uptime: ${uptimeStr}) - Data: ${dataDir}`;
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(info).catch(() => {});
@@ -158,7 +159,7 @@ export function AboutSection(): React.ReactElement {
           />
           <KeyValue
             label={t('settings.about.uptime')}
-            value={<bdi dir="ltr">{formatUptime(health?.uptimeSeconds)}</bdi>}
+            value={<bdi dir="ltr">{formatUptimeLocalized(health?.uptimeSeconds, locale)}</bdi>}
           />
           <KeyValue
             label={t('settings.about.data_dir')}

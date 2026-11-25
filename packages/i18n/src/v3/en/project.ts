@@ -52,6 +52,8 @@ export default {
   'project.run_restart': 'Start over',
   'project.run_failed_banner': 'This run failed before completion. You can start over.',
   'project.run_cancelled_banner': 'This run was cancelled. You can start over whenever you wish.',
+  'project.retry_hint.stage_failed': 'Check model provider configuration and retry stage',
+  'project.retry_hint.provider_required': 'Configure a provider route for this role in Settings → Models',
   'project.run_cancel_open': 'Cancel run',
   'project.run_cancel_confirm': 'Yes, cancel the run',
   'project.run_cancel_dialog_title': 'Cancel current run',

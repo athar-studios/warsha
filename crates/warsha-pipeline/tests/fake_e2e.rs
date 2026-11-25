@@ -38,7 +38,11 @@ use warsha_providers::{
 use warsha_store::Store;
 
 /// The stage roles a full walk executes, in stage order.
-const STAGE_ROLES: [Role; 8] = [
+///
+/// Intake is first: `advance_to_next_gate` executes the Idea stage before any
+/// later role (H-2). A router that omits it panics `NoProviderRouted(Intake)`.
+const STAGE_ROLES: [Role; 9] = [
+    Role::Intake,
     Role::Researcher,
     Role::PM,
     Role::Designer,

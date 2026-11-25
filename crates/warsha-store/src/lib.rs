@@ -653,7 +653,43 @@ impl Store {
             let version = column_int(&row, "version")?.unsigned_abs();
             run.status = RunStatus::Paused;
             run.updated_at = Utc::now();
-            self.update_run_cas(&run, version).await?;
+            // A benign VersionConflict means another writer (a late intake task, or a
+            // concurrent recovery) already moved the row. Retry once with the fresh
+            // version; if it conflicts again, log and continue so daemon start never
+            // fails on a race that left the run in a settled state (H-3).
+            match self.update_run_cas(&run, version).await {
+                Ok(_) => {}
+                Err(StoreError::VersionConflict {
+                    expected, actual, ..
+                }) => {
+                    tracing::warn!(
+                        run_id = %run.id.0,
+                        expected,
+                        actual,
+                        "recover_interrupted_runs hit VersionConflict; retrying once"
+                    );
+                    let fresh = match self.get_run_version(run.id).await {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::warn!(
+                                run_id = %run.id.0,
+                                error = %e,
+                                "could not re-read version after VersionConflict; skipping run"
+                            );
+                            continue;
+                        }
+                    };
+                    if let Err(e) = self.update_run_cas(&run, fresh).await {
+                        tracing::warn!(
+                            run_id = %run.id.0,
+                            error = %e,
+                            "recover_interrupted_runs retry failed; skipping run so daemon start continues"
+                        );
+                        continue;
+                    }
+                }
+                Err(e) => return Err(e),
+            }
 
             let event = Event {
                 id: Ulid::new(),
