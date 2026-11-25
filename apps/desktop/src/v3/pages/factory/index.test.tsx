@@ -73,10 +73,10 @@ function createMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
   } as unknown as WarshaClient;
 }
 
-function renderFactory(client: WarshaClient) {
+function renderFactory(client: WarshaClient, locale: 'en' | 'ar' = 'en') {
   return render(
     <ClientProvider client={client}>
-      <I18nProvider initialLocale="en">
+      <I18nProvider initialLocale={locale}>
         <FactoryPage />
       </I18nProvider>
     </ClientProvider>
@@ -137,6 +137,46 @@ describe('Factory floor (E3)', () => {
   it('shows the swarm banner for runs with subtasks', async () => {
     renderFactory(createMockClient());
     await waitFor(() => expect(screen.getAllByTestId(/^factory-swarm-/).length).toBeGreaterThan(0));
+  });
+
+  it('localizes the list action, role, and cost in both languages', async () => {
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([run('run-1', 'running')]),
+      subscribeRun: vi.fn().mockResolvedValue({
+        seq: 1,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: null,
+        events: [event({ kind: 'agent_step', role: 'intake', costCents: 1 })],
+      }),
+    });
+    const { unmount } = renderFactory(client, 'en');
+    await waitFor(() => expect(screen.getAllByTestId(/^factory-agent-/).length).toBeGreaterThan(0));
+    fireEvent.keyDown(window, { key: 'l' });
+    const english = await screen.findByTestId('factory-list-row-run-1:intake');
+    expect(english.querySelector('[data-testid="factory-list-action"]')?.textContent).toBe(
+      'Agent step'
+    );
+    expect(english.querySelector('[data-testid="factory-list-role"]')?.textContent).toBe('Intake');
+    expect(english.querySelector('[data-testid="factory-list-cost"]')?.textContent).toBe('1¢');
+    expect(english.textContent).not.toContain('agent_step');
+    expect(english.querySelector('[data-testid="factory-list-role"]')?.textContent).not.toBe(
+      'intake'
+    );
+    unmount();
+
+    renderFactory(client, 'ar');
+    await waitFor(() => expect(screen.getAllByTestId(/^factory-agent-/).length).toBeGreaterThan(0));
+    fireEvent.keyDown(window, { key: 'l' });
+    const arabic = await screen.findByTestId('factory-list-row-run-1:intake');
+    expect(arabic.querySelector('[data-testid="factory-list-action"]')?.textContent).toBe(
+      'خطوة الوكيل'
+    );
+    expect(arabic.querySelector('[data-testid="factory-list-role"]')?.textContent).toBe('الاستلام');
+    expect(arabic.querySelector('[data-testid="factory-list-cost"]')?.textContent).toBe('1 سنت');
+    expect(arabic.textContent).not.toContain('¢');
+    expect(arabic.textContent).not.toContain('agent_step');
   });
 
   it('toggles the list view by keypress and the aria-live region announces it', async () => {

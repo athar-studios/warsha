@@ -1,5 +1,14 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — floor caption once per station, list through the catalogs
+
+- **Worktree**: `.agents/worktrees/fix-floor-r3`, branch `r-next/fix-floor-r3`. No push, no merge. FIXES COMPLETE is not declared.
+- **Decisions**: D-RN-FLOOR-R3-1, D-RN-FLOOR-R3-2.
+- **What changed**: six agents waiting at one station share one "Needs you" caption, centered on the station, instead of six middle-anchored copies 56 units apart that painted on top of each other and ran past the floor. Marker spacing is the station width minus a 16-unit inset, so the six circles stay inside the station box. The factory list routes the role through `roleLabel`, the last action through `actionLabel`, and the cost through `factory.cost_cents` — the same catalogs the panel uses.
+- **Evidence** (this worktree, node_modules symlinked from the main checkout and removed after):
+  - `apps/desktop` vitest `src/v3/pages/factory` — 4 files, 31 tests passed, 0 failed. Started with `node ./node_modules/vitest/vitest.mjs run`. Both symlinks were removed.
+- **Not run**: cargo, policy check. No Rust change.
+
 ## Run 2026-11-26 — residuals: untracked diffs and the e2e event race
 
 - **Worktree**: `.agents/worktrees/fix-residuals`, branch `r-next/fix-residuals`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.

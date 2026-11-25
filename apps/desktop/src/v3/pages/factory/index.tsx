@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useClient } from '../../app/ClientContext';
 
-import { AgentPanel, lastFileOf } from './AgentPanel';
+import { actionLabel, AgentPanel, lastFileOf, roleLabel } from './AgentPanel';
 import { Floor } from './Floor';
 import type { AgentStatus } from './state';
 import { placeWaitingAgents, reduceEvents } from './state';
@@ -286,14 +286,14 @@ export const FactoryPage: React.FC = () => {
                   <td>
                     <bdi className="factory-mono">{agent.runId}</bdi>
                   </td>
-                  <td>
-                    <bdi dir="ltr">{agent.role ?? '—'}</bdi>
+                  <td data-testid="factory-list-role">
+                    <bdi dir="auto">{roleLabel(agent.role, t)}</bdi>
                   </td>
-                  <td>
-                    <bdi dir="auto">{agent.lastAction}</bdi>
+                  <td data-testid="factory-list-action">
+                    <bdi dir="auto">{actionLabel(agent.lastAction, t)}</bdi>
                   </td>
-                  <td>
-                    <bdi dir="ltr">{`${agent.costCents}¢`}</bdi>
+                  <td data-testid="factory-list-cost">
+                    <bdi dir="ltr">{t('factory.cost_cents', { cents: agent.costCents })}</bdi>
                   </td>
                 </tr>
               ))}
