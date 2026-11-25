@@ -29,7 +29,7 @@
   - `cargo test -p warshad --test e2e_real_arabic_request`: 2 passed, 0 failed.
   - `cargo test -p warshad --test e2e_request_to_artifact`: 1 passed, 0 failed.
   - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
-- **Status**: BLOCKER F-R20-1 COMPLETE — changes uncommitted for lead review.
+- **Status**: BLOCKER F-R20-1 COMPLETE — merged `f7cad98` into `r-next/integration` as `332e060` (reviewer correction applied). Tip gates green: fmt 0, clippy 0, pipeline 600/0, warshad 334/0, e2e_real_arabic_request 2/2, e2e_request_to_artifact 1/1, policy 8/0. Local-only.
 
 ## Run 2026-11-25 — Round 20 Minors m1-m3 (Apps Desktop UI Bundle)
 - **Worktree**: `.agents/worktrees/fix-r20-intake-dispatch` on `fix-r20-intake-dispatch`. Local-only: no push, no tag, no publish, `main` untouched. Left uncommitted for lead review.
