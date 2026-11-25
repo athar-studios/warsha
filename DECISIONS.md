@@ -1,6 +1,21 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-FLOOR-R3-1: one "Needs you" caption per station group
+
+A middle-anchored caption on every co-stationed marker is wider than any gap that still fits six circles inside the station box. At 56 units the English "Needs you" copies paint on top of each other, and six of them starting at x 650 run past the floor (view width 1000).
+
+- **Caption**: `showsNeedsYou` is true for the first `waiting_on_owner` agent of a station and false for the rest. The one caption is centered on that station, so it stays inside the box in both directions.
+- **Markers**: the gap is the station width minus a 16-unit inset, split across the row. Six circles stay inside the station and the floor. A seventh still wraps to the next row.
+- **Not now**: no new station, no CSS. FIXES COMPLETE is not declared.
+
+## 2026-11-26 — D-RN-FLOOR-R3-2: the factory list uses the panel catalogs
+
+The list printed the raw role id, the raw last action, and a literal cent glyph. The panel already named those three.
+
+- **Same helpers**: the list role goes through `roleLabel` (`settings.role.*`), the last action through `actionLabel` (`events.*`, and a bare `gate` through `events.gate_decision`), and the cost through `factory.cost_cents` (en "{cents}¢", ar "{cents} سنت"). No new catalog key, no literal glyph in the component.
+- **Not now**: no merge, no push. FIXES COMPLETE is not declared.
+
 ## 2026-11-26 — D-RN-RESIDUAL-1: untracked files enter the diff without staging, and the e2e event count is waited on
 
 The independent verifier at `claude-code-verify-clean1-2026-11-26.md` left two residuals.
