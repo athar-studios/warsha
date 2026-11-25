@@ -1,5 +1,16 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — CLEAN-1 desktop vitest regressions
+
+- **Worktree**: `.agents/worktrees/fix-vitest`, branch `r-next/fix-vitest`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.
+- **Decision**: D-RN-VITEST-1.
+- **What changed**: `listProvisioning` is resolved before `.catch`, so a client without the method no longer throws before the handler and blanks the Developers page. Both Developers test clients stub `listProvisioning`, and one test renders `developers-provisioning-row` from a non-empty record. `frame.mode_advanced` already said Developers / المطورون; `settings.general.mode.advanced` and `project.open_advanced` now say the same in en and ar. The Frame test expects المطورون.
+- **Evidence** (this worktree, node_modules symlinked from the main checkout and removed after):
+  - `apps/desktop` vitest `src/v3/pages/developers src/v3/pages/frame` — 4 files, 53 tests passed.
+  - `apps/desktop` vitest (no path filter) — 89 files, 801 tests passed, 0 failures. The first full run failed to resolve `@codemirror/commands` because the main checkout had not installed it; `pnpm install --offline --ignore-scripts --filter warsha-desktop...` filled that hole in the shared checkout, and the re-run was green.
+  - `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures.
+- **Not run**: cargo. No Rust change.
+
 ## Run 2026-11-26 — factory panel names the agent state
 
 - **Worktree**: `.agents/worktrees/fix-panel`, branch `r-next/fix-panel`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.

@@ -76,7 +76,7 @@ export default {
   'settings.general.mode': 'Default mode',
   'settings.general.mode.simple': 'Simple',
   'settings.general.mode.factory': 'Factory',
-  'settings.general.mode.advanced': 'Advanced',
+  'settings.general.mode.advanced': 'Developers',
   'settings.general.sound': 'Sound cues',
   'settings.general.sound.desc':
     'A short tone when a decision is waiting and when a run finishes. This device only, off by default.',

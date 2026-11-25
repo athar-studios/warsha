@@ -72,7 +72,7 @@ export default {
   'settings.general.mode': 'الوضع الافتراضي',
   'settings.general.mode.simple': 'بسيط',
   'settings.general.mode.factory': 'المصنع',
-  'settings.general.mode.advanced': 'متقدّم',
+  'settings.general.mode.advanced': 'المطورون',
   'settings.general.sound': 'تنبيهات صوتية',
   'settings.general.sound.desc':
     'نغمة قصيرة عند وصول قرار ينتظرك، وأخرى عند انتهاء التشغيل. لهذا الجهاز فقط، ومتوقّفة افتراضيًّا.',

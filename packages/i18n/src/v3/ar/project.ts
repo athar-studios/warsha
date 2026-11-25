@@ -14,7 +14,7 @@ export default {
   'project.permissions.sheet_title': 'أذونات المشروع',
   'project.permissions.save': 'احفظ لهذا المشروع',
   'project.permissions.reset': 'استخدم الأذونات الافتراضية',
-  'project.open_advanced': 'الوضع المتقدّم',
+  'project.open_advanced': 'المطورون',
   'project.menu_label': 'خيارات المشروع',
   'project.current_status': 'الحالة الحالية',
   'project.stage_now': 'المرحلة الحالية: {stage}',

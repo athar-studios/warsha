@@ -203,7 +203,7 @@ describe('Frame component', () => {
     await renderFrame({ locale: 'ar' });
     expect(screen.getByText('ورشة')).toBeDefined();
     expect(screen.getByText('بسيط')).toBeDefined();
-    expect(screen.getByText('متقدّم')).toBeDefined();
+    expect(screen.getByText('المطورون')).toBeDefined();
   });
 
   it('counts inbox decisions strictly at each run current stage from gates.list', async () => {

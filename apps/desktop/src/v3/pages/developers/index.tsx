@@ -126,7 +126,11 @@ const DevelopersPage: React.FC = () => {
         const [runList, budgetStatus, assigned] = await Promise.all([
           client.listRuns(projectId),
           client.getProjectBudget(projectId).catch(() => null),
-          client.listProvisioning(projectId).catch(() => null),
+          // A missing method throws before .catch can attach. Resolve first so
+          // an older client, or a test double, still loads the run list.
+          Promise.resolve()
+            .then(() => client.listProvisioning(projectId))
+            .catch(() => null),
         ]);
         if (cancelled) return;
         setRuns(runList);
