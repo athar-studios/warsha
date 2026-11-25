@@ -1,6 +1,23 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-25 — D-RN-CLEAN1-PROOF: proofcalc is the proof project, and it does not run yet
+
+The small real project a later Warsha run will build end to end is specified, not executed.
+
+- **Spec**: `docs/proof-project/SPEC.md`. Crate `proofcalc`, library only, four pure functions, no I/O, no network, no dependencies. `src/scaffold.rs` owns `add`, `src/domain.rs` owns `Money::checked_add`, `src/engine.rs` owns `apply_fee`, `src/provider.rs` owns the `RateSource` trait. `src/lib.rs` mods and re-exports the four. `tests/proof.rs` calls each once.
+- **Disjoint lanes**: the four implementation files share no path and do not import each other. A later plan must declare them as four numbered items with one `files:` marker each (`src/scaffold.rs`, `src/domain.rs`, `src/engine.rs`, `src/provider.rs`). A missing marker runs alone, and `SwarmScheduler::has_overlap` serializes two subtasks that list the same path. `src/lib.rs` and `tests/proof.rs` name every module, so they are sequential follow-ups, not a fifth parallel lane.
+- **Not now**: this spec is the proof project. Execution waits until the harness lane and the Secretary lane have landed on `r-next/integration`. No daemon, no swarm enablement, no model API, no Rust change in this packet.
+
+## 2026-11-25 — D-RN-CLEAN1-1: mock swarm writes declared files, and a lane reserves the unspent share
+
+CLEAN-1 needs four real files from a swarm Code stage with no model and no coding CLI. The production CLI backends stay unchanged.
+
+- **Fixture switch**: `BuiltinBackend` writes nothing unless `WARSHA_CODING_BACKEND_FIXTURE` is exactly `materialize`. That path parses the `Declared files:` line the swarm runtime already puts on the task, writes one small valid file per relative path under the subtask worktree, and returns those paths. Absolute paths and `..` are refused. A real CLI backend never reads the switch. Unset keeps the historical no-write success.
+- **Plan markers**: `FakeProvider`'s `plan_tasks` body is four numbered tasks with disjoint `files:` markers. Metadata is prose, not `- ` lines, because `decompose` treats every list item as a subtask and a subtask with no files runs alone. The title stays `# Fake Task Plan`. Overlap and runs-alone rules are unchanged.
+- **Reservation**: `try_reserve` still errors with `subtask budget cap reached` and keeps its signature. Each new reservation is an equal share of what is still unspent (`remaining / max_parallel`), not `total / max_parallel` stacked on top of spend. A stage that recorded a few cents before Code was making `spend + N * (total / N)` exceed the budget, so the fourth lane waited until one settled (observed peak 3). Release pops the oldest held cap so a settle frees the amount that was reserved. A fifth reservation still fails. A spent-out budget still fails.
+- **Witness**: the dispatcher joins the first handle before it can start a fourth instant task, so a store poll of `Dispatched` can miss the peak. The fixture counts in-flight `execute` calls. The daemon test asserts that peak is 4, the four files are on `warsha/run-{id}` via `git show`, and `runs.subtasks` has four `Succeeded` rows. The test does not write those files itself.
+- **Walk**: `projects.create` → `runs.start` (budget) → `budget.set`, then `swarm.project.set` before Code. Intake is the walk `runs.start` already spawns. `runs.advance` is used only after a gate approval. Every role is routed to the in-process fake. No keychain, no model API.
 ## 2026-11-25 — D-RN-CLEAN1-D: The Secretary prompt is fixed in code, and staffing persists a provisioning record
 
 Lane D (Secretary HR), packet PART 1 only. Playwright and the UX report are not this lane.

@@ -1,6 +1,9 @@
 use super::*;
 use warsha_providers::{InMemorySecretStore, OneClickProvider};
 
+#[cfg(unix)]
+mod clean1_swarm;
+
 #[test]
 fn the_default_backend_kit_comes_from_the_run_project() {
     let kit = default_backend_kit("Shop");

@@ -1,5 +1,24 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — CLEAN-1 proof project spec (docs only)
+
+- **Worktree**: `.agents/worktrees/clean1-swarm`, branch `r-next/clean1-swarm`, base `77dd1ea`. No push, no merge, `main` untouched. No daemon, swarm not enabled, no model API, no Rust change.
+- **Decision**: D-RN-CLEAN1-PROOF.
+- **Spec**: `docs/proof-project/SPEC.md` — crate `proofcalc`, four disjoint lane files (`src/scaffold.rs`, `src/domain.rs`, `src/engine.rs`, `src/provider.rs`) plus `src/lib.rs` and `tests/proof.rs`. Execution waits until the harness lane and the Secretary lane have landed on `r-next/integration`.
+
+## Run 2026-11-25 — CLEAN-1 swarm four lanes (mock, local only)
+
+- **Worktree**: `.agents/worktrees/clean1-swarm`, branch `r-next/clean1-swarm`, base `c7520f8`. No push, no merge, `main` untouched.
+- **Decision**: D-RN-CLEAN1-1.
+- **What landed**: `BuiltinBackend` materializes declared files only when `WARSHA_CODING_BACKEND_FIXTURE=materialize`. `FakeProvider` `plan_tasks` emits four disjoint `files:` markers so the scheduler can run four lanes. `BudgetReservations` reserves a share of the unspent budget and releases the oldest held cap, so a few cents of prior spend no longer refuses the fourth lane. The daemon test `tests::clean1_swarm::clean1_swarm_four_lanes_materialize_real_files` drives `projects.create` → `runs.start` → `budget.set`, enables swarm at 4, routes every role to the fake, and checks peak 4, four non-empty files on the run branch, and four succeeded subtasks.
+- **Evidence** (all with `CARGO_INCREMENTAL=0`, from this worktree):
+  - `cargo fmt --all -- --check` — pass.
+  - `cargo clippy --workspace --all-targets -- -D warnings` — pass, no warnings.
+  - `cargo test -p warsha-pipeline --test d5_swarm_engine -- --test-threads=8` — 8 passed.
+  - `cargo test -p warshad --lib tests::clean1_swarm::clean1_swarm_four_lanes_materialize_real_files -- --exact` — 1 passed (1.48s).
+  - `cargo test -p warsha-pipeline --test swarm_budget` — 2 passed (original cap plus prior-spend regression).
+  - `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures.
+- **Not in this packet**: no UI, no new wire mode, no keychain, no model API. Production CLI backends do not read the fixture switch.
 ## Run 2026-11-25 — Lane D Secretary HR (PART 1)
 
 - **Worktree**: `.agents/worktrees/lane-d-secretary`, branch `r-next/lane-d-secretary`, base `c7520f8`. No merge, no push.
