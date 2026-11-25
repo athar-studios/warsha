@@ -5,6 +5,7 @@ import {
   GATE_QUESTIONS,
   getGateQuestionKey,
   getSimpleStageLabelKey,
+  stageSentenceLabelKey,
   toSimpleStage,
   type DaemonStage,
 } from './stages';
@@ -71,6 +72,16 @@ describe('stages copy mapping', () => {
 
   it('falls back safely for unknown stage', () => {
     expect(toSimpleStage('unknown_stage')).toBe('idea');
+  });
+
+  it('names a gate on the project stage sentence and leaves the Simple map alone', () => {
+    expect(stageSentenceLabelKey('gate_a')).toBe('project.gate.gate_a');
+    expect(stageSentenceLabelKey('gate_b')).toBe('project.gate.gate_b');
+    expect(stageSentenceLabelKey('gate_c')).toBe('project.gate.gate_c');
+    expect(stageSentenceLabelKey('gate_d')).toBe('project.gate.gate_d');
+    expect(getSimpleStageLabelKey('gate_a')).toBe('stages.idea');
+    expect(stageSentenceLabelKey('code')).toBe('stages.build');
+    expect(stageSentenceLabelKey('idea')).toBe('stages.idea');
   });
 
   it('provides catalog keys for the 4 gate questions', () => {

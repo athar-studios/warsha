@@ -773,6 +773,28 @@ describe('ProjectPage component', () => {
     });
   });
 
+  it('names Gate A on a Gate A decision instead of the Simple Idea label', async () => {
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([AWAITING_GATE_RUN]),
+    });
+    renderProject(client, '/p/proj-1', 'en');
+    await waitFor(() => {
+      expect(screen.getByTestId('project-latest-sentence').textContent).toContain('Gate A');
+    });
+    expect(screen.getByTestId('project-latest-sentence').textContent).not.toContain('Idea');
+  });
+
+  it('names the same gate in Arabic', async () => {
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([AWAITING_GATE_RUN]),
+    });
+    renderProject(client, '/p/proj-1', 'ar');
+    await waitFor(() => {
+      expect(screen.getByTestId('project-latest-sentence').textContent).toContain('البوابة أ');
+    });
+    expect(screen.getByTestId('project-latest-sentence').textContent).not.toContain('الفكرة');
+  });
+
   it('renders runmode-chip for a plan fixture row and none for agent rows', async () => {
     // Agent run: no runmode chip
     const agentClient = createMockClient({

@@ -5,7 +5,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { Floor, markerPosition } from './Floor';
+import { Floor, markerPosition, markerRoleKey } from './Floor';
 import type { AgentStatus } from './state';
 
 const t = (key: string): string => key;
@@ -104,6 +104,38 @@ describe('Factory floor geometry', () => {
     const idle = markerPosition(agent({ state: 'idle', stage: null }), 0, [agent()]);
     expect(idle.stationKey).toBeNull();
     expect(idle.y).toBe(258);
+  });
+
+  it('spreads agents that share a station so Needs-you labels do not share one point', () => {
+    const waiting = Array.from({ length: 6 }, (_, index) =>
+      agent({
+        key: `run-${index}:intake`,
+        runId: `run-${index}`,
+        role: 'intake',
+        state: 'waiting_on_owner',
+        stage: 'gate_a',
+      })
+    );
+    const positions = waiting.map((status, index) => markerPosition(status, index, waiting));
+    expect(positions.every((position) => position.stationKey === 'gates')).toBe(true);
+    const xs = positions.map((position) => position.x);
+    expect(new Set(xs).size).toBe(6);
+    for (let index = 1; index < xs.length; index += 1) {
+      expect(xs[index] - xs[index - 1]).toBeGreaterThanOrEqual(48);
+    }
+    expect(positions.every((position) => position.y === positions[0].y)).toBe(true);
+  });
+
+  it('paints the catalog short role, not a three-character slice of the role id', () => {
+    expect(markerRoleKey('intake')).toBe('factory.role.intake');
+    expect(markerRoleKey(null)).toBe('factory.panel.unknown');
+    draw('ltr', [
+      agent({ key: 'run-1:intake', role: 'intake', state: 'waiting_on_owner', stage: 'gate_a' }),
+    ]);
+    const marker = screen.getByTestId('factory-agent-run-1:intake');
+    const initials = marker.querySelector('text');
+    expect(initials?.textContent).toBe('factory.role.intake');
+    expect(initials?.textContent).not.toBe('int');
   });
 
   it('draws markers with declared status tokens only', () => {
