@@ -8830,3 +8830,131 @@ async fn active_run_with_fresh_working_session_is_not_reaped() {
         "no error events should be emitted for healthy active run"
     );
 }
+
+/// A completed interview writes one provisioning row per rostered agent.
+///
+/// The walk is the desktop order: `projects.create`, then `interview.start` and
+/// `interview.turn` on the real handlers, then `secretary.provisioning.list`.
+/// The provider is the in-process mock. No key, no network.
+#[tokio::test]
+async fn secretary_interview_completion_writes_one_provisioning_row_per_rostered_agent() {
+    let temp = crate::test_util::fresh_tempdir();
+    let mut router = ProviderRouter::new();
+    router.register_provider(Box::new(warsha_providers::MockProvider::new("mock")));
+    router.set_role_routing(RoleRouting {
+        role: Role::Secretary,
+        targets: vec![RoutingTarget {
+            provider_id: "mock".to_string(),
+            model_id: "mock-model".to_string(),
+            weight: 100,
+        }],
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    });
+    let (state, store) = test_state_with_router(temp.path(), router).await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+
+    let project = rpc
+        .create_project(
+            &owner,
+            "Payments bakery".to_string(),
+            "A checkout for a bakery".to_string(),
+            "en".to_string(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("project created");
+
+    let start = rpc
+        .interview_start(&owner, project.id, None)
+        .await
+        .expect("interview starts");
+    assert!(
+        matches!(
+            start,
+            crate::secretary::TurnOutcome::NextQuestion {
+                topic: crate::secretary::Topic::Audience,
+                ..
+            }
+        ),
+        "a fresh interview asks the audience first"
+    );
+
+    // Topic order is fixed: audience, problem, status quo, scope, constraints,
+    // success, non-goals. The mock answers are not JSON, so each reply lands in
+    // the active slot. Payments plus a dashboard hire Security and the data expert.
+    let replies = [
+        "Bakery owners who take card payments",
+        "Checkout fails when the card reader drops",
+        "A paper book and a card machine, which lose the sale",
+        "Card checkout, a daily sales dashboard",
+        "Offline-first, Arabic RTL, under $20/month",
+        "Complete a card payment without a dropped sale",
+        "No payroll in v1",
+    ];
+    let mut done = false;
+    for reply in replies {
+        let outcome = rpc
+            .interview_turn(&owner, project.id, reply.to_string())
+            .await
+            .expect("interview turn");
+        if matches!(outcome, crate::secretary::TurnOutcome::Done { .. }) {
+            done = true;
+            break;
+        }
+    }
+    assert!(done, "the seventh turn presents the roster");
+
+    let rows = rpc
+        .secretary_provisioning_list(&owner, project.id)
+        .await
+        .expect("provisioning list");
+    let stored = store
+        .list_provisioning(project.id.0)
+        .await
+        .expect("store read");
+    assert_eq!(rows, stored, "the RPC is the store read the desktop uses");
+
+    let ids: Vec<&str> = rows.iter().map(|row| row.agent_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["data", "pm", "reviewer", "secretary", "security"],
+        "one row per rostered agent, ordered by agent id"
+    );
+    for row in &rows {
+        assert!(!row.skills.is_empty(), "{} has skills", row.agent_id);
+        assert!(!row.source.is_empty(), "{} has a source", row.agent_id);
+        assert!(row.audited, "{} is audited", row.agent_id);
+        assert!(
+            !row.source.contains("sk-"),
+            "{} source is not a secret",
+            row.agent_id
+        );
+    }
+    let secretary = rows
+        .iter()
+        .find(|row| row.agent_id == "secretary")
+        .expect("secretary row");
+    assert!(
+        secretary.tools.is_empty(),
+        "the catalog assigns the Secretary no tools, and that empty assignment is stored"
+    );
+    assert!(rows
+        .iter()
+        .any(|row| row.agent_id != "secretary" && !row.tools.is_empty()));
+    assert_eq!(
+        rows.iter()
+            .find(|row| row.agent_id == "security")
+            .map(|row| row.role.as_str()),
+        Some("security")
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|row| row.agent_id == "data")
+            .map(|row| row.role.as_str()),
+        Some("researcher")
+    );
+}

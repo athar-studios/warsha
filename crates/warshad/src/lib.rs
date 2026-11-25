@@ -4668,6 +4668,8 @@ use std::path::Path;
 #[cfg(test)]
 use warsha_backends::BackendFactory;
 #[cfg(test)]
+use warsha_core::{RoleRouting, RoutingTarget};
+#[cfg(test)]
 use warsha_pipeline::{
     BackendKind, InMemoryCrashReportStore, InMemoryMcpManager, InMemoryPairingStore,
     InMemoryPreferenceStore, InMemoryProcessManager, InMemoryStoreReviewStore, LivePreviewManager,

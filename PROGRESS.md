@@ -1,5 +1,17 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — provisioning write on interview completion
+
+- **Worktree**: `.agents/worktrees/fix-provision`, branch `r-next/fix-provision`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.
+- **Decision**: D-RN-PROV-1.
+- **What changed**: a completed interview (`finalize_and_persist`) assesses the brief, calls `propose_staffing`, and `persist_proposal` writes one `agent_provisioning` row per rostered agent. The proposal stays proposed. No new event kind, no prompt change, schema 019 unchanged.
+- **Evidence** (this worktree, stdout redirected):
+  - `cargo test -p warshad --lib staffing` — 1 passed, 0 failed, 343 filtered out.
+  - `cargo test -p warshad --lib secretary_` — 29 passed, 0 failed, 315 filtered out.
+  - `cargo test -p warshad --lib secretary_interview_completion_writes_one_provisioning_row_per_rostered_agent` — 1 passed, 0 failed, 343 filtered out.
+  - `cargo fmt --all -- --check` — clean. `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures.
+- **Not exercised**: owner acceptance of a roster. No such handler exists. The walk is `projects.create` → `interview.start` → seven `interview.turn` calls → `secretary.provisioning.list`.
+
 ## Run 2026-11-26 — CLEAN-1 desktop vitest regressions
 
 - **Worktree**: `.agents/worktrees/fix-vitest`, branch `r-next/fix-vitest`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.
