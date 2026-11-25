@@ -12,14 +12,17 @@
 //! own test binary so the PATH mutation cannot race other tests.
 //!
 //! `which` and `Command::new("opencode")` search the process PATH, not
-//! `sandbox.env`. The test therefore prepends only the fake bin, asserts
-//! `command -v opencode` is that fake, and refuses to execute otherwise.
+//! `sandbox.env`. The OpenCode test therefore prepends only the fake bin,
+//! asserts `command -v opencode` is that fake, and refuses to execute
+//! otherwise. The untracked-file test does not touch PATH.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use warsha_backends::{BackendFactory, CodingTask, FileAction, Sandbox, TaskFile};
+use warsha_backends::{
+    BackendFactory, CliBackend, CodingBackend, CodingTask, FileAction, Sandbox, TaskFile,
+};
 use warsha_core::RunId;
 
 const PROOF_REL: &str = "src/lane_a_proof.rs";
@@ -210,5 +213,127 @@ async fn opencode_backend_on_path_writes_nonempty_rs_into_git_diff() {
     assert!(
         porcelain.contains(PROOF_REL),
         "file must be git-visible, status: {porcelain}"
+    );
+}
+
+/// A backend that writes a new file and does not `git add` it must still
+/// report that file in `diff`. This does not touch PATH: the existing test
+/// above is the only one that prepends a fake `opencode`.
+#[tokio::test]
+async fn untracked_file_written_without_git_add_is_in_the_diff() {
+    const REL: &str = "src/untracked_proof.rs";
+    const MARKER: &str = "untracked_without_git_add";
+
+    let repo = tempfile::tempdir().expect("repo tempdir");
+    let bin = tempfile::tempdir().expect("bin tempdir");
+    std::fs::write(repo.path().join("README.md"), "untracked base\n").expect("base file");
+    git(repo.path(), &["init", "-q"]);
+    git(repo.path(), &["config", "user.email", "lane-a@example.com"]);
+    git(repo.path(), &["config", "user.name", "Lane A"]);
+    git(repo.path(), &["add", "README.md"]);
+    git(repo.path(), &["commit", "-qm", "base"]);
+
+    let proof_body = format!(
+        "/// Written by a fake backend that does not stage.\n\
+         pub fn {MARKER}() -> u32 {{\n    \
+         1\n\
+         }}\n"
+    );
+    let script = format!(
+        "set -eu\nmkdir -p src\ncat > {REL} << 'END_OF_PROOF'\n{proof_body}END_OF_PROOF\nexit 0"
+    );
+    assert!(
+        !script.contains("git add"),
+        "this fake must not stage; capture has to see an untracked file"
+    );
+    let fake = publish_fake(bin.path(), "fake-backend", &script);
+
+    let backend = CliBackend::new(
+        "fake-untracked",
+        fake.to_str().expect("utf8 fake path"),
+        vec![],
+    );
+    let sandbox = Sandbox::new(repo.path().to_path_buf());
+    let task = CodingTask {
+        id: ulid::Ulid::new(),
+        run_id: RunId::new(),
+        title: "Write an untracked proof".to_string(),
+        description: "Add a file and do not git add it".to_string(),
+        repo_path: repo.path().to_path_buf(),
+        worktree_path: Some(repo.path().to_path_buf()),
+        branch_name: "warsha/run-untracked".to_string(),
+        base_branch: "HEAD".to_string(),
+        files: vec![TaskFile {
+            path: REL.to_string(),
+            content: String::new(),
+            action: FileAction::Create,
+        }],
+        context: std::collections::HashMap::from([(
+            "coding_cli_timeout_seconds".to_string(),
+            "15".to_string(),
+        )]),
+    };
+
+    let mut last_err = None;
+    let mut result = None;
+    for _ in 0..5 {
+        match backend.execute(task.clone(), &sandbox).await {
+            Ok(res) => {
+                result = Some(res);
+                break;
+            }
+            Err(err) => {
+                let msg = err.to_string();
+                if msg.contains("Text file busy") || msg.contains("os error 26") {
+                    last_err = Some(msg);
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    continue;
+                }
+                panic!("fake backend execute failed: {err}");
+            }
+        }
+    }
+    let result = result.unwrap_or_else(|| {
+        panic!(
+            "fake backend execute failed after ETXTBSY retries, last: {}",
+            last_err.unwrap_or_default()
+        )
+    });
+
+    assert!(result.success, "fake backend must exit 0");
+    let diff = result
+        .diff
+        .expect("an untracked new file must still be in the diff");
+    assert!(
+        diff.contains(REL) && diff.contains(MARKER),
+        "diff must show the untracked source, got: {diff}"
+    );
+    assert!(
+        result.files_changed.iter().any(|path| path == REL),
+        "files_changed must include {REL}, got {:?}",
+        result.files_changed
+    );
+
+    let status = Command::new("git")
+        .current_dir(repo.path())
+        .args(["status", "--porcelain", "-u", "--", REL])
+        .output()
+        .expect("git status");
+    assert!(status.status.success(), "git status failed");
+    let porcelain = String::from_utf8_lossy(&status.stdout);
+    assert!(
+        porcelain.contains("??") && porcelain.contains(REL),
+        "file must still be untracked (capture must not stage), status: {porcelain}"
+    );
+    let cached = Command::new("git")
+        .current_dir(repo.path())
+        .args(["diff", "--cached", "--stat"])
+        .output()
+        .expect("git diff --cached");
+    assert!(cached.status.success(), "git diff --cached failed");
+    assert!(
+        String::from_utf8_lossy(&cached.stdout).trim().is_empty(),
+        "capture must not stage, cached diff: {}",
+        String::from_utf8_lossy(&cached.stdout)
     );
 }
