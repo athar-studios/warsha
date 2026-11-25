@@ -3459,5 +3459,12 @@ D-RN-FIX-LAUNCH-1: Hardening launch, token validation, and relay stub (P10).
   - `node scripts/check-ds-v3.mjs apps/desktop/src/v3 packages/ui/src/v3`: 0 violations (exit 0).
   - `vitest` (`bench.test.tsx`, `CodingEnginesSection.test.tsx`, `Home.test.tsx`, `Onboarding.test.tsx`): 4 test files, 86 passed (exit 0).
 
+## D-RN-CLEAN1-C — Native copy on Simple, Factory, and Developers
 
+- **Date**: 2026-11-25
+- **Decision**: Rewrite only catalog strings on the Simple (home, project, frame mode switch), Factory, and Developers screens that read as a literal translation, a raw key, or a machine calque. Keys stay stable. Arabic is MSA product copy; English is product copy, not Arabic syntax translated back.
+- **Rewritten**: `home.defaults_prefix`, `home.interview_enough`, `home.status_idle`, `home.summary_failed`, `factory.idleDuration`, `factory.panel.currentAction` (ar), `factory.listView`, `developers.unknown` (en), `developers.not_routed_yet`, `developers.table.backend` (ar), `developers.cost.packet` (ar), `developers.cost.packet_def` (ar), `project.gate_reject_title`, `project.gate_reject_description`, `project.activity_toggle`, `project.run_cancel_dialog_desc`, `frame.mode_advanced`, `settings.role.architect` (ar), `settings.role.intake` (ar), `settings.role.security` (ar).
+- **Left**: strings pinned by desktop tests (`home.inbox_single`, `home.status_cancelled`, `home.status_paused`, `home.status_failed`, `project.run_failed_banner`, `project.retry_hint.stage_failed`, `developers.error`, `developers.budget`). `settings.role.feedback` / `settings.role.qa` already read as native role names.
+- **Alternatives**: rename `frame.mode_advanced` to `frame.mode_developers` — rejected, the key is wired in `Frame.tsx` and the task forbids unused renames; translate every remaining pair — rejected, the task is calques only, not a full rewrite.
+- **Reason**: the mode switch still said Advanced while the screen is Developers; several Arabic labels were verb phrases used as definition-list terms, or dictionary glosses of the English role names.
 
