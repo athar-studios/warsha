@@ -297,6 +297,7 @@ mod tests {
             .start_run(project_id, "Idea for cancellation test")
             .await
             .unwrap();
+        crate::test_util::mark_intake_done(&store, run.id).await;
         engine.advance_stage(run.id).await.unwrap(); // -> GateA
         engine
             .approve_gate(run.id, Stage::GateA, DeviceId::new())
@@ -482,6 +483,7 @@ mod tests {
         }
 
         let mut run = engine.start_run(project_id, "Budget test").await.unwrap();
+        crate::test_util::mark_intake_done(&_store, run.id).await;
         // Set tight budget of 10 cents; provider charges 25 cents per call.
         run = engine.set_run_budget(run.id, 10).await.unwrap();
         assert_eq!(run.budget_cents, Some(10));
@@ -537,6 +539,7 @@ mod tests {
             .start_run(project_id, "Interrupted test")
             .await
             .unwrap();
+        crate::test_util::mark_intake_done(&store, run.id).await;
         engine.advance_stage(run.id).await.unwrap(); // -> GateA
         engine
             .approve_gate(run.id, Stage::GateA, DeviceId::new())
@@ -575,7 +578,9 @@ mod tests {
         let (_store, engine, project_id, _router) = test_fixture().await;
 
         let run1 = engine.start_run(project_id, "Run 1").await.unwrap();
+        crate::test_util::mark_intake_done(&_store, run1.id).await;
         let run2 = engine.start_run(project_id, "Run 2").await.unwrap();
+        crate::test_util::mark_intake_done(&_store, run2.id).await;
 
         let (r1, r2) = tokio::join!(engine.advance_stage(run1.id), engine.advance_stage(run2.id));
 

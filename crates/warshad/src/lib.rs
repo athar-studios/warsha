@@ -990,34 +990,19 @@ impl WarshaApiServer for WarshaRpc {
 
         let run = apply_start_budget(&self.state, project_id, run, budget_cents).await?;
 
-        // F-R20-1: Execute initial Idea (intake) stage in Agent/Simple mode so the intake
-        // agent runs, creates session and brief artifact, and advances to GateA for supervisor approval.
-        // (Plan and SpecFile modes early-returned at line 850).
+        // F-R20-1 / R21-B2 / M-1: Dispatch initial Idea (intake) stage in a spawned task
+        // for non-zero-budget Agent/Simple runs, returning Running run immediately.
+        // Intake runs asynchronously, advancing to GateA on success or surfacing
+        // Paused + provider_required immediately when unrouted, without blocking runs.start
+        // on a slow or hung provider.
         if run.budget_cents != Some(0) {
-            let env_has_key = warsha_providers::EnvLlmConfig::from_env()
-                .map(|c| c.api_key.is_some())
-                .unwrap_or(false);
-            let intake_routed = self
-                .state
-                .providers
-                .read()
-                .await
-                .route(Role::Intake)
-                .is_some()
-                || env_has_key
-                || std::env::var("WARSHA_LLM_PROVIDER")
-                    .map(|v| v.trim() == "fake")
-                    .unwrap_or(false);
-
-            if intake_routed {
-                let run = self
-                    .state
-                    .pipeline
-                    .advance_to_next_gate(run.id)
-                    .await
-                    .map_err(rpc_error)?;
-                return Ok(run);
-            }
+            let pipeline = self.state.pipeline.clone();
+            let run_id = run.id;
+            tokio::spawn(async move {
+                if let Err(err) = pipeline.advance_to_next_gate(run_id).await {
+                    warn!(run_id = %run_id.0, "async intake dispatch failed: {err}");
+                }
+            });
         }
 
         Ok(run)

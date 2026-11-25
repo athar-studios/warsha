@@ -399,6 +399,8 @@ async fn approving_a_gate_the_run_has_not_reached_is_refused() {
         .start_run(project_id, "Build an invoice app")
         .await
         .expect("run starts");
+    crate::test_util::mark_intake_done(&store, run.id).await;
+
     assert_eq!(run.current_stage, Stage::Idea);
 
     // At Idea, even the first gate (GateA) and future gates (GateB, GateD) are unreached.
@@ -470,6 +472,7 @@ async fn approving_the_current_gate_succeeds_once() {
         .start_run(project_id, "Build a task board")
         .await
         .expect("run starts");
+    crate::test_util::mark_intake_done(&store, run.id).await;
     let at_gate_a = engine
         .advance_stage(run.id)
         .await
@@ -534,6 +537,7 @@ async fn the_gate_decision_event_carries_the_artifacts_hash() {
         .start_run(project_id, "Build a clinic scheduler")
         .await
         .expect("run starts");
+    crate::test_util::mark_intake_done(&store, run.id).await;
 
     // Record an explicit artifact on the run before reaching GateA.
     engine
@@ -582,6 +586,7 @@ async fn the_gate_decision_event_carries_the_artifacts_hash() {
         .start_run(project_id, "Build a clinic scheduler")
         .await
         .expect("second run starts");
+    crate::test_util::mark_intake_done(&store, run2.id).await;
     engine
         .upsert_artifact(
             run2.id,
