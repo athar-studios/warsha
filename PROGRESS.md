@@ -20,7 +20,9 @@
   - `cargo test -p warsha-cli --test mcp_serve binary_stdio_mcp_round_trip_against_loopback_daemon`: exit 0, 1 passed.
   - `node scripts/check-engineering-policy.mjs`: exit 0 (`8 checks, 0 failures`).
   - Desktop vitest was not run: this worktree cannot resolve it without the root `node_modules`. The assertion is in `Project.test.tsx`.
-- **Status**: ROUND-21 REVIEW-3 COMPLETE — left uncommitted. Local-only. No brooks score.
+- **Status**: merged into `r-next/integration` as `fd12fd7` (lane `64b82b3`). Independent review of `126103f..fd12fd7` returned CLEAR. Tree untouched by the reviewer. Local-only. No push, no tag, `main` untouched. No brooks score.
+- **Lead verification on the lane before merge**: `specfile_idea_resume_skips_intake_and_keeps_owner_brief` 1 passed; `resume_` 4 passed; `mcp_serve` round-trip 1 passed; `cargo fmt --all -- --check` 0; `cargo clippy --workspace --all-targets -- -D warnings` 0; `node scripts/check-engineering-policy.mjs` 8/0; `Project.test.tsx` 18 passed via a temporary symlink to the root `node_modules` (removed after).
+- **Not a regression, not folded**: a SpecFile run rejected at GateA still dispatches Intake on resume through `crates/warsha-pipeline/src/lib.rs:2320-2322`. That path is identical at `e9c9b3d`.
 
 ## Run 2026-11-25 — Round 21 Review-2 (HIGH-1, HIGH-2, MEDIUM-1..3, LOW-1..3)
 
