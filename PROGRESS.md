@@ -9392,3 +9392,10 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 - Verdict: JUDGE PASS, 100/100. Record: `/tmp/judge-clean1-round6.md`.
 - The Judge ran the full desktop suite itself and wrote `/tmp/judge-r6-vitest.log`: 89 files, 809 passed, 0 failed. The coordinator read that log.
 - The caption is painted once per station group. The list uses `roleLabel`, `actionLabel` and `factory.cost_cents`, the same catalogs as the panel.
+
+## Run 2026-11-26 — Judge pass for the swarm race
+
+- Commit `3dcb4fe` (merged here) judged by lane `lane-judge-clean1-20261126` before the merge.
+- Verdict: JUDGE PASS, 100/100. Record: `/tmp/judge-clean1-round7.md`. Log: `/tmp/judge-r7-swarm.log`, 2 passed in 3.60s.
+- The primary route and the first fallback both failed before this pass. Nemotron produced nothing for twenty minutes. `openrouter/cohere/north-mini-code:free` returned 404, no longer served. The pass came from `openrouter/openrouter/free`, the last recorded fallback.
+- The lock is held across the env mutation and the walk. The peak-4 assertion is unchanged.
