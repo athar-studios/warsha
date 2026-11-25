@@ -25,7 +25,7 @@ import {
 } from '@warsha/ui/v3';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import { formatRelativeDuration } from '../../../date';
+import { formatRelativeDurationLocalized } from '../../../date';
 import { useAction } from '../../actions';
 import { useCapabilities } from '../../app/CapabilitiesContext';
 import { useClient } from '../../app/ClientContext';
@@ -989,51 +989,54 @@ export default function HomePage(): React.ReactElement {
         {needsYou.length > 0 && (
           <div role="region" aria-label={t('home.needsyou.title')} data-testid="home-needsyou">
             <ul className="v3-home-needsyou" aria-label={t('home.needsyou.title')}>
-              {needsYou.map((row) => (
-                <li
-                  key={row.key}
-                  className="v3-home-needsyou-row"
-                  data-testid={`home-needsyou-row-${row.key}`}
-                  data-kind={row.kind}
-                  data-run-id={row.runId}
-                  data-project-id={row.projectId ?? undefined}
-                >
-                  <span className="v3-home-needsyou-label">{t(row.labelKey)}</span>
-                  <span className="v3-home-needsyou-subject">{row.subject}</span>
-                  <span className="v3-home-needsyou-wait">
-                    {t('home.needsyou.since', {
-                      duration: formatRelativeDuration(row.since),
-                      since: formatRelativeDuration(row.since),
-                    })}
-                  </span>
-                  {row.kind === 'failed' && (
-                    <Button
-                      variant="primary"
-                      data-action="home.run.retry"
-                      disabled={retryRunAction.pending}
-                      onClick={() => {
-                        if (row.projectId === null || retryRunAction.pending) return;
-                        retryProjectIdRef.current = row.projectId;
-                        void retryRunAction.run();
+              {needsYou.map((row) => {
+                const sinceText = formatRelativeDurationLocalized(row.since, locale);
+                return (
+                  <li
+                    key={row.key}
+                    className="v3-home-needsyou-row"
+                    data-testid={`home-needsyou-row-${row.key}`}
+                    data-kind={row.kind}
+                    data-run-id={row.runId}
+                    data-project-id={row.projectId ?? undefined}
+                  >
+                    <span className="v3-home-needsyou-label">{t(row.labelKey)}</span>
+                    <span className="v3-home-needsyou-subject">{row.subject}</span>
+                    <span className="v3-home-needsyou-wait">
+                      {t('home.needsyou.since', {
+                        duration: sinceText,
+                        since: sinceText,
+                      })}
+                    </span>
+                    {row.kind === 'failed' && (
+                      <Button
+                        variant="primary"
+                        data-action="home.run.retry"
+                        disabled={retryRunAction.pending}
+                        onClick={() => {
+                          if (row.projectId === null || retryRunAction.pending) return;
+                          retryProjectIdRef.current = row.projectId;
+                          void retryRunAction.run();
+                        }}
+                      >
+                        {t('home.retry')}
+                      </Button>
+                    )}
+                    <a
+                      href={row.href}
+                      className="v3-home-needsyou-open"
+                      data-action="home.needsyou.open"
+                      data-testid={`home-needsyou-open-${row.key}`}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        navigate(row.href);
                       }}
                     >
-                      {t('home.retry')}
-                    </Button>
-                  )}
-                  <a
-                    href={row.href}
-                    className="v3-home-needsyou-open"
-                    data-action="home.needsyou.open"
-                    data-testid={`home-needsyou-open-${row.key}`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      navigate(row.href);
-                    }}
-                  >
-                    {t('home.needsyou.open')}
-                  </a>
-                </li>
-              ))}
+                      {t('home.needsyou.open')}
+                    </a>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

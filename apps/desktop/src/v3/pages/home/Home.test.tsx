@@ -1082,6 +1082,56 @@ describe('Round 12 F2 + F13: Home screen gate cards with real client', () => {
       vi.useRealTimers();
     }
   });
+
+  it('m3: renders Arabic duration units with no Latin m/s on the waiting gate card', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const fixedNow = new Date('2026-10-04T09:15:30.000Z');
+    vi.setSystemTime(fixedNow);
+
+    try {
+      installRealDaemonFetch({
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'Warsha Store',
+            created_at: '2026-10-01T08:00:00.000Z',
+            updated_at: '2026-10-02T09:00:00.000Z',
+          },
+        ],
+        runsByProject: {
+          'proj-1': [
+            {
+              id: 'run-parked-1',
+              project_id: 'proj-1',
+              current_stage: 'gate_a',
+              status: 'awaiting_gate',
+              started_at: '2026-10-04T08:00:00.000Z',
+              updated_at: '2026-10-04T09:00:00.000Z',
+              run_mode: 'agent',
+            },
+          ],
+        },
+      });
+
+      const realClient = createClient('http://127.0.0.1:8766', 'test-token');
+      await renderHome({ client: realClient, locale: 'ar' });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('home-needsyou')).toBeInTheDocument();
+      });
+
+      const gateA = document.querySelector(
+        '[data-testid="home-needsyou-row-gate-run-parked-1-gate_a"]'
+      );
+      const waitElement = gateA?.querySelector('.v3-home-needsyou-wait');
+      expect(waitElement?.textContent).toBe('ينتظر منذ 15د 30ث');
+      // No Latin unit abbreviations or raw timestamps leak into the Arabic render.
+      expect(waitElement?.textContent).not.toMatch(/\d[mhsd]\b/);
+      expect(waitElement?.textContent).not.toContain('2026');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('buildNeedsYou unit logic', () => {

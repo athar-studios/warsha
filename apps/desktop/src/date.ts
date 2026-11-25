@@ -89,41 +89,89 @@ export function formatTime(
   }).format(date);
 }
 
+interface DurationUnits {
+  d: string;
+  h: string;
+  m: string;
+  s: string;
+}
+
+const DURATION_UNITS_EN: DurationUnits = {
+  d: 'd',
+  h: 'h',
+  m: 'm',
+  s: 's',
+};
+
+const DURATION_UNITS_AR: DurationUnits = {
+  d: 'ي',
+  h: 'س',
+  m: 'د',
+  s: 'ث',
+};
+
+/** Coerce a seconds value (number or numeric string) into a whole non-negative number, or null. */
+function coerceSeconds(seconds: unknown): number | null {
+  let sec: number;
+  if (typeof seconds === 'number') {
+    sec = seconds;
+  } else if (typeof seconds === 'string') {
+    const trimmed = seconds.trim();
+    if (trimmed.length === 0) return null;
+    sec = Number(trimmed);
+  } else {
+    return null;
+  }
+  if (!Number.isFinite(sec) || sec < 0) return null;
+  return Math.floor(sec);
+}
+
+function unitsForLocale(locale: string): DurationUnits {
+  return locale === 'ar' ? DURATION_UNITS_AR : DURATION_UNITS_EN;
+}
+
+function renderDuration(total: number, u: DurationUnits): string {
+  if (total < 60) {
+    return `${total}${u.s}`;
+  }
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  if (h < 1) {
+    return `${m}${u.m} ${s}${u.s}`;
+  }
+  if (h < 24) {
+    return `${h}${u.h} ${m}${u.m} ${s}${u.s}`;
+  }
+  const d = Math.floor(h / 24);
+  const remH = h % 24;
+  return `${d}${u.d} ${remH}${u.h} ${m}${u.m}`;
+}
+
 /**
  * Format uptime seconds into human-readable duration (`45s`, `2m 5s`, `3h 12m 4s`, `2d 4h 10m`).
  *
  * Falls back to `—` for null, undefined, negative numbers, or non-finite inputs.
  */
 export function formatUptime(seconds: unknown, fallback: string = DATE_FALLBACK): string {
-  let sec: number;
-  if (typeof seconds === 'number') {
-    sec = seconds;
-  } else if (typeof seconds === 'string') {
-    const trimmed = seconds.trim();
-    if (trimmed.length === 0) return fallback;
-    sec = Number(trimmed);
-  } else {
-    return fallback;
-  }
+  const total = coerceSeconds(seconds);
+  if (total === null) return fallback;
+  return renderDuration(total, DURATION_UNITS_EN);
+}
 
-  if (!Number.isFinite(sec) || sec < 0) return fallback;
-
-  const total = Math.floor(sec);
-  if (total < 60) {
-    return `${total}s`;
-  }
-  const s = total % 60;
-  const m = Math.floor(total / 60) % 60;
-  const h = Math.floor(total / 3600);
-  if (h < 1) {
-    return `${m}m ${s}s`;
-  }
-  if (h < 24) {
-    return `${h}h ${m}m ${s}s`;
-  }
-  const d = Math.floor(h / 24);
-  const remH = h % 24;
-  return `${d}d ${remH}h ${m}m`;
+/**
+ * Format uptime seconds with the duration units of `locale` (`45ث`, `2د 5ث`, `3س 12د 4ث`, `2ي 4س 10د` for `ar`).
+ *
+ * Falls back to `—` for null, undefined, negative numbers, or non-finite inputs.
+ */
+export function formatUptimeLocalized(
+  seconds: unknown,
+  locale: string,
+  fallback: string = DATE_FALLBACK
+): string {
+  const total = coerceSeconds(seconds);
+  if (total === null) return fallback;
+  return renderDuration(total, unitsForLocale(locale));
 }
 
 /**
@@ -143,3 +191,20 @@ export function formatRelativeDuration(
   return formatUptime(elapsedSec, fallback);
 }
 
+/**
+ * Format relative duration from an ISO timestamp to now using the duration units of `locale`.
+ *
+ * Uses `formatUptimeLocalized` to produce compact, scannable durations (`45ث`, `2د 5ث` for `ar`).
+ * Falls back to `—` for null, undefined, unparseable, or invalid inputs.
+ */
+export function formatRelativeDurationLocalized(
+  iso: unknown,
+  locale: string,
+  nowMs: number = Date.now(),
+  fallback: string = DATE_FALLBACK
+): string {
+  const date = parseSafeDate(iso);
+  if (date === null) return fallback;
+  const elapsedSec = Math.max(0, Math.floor((nowMs - date.getTime()) / 1000));
+  return formatUptimeLocalized(elapsedSec, locale, fallback);
+}
