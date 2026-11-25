@@ -4408,7 +4408,11 @@ mod runs_start_budget {
             .await
             .expect("runs.start succeeds after budget.set");
         assert_eq!(second.budget_cents, Some(500));
-        assert_eq!(second.spent_cents, 1);
+        // M-1: intake is dispatched on a background task, so the 1-cent charge it
+        // records lands just after `runs.start` returns.
+        await_intake_settled(&store, second.id).await;
+        let settled = store.get_run(second.id).await.expect("the run is read");
+        assert_eq!(settled.spent_cents, 1);
     }
 
     /// D-R11-BUDGET-1: the budget passed to `runs.start` is the budget the run
@@ -4525,6 +4529,9 @@ mod runs_start_budget {
             .await
             .expect("start_run must succeed");
         assert_eq!(run.budget_cents, Some(2500));
+        // M-1: intake is dispatched on a background task, so the 1-cent charge it
+        // records lands just after `runs.start` returns.
+        await_intake_settled(&_store, run.id).await;
 
         // 5. show_budget after run creation must report the pending cents stored on the run (not None)
         let post_run_status = rpc
@@ -7955,6 +7962,10 @@ mod agent_tool_events {
             )
             .await
             .expect("the run starts");
+        // M-1: intake runs on a background task, so wait for it to finish before
+        // the router is emptied — otherwise the intake call itself would be the
+        // one that records the pause.
+        await_intake_settled(&store, paused_run.id).await;
         *state.providers.write().await = ProviderRouter::new();
         rpc.advance_run(&owner_ext(), paused_run.id)
             .await
@@ -8447,6 +8458,28 @@ async fn cancel_during_hung_stage_stops_promptly() {
     );
 }
 
+/// Wait until the intake dispatch `runs.start` spawns in the background (M-1) has
+/// settled: the run left the Idea stage, or it stopped running altogether.
+///
+/// Before M-1 `runs.start` ran intake inline, so a test could read the store the
+/// instant it returned. Now the caller returns a Running run at Idea and intake
+/// lands a moment later, so a test that cares about the state *after* intake has
+/// to wait for it here.
+async fn await_intake_settled(store: &Store, run_id: RunId) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Ok(run) = store.get_run(run_id).await {
+            if run.current_stage != Stage::Idea || run.status != RunStatus::Running {
+                return;
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
 /// F-R20-1: start_run in Agent/Simple mode executes initial Idea (intake) stage
 /// with mock provider, creating a session row, updating brief/idea artifacts,
 /// and advancing to GateA for supervisor approval.
@@ -8482,11 +8515,34 @@ async fn start_run_in_agent_mode_executes_intake_and_advances_to_gate_a() {
         .await
         .expect("start_run succeeds");
 
+    // M-1: start_run returns Running run immediately
+    assert_eq!(
+        run.status,
+        RunStatus::Running,
+        "start_run must return Running run immediately"
+    );
+
+    // Poll store until background intake completes and advances to GateA
+    let start_time = std::time::Instant::now();
+    let mut updated_run = store.get_run(run.id).await.unwrap();
+    while start_time.elapsed() < std::time::Duration::from_secs(5) {
+        updated_run = store.get_run(run.id).await.unwrap();
+        let events = store.get_events(run.id).await.unwrap_or_default();
+        if updated_run.current_stage == Stage::GateA
+            && events
+                .iter()
+                .any(|ev| ev.kind == EventKind::StageStarted && ev.stage == Stage::GateA)
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
     // Must advance beyond Stage::Idea to Stage::GateA
     assert_eq!(
-        run.current_stage,
+        updated_run.current_stage,
         Stage::GateA,
-        "start_run must execute intake and reach GateA"
+        "intake execution must reach GateA"
     );
 
     // Session row for Intake must exist and be Done
@@ -8527,6 +8583,73 @@ async fn start_run_in_agent_mode_executes_intake_and_advances_to_gate_a() {
         .iter()
         .any(|ev| ev.kind == EventKind::StageStarted && ev.stage == Stage::GateA);
     assert!(started_gate_a, "must emit StageStarted for GateA");
+}
+
+/// R21-B2: Unrouted runs.start in Agent mode (no route, no env key, no fake)
+/// surfaces Paused + provider_required immediately, without a 180s stall.
+#[tokio::test]
+async fn unrouted_agent_run_start_pauses_immediately_with_provider_required() {
+    let temp = crate::test_util::fresh_tempdir();
+    let empty_router = ProviderRouter::new();
+    let (state, store) = test_state_with_router(temp.path(), empty_router).await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+
+    let project = rpc
+        .create_project(
+            &owner,
+            "Unrouted Intake Project".to_string(),
+            "A test project for unrouted intake".to_string(),
+            "en".to_string(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("project created");
+
+    let run = rpc
+        .start_run(
+            &owner,
+            project.id,
+            "unrouted idea".to_string(),
+            Some("agent".to_string()),
+            None,
+            Some(2500),
+        )
+        .await
+        .expect("start_run succeeds");
+
+    // Poll the store briefly (with a short timeout like 2s, NOT 180s watchdog wait)
+    // to verify the run records Paused + provider_required immediately. The error
+    // event is appended just after the status CAS, so the loop waits for both.
+    let start_time = std::time::Instant::now();
+    let mut reloaded = store.get_run(run.id).await.unwrap();
+    let mut provider_required = false;
+    while start_time.elapsed() < std::time::Duration::from_secs(2) {
+        reloaded = store.get_run(run.id).await.unwrap();
+        let events = store.get_events(run.id).await.unwrap_or_default();
+        provider_required = events.iter().any(|ev| {
+            ev.kind == EventKind::Error
+                && ev.payload.get("action").and_then(|v| v.as_str()) == Some("provider_required")
+        });
+        if reloaded.status == RunStatus::Paused && provider_required {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+
+    assert_eq!(
+        reloaded.status,
+        RunStatus::Paused,
+        "unrouted run must be Paused immediately, but was {:?}",
+        reloaded.status
+    );
+
+    assert!(
+        provider_required,
+        "unrouted run must record Error event with action 'provider_required'"
+    );
 }
 
 /// F-R20-1: A run stalled at a non-gate stage without any sessions for longer than

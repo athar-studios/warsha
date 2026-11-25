@@ -890,15 +890,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 let idea_done = sessions.iter().any(|s| {
                     s.role == Role::Intake && s.status == warsha_core::SessionStatus::Done
                 });
-                let env_has_key = warsha_providers::EnvLlmConfig::from_env()
-                    .map(|c| c.api_key.is_some())
-                    .unwrap_or(false);
-                let intake_routed = self.providers.read().await.route(Role::Intake).is_some()
-                    || env_has_key
-                    || std::env::var("WARSHA_LLM_PROVIDER")
-                        .map(|v| v.trim() == "fake")
-                        .unwrap_or(false);
-                if !idea_done && intake_routed {
+                if !idea_done {
                     self.execute_stage_with_feedback(&mut run, &mut version, ctrl, None)
                         .await?;
                     if run.status == RunStatus::Failed || run.status == RunStatus::Paused {
@@ -1890,22 +1882,16 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             run.status = RunStatus::Failed;
         }
         run.updated_at = Utc::now();
-        if let Err(store_error) = self.store.update_run_cas(run, version).await {
-            warn!(
-                "the failed-run write for run {} did not land: {store_error}",
-                run.id.0
-            );
-        } else if !is_unrouted && !was_terminal {
-            // The run's end, written in the same guard as the status that ends it: a
-            // lost CAS writes neither. A paused run is not over and says nothing.
-            let finished = run_finished_event(run.id, stage, "failed", None);
-            if let Err(store_error) = self.store.append_event(&finished).await {
+        let cas_ok = match self.store.update_run_cas(run, version).await {
+            Ok(_) => true,
+            Err(store_error) => {
                 warn!(
-                    "the run_finished event for run {} did not land: {store_error}",
+                    "the failed-run write for run {} did not land: {store_error}",
                     run.id.0
                 );
+                false
             }
-        }
+        };
 
         let action = if is_unrouted {
             "provider_required"
@@ -1941,6 +1927,19 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 "the {action} event for run {} did not land: {store_error}",
                 run.id.0
             );
+        }
+
+        if cas_ok && !is_unrouted && !was_terminal {
+            // The run's end, written in the same guard as the status that ends it: a
+            // lost CAS writes neither. A paused run is not over and says nothing.
+            // LOW #2: error event is written before run_finished event.
+            let finished = run_finished_event(run.id, stage, "failed", None);
+            if let Err(store_error) = self.store.append_event(&finished).await {
+                warn!(
+                    "the run_finished event for run {} did not land: {store_error}",
+                    run.id.0
+                );
+            }
         }
 
         // The scrubbed message only: an API key is never a log line's content
@@ -3833,6 +3832,7 @@ mod tests {
                 .start_run(project.id, "Build a todo app")
                 .await
                 .expect("a run starts");
+            crate::test_util::mark_intake_done(store, run.id).await;
             let at_gate = engine
                 .advance_stage(run.id)
                 .await
@@ -4046,6 +4046,7 @@ mod tests {
                 .start_run(project.id, "Build a todo app")
                 .await
                 .expect("a run starts");
+            crate::test_util::mark_intake_done(store, run.id).await;
             let at_gate = engine
                 .advance_stage(run.id)
                 .await
@@ -4132,6 +4133,7 @@ mod tests {
                 .start_run(project.id, "Build a todo app")
                 .await
                 .expect("a run starts");
+            crate::test_util::mark_intake_done(&store, run.id).await;
             engine
                 .advance_stage(run.id)
                 .await
@@ -4413,6 +4415,20 @@ mod tests {
             assert!(
                 has_run_finished_failed,
                 "must emit run_finished failed event"
+            );
+
+            // LOW #2: Error event must appear before RunFinished
+            let error_idx = events
+                .iter()
+                .position(|ev| ev.kind == EventKind::Error)
+                .expect("must emit Error event");
+            let finished_idx = events
+                .iter()
+                .position(|ev| ev.kind == EventKind::RunFinished)
+                .expect("must emit RunFinished event");
+            assert!(
+                error_idx < finished_idx,
+                "Error event (idx {error_idx}) must precede RunFinished event (idx {finished_idx})"
             );
         }
 
