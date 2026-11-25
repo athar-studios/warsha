@@ -51,6 +51,7 @@ import { getEventKey } from '../../copy/events';
 import {
   getGateQuestionKey,
   getSimpleStageLabelKey,
+  stageSentenceLabelKey,
   toSimpleStage,
   type SimpleStage,
 } from '../../copy/stages';
@@ -880,7 +881,7 @@ export default function ProjectPage(): React.ReactElement {
             <>
               <span>
                 {t('project.stage_now', {
-                  stage: t(getSimpleStageLabelKey(currentRun.stage)),
+                  stage: t(stageSentenceLabelKey(currentRun.stage)),
                 })}
               </span>
               {latestEvent ? (

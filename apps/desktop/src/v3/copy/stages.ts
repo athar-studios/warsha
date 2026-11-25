@@ -68,6 +68,22 @@ export function getSimpleStageLabelKey(stage: DaemonStage | string): string {
   return SIMPLE_STAGE_LABEL_KEYS[simple];
 }
 
+const GATE_NAME_KEYS: Record<string, string> = {
+  gate_a: 'project.gate.gate_a',
+  gate_b: 'project.gate.gate_b',
+  gate_c: 'project.gate.gate_c',
+  gate_d: 'project.gate.gate_d',
+};
+
+/**
+ * Label for the project page's "current stage" sentence. A gate keeps its own
+ * name (Gate A), so a run sitting at Gate A does not read as the Simple "Idea"
+ * stage. Every other surface still uses getSimpleStageLabelKey.
+ */
+export function stageSentenceLabelKey(stage: DaemonStage | string): string {
+  return GATE_NAME_KEYS[stage] ?? getSimpleStageLabelKey(stage);
+}
+
 export function getGateQuestionKey(gate: 'a' | 'b' | 'c' | 'd' | string): string {
   const normalized = gate.toLowerCase();
   return (GATE_QUESTIONS as Record<string, string>)[normalized] ?? 'gate.question.a';
