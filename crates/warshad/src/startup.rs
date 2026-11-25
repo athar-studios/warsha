@@ -560,6 +560,7 @@ pub(crate) async fn start_daemon_with_interfaces(
         pairing_origin: std::sync::OnceLock::new(),
         events,
         start_time: std::time::Instant::now(),
+        intake_tasks: Arc::new(std::sync::Mutex::new(Vec::new())),
     });
 
     // The single writer of the event stream: drain the store's event bus, scrub each
@@ -830,6 +831,7 @@ pub(crate) async fn start_daemon_with_interfaces(
         // The daemon's own spawner, not a second one: the sweep at shutdown has to
         // see the children the RPCs started.
         processes: state.processes.clone(),
+        state: Some(state.clone()),
         // The runtime the servers are being driven on, kept so a handle that is
         // dropped without `shutdown` can still take its children with it. An `async fn`
         // only ever runs on a runtime, so asking for the current one cannot fail here.

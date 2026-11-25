@@ -991,18 +991,23 @@ impl WarshaApiServer for WarshaRpc {
         let run = apply_start_budget(&self.state, project_id, run, budget_cents).await?;
 
         // F-R20-1 / R21-B2 / M-1: Dispatch initial Idea (intake) stage in a spawned task
-        // for non-zero-budget Agent/Simple runs, returning Running run immediately.
+        // when the budget is not exactly zero (Plan and SpecFile modes do not reach this
+        // path; SpecFile takes the budget and Plan executes intake). A zero budget is
+        // already exhausted, so intake is not dispatched and the run stays at Idea.
         // Intake runs asynchronously, advancing to GateA on success or surfacing
         // Paused + provider_required immediately when unrouted, without blocking runs.start
-        // on a slow or hung provider.
+        // on a slow or hung provider. The task handle is tracked so shutdown can abort it.
         if run.budget_cents != Some(0) {
             let pipeline = self.state.pipeline.clone();
             let run_id = run.id;
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 if let Err(err) = pipeline.advance_to_next_gate(run_id).await {
                     warn!(run_id = %run_id.0, "async intake dispatch failed: {err}");
                 }
             });
+            if let Ok(mut tasks) = self.state.intake_tasks.lock() {
+                tasks.push(handle);
+            }
         }
 
         Ok(run)

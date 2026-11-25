@@ -244,6 +244,19 @@ async fn execute_stage_uses_harness_prompt_template_when_available() {
     router.register_provider(Box::new(CapturingProvider::new(captured_prompt.clone())));
 
     // Route Researcher to our capturing provider
+    // Idea executes Intake before the stage these tests capture, so the
+    // capturing provider must also answer Intake or advance panics
+    // NoProviderRouted(Intake).
+    router.set_role_routing(warsha_core::RoleRouting {
+        role: Role::Intake,
+        targets: vec![warsha_core::RoutingTarget {
+            provider_id: "capturing".to_string(),
+            model_id: "capturing-model".to_string(),
+            weight: 100,
+        }],
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    });
     router.set_role_routing(warsha_core::RoleRouting {
         role: Role::Researcher,
         targets: vec![warsha_core::RoutingTarget {
@@ -327,6 +340,19 @@ async fn execute_stage_prepends_enabled_skills_to_prompt() {
     router.register_provider(Box::new(CapturingProvider::new(captured_prompt.clone())));
 
     // Route Researcher to our capturing provider
+    // Idea executes Intake before the stage these tests capture, so the
+    // capturing provider must also answer Intake or advance panics
+    // NoProviderRouted(Intake).
+    router.set_role_routing(warsha_core::RoleRouting {
+        role: Role::Intake,
+        targets: vec![warsha_core::RoutingTarget {
+            provider_id: "capturing".to_string(),
+            model_id: "capturing-model".to_string(),
+            weight: 100,
+        }],
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    });
     router.set_role_routing(warsha_core::RoleRouting {
         role: Role::Researcher,
         targets: vec![warsha_core::RoutingTarget {
@@ -469,6 +495,19 @@ async fn execute_stage_combines_harness_template_and_skills() {
     router.register_provider(Box::new(CapturingProvider::new(captured_prompt.clone())));
 
     // Route Researcher to our capturing provider
+    // Idea executes Intake before the stage these tests capture, so the
+    // capturing provider must also answer Intake or advance panics
+    // NoProviderRouted(Intake).
+    router.set_role_routing(warsha_core::RoleRouting {
+        role: Role::Intake,
+        targets: vec![warsha_core::RoutingTarget {
+            provider_id: "capturing".to_string(),
+            model_id: "capturing-model".to_string(),
+            weight: 100,
+        }],
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    });
     router.set_role_routing(warsha_core::RoleRouting {
         role: Role::Researcher,
         targets: vec![warsha_core::RoutingTarget {
@@ -602,6 +641,19 @@ async fn execute_stage_uses_default_prompt_when_no_harness_template() {
     let mut router = ProviderRouter::new();
     router.register_provider(Box::new(CapturingProvider::new(captured_prompt.clone())));
 
+    // Idea executes Intake before the stage these tests capture, so the
+    // capturing provider must also answer Intake or advance panics
+    // NoProviderRouted(Intake).
+    router.set_role_routing(warsha_core::RoleRouting {
+        role: Role::Intake,
+        targets: vec![warsha_core::RoutingTarget {
+            provider_id: "capturing".to_string(),
+            model_id: "capturing-model".to_string(),
+            weight: 100,
+        }],
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    });
     router.set_role_routing(warsha_core::RoleRouting {
         role: Role::Researcher,
         targets: vec![warsha_core::RoutingTarget {

@@ -176,6 +176,17 @@ export function findRetryHint(events: readonly WarshaEvent[] | null | undefined)
   return '';
 }
 
+/** Map a daemon retry_hint sentence onto a catalog key, or '' when unknown. */
+export function retryHintKey(hint: string): string {
+  if (hint === 'Check model provider configuration and retry stage') {
+    return 'project.retry_hint.stage_failed';
+  }
+  if (hint === 'Configure a provider route for this role in Settings -> Models') {
+    return 'project.retry_hint.provider_required';
+  }
+  return '';
+}
+
 export function formatBudgetUsd(amount: number | null | undefined): string {
   const safe = typeof amount === 'number' && Number.isFinite(amount) ? amount : 0;
   return `$${safe.toFixed(2)}`;
@@ -520,10 +531,20 @@ export default function ProjectPage(): React.ReactElement {
   const isFailedOrCancelled =
     currentRun !== null && (currentRun.status === 'failed' || currentRun.status === 'cancelled');
 
+  // Paused + provider_required is the unrouted-intake pause (M-1). It is not a
+  // failure, but the owner still needs the same hint the daemon wrote on the event.
+  const isPausedProviderRequired =
+    currentRun !== null &&
+    currentRun.status === 'paused' &&
+    findRetryHint(eventsResult.data) ===
+      'Configure a provider route for this role in Settings -> Models';
+
+  const showRetryHint = isFailedOrCancelled || isPausedProviderRequired;
+
   const retryHint = useMemo(() => {
-    if (!isFailedOrCancelled) return '';
-    return findRetryHint(eventsResult.data);
-  }, [isFailedOrCancelled, eventsResult.data]);
+    if (!showRetryHint) return '';
+    return retryHintKey(findRetryHint(eventsResult.data));
+  }, [showRetryHint, eventsResult.data]);
 
   const statusPillState = computeRunStatusPill(currentRun, pendingGate);
   const statusLabels: Record<StatusPillState, string> = {
@@ -692,15 +713,21 @@ export default function ProjectPage(): React.ReactElement {
         </div>
       </header>
 
-      {/* Failed / Cancelled Banner */}
-      {isFailedOrCancelled && (
-        <Banner variant="danger" action={restartButton} data-testid="project-run-ended-banner">
+      {/* Failed / Cancelled Banner, or a paused unrouted-intake notice (M-2). */}
+      {(isFailedOrCancelled || (isPausedProviderRequired && retryHint)) && (
+        <Banner
+          variant={isFailedOrCancelled ? 'danger' : 'attention'}
+          action={isFailedOrCancelled ? restartButton : undefined}
+          data-testid={isFailedOrCancelled ? 'project-run-ended-banner' : 'project-paused-notice'}
+        >
           <div>
-            <div>
-              {currentRun.status === 'cancelled'
-                ? t('project.run_cancelled_banner')
-                : t('project.run_failed_banner')}
-            </div>
+            {isFailedOrCancelled ? (
+              <div>
+                {currentRun.status === 'cancelled'
+                  ? t('project.run_cancelled_banner')
+                  : t('project.run_failed_banner')}
+              </div>
+            ) : null}
             {retryHint ? (
               <div
                 className="v3-project-banner-retry-hint"

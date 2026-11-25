@@ -29,6 +29,7 @@ import ProjectPage, {
   extractTestArtifacts,
   findPendingGateAtCurrentStage,
   findRetryHint,
+  retryHintKey,
 } from './index';
 
 function ReadyInspector(): React.ReactElement {
@@ -478,6 +479,9 @@ describe('ProjectPage component', () => {
     expect(banner.textContent).toContain('This run failed before completion');
     const hintEl = screen.getByTestId('project-banner-retry-hint');
     expect(hintEl.textContent).toBe('Check model provider configuration and retry stage');
+    expect(retryHintKey('Check model provider configuration and retry stage')).toBe(
+      'project.retry_hint.stage_failed'
+    );
   });
 
   it('surfaces retry_hint in danger banner on failed run (Arabic) with RTL logical styling', async () => {
@@ -516,7 +520,9 @@ describe('ProjectPage component', () => {
     const banner = screen.getByTestId('project-run-ended-banner');
     expect(banner.textContent).toContain('تعثّر هذا التشغيل قبل الاكتمال');
     const hintEl = screen.getByTestId('project-banner-retry-hint');
-    expect(hintEl.textContent).toBe('Check model provider configuration and retry stage');
+    expect(hintEl.textContent).toBe('راجع إعداد مزوّد النموذج ثم أعد محاولة هذه المرحلة');
+    expect(hintEl.querySelector('bdi')?.getAttribute('dir')).toBe('auto');
+    expect((hintEl as HTMLElement).style.marginBlockStart).toBe('var(--w-space-1)');
   });
 
   it('keeps the danger banner free of a retry hint when no event carries one', async () => {

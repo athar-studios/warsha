@@ -2334,7 +2334,27 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 !run.artifacts
                     .contains_key(&stage_to_string(stage).to_lowercase())
             };
-            if needs_exec {
+            // An unrouted Idea pause writes the brief and then fails before the
+            // Intake session is marked Done, so resume would re-dispatch the missing
+            // provider and never settle. Record the session as Done and skip the
+            // re-dispatch; the advance below walks Idea to GateA.
+            if stage == Stage::Idea && run.artifacts.contains_key("brief") {
+                let session = warsha_core::Session {
+                    id: warsha_core::SessionId(Ulid::new()),
+                    run_id: Some(run.id),
+                    project_id: run.project_id,
+                    role: Role::Intake,
+                    backend: "pipeline".to_string(),
+                    provider: "unrouted".to_string(),
+                    model: "none".to_string(),
+                    status: warsha_core::SessionStatus::Done,
+                    started_at: Utc::now(),
+                    ended_at: Some(Utc::now()),
+                    parent_session_id: None,
+                    cli_session_id: None,
+                };
+                self.store.create_session(&session).await?;
+            } else if needs_exec {
                 self.execute_stage_with_feedback(&mut run, &mut version, &ctrl, None)
                     .await?;
                 if run.status != RunStatus::Running {
@@ -2417,8 +2437,15 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         let has_working_session = sessions
             .iter()
             .any(|s| s.status == warsha_core::SessionStatus::Working);
+        // A zero-budget Idea run was never dispatched (runs.start skips intake when
+        // budget_cents == Some(0), because the budget is already exhausted). It is not
+        // a stalled dispatch, so the no-session reap must not fail it with stage_failed
+        // (L-4). A later resume is what moves it, after the owner raises the budget.
+        let never_dispatched_zero_budget =
+            run.current_stage == Stage::Idea && run.budget_cents == Some(0);
         let is_stale_without_session = !has_working_session
             && !run.current_stage.is_gate()
+            && !never_dispatched_zero_budget
             && now.signed_duration_since(run.updated_at) > timeout_chrono;
 
         if stale_session.is_none() && !is_stale_without_session {

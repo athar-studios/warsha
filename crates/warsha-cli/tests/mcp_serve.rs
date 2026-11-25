@@ -374,6 +374,23 @@ async fn binary_stdio_mcp_round_trip_against_loopback_daemon() {
 
     // Approve gate_a via the owner daemon RPC directly (never via MCP), then confirm
     // pending_gates now reports only the 3 remaining pending gates.
+    // M-1: start returns at Idea and the unrouted intake pauses asynchronously,
+    // still at Idea. Wait for that settled pause. advance refuses a paused run, and
+    // resume re-dispatches Intake unless a Done Intake session already exists, so
+    // record one (the brief artifact is already written) and then resume.
+    let settle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let status = daemon_rpc_ok(rpc_port, "runs.get", json!([run_id.clone()])).await;
+        if status["status"] == "paused" {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < settle_deadline,
+            "run never settled to paused before resume: {status}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    daemon_rpc_ok(rpc_port, "runs.resume", json!([run_id.clone()])).await;
     daemon_rpc_ok(rpc_port, "runs.advance", json!([run_id.clone()])).await;
     daemon_rpc_ok(rpc_port, "gates.approve", json!([run_id.clone(), "gate_a"])).await;
 
