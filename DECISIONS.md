@@ -1,6 +1,15 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-25 — D-RN-CLEAN1-A: The coding stage already runs the selected CLI; prove OpenCode on PATH
+
+Lane A (external harness). No production wiring change.
+
+- **Already wired**: `code_stage_completion` resolves the coder backend and `commit_run_worktree` commits non-internal worktree changes after a successful CLI code stage. An unavailable selected CLI fails the stage with `the selected coding backend \`{name}\` is not installed`. It does not fall back to `BuiltinBackend`.
+- **Selection stays**: per-role coder backend, else project default, else settings `default_backend`, else `WARSHA_CODING_BACKEND`. `Ok(None)` keeps the routed provider. Forcing builtin on `Ok(None)` would skip that native path, so it was not changed.
+- **Settings**: the coding-engines list is the live catalog. OpenCode is already in `data/catalog/engines.json` (`command: "opencode"`). No new user-visible string.
+- **Proving gap**: the older opencode test overrides `command` to a full script path and writes `base.txt`. The lane-A test publishes a script named `opencode`, prepends only that directory to the process PATH (`which` and `Command::new` do not read `sandbox.env`), asserts `command -v opencode` is that fake, and refuses to execute otherwise. The fake writes `src/lane_a_proof.rs`, `git add`s it, and exits 0. No model API, keychain, or network.
+
 ## 2026-11-25 — D-R21-REVIEW3: SpecFile resume keeps the owner brief, and a stale pause hint is not current
 
 Independent review of `e9c9b3d..126103f` was NOT CLEAR. The three prior findings stay closed.
