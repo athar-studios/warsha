@@ -9326,3 +9326,15 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 - Accepted limits it restated: the proofcalc bytes come from templates, the titles that select them come from the FakeProvider's canned plan, and there is no owner-accept handler for a roster.
 - Residuals it carried and did not re-check: the `e2e_request_to_artifact` flake, overlapping "Needs you" labels, marker initials cut to "int", raw `agent_step` / `intake` / `¢` in the panel, and `capture_changes` missing untracked files.
 - FIXES COMPLETE is not declared.
+
+## Run 2026-11-26 — finish line, what is proven and what is not
+
+- Proven at tip `e28e978`, by the coordinator's runs and by the independent verifier's own runs (report `claude-code-verify-clean1-2026-11-26-r2.md`, first line CLEAR):
+  - Four lanes run in parallel. `tests::clean1_swarm` passes twice: once through the materialize fixture, once through `ScriptedBackend`, which selects the contract from the task title rather than the path. Peak concurrency is 4. The assembled crate's own `cargo test --offline` passes.
+  - The OpenCode wiring writes a real file, proven against a fake `opencode` on PATH, not against a live install.
+  - B1 and B2 are green (verifier's first pass, at `f0af034`).
+  - The desktop suite is green: 89 files, 801 tests, 0 failures, including the Developers and Frame tests that were red.
+  - A completed interview writes one provisioning row per rostered agent, read back through `secretary.provisioning.list`.
+  - The factory floor shows a gate wait at Your decisions, and the agent panel names the state.
+- Not proven, and the reason: no test may call a real model API, and the only key that would reach one lives in the OS keychain. The proofcalc bytes are rendered from templates. A live OpenCode install was not driven. FIXES COMPLETE is not declared.
+- Residuals carried forward: `e2e_request_to_artifact` is flaky (pre-existing race); overlapping "Needs you" labels; marker initials cut to "int"; raw `agent_step`, `intake` and `¢` in the panel; `capture_changes` misses untracked files.
