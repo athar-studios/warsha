@@ -1,5 +1,15 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — swarm walks no longer share the fixture switch
+
+- **Worktree**: `.agents/worktrees/fix-swarm-race`, branch `r-next/fix-swarm-race`, tip was `1f9b1c4`. No push, no merge. FIXES COMPLETE is not declared.
+- **Decision**: D-RN-SWARM-RACE-1.
+- **What changed**: `clean1_swarm_four_lanes_materialize_real_files` and `clean1_swarm_four_lanes_scripted_backend_derives_files` take `CLEAN1_SWARM_PROCESS_LOCK` for the whole walk, including the restore of `WARSHA_CODING_BACKEND_FIXTURE`. The materialize walk still requires peak 4. The scripted walk still derives its files from the title. The comment on the lock names the race: one walk's restore or `remove_var`, or one walk's `reset_fixture_materialize_peak`, was clearing the other's process-global switch and peak.
+- **Evidence** (this worktree, stdout redirected to `/tmp/swarm-race.log`):
+  - `CARGO_INCREMENTAL=0 cargo test -p warshad --lib tests::clean1_swarm -- --test-threads=8` — 2 passed, 0 failed, 0 ignored, 343 filtered out, finished in 3.52s. Both `clean1_swarm_four_lanes_materialize_real_files` and `clean1_swarm_four_lanes_scripted_backend_derives_files` passed. Compile of the test profile finished in 1m 29s before the run.
+  - `cargo fmt --all -- --check` — clean (exit 0, no diff).
+- **Not run**: full `cargo test --workspace`, clippy, policy check. No production change.
+
 ## Run 2026-11-26 — floor caption once per station, list through the catalogs
 
 - **Worktree**: `.agents/worktrees/fix-floor-r3`, branch `r-next/fix-floor-r3`. No push, no merge. FIXES COMPLETE is not declared.

@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-SWARM-RACE-1: the two CLEAN-1 swarm walks hold one named process lock
+
+`clean1_swarm_four_lanes_materialize_real_files` sets `WARSHA_CODING_BACKEND_FIXTURE=materialize`. `clean1_swarm_four_lanes_scripted_backend_derives_files` removes it. `FIXTURE_IN_FLIGHT` and `FIXTURE_PEAK` are process-global, and both walks call `reset_fixture_materialize_peak`. Beside each other, one walk restores or clears the switch while the other is inside `execute`, so the materialize path never writes and the peak stays at 2 (store 2, backend 0). One walk's reset can also zero the other's count.
+
+- **Lock**: `CLEAN1_SWARM_PROCESS_LOCK` in `crates/warshad/src/tests/clean1_swarm.rs`. Held from before the switch changes until after `FixtureEnv` restores it. The assertions are unchanged: the materialize walk must still reach peak 4, and the scripted walk must still derive each file from the lane title.
+- **Not a private switch**: `BuiltinBackend` still reads the process env at execute time. That is the switch a daemon started with the env would see. A second counter would not stop one walk from clearing the switch under the other.
+- **Not now**: no merge, no push. FIXES COMPLETE is not declared.
+
 ## 2026-11-26 — D-RN-FLOOR-R3-1: one "Needs you" caption per station group
 
 A middle-anchored caption on every co-stationed marker is wider than any gap that still fits six circles inside the station box. At 56 units the English "Needs you" copies paint on top of each other, and six of them starting at x 650 run past the floor (view width 1000).
