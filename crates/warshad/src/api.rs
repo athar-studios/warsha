@@ -1,5 +1,5 @@
 #![allow(clippy::too_many_arguments)]
-//! Wire-contract surface for the daemon: the `WarshaApi` JSON-RPC trait (97 methods)
+//! Wire-contract surface for the daemon: the `WarshaApi` JSON-RPC trait (98 methods)
 //! and the 15 DTOs it carries. Split out of `lib.rs` (P-H1 step A1, pure move).
 
 use chrono::Utc;
@@ -14,7 +14,7 @@ use warsha_pipeline::{
     Routine, RunModeConfig, RunWorktree, StoreReview, TodoItem,
 };
 use warsha_providers::{HealthCheck, OneClickProvider};
-use warsha_store::{SecretaryConversation, SecretaryTurn, StoredProvider};
+use warsha_store::{ProvisioningRecord, SecretaryConversation, SecretaryTurn, StoredProvider};
 
 use crate::mcp_approvals::{PermissionAskAccepted, PermissionDecision};
 use crate::{McpApproval, McpApprovalAnswer, McpPermissionRow, McpPermissionsReply, RunStreamSync};
@@ -160,6 +160,14 @@ pub trait WarshaApi {
         message: String,
         language: Option<String>,
     ) -> RpcResult<crate::secretary_chat::ChatTurnReply>;
+
+    /// The provisioning records the Secretary assigned for a project. Developers
+    /// mode reads this; Simple mode does not. Read-only.
+    #[method(name = "secretary.provisioning.list", with_extensions)]
+    async fn secretary_provisioning_list(
+        &self,
+        project_id: ProjectId,
+    ) -> RpcResult<Vec<ProvisioningRecord>>;
 
     #[method(name = "runs.start", with_extensions)]
     async fn start_run(

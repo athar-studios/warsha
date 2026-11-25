@@ -1,5 +1,12 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — Lane D Secretary HR (PART 1)
+
+- **Worktree**: `.agents/worktrees/lane-d-secretary`, branch `r-next/lane-d-secretary`, base `c7520f8`. No merge, no push.
+- **Decision**: D-RN-CLEAN1-D.
+- **Shipped**: `FIXED_SECRETARY_SYSTEM_PROMPT` served to chat and interview. Migration 019 `agent_provisioning`. `propose_staffing` writes a provisioning record for every rostered agent. Developers mode lists it via `secretary.provisioning.list` (ar + en).
+- **Out of scope, not done**: Playwright, UX report, FIXES COMPLETE, swarm, harness backends.
+- **Verification**: pending the lane gates.
 ## Lane C — native UI copy (Simple, Factory, Developers) — 2026-11-25
 
 - **Worktree**: `.agents/worktrees/lane-c-ui`, branch `r-next/lane-c-ui`, base `c7520f8`. Merged into `r-next/integration`.

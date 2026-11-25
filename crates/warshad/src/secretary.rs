@@ -44,6 +44,12 @@ pub const SECRETARY_QUESTIONING_SKILL_ID: &str = "secretary-interview";
 /// Bundled in-house questioning strategy (never copied from AGPL sources).
 pub const BUNDLED_QUESTIONING_SKILL: &str = include_str!("secretary_skill.md");
 
+/// The interview strategy appended under the fixed system prompt. An installed
+/// skill may replace this note; it cannot replace the fixed prompt.
+pub fn interview_strategy_note() -> &'static str {
+    BUNDLED_QUESTIONING_SKILL
+}
+
 /// Errors produced by the Secretary interview engine.
 #[derive(Debug, Error)]
 pub enum SecretaryError {
@@ -487,9 +493,9 @@ impl SecretaryEngine {
         }
     }
 
-    /// Resolve the active questioning strategy: an enabled installed
-    /// `secretary-interview` skill when present (C2 seam), otherwise the
-    /// bundled in-house skill (works with marketplaces disabled).
+    /// The questioning strategy note. An enabled installed `secretary-interview`
+    /// skill may refine the note (C2 seam). It never replaces the system prompt
+    /// served to the model: that is [`crate::secretary_chat::FIXED_SECRETARY_SYSTEM_PROMPT`].
     pub async fn questioning_skill(&self) -> String {
         if let Some(settings) = &self.settings {
             if let Ok(Some(skill)) = settings.get_skill(SECRETARY_QUESTIONING_SKILL_ID).await {
@@ -754,7 +760,8 @@ impl SecretaryEngine {
         latest_input: Option<&str>,
         is_seed: bool,
     ) -> Result<String, SecretaryError> {
-        let system_prompt = self.questioning_skill().await;
+        let strategy = self.questioning_skill().await;
+        let system_prompt = crate::secretary_chat::secretary_model_system_prompt_with(&strategy);
         let user_prompt = build_turn_prompt(state, latest_input, is_seed);
 
         let request = ChatRequest {
@@ -1144,6 +1151,8 @@ mod tests {
         calls: Arc<AtomicUsize>,
         canned_reply: Option<String>,
         cost_cents_per_call: u64,
+        /// The system message of the last chat call, when the test asked to keep it.
+        seen_system: Option<Arc<std::sync::Mutex<String>>>,
     }
 
     #[async_trait]
@@ -1179,6 +1188,15 @@ mod tests {
             request: ChatRequest,
         ) -> std::result::Result<ChatResponse, ProviderError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(slot) = &self.seen_system {
+                if let Some(system) = request
+                    .messages
+                    .iter()
+                    .find(|message| message.role == MessageRole::System)
+                {
+                    *slot.lock().expect("seen system") = system.content.clone();
+                }
+            }
             let content = self
                 .canned_reply
                 .clone()
@@ -1459,6 +1477,7 @@ mod tests {
             calls: calls.clone(),
             canned_reply: None,
             cost_cents_per_call: 50,
+            seen_system: None,
         };
         let (_dir, store, router, project_id) = test_env(Box::new(provider)).await;
 
@@ -1534,5 +1553,33 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(seeded, TurnOutcome::NextQuestion { .. }));
+    }
+
+    #[tokio::test]
+    async fn interview_serves_the_fixed_system_prompt() {
+        let seen = Arc::new(std::sync::Mutex::new(String::new()));
+        let provider = CountingProvider {
+            id: "mock".to_string(),
+            calls: Arc::new(AtomicUsize::new(0)),
+            canned_reply: Some("What is the audience?".to_string()),
+            cost_cents_per_call: 1,
+            seen_system: Some(Arc::clone(&seen)),
+        };
+        let (_dir, store, router, project_id) = test_env(Box::new(provider)).await;
+        let engine = SecretaryEngine::new(store, router, None);
+        engine
+            .start(
+                project_id,
+                Some("A bilingual habit tracker".to_string()),
+                DEFAULT_SECRETARY_DAILY_CAP_CENTS,
+            )
+            .await
+            .unwrap();
+        let served = seen.lock().expect("seen system").clone();
+        assert!(
+            served.starts_with(crate::secretary_chat::FIXED_SECRETARY_SYSTEM_PROMPT),
+            "interview did not serve the fixed prompt"
+        );
+        assert!(served.contains("You never write code, never merge, and never publish."));
     }
 }

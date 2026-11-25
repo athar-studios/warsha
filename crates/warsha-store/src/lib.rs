@@ -31,9 +31,11 @@ use warsha_core::{
     RunSubtask, RunSubtaskStatus, Session, SessionId, SessionStatus, Stage, TokenUsage,
 };
 
+pub mod provisioning;
 pub mod secretary_chat;
 mod settings;
 
+pub use provisioning::ProvisioningRecord;
 pub use secretary_chat::{SecretaryConversation, SecretarySummary, SecretaryTurn};
 pub use settings::{
     SettingsRepo, StoredBackendKit, StoredCustomModel, StoredHarness, StoredIntegration,
@@ -792,6 +794,49 @@ impl Store {
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(event_from_row).collect()
+    }
+
+    // ---------------------------------------------------------- provisioning
+
+    /// Write one agent's provisioning record. Re-provisioning the same agent on
+    /// the same project replaces the previous assignment.
+    pub async fn save_provisioning(&self, record: &ProvisioningRecord) -> Result<()> {
+        let skills = serde_json::to_string(&record.skills)
+            .map_err(|e| StoreError::ParseError("provisioning skills", e.to_string()))?;
+        let tools = serde_json::to_string(&record.tools)
+            .map_err(|e| StoreError::ParseError("provisioning tools", e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO agent_provisioning \
+             (project_id, agent_id, role, skills_json, tools_json, source, audited, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(project_id, agent_id) DO UPDATE SET \
+             role = excluded.role, skills_json = excluded.skills_json, \
+             tools_json = excluded.tools_json, source = excluded.source, \
+             audited = excluded.audited, created_at = excluded.created_at",
+        )
+        .bind(record.project_id.to_string())
+        .bind(&record.agent_id)
+        .bind(&record.role)
+        .bind(skills)
+        .bind(tools)
+        .bind(&record.source)
+        .bind(i64::from(record.audited))
+        .bind(record.created_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Every provisioning record for a project, ordered by agent id.
+    pub async fn list_provisioning(&self, project_id: Uuid) -> Result<Vec<ProvisioningRecord>> {
+        let rows = sqlx::query(
+            "SELECT project_id, agent_id, role, skills_json, tools_json, source, audited, created_at \
+             FROM agent_provisioning WHERE project_id = ? ORDER BY agent_id ASC",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(provisioning_from_row).collect()
     }
 
     // ------------------------------------------------------------ secretary_chat
@@ -1870,6 +1915,31 @@ fn parse_time(field: &'static str, value: &str) -> Result<DateTime<Utc>> {
     )
 }
 
+fn provisioning_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<ProvisioningRecord> {
+    let project_id =
+        Uuid::parse_str(&column_text(row, "project_id")?).map_err(|e| StoreError::CorruptId {
+            field: "project_id",
+            value: e.to_string(),
+        })?;
+    let skills: Vec<String> = serde_json::from_str(&column_text(row, "skills_json")?)
+        .map_err(|e| StoreError::ParseError("skills_json", e.to_string()))?;
+    let tools: Vec<String> = serde_json::from_str(&column_text(row, "tools_json")?)
+        .map_err(|e| StoreError::ParseError("tools_json", e.to_string()))?;
+    let created_at = DateTime::parse_from_rfc3339(&column_text(row, "created_at")?)
+        .map_err(|e| StoreError::ParseError("created_at", e.to_string()))?
+        .with_timezone(&Utc);
+    Ok(ProvisioningRecord {
+        project_id,
+        agent_id: column_text(row, "agent_id")?,
+        role: column_text(row, "role")?,
+        skills,
+        tools,
+        source: column_text(row, "source")?,
+        audited: column_int(row, "audited")? != 0,
+        created_at,
+    })
+}
+
 fn secretary_turn_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<SecretaryTurn> {
     let id = Ulid::from_string(&column_text(row, "id")?).map_err(|e| StoreError::CorruptId {
         field: "id",
@@ -2270,7 +2340,7 @@ mod tests {
         let versions: Vec<i64> = migrator.iter().map(|m| m.version).collect();
         assert_eq!(
             versions,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
         );
         for migration in migrator.iter() {
             assert!(
@@ -2296,7 +2366,7 @@ mod tests {
                 .expect("the migration ledger is readable");
         assert_eq!(
             applied,
-            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
         );
 
         let tables: Vec<String> = sqlx::query_scalar(
@@ -3241,5 +3311,37 @@ mod tests {
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].id, valid.id);
         assert_eq!(devices[0].name, "Valid Phone");
+    }
+
+    #[tokio::test]
+    async fn provisioning_record_round_trips() {
+        let store = temp_store().await;
+        let project_id = Uuid::new_v4();
+        let now = Utc::now();
+        let record = ProvisioningRecord {
+            project_id,
+            agent_id: "reviewer".to_string(),
+            role: "reviewer".to_string(),
+            skills: vec!["requesting-code-review".to_string()],
+            tools: vec!["github-mcp".to_string()],
+            source: "github.com/obra/superpowers".to_string(),
+            audited: true,
+            created_at: now,
+        };
+        store.save_provisioning(&record).await.expect("save");
+        let loaded = store.list_provisioning(project_id).await.expect("list");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].agent_id, record.agent_id);
+        assert_eq!(loaded[0].skills, record.skills);
+        assert_eq!(loaded[0].tools, record.tools);
+        assert_eq!(loaded[0].source, record.source);
+        assert!(loaded[0].audited);
+        // A second write for the same agent replaces the row rather than duplicating it.
+        let mut replaced = record.clone();
+        replaced.tools = vec!["git-mcp".to_string()];
+        store.save_provisioning(&replaced).await.expect("replace");
+        let again = store.list_provisioning(project_id).await.expect("list");
+        assert_eq!(again.len(), 1);
+        assert_eq!(again[0].tools, vec!["git-mcp".to_string()]);
     }
 }

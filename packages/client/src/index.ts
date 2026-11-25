@@ -352,6 +352,45 @@ export function decodeSecretaryTurn(source: unknown): SecretaryTurn {
   };
 }
 
+/** What the Secretary assigned one rostered agent. Wire of `ProvisioningRecord`. */
+export interface ProvisioningRecord {
+  projectId: ProjectId;
+  agentId: string;
+  role: string;
+  skills: string[];
+  tools: string[];
+  /** Audited origin. Never a secret. */
+  source: string;
+  audited: boolean;
+  createdAt: string;
+}
+
+function secretaryStringList(record: Record<string, unknown>, name: string): string[] {
+  const value = field(record, name);
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new Error(`${SECRETARY_ERROR}: "${name}" is not a list of strings`);
+  }
+  return value as string[];
+}
+
+export function decodeProvisioningRecord(source: unknown): ProvisioningRecord {
+  const record = secretaryObject(source, 'provisioning');
+  const audited = field(record, 'audited');
+  if (typeof audited !== 'boolean') {
+    throw new Error(`${SECRETARY_ERROR}: "provisioning" has an invalid "audited"`);
+  }
+  return {
+    projectId: secretaryString(record, 'project_id', 'projectId') as ProjectId,
+    agentId: secretaryString(record, 'agent_id', 'agentId'),
+    role: secretaryString(record, 'role'),
+    skills: secretaryStringList(record, 'skills'),
+    tools: secretaryStringList(record, 'tools'),
+    source: secretaryString(record, 'source'),
+    audited,
+    createdAt: secretaryString(record, 'created_at', 'createdAt'),
+  };
+}
+
 export function decodeSecretaryChatReply(source: unknown): SecretaryChatReply {
   const record = secretaryObject(source, 'chat reply');
   const proposalValue = field(record, 'proposal');
@@ -3065,6 +3104,17 @@ export class WarshaClient
           message,
         });
     return decodeSecretaryChatReply(row);
+  }
+
+  /**
+   * `secretary.provisioning.list` — what each rostered agent of this project was
+   * given. Developers mode reads this. Session/Standard on the daemon; no spend.
+   */
+  async listProvisioning(projectId: ProjectId): Promise<ProvisioningRecord[]> {
+    const rows = await this.rpc<unknown[]>('secretary.provisioning.list', {
+      project_id: projectId,
+    });
+    return rows.map((row) => decodeProvisioningRecord(row));
   }
 
   // Project Budgets

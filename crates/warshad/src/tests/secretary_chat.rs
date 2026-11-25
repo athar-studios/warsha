@@ -3,7 +3,7 @@
 use crate::auth::policy_of;
 use crate::secretary_chat::{
     language_directive, normalize_language, owner_asked_for_proposal, ProposalAction,
-    SecretaryChat, SecretaryChatError, MAX_MESSAGE_CHARS,
+    SecretaryChat, SecretaryChatError, FIXED_SECRETARY_SYSTEM_PROMPT, MAX_MESSAGE_CHARS,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -1051,6 +1051,35 @@ async fn test_language_directive_reaches_the_system_prompt() {
     assert!(!system_prompt_of(&requests[0]).contains("Reply in English."));
     assert!(system_prompt_of(&requests[1]).contains("Reply in English."));
     assert!(system_prompt_of(&requests[2]).contains("Reply in English."));
+}
+
+/// The system prompt served to the model for the Secretary role is the fixed
+/// prompt. An empty string or the old one-line default fails this test.
+#[tokio::test]
+async fn secretary_system_prompt_served_to_the_model_is_the_fixed_prompt() {
+    let (_store, chat, _temp, _approvals, seen) = setup_test_chat_full(vec![]).await;
+    chat.turn(None, None, "status?", 100).await.unwrap();
+
+    let requests = seen.lock().unwrap();
+    let served = system_prompt_of(&requests[0]);
+    assert!(
+        served.starts_with(FIXED_SECRETARY_SYSTEM_PROMPT),
+        "the model was not served the fixed Secretary prompt"
+    );
+    assert_ne!(served, "You are the Warsha project secretary. You assist the project owner by answering questions and summarizing status.");
+    for duty in [
+        "Assess every new project before any work starts.",
+        "Together with the HR expert, compose the smallest sufficient team",
+        "provision it: skills and tools from GitHub or another safe source, audited before use; never print secrets. Record exactly what each agent was given.",
+        "Present the SPEC KIT and the TEAM ROSTER to the owner for approval in Simple mode; no work starts before approval.",
+        "Re-staffing only through change requests.",
+    ] {
+        assert!(
+            served.contains(duty),
+            "fixed prompt dropped a duty: {duty}"
+        );
+    }
+    assert!(served.contains("You never write code, never merge, and never publish."));
 }
 
 #[tokio::test]

@@ -130,3 +130,37 @@
   outline: var(--w-border-width-strong) solid var(--w-focus);
   outline-offset: calc(-1 * var(--w-border-width-strong));
 }
+
+.developers-provisioning {
+  display: flex;
+  flex-direction: column;
+  gap: var(--w-space-3);
+}
+
+.developers-provisioning-title {
+  margin: 0;
+  font-size: var(--w-font-size-lg);
+  line-height: var(--w-line-height-lg);
+  font-weight: var(--w-font-weight-medium);
+  color: var(--w-text);
+}
+
+.developers-provisioning-empty {
+  margin: 0;
+  color: var(--w-text-muted);
+}
+
+.developers-provisioning-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+}
+
+.developers-provisioning-table th,
+.developers-provisioning-table td {
+  text-align: start;
+  padding-block: var(--w-space-2);
+  padding-inline: var(--w-space-3);
+  border-block-end: var(--w-border-width) solid var(--w-line);
+  font-size: var(--w-font-size-sm);
+  line-height: var(--w-line-height-sm);
+}

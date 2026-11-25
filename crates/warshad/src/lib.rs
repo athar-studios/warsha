@@ -26,7 +26,9 @@ use warsha_pipeline::{
     AGENT_ROLE,
 };
 use warsha_providers::{probe_endpoint, HealthCheck, ProviderSetupWizard};
-use warsha_store::{SecretaryConversation, SecretaryTurn, Store, StoredProvider};
+use warsha_store::{
+    ProvisioningRecord, SecretaryConversation, SecretaryTurn, Store, StoredProvider,
+};
 
 mod auth;
 mod events;
@@ -45,6 +47,7 @@ pub mod secretary;
 pub mod secretary_chat;
 mod settings;
 mod skills;
+pub mod staffing;
 mod state;
 mod wave2;
 
@@ -805,6 +808,19 @@ impl WarshaApiServer for WarshaRpc {
                 _ => ErrorObject::owned(-32000, e.to_string(), None::<()>),
             })?;
         Ok(reply)
+    }
+
+    async fn secretary_provisioning_list(
+        &self,
+        ext: &RpcExtensions,
+        project_id: ProjectId,
+    ) -> RpcResult<Vec<ProvisioningRecord>> {
+        self.authorize(ext, "secretary.provisioning.list").await?;
+        self.state
+            .store
+            .list_provisioning(project_id.0)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))
     }
 
     async fn start_run(
