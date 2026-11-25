@@ -670,10 +670,14 @@ async fn e2e_real_arabic_request_clinic_flow() {
         )
         .await
         .expect("runs.start succeeds");
-    assert_eq!(run.current_stage, Stage::Idea);
+    assert_eq!(run.current_stage, Stage::GateA);
     assert_eq!(
         run.artifacts.get("idea").expect("idea is recorded").content,
         ARABIC_REQUEST
+    );
+    assert!(
+        run.artifacts.contains_key("brief"),
+        "brief artifact must be present after intake execution"
     );
 
     // Initial event is logged
@@ -681,7 +685,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
         .get_events(&ext, run.id)
         .await
         .expect("the run's events are readable");
-    assert_eq!(events.len(), 1);
+    assert!(events.len() >= 2);
     assert_eq!(events[0].kind, EventKind::StageStarted);
     assert_eq!(events[0].stage, Stage::Idea);
 
@@ -738,7 +742,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
 
     // ---- 6. Pipeline stages walk and cost accounting.
     let engine = state.pipeline.clone();
-    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
+    // Run is already at Gate A following intake execution during start_run.
     assert_eq!(run.current_stage, Stage::GateA);
 
     // Owner approves Gate A (brief approval)

@@ -63,7 +63,7 @@ export default {
   'home.needsyou.gate': 'قرار',
   'home.needsyou.gate_subject': '{project} · {run} · {gate}',
   'home.needsyou.ask': 'طلب موافقة',
-  'home.needsyou.since': 'ينتظر منذ {since}',
+  'home.needsyou.since': 'ينتظر منذ {duration}',
   'home.needsyou.open': 'افتح',
   'home.needsyou_open': 'افتح البند المنتظر',
   'home.alerts.gate_waiting': 'قرار ينتظرك منذ {minutes} دقيقة.',

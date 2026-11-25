@@ -65,7 +65,7 @@ export default {
   'home.needsyou.gate': 'Decision',
   'home.needsyou.gate_subject': '{project} · {run} · {gate}',
   'home.needsyou.ask': 'Approval request',
-  'home.needsyou.since': 'Waiting since {since}',
+  'home.needsyou.since': 'Waiting since {duration}',
   'home.needsyou.open': 'Open',
   'home.needsyou_open': 'Open the waiting item',
   'home.alerts.gate_waiting': 'A decision has been waiting for you for {minutes} minutes.',

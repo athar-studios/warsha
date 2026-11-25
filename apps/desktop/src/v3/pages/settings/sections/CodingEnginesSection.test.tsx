@@ -29,6 +29,13 @@ function createMockClient(options?: {
       tier: 'tier1',
       installed: false,
     },
+    {
+      name: 'codex',
+      display_name: 'Codex',
+      command: 'codex',
+      tier: 'tier1',
+      installed: true,
+    },
   ];
 
   const defaultRouting: BackendRoutingsConfig = {
@@ -97,15 +104,15 @@ describe('CodingEnginesSection', () => {
       .querySelector('select') as HTMLSelectElement;
     expect(select.value).toBe('opencode');
 
-    fireEvent.change(select, { target: { value: 'claude-code' } });
-    expect(select.value).toBe('claude-code');
+    fireEvent.change(select, { target: { value: 'codex' } });
+    expect(select.value).toBe('codex');
 
     const saveButton = screen.getByTestId('coding-engine-save-button');
     fireEvent.click(saveButton);
 
     await waitFor(() => {
       expect(client.setBackendRouting).toHaveBeenCalledWith({
-        default_backend: 'claude-code',
+        default_backend: 'codex',
         role_backends: {},
         project_backends: {},
       });
@@ -207,6 +214,63 @@ describe('CodingEnginesSection', () => {
       expect(screen.getByTestId('backend-diag-badge-opencode')).toHaveTextContent(
         'Health check timed out (fail-closed)'
       );
+    });
+  });
+
+  it('m1: dropdown offers only installed engines plus direct model', async () => {
+    const client = createMockClient();
+    renderSection(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('coding-engine-default-select')).toBeInTheDocument();
+    });
+
+    const select = screen
+      .getByTestId('coding-engine-default-select')
+      .querySelector('select') as HTMLSelectElement;
+    const optionValues = Array.from(select.querySelectorAll('option')).map((o) => o.value);
+
+    // Direct model is always present
+    expect(optionValues).toContain('native');
+    // Installed backends are present
+    expect(optionValues).toContain('opencode');
+    expect(optionValues).toContain('codex');
+    // Uninstalled backend is filtered out
+    expect(optionValues).not.toContain('claude-code');
+  });
+
+  it('m1: dropdown dynamically includes engine once CLI health check confirms it is installed', async () => {
+    const client = createMockClient();
+    vi.mocked(client.testCodingBackend).mockResolvedValueOnce({
+      name: 'claude-code',
+      command: 'claude',
+      installed: true,
+      ready: true,
+      version: 'claude 0.2.0',
+      status: 'ready',
+      auth_required: false,
+    });
+    renderSection(client);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('coding-engine-default-select')).toBeInTheDocument();
+    });
+
+    const select = screen
+      .getByTestId('coding-engine-default-select')
+      .querySelector('select') as HTMLSelectElement;
+    expect(
+      Array.from(select.querySelectorAll('option')).map((o) => o.value)
+    ).not.toContain('claude-code');
+
+    const testBtn = screen.getByTestId('test-engine-btn-claude-code');
+    fireEvent.click(testBtn);
+
+    await waitFor(() => {
+      const updatedOptions = Array.from(select.querySelectorAll('option')).map(
+        (o) => o.value
+      );
+      expect(updatedOptions).toContain('claude-code');
     });
   });
 });

@@ -17,7 +17,7 @@ import {
   SettingsSection,
   Skeleton,
 } from '@warsha/ui/v3';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAction } from '../../../actions';
 import { useClient } from '../../../app/ClientContext';
@@ -97,6 +97,31 @@ export function CodingEnginesSection(): React.ReactElement {
     void loadData();
   }, [loadData]);
 
+  const engineOptions: SelectOption[] = useMemo(
+    () => [
+      { value: 'native', label: t('settings.coding_engines.engine_native') },
+      ...backends
+        .filter((backend) => {
+          const diag = diagnostics[backend.name];
+          return diag !== undefined ? diag.installed : backend.installed;
+        })
+        .map((backend) => ({
+          value: backend.name,
+          label: backend.display_name,
+        })),
+    ],
+    [backends, diagnostics, t]
+  );
+
+  useEffect(() => {
+    if (
+      selectedEngine !== 'native' &&
+      !engineOptions.some((opt) => opt.value === selectedEngine)
+    ) {
+      setSelectedEngine('native');
+    }
+  }, [engineOptions, selectedEngine]);
+
   const saveAction = useAction('settings.coding-engines.save', async () => {
     if (!client) return;
     setStatusMessage(null);
@@ -117,13 +142,6 @@ export function CodingEnginesSection(): React.ReactElement {
       setLoadError(err instanceof Error ? err.message : t('settings.coding_engines.save_error'));
     }
   });
-
-  const engineOptions: SelectOption[] = [
-    { value: 'native', label: t('settings.coding_engines.engine_native') },
-    { value: 'opencode', label: 'OpenCode' },
-    { value: 'claude-code', label: 'Claude Code' },
-    { value: 'codex', label: 'Codex' },
-  ];
 
   if (loading) {
     return (

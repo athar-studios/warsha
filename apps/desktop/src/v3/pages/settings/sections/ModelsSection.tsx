@@ -498,6 +498,17 @@ export function ModelsSection(): React.ReactElement {
               const testState = testResults[p.name];
               const catalog = fetchedModels[p.name];
               const authStatus = authStatuses[p.name];
+              const isCustomOrEndpoint = p.kind === 'custom' || Boolean(p.api_base);
+              const rawKind = authStatus?.kind as string | undefined;
+              const hasMeaningfulAuth = Boolean(
+                rawKind &&
+                  rawKind !== 'none' &&
+                  rawKind !== 'unknown' &&
+                  t(`settings.providers.auth.${rawKind}`) !==
+                    `settings.providers.auth.${rawKind}`
+              );
+              const showAuthBadge =
+                Boolean(authStatus) && (!isCustomOrEndpoint || hasMeaningfulAuth);
               return (
                 <div
                   key={p.name}
@@ -523,12 +534,10 @@ export function ModelsSection(): React.ReactElement {
                         {catalog && (
                           <span>{t('settings.providers.models_fetched', { count: catalog.length })}</span>
                         )}
-                        {authStatus && (
+                        {showAuthBadge && (
                           <span>
-                            {authStatus.kind &&
-                            t(`settings.providers.auth.${authStatus.kind}`) !==
-                              `settings.providers.auth.${authStatus.kind}`
-                              ? t(`settings.providers.auth.${authStatus.kind}`)
+                            {hasMeaningfulAuth && rawKind
+                              ? t(`settings.providers.auth.${rawKind}`)
                               : t('settings.providers.auth.unknown')}
                           </span>
                         )}

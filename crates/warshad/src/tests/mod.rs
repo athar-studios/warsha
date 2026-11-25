@@ -4408,7 +4408,7 @@ mod runs_start_budget {
             .await
             .expect("runs.start succeeds after budget.set");
         assert_eq!(second.budget_cents, Some(500));
-        assert_eq!(second.spent_cents, 0);
+        assert_eq!(second.spent_cents, 1);
     }
 
     /// D-R11-BUDGET-1: the budget passed to `runs.start` is the budget the run
@@ -4532,9 +4532,9 @@ mod runs_start_budget {
             .await
             .expect("show_budget after start_run must succeed");
         assert_eq!(post_run_status.project_id, project.id);
-        assert_eq!(post_run_status.spent_cents, 0);
+        assert_eq!(post_run_status.spent_cents, 1);
         assert_eq!(post_run_status.budget_cents, Some(2500));
-        assert_eq!(post_run_status.remaining_cents, Some(2500));
+        assert_eq!(post_run_status.remaining_cents, Some(2499));
 
         // 6. Calling show_budget / set_budget on a non-existent project fails with error
         let non_existent = ProjectId(uuid::Uuid::new_v4());
@@ -5347,9 +5347,7 @@ mod provider_truth {
     async fn unrouted_followup_returns_explicit_error_and_writes_no_artifact() {
         let temp = crate::test_util::fresh_tempdir();
         let (state, store) = test_state(temp.path()).await;
-        // Replace router with an empty one so even Intake is unrouted.
-        *state.providers.write().await = ProviderRouter::new();
-
+        // Route Intake so start_run executes, then clear router so followup is unrouted.
         let rpc = WarshaRpc::new(state.clone());
         let owner = owner_ext();
 
@@ -5376,6 +5374,8 @@ mod provider_truth {
             )
             .await
             .expect("run started");
+
+        *state.providers.write().await = ProviderRouter::new();
 
         let err = state
             .pipeline
@@ -7929,7 +7929,21 @@ mod agent_tool_events {
             .create_project(&paused_project)
             .await
             .expect("the project");
-        *state.providers.write().await = ProviderRouter::new();
+        // Route Intake so start_run executes, then clear router before advancing past GateA.
+        let mut r = ProviderRouter::new();
+        let mock = warsha_providers::MockProvider::new("mock");
+        r.register_provider(Box::new(mock));
+        r.set_role_routing(RoleRouting {
+            role: Role::Intake,
+            targets: vec![RoutingTarget {
+                provider_id: "mock".to_string(),
+                model_id: "mock-model".to_string(),
+                weight: 100,
+            }],
+            fallback_enabled: false,
+            budget_cents_per_run: None,
+        });
+        *state.providers.write().await = r;
         let paused_run = rpc
             .start_run(
                 &owner_ext(),
@@ -7941,6 +7955,7 @@ mod agent_tool_events {
             )
             .await
             .expect("the run starts");
+        *state.providers.write().await = ProviderRouter::new();
         rpc.advance_run(&owner_ext(), paused_run.id)
             .await
             .expect("advance to the gate");
@@ -7965,14 +7980,25 @@ mod agent_tool_events {
         let (failing_state, failing_store, _failing_mcp) = state_with_transport(&failing_dir).await;
         let failing_rpc = WarshaRpc::new(failing_state.clone());
         let mut router = ProviderRouter::new();
+        router.register_provider(Box::new(warsha_providers::MockProvider::new("mock-intake")));
         router.register_provider(Box::new(
-            warsha_providers::MockProvider::new("mock")
+            warsha_providers::MockProvider::new("mock-failing")
                 .with_failure(warsha_providers::ProviderError::Auth("refused".to_string())),
         ));
         router.set_role_routing(RoleRouting {
+            role: Role::Intake,
+            targets: vec![RoutingTarget {
+                provider_id: "mock-intake".to_string(),
+                model_id: "mock-model".to_string(),
+                weight: 100,
+            }],
+            fallback_enabled: false,
+            budget_cents_per_run: None,
+        });
+        router.set_role_routing(RoleRouting {
             role: Role::Researcher,
             targets: vec![RoutingTarget {
-                provider_id: "mock".to_string(),
+                provider_id: "mock-failing".to_string(),
                 model_id: "mock-model".to_string(),
                 weight: 100,
             }],
@@ -8268,6 +8294,18 @@ async fn cancel_during_hung_stage_stops_promptly() {
     router.set_dispatch_timeout(std::time::Duration::from_secs(60));
     let hung = warsha_providers::MockProvider::new("hung-provider").with_hang();
     router.register_provider(Box::new(hung));
+    let mock = warsha_providers::MockProvider::new("mock");
+    router.register_provider(Box::new(mock));
+    router.set_role_routing(RoleRouting {
+        role: Role::Intake,
+        targets: vec![RoutingTarget {
+            provider_id: "mock".to_string(),
+            model_id: "mock-model".to_string(),
+            weight: 100,
+        }],
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    });
     router.set_role_routing(RoleRouting {
         role: Role::Researcher,
         targets: vec![RoutingTarget {
@@ -8406,5 +8444,262 @@ async fn cancel_during_hung_stage_stops_promptly() {
     assert!(
         has_cancelled_event,
         "must emit run_finished cancelled event"
+    );
+}
+
+/// F-R20-1: start_run in Agent/Simple mode executes initial Idea (intake) stage
+/// with mock provider, creating a session row, updating brief/idea artifacts,
+/// and advancing to GateA for supervisor approval.
+#[tokio::test]
+async fn start_run_in_agent_mode_executes_intake_and_advances_to_gate_a() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+
+    let project = rpc
+        .create_project(
+            &owner,
+            "Intake Dispatch Project".to_string(),
+            "A test project for intake dispatch".to_string(),
+            "en".to_string(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("project created");
+
+    let run = rpc
+        .start_run(
+            &owner,
+            project.id,
+            "pomodoro timer with audio alert".to_string(),
+            Some("agent".to_string()),
+            None,
+            Some(2500),
+        )
+        .await
+        .expect("start_run succeeds");
+
+    // Must advance beyond Stage::Idea to Stage::GateA
+    assert_eq!(
+        run.current_stage,
+        Stage::GateA,
+        "start_run must execute intake and reach GateA"
+    );
+
+    // Session row for Intake must exist and be Done
+    let sessions = store.list_sessions_by_run(run.id).await.unwrap();
+    let intake_session = sessions
+        .iter()
+        .find(|s| s.role == Role::Intake)
+        .expect("intake session must be created");
+    assert_eq!(
+        intake_session.status,
+        warsha_core::SessionStatus::Done,
+        "intake session must be Completed (Done)"
+    );
+
+    // Brief artifact must exist
+    let updated_run = store.get_run(run.id).await.unwrap();
+    assert!(
+        updated_run.artifacts.contains_key("brief"),
+        "brief artifact must be present"
+    );
+    assert!(
+        updated_run.artifacts.contains_key("idea"),
+        "idea artifact must be present"
+    );
+
+    // Events must include events beyond initial StageStarted: e.g. AgentStep
+    // and StageStarted for GateA
+    let events = store.get_events(run.id).await.unwrap();
+    let has_agent_step = events.iter().any(|ev| {
+        ev.kind == EventKind::AgentStep && ev.stage == Stage::Idea && ev.role == Some(Role::Intake)
+    });
+    assert!(
+        has_agent_step,
+        "must emit AgentStep event for intake during initial stage execution"
+    );
+
+    let started_gate_a = events
+        .iter()
+        .any(|ev| ev.kind == EventKind::StageStarted && ev.stage == Stage::GateA);
+    assert!(started_gate_a, "must emit StageStarted for GateA");
+}
+
+/// F-R20-1: A run stalled at a non-gate stage without any sessions for longer than
+/// dispatch_timeout must be reaped by the watchdog to Failed with stage_failed and retry_hint.
+#[tokio::test]
+async fn watchdog_reaps_stalled_stage_without_sessions() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+
+    // Set a short dispatch timeout (1 second)
+    state
+        .providers
+        .write()
+        .await
+        .set_dispatch_timeout(std::time::Duration::from_secs(1));
+
+    let project = Project {
+        id: ProjectId::new(),
+        name: "Stall Test Project".to_string(),
+        description: "Testing stall watchdog".to_string(),
+        language: "en".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Default::default()
+    };
+    store.create_project(&project).await.unwrap();
+
+    let stalled_run = Run {
+        id: RunId::new(),
+        project_id: project.id,
+        current_stage: Stage::Idea,
+        gate_states: HashMap::new(),
+        artifacts: HashMap::new(),
+        created_at: Utc::now() - chrono::Duration::seconds(10),
+        updated_at: Utc::now() - chrono::Duration::seconds(10),
+        status: RunStatus::Running,
+        budget_cents: Some(1000),
+        spent_cents: 0,
+        worktree_path: None,
+        worktree_branch: None,
+        confinement: None,
+        run_mode: warsha_core::RunMode::Agent,
+    };
+    store.create_run(&stalled_run).await.unwrap();
+
+    // Verify 0 sessions
+    let sessions = store.list_sessions_by_run(stalled_run.id).await.unwrap();
+    assert!(sessions.is_empty(), "stalled run has zero sessions");
+
+    // Call check_stale_run
+    let reaped = state
+        .pipeline
+        .check_stale_run(stalled_run.id)
+        .await
+        .expect("check_stale_run succeeds");
+
+    assert_eq!(
+        reaped.status,
+        RunStatus::Failed,
+        "watchdog must mark stalled run Failed"
+    );
+
+    // Verify error event with retry_hint
+    let events = store.get_events(stalled_run.id).await.unwrap();
+    let error_event = events
+        .iter()
+        .find(|ev| ev.kind == EventKind::Error)
+        .expect("watchdog must emit Error event");
+    assert_eq!(
+        error_event.payload.get("action").and_then(|v| v.as_str()),
+        Some("stage_failed")
+    );
+    assert_eq!(
+        error_event
+            .payload
+            .get("retry_hint")
+            .and_then(|v| v.as_str()),
+        Some("Check model provider configuration and retry stage")
+    );
+
+    let finished_event = events
+        .iter()
+        .find(|ev| ev.kind == EventKind::RunFinished)
+        .expect("watchdog must emit RunFinished event");
+    assert_eq!(
+        finished_event
+            .payload
+            .get("status")
+            .and_then(|v| v.as_str()),
+        Some("failed")
+    );
+}
+
+#[tokio::test]
+async fn active_run_with_fresh_working_session_is_not_reaped() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, store) = test_state(temp.path()).await;
+
+    // Set a short dispatch timeout (1 second)
+    state
+        .providers
+        .write()
+        .await
+        .set_dispatch_timeout(std::time::Duration::from_secs(1));
+
+    let project = Project {
+        id: ProjectId::new(),
+        name: "Fresh Session Test Project".to_string(),
+        description: "Testing active run watchdog immunity".to_string(),
+        language: "en".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Default::default()
+    };
+    store.create_project(&project).await.unwrap();
+
+    // Run updated_at is older than the 1s timeout (10s ago)
+    let active_run = Run {
+        id: RunId::new(),
+        project_id: project.id,
+        current_stage: Stage::Idea,
+        gate_states: HashMap::new(),
+        artifacts: HashMap::new(),
+        created_at: Utc::now() - chrono::Duration::seconds(10),
+        updated_at: Utc::now() - chrono::Duration::seconds(10),
+        status: RunStatus::Running,
+        budget_cents: Some(1000),
+        spent_cents: 0,
+        worktree_path: None,
+        worktree_branch: None,
+        confinement: None,
+        run_mode: warsha_core::RunMode::Agent,
+    };
+    store.create_run(&active_run).await.unwrap();
+
+    // Create a fresh Working session (started_at = now, well within 1s timeout)
+    let session = warsha_core::Session {
+        id: warsha_core::SessionId::new(),
+        run_id: Some(active_run.id),
+        project_id: project.id,
+        role: Role::Intake,
+        backend: "native".to_string(),
+        provider: "test-provider".to_string(),
+        model: "test-model".to_string(),
+        status: warsha_core::SessionStatus::Working,
+        started_at: Utc::now(),
+        ended_at: None,
+        parent_session_id: None,
+        cli_session_id: None,
+    };
+    store.create_session(&session).await.unwrap();
+
+    // Call check_stale_run
+    let checked = state
+        .pipeline
+        .check_stale_run(active_run.id)
+        .await
+        .expect("check_stale_run succeeds");
+
+    assert_eq!(
+        checked.status,
+        RunStatus::Running,
+        "watchdog must NOT reap run with active fresh working session"
+    );
+
+    // Verify session is still Working
+    let sessions = store.list_sessions_by_run(active_run.id).await.unwrap();
+    assert_eq!(sessions[0].status, warsha_core::SessionStatus::Working);
+
+    // Verify no error events emitted
+    let events = store.get_events(active_run.id).await.unwrap();
+    assert!(
+        !events.iter().any(|ev| ev.kind == EventKind::Error),
+        "no error events should be emitted for healthy active run"
     );
 }

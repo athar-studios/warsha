@@ -240,6 +240,9 @@ mod tests {
             .await
             .unwrap();
 
+        // Reset provider call count before concurrent walk into Research and PrdSpec.
+        call_count.store(0, Ordering::SeqCst);
+
         // Spawn two concurrent advance_to_next_gate tasks on the same run.
         let e1 = engine.advance_to_next_gate(run.id);
         let e2 = engine.advance_to_next_gate(run.id);
