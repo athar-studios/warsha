@@ -9359,3 +9359,10 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
   - The factory floor shows a gate wait at Your decisions, and the agent panel names the state.
 - Not proven, and the reason: no test may call a real model API, and the only key that would reach one lives in the OS keychain. The proofcalc bytes are rendered from templates. A live OpenCode install was not driven. FIXES COMPLETE is not declared.
 - Residuals carried forward: `e2e_request_to_artifact` is flaky (pre-existing race); overlapping "Needs you" labels; marker initials cut to "int"; raw `agent_step`, `intake` and `¢` in the panel; `capture_changes` misses untracked files.
+
+## Run 2026-11-26 — Judge pass for the residual round
+
+- Branches `r-next/fix-residuals` (8bc9dcf, 2e96839) and `r-next/fix-floor-r2` (a76a195, 656f8fc, 1cabc3c) judged together by lane `lane-judge-clean1-20261126` before this merge.
+- Verdict: JUDGE PASS, 100/100. Record: `/tmp/judge-clean1-round5.md`.
+- The Judge's own desktop run covered the factory and project pages only: 7 files, 84 passed. It did not run the full suite, and its parent-tip figure (79 files, 277 tests, 1 failure) does not match this tree. The coordinator re-ran the full suite on `r-next/fix-floor-r2` before the merge: 89 files, 807 passed, 0 failed (`/tmp/floor-r2-full.log`).
+- The doc conflict in this merge kept both notes.
