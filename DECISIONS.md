@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-25 — D-RN-CLEAN1-PROOF-RUN: the materialize fixture writes the proofcalc contracts, and the daemon test compiles them
+
+The walk in `tests::clean1_swarm::clean1_swarm_four_lanes_materialize_real_files` now produces the four proofcalc lane files as real code. The crate is not vendored into the Warsha workspace.
+
+- **Fixture bodies**: when `WARSHA_CODING_BACKEND_FIXTURE=materialize`, `src/scaffold.rs`, `src/domain.rs`, `src/engine.rs`, and `src/provider.rs` are the contracts in `docs/proof-project/SPEC.md` §4.1–4.4. Each file has a `//! clean1:{path}` module doc so the existing path-marker assertion still passes, and no `use` line. Any other declared path keeps the historical one-function stub. Absolute paths and `..` are still refused. Unset still returns the historical no-write success. CLI backends still do not read the switch.
+- **Not a fifth lane**: the fixture does not write `src/lib.rs`, `tests/proof.rs`, or `Cargo.toml` into the project worktree. Those name every module, so they stay a sequential follow-up. After the four files are on `warsha/run-{id}`, the daemon test itself copies the four `git show` bodies into a temp crate, adds the spec's `src/lib.rs` and `tests/proof.rs` (plus `use proofcalc::RateSource;`, which the trait call needs in scope) and a library-only edition-2021 manifest with an empty `[workspace]` table, and runs `cargo test --manifest-path <temp>/Cargo.toml --offline`.
+- **Not now**: no model API, no keychain, no Playwright, no merge, no push. FIXES COMPLETE is not declared.
+
 ## 2026-11-25 — D-RN-CLEAN1-PROOF: proofcalc is the proof project, and it does not run yet
 
 The small real project a later Warsha run will build end to end is specified, not executed.

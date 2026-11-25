@@ -153,11 +153,15 @@ impl CodingBackend for BuiltinBackend {
     }
 }
 
-/// Write one small, fixed, valid file per path the swarm runtime declared.
+/// Write one valid file per path the swarm runtime declared.
 ///
 /// Paths come from the `Declared files:` line `run_subtask_agent` already puts
-/// in the task description. The hold keeps four disjoint subtasks in flight
-/// together. No network, no keychain, no model.
+/// in the task description. The four proofcalc lane paths get the contracts in
+/// `docs/proof-project/SPEC.md` sections 4.1–4.4. Any other declared path keeps
+/// the historical one-function stub. The hold keeps four disjoint subtasks in
+/// flight together. No network, no keychain, no model. `src/lib.rs`,
+/// `tests/proof.rs`, and `Cargo.toml` are not written here: they name every
+/// lane, so they are a sequential follow-up, not a fifth parallel file.
 async fn materialize_declared_files(task: &CodingTask, sandbox: &Sandbox) -> Result<CodingResult> {
     let started = std::time::Instant::now();
     let in_flight = FIXTURE_IN_FLIGHT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
@@ -251,6 +255,9 @@ fn safe_worktree_path(work_dir: &std::path::Path, relative: &str) -> Result<std:
 }
 
 fn fixture_file_body(title: &str, relative: &str) -> String {
+    if let Some(contract) = proofcalc_lane_body(relative) {
+        return contract;
+    }
     let stem = std::path::Path::new(relative)
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -270,6 +277,89 @@ fn fixture_file_body(title: &str, relative: &str) -> String {
          }}\n"
     )
 }
+
+/// The four disjoint lane files from `docs/proof-project/SPEC.md` §4.1–4.4.
+///
+/// Each body is the contract itself: no `use` line, and no public item beyond
+/// the one the spec names. The `clean1:{path}` module doc is the path marker
+/// the daemon walk already asserts; it is not a second public item. A path
+/// this function does not know is not a proofcalc lane.
+fn proofcalc_lane_body(relative: &str) -> Option<String> {
+    let source = match relative {
+        "src/scaffold.rs" => PROOFCALC_SCAFFOLD,
+        "src/domain.rs" => PROOFCALC_DOMAIN,
+        "src/engine.rs" => PROOFCALC_ENGINE,
+        "src/provider.rs" => PROOFCALC_PROVIDER,
+        _ => return None,
+    };
+    Some(source.to_string())
+}
+
+/// SPEC §4.1. Overflow saturates to `i64::MAX` when `b > 0`, else `i64::MIN`.
+const PROOFCALC_SCAFFOLD: &str = r#"//! clean1:src/scaffold.rs
+pub fn add(a: i64, b: i64) -> i64 {
+    match i64::checked_add(a, b) {
+        Some(sum) => sum,
+        None => {
+            if b > 0 {
+                i64::MAX
+            } else {
+                i64::MIN
+            }
+        }
+    }
+}
+"#;
+
+/// SPEC §4.2. `cents` is the only field. Overflow is `None`.
+const PROOFCALC_DOMAIN: &str = r#"//! clean1:src/domain.rs
+pub struct Money {
+    pub cents: i64,
+}
+
+impl Money {
+    pub fn checked_add(self, other: Money) -> Option<Money> {
+        match i64::checked_add(self.cents, other.cents) {
+            Some(cents) => Some(Money { cents }),
+            None => None,
+        }
+    }
+}
+"#;
+
+/// SPEC §4.3. Basis points above 10_000, a product that does not fit in `u128`,
+/// or a signed result that does not fit in `i64` are `None`. No floating point.
+const PROOFCALC_ENGINE: &str = r#"//! clean1:src/engine.rs
+pub fn apply_fee(amount: i64, bps: u32) -> Option<i64> {
+    if bps > 10_000 {
+        return None;
+    }
+    if amount == 0 {
+        return Some(0);
+    }
+    let product = match (amount.unsigned_abs() as u128).checked_mul(u128::from(bps)) {
+        Some(product) => product,
+        None => return None,
+    };
+    let fee = product / 10_000;
+    if fee > i64::MAX as u128 {
+        return None;
+    }
+    let fee = fee as i64;
+    if amount > 0 {
+        amount.checked_add(fee)
+    } else {
+        amount.checked_sub(fee)
+    }
+}
+"#;
+
+/// SPEC §4.4. One method, no default body, no associated type, no impl.
+const PROOFCALC_PROVIDER: &str = r#"//! clean1:src/provider.rs
+pub trait RateSource {
+    fn rate_bps(&self) -> u32;
+}
+"#;
 
 /// CLI backend base - runs a command
 pub struct CliBackend {
@@ -1364,6 +1454,48 @@ mod tests {
         let sandbox = Sandbox::new(PathBuf::from("/tmp"));
         let result = backend.execute(task, &sandbox).await.unwrap();
         assert!(result.success);
+    }
+
+    #[test]
+    fn materialize_fixture_writes_the_proofcalc_contracts() {
+        let lanes = [
+            ("src/scaffold.rs", "pub fn add"),
+            ("src/domain.rs", "pub struct Money"),
+            ("src/engine.rs", "pub fn apply_fee"),
+            ("src/provider.rs", "pub trait RateSource"),
+        ];
+        for (relative, name) in lanes {
+            let body = fixture_file_body("lane", relative);
+            assert!(
+                body.contains(&format!("clean1:{relative}")),
+                "{relative} lost the path marker"
+            );
+            assert!(body.contains(name), "{relative} missing {name}:\n{body}");
+            assert!(
+                !body.lines().any(|line| {
+                    let trimmed = line.trim_start();
+                    trimmed.starts_with("use ") || trimmed.starts_with("pub use ")
+                }),
+                "{relative} has a use line:\n{body}"
+            );
+        }
+        let other = fixture_file_body("lane", "src/elsewhere.rs");
+        assert!(
+            other.contains("clean1:src/elsewhere.rs"),
+            "a non-lane path must keep the historical stub"
+        );
+        assert!(
+            !other.contains("pub fn add"),
+            "a non-lane path must not receive the scaffold contract"
+        );
+    }
+
+    #[test]
+    fn materialize_fixture_refuses_paths_outside_the_worktree() {
+        let root = PathBuf::from("/tmp/work");
+        assert!(safe_worktree_path(&root, "/etc/passwd").is_err());
+        assert!(safe_worktree_path(&root, "src/../../etc/passwd").is_err());
+        assert!(safe_worktree_path(&root, "src/scaffold.rs").is_ok());
     }
 
     #[test]

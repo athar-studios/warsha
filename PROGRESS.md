@@ -1,5 +1,17 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — CLEAN-1 proofcalc contracts compile from a daemon walk
+
+- **Worktree**: `.agents/worktrees/clean1-proof`, branch `clean1-proof`, base `c6fef27`. No push, no merge, `main` untouched. No model API, no keychain, no Playwright. proofcalc is not a workspace member.
+- **Decision**: D-RN-CLEAN1-PROOF-RUN.
+- **What changed**: the materialize fixture writes SPEC §4.1–4.4 for the four lane paths and keeps the historical stub for any other declared path. The daemon test asserts the contract names and the absence of `use` lines, then assembles a temp crate from the four `git show` bodies plus the spec's `src/lib.rs`, `tests/proof.rs`, and `Cargo.toml`, and runs `cargo test --manifest-path <temp>/Cargo.toml --offline`.
+- **Evidence** (from this worktree):
+  - `cargo fmt --all -- --check` — exit 0.
+  - `cargo clippy -p warsha-backends -p warshad --all-targets -- -D warnings` — exit 0.
+  - `cargo test -p warshad --lib tests::clean1_swarm::clean1_swarm_four_lanes_materialize_real_files -- --exact` — exit 0, 1 passed (1.70s). The bare filter `clean1_swarm_four_lanes_materialize_real_files` matches 0 tests because the function lives under `tests::clean1_swarm` and is `#[cfg(unix)]`.
+  - `node scripts/check-engineering-policy.mjs` — exit 0, 8 checks, 0 failures.
+- **Not declared**: FIXES COMPLETE.
+
 ## Run 2026-11-25 — CLEAN-1 proof project spec (docs only)
 
 - **Worktree**: `.agents/worktrees/clean1-swarm`, branch `r-next/clean1-swarm`, base `77dd1ea`. No push, no merge, `main` untouched. No daemon, swarm not enabled, no model API, no Rust change.

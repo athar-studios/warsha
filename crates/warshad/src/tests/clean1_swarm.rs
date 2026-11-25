@@ -4,7 +4,9 @@
 //! plus `swarm.project.set` before Code. Intake is the background walk `runs.start`
 //! already spawns; this test never calls `runs.advance` to skip Idea. Every role
 //! is routed to the in-process fake. The coding backend is the real builtin
-//! backend with the materialize fixture on, not `SwarmProbe`.
+//! backend with the materialize fixture on, not `SwarmProbe`. The four files are
+//! the proofcalc contracts. After they are on the run branch, this test — not
+//! the fixture — assembles a temp crate and runs `cargo test --offline`.
 
 use super::*;
 use futures::FutureExt;
@@ -250,6 +252,7 @@ async fn run_clean1(data_dir: &std::path::Path) -> std::result::Result<(), Strin
         .ok_or_else(|| "run has no worktree".to_string())?;
     let worktree = std::path::PathBuf::from(worktree);
     let branch = format!("warsha/run-{}", run_id.0);
+    let mut bodies = Vec::with_capacity(EXPECTED_FILES.len());
     for relative in EXPECTED_FILES {
         let body = git_show(&worktree, &format!("{branch}:{relative}"));
         if body.trim().is_empty() {
@@ -260,6 +263,160 @@ async fn run_clean1(data_dir: &std::path::Path) -> std::result::Result<(), Strin
                 "{relative} was not written by the fixture backend:\n{body}"
             ));
         }
+        assert_lane_contract(relative, &body)?;
+        bodies.push((relative, body));
+    }
+    // Sequential follow-up. The fixture does not write lib.rs, the integration
+    // test, or the manifest into the project worktree during the wave.
+    prove_written_code(&bodies)
+        .await
+        .map_err(|err| format!("proofcalc follow-up failed: {err}"))?;
+    Ok(())
+}
+
+/// The git-show body is the spec contract: the named item is present, and the
+/// lane file has no `use` line.
+fn assert_lane_contract(relative: &str, body: &str) -> std::result::Result<(), String> {
+    if body.lines().any(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with("use ") || trimmed.starts_with("pub use ")
+    }) {
+        return Err(format!("{relative} has a use line:\n{body}"));
+    }
+    let needles: &[&str] = match relative {
+        "src/scaffold.rs" => &["pub fn add", "i64::checked_add", "i64::MAX", "i64::MIN"],
+        "src/domain.rs" => &[
+            "pub struct Money",
+            "cents",
+            "fn checked_add",
+            "i64::checked_add",
+        ],
+        "src/engine.rs" => &["pub fn apply_fee", "10_000", "unsigned_abs"],
+        "src/provider.rs" => &["pub trait RateSource", "fn rate_bps"],
+        other => return Err(format!("no proofcalc contract for {other}")),
+    };
+    for needle in needles {
+        if !body.contains(needle) {
+            return Err(format!("{relative} is missing `{needle}`:\n{body}"));
+        }
+    }
+    if relative == "src/provider.rs" && body.contains("impl ") {
+        return Err(format!(
+            "{relative} implements RateSource; the spec leaves that to the caller:\n{body}"
+        ));
+    }
+    if relative == "src/engine.rs" && (body.contains("f32") || body.contains("f64")) {
+        return Err(format!("{relative} uses floating point:\n{body}"));
+    }
+    Ok(())
+}
+
+/// SPEC §4.5. Not a swarm lane: it names every module.
+const PROOF_LIB_RS: &str = "\
+pub mod scaffold;
+pub mod domain;
+pub mod engine;
+pub mod provider;
+
+pub use scaffold::add;
+pub use domain::Money;
+pub use engine::apply_fee;
+pub use provider::RateSource;
+";
+
+/// SPEC §4.6. One integration test, no I/O.
+const PROOF_TESTS_RS: &str = "\
+use proofcalc::RateSource;
+
+#[test]
+fn each_public_item_once() {
+    assert_eq!(proofcalc::add(2, 3), 5);
+
+    let left = proofcalc::Money { cents: 40 };
+    let right = proofcalc::Money { cents: 2 };
+    match left.checked_add(right) {
+        Some(money) => assert_eq!(money.cents, 42),
+        None => panic!(\"40 + 2 fits in i64\"),
+    }
+
+    assert_eq!(proofcalc::apply_fee(10_000, 250), Some(10_250));
+
+    struct Quoted;
+    impl proofcalc::RateSource for Quoted {
+        fn rate_bps(&self) -> u32 {
+            250
+        }
+    }
+    let quoted = Quoted;
+    assert_eq!(quoted.rate_bps(), 250);
+}
+";
+
+/// Assemble the four git-show bodies plus the spec's crate root, integration
+/// test, and manifest, then run the command the proof requires.
+///
+/// The temp crate is not the project worktree and is not a Warsha workspace
+/// member. Its own `[workspace]` table keeps cargo from rejecting a directory
+/// that happens to sit under this repo's target tree.
+async fn prove_written_code(bodies: &[(&str, String)]) -> std::result::Result<(), String> {
+    let temp = crate::test_util::fresh_tempdir();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("src"))
+        .map_err(|err| format!("could not create proof src: {err}"))?;
+    std::fs::create_dir_all(root.join("tests"))
+        .map_err(|err| format!("could not create proof tests: {err}"))?;
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\n\
+         name = \"proofcalc\"\n\
+         version = \"0.1.0\"\n\
+         edition = \"2021\"\n\
+         \n\
+         [workspace]\n",
+    )
+    .map_err(|err| format!("could not write proof Cargo.toml: {err}"))?;
+    std::fs::write(root.join("src/lib.rs"), PROOF_LIB_RS)
+        .map_err(|err| format!("could not write proof lib.rs: {err}"))?;
+    std::fs::write(root.join("tests/proof.rs"), PROOF_TESTS_RS)
+        .map_err(|err| format!("could not write proof.rs: {err}"))?;
+    for (relative, body) in bodies {
+        let dest = root.join(relative);
+        std::fs::write(&dest, body)
+            .map_err(|err| format!("could not write {}: {err}", dest.display()))?;
+    }
+
+    let manifest = root.join("Cargo.toml");
+    let program = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let scratch_tmp = root.join(".tmp");
+    std::fs::create_dir_all(&scratch_tmp)
+        .map_err(|err| format!("could not create {}: {err}", scratch_tmp.display()))?;
+    let output = tokio::process::Command::new(&program)
+        .arg("test")
+        .arg("--manifest-path")
+        .arg(&manifest)
+        .arg("--offline")
+        .env("CARGO_TARGET_DIR", root.join("target"))
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("TMP", &scratch_tmp)
+        .env("TEMP", &scratch_tmp)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .await
+        .map_err(|err| format!("could not run {program}: {err}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "cargo test --manifest-path {} --offline failed ({}):\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            manifest.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !stdout.contains("each_public_item_once") {
+        return Err(format!(
+            "proofcalc cargo test did not run each_public_item_once:\n{stdout}"
+        ));
     }
     Ok(())
 }
