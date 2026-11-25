@@ -91,6 +91,10 @@ const BREAK_BOX_HEIGHT = 82;
 const BREAK_LABEL_Y = BREAK_AREA.y - 46;
 const AGENT_RADIUS = 11;
 const PER_ROW = 6;
+/** Horizontal gap between co-stationed markers. Wider than the "Needs you" label. */
+const SLOT_GAP = 56;
+/** "Needs you" sits above the circle; the next row starts below that label. */
+const ROW_GAP = 40;
 
 function stationOf(agent: AgentStatus): Station | null {
   const byStage = STATIONS.find((station) => station.stages.includes(agent.stage ?? ''));
@@ -125,9 +129,30 @@ export function markerPosition(
   }
   const station = stationOf(agent);
   if (station === null) return { x: VIEW_WIDTH / 2, y: WORK_ROW_Y, stationKey: null };
-  const slot = index % PER_ROW;
-  const row = Math.floor(index / PER_ROW);
-  return { x: station.x + 22 + slot * 22, y: WORK_ROW_Y + row * 26, stationKey: station.key };
+  // Slot by who already stands at this station, not by the global array index.
+  // Six agents waiting at one gate otherwise share one row, 22 units apart, and
+  // their "Needs you" labels paint on top of each other.
+  const here = all.filter(
+    (candidate, candidateIndex) =>
+      candidateIndex <= index &&
+      candidate.state !== 'idle' &&
+      candidate.state !== 'handing_off' &&
+      stationOf(candidate)?.key === station.key
+  );
+  const slotIndex = here.length - 1;
+  const slot = slotIndex % PER_ROW;
+  const row = Math.floor(slotIndex / PER_ROW);
+  return {
+    x: station.x + 22 + slot * SLOT_GAP,
+    y: WORK_ROW_Y + row * ROW_GAP,
+    stationKey: station.key,
+  };
+}
+
+/** Short role mark painted inside a marker. Catalog short labels, never a slice of the role id. */
+export function markerRoleKey(role: string | null): string {
+  if (role === null || role.length === 0) return 'factory.panel.unknown';
+  return `factory.role.${role}`;
 }
 
 /** Status → marker colours: soft fill, strong outline, readable ink — the same pairing chips use. */
@@ -247,7 +272,7 @@ export const Floor: React.FC<FloorProps> = ({
                 strokeWidth={selected ? 3 : 1.5}
               />
               <text y={3} textAnchor="middle" fontSize="9" fontWeight={600} fill={colours.ink}>
-                {(agent.role ?? '?').slice(0, 3)}
+                {t(markerRoleKey(agent.role))}
               </text>
               {agent.state === 'waiting_on_owner' && (
                 <text
