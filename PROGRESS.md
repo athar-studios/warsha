@@ -1,5 +1,17 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — Lane A external harness (OpenCode proving test)
+
+- **Worktree**: `.agents/worktrees/lane-a-harness`, branch `r-next/lane-a-harness`, base `c7520f8`. Local-only: no merge, no push, no tag.
+- **Decision**: D-RN-CLEAN1-A.
+- **Finding**: the coding stage already invokes the selected catalog CLI and commits its worktree changes. Settings already lists OpenCode. No production or i18n change.
+- **This lane**: `crates/warsha-backends/tests/opencode_harness_proving.rs` (`opencode_backend_on_path_writes_nonempty_rs_into_git_diff`). A fake `opencode` on a temp PATH writes non-empty `src/lane_a_proof.rs`, stages it, and exits 0. The test asserts the file, `files_changed`, and `git diff HEAD` before any real `opencode` can be spawned.
+- **Verification** (this tree, after the proving test was warning-clean):
+  - `cargo fmt --all -- --check`: exit 0.
+  - `cargo clippy -p warsha-backends -p warsha-pipeline -p warshad --all-targets -- -D warnings`: exit 0, no warnings.
+  - `cargo test -p warsha-backends --test opencode_harness_proving -- --exact opencode_backend_on_path_writes_nonempty_rs_into_git_diff`: exit 0, 1 passed, 0 failed.
+  - `node scripts/check-engineering-policy.mjs`: exit 0 (`8 checks, 0 failures`).
+
 ## Run 2026-11-25 — Round 21 Review-3 (SpecFile skip, stale hint, pause assertion)
 
 - **Worktree**: `.agents/worktrees/fix-r21-review3`, base `126103f`. Local-only: no commit, no merge, no push, `main` untouched. Left uncommitted.
