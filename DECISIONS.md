@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-PROV-1: a completed interview writes one provisioning row per rostered agent
+
+The provisioning table, the read RPC, and the Developers view already existed. Nothing in production called `propose_staffing` or `persist_proposal`, so the view always said no agent had been provisioned.
+
+- **Write point**: `SecretaryEngine::finalize_and_persist`, the moment the roster is presented. There is no owner-accept handler for a staffing proposal (`ProposalAction` covers gates, queue, and runs only), so interview completion is the production write. `start` and `turn` on an already-done interview do not write again.
+- **Assessment**: the completed idea text. Payments/checkout/billing hire Security; auth/login/sign-in hire Security; analytics/dashboard/metric hire the data expert on `Role::Researcher`. An empty brief still rosters the core three. The proposal stays `proposed` and starts no work.
+- **Not now**: no new event kind, no change to `FIXED_SECRETARY_SYSTEM_PROMPT`, schema 019 unchanged. Pipeline generation from an approved roster stays out of scope (D-RN-CLEAN1-D). No merge, no push. FIXES COMPLETE is not declared.
+
 ## 2026-11-26 — D-RN-VITEST-1: a missing provisioning method must not blank Developers, and Advanced copy says Developers
 
 CLEAN-1 added `client.listProvisioning(projectId).catch(() => null)` inside the Developers load. A test double with no such method throws `TypeError` before `.catch` attaches, so the outer catch showed the error banner and 12 tests could not find `developers-row`. Separately, `frame.mode_advanced` was changed to Developers / المطورون in `bf7a89f` and the Frame test, plus two sibling keys, still said Advanced / متقدّم.

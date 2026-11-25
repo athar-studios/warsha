@@ -83,6 +83,30 @@ pub struct ProjectAssessment {
     pub domains: Vec<AssessmentDomain>,
 }
 
+/// Name the domains a completed brief actually mentions.
+///
+/// The interview stores no domain enum. The completed idea text is the roster
+/// the owner was just shown, so the same words that hire Security or the data
+/// expert in `compose_roster` are read back from it. An empty brief still
+/// assesses to the core preset.
+pub fn assess_brief(project_id: Uuid, idea_text: &str) -> ProjectAssessment {
+    let text = idea_text.to_lowercase();
+    let mut domains = Vec::new();
+    if text.contains("payment") || text.contains("checkout") || text.contains("billing") {
+        domains.push(AssessmentDomain::Payments);
+    }
+    if text.contains("auth") || text.contains("login") || text.contains("sign-in") {
+        domains.push(AssessmentDomain::Auth);
+    }
+    if text.contains("analytics") || text.contains("dashboard") || text.contains("metric") {
+        domains.push(AssessmentDomain::Analytics);
+    }
+    ProjectAssessment {
+        project_id,
+        domains,
+    }
+}
+
 /// Build the smallest sufficient roster: the core preset, plus a hire only when
 /// the assessment names a domain that needs one. HR is consulted (the expert id
 /// is recorded on the proposal path) but is not itself a pipeline stage.

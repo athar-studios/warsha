@@ -837,6 +837,12 @@ impl SecretaryEngine {
             .clone()
             .unwrap_or_else(|| build_direction_card(&state));
         let idea_text = state.brief.to_idea_text(&direction_card);
+        // The roster is presented with the completed brief. There is no later
+        // accept handler, so this is the production write of one provisioning
+        // row per rostered agent. A proposal stays proposed and starts no work.
+        let assessment = crate::staffing::assess_brief(state.project_id.0, &idea_text);
+        let proposal = crate::staffing::propose_staffing(&assessment);
+        crate::staffing::persist_proposal(&self.store, &proposal).await?;
         self.persist(&state).await?;
         Ok(TurnOutcome::Done {
             brief: state.brief.clone(),
