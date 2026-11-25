@@ -1,5 +1,58 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — Round 20 BLOCKER F-R20-1 HIGH (Intake Dispatch Stall & Stalled Watchdog Reaping)
+- **Worktree**: `.agents/worktrees/fix-r20-intake-dispatch` on `fix-r20-intake-dispatch` (base `e68e4cf`). Local-only: no push, no tag, no publish, `main` untouched. Left uncommitted for lead review.
+- **Root Cause Analysis**:
+  1. *Pipeline intake execution gap*: In `crates/warsha-pipeline/src/lib.rs:680-854` (`start_run_in_mode_with_budget`), for Agent/Simple mode, the engine populated initial synthetic `"idea"` and `"brief"` artifacts and set `current_stage: Stage::Idea`, but returned `Ok(run)` without calling `execute_stage_with_feedback` or dispatching `Role::Intake`.
+  2. *Shipped desktop trigger mismatch*: In `apps/desktop/src/v3/pages/home/index.tsx`, clicking "Start project" calls `projects.create -> runs.start -> budget.set -> navigate('/p/:id')`. It never calls `runs.advance`. In `apps/desktop/src/v3/pages/project/index.tsx`, `pendingGate` is calculated via `findPendingGateAtCurrentStage(gates, currentRun)` which matches `g.stage === run.stage`. Gate A has `stage: "gate_a"`; when `run.stage == "idea"`, `pendingGate` is null, so no decision card renders and the user has no way to approve Gate A or trigger advancement.
+  3. *Stage advancement bypass*: In `crates/warsha-pipeline/src/lib.rs:880-944` (`advance_stage_locked`), advancing from `Stage::Idea` sets `next = Stage::GateA` (a gate). Because `!next.is_gate()` was false, `execute_stage_with_feedback` was skipped, meaning `Stage::Idea` was never executed even if advanced.
+  4. *Watchdog blind spot*: In `crates/warsha-pipeline/src/lib.rs:2327-2357` (`check_stale_run`), the watchdog only inspected sessions in `SessionStatus::Working`. Because intake was never executed, zero sessions existed. As a result, the run sat in `RunStatus::Running` at `Stage::Idea` for 9+ minutes completely invisible to the watchdog, stalling with $0.00 spend and no error, session, or retry hint.
+  5. *Prior proving test blind spot*: `crates/warshad/tests/e2e_request_to_artifact.rs:521-539` configured a mock router that completely omitted `Role::Intake` (`intake_routed == false`), asserted only 1 event (`StageStarted`), and bypassed stage 0 execution by manually calling `engine.advance_stage(run.id)` to `Stage::GateA` instead of exercising the shipped desktop `runs.start`-only path.
+- **Decision & Fix (D-R20-INTAKE)**:
+  - `crates/warsha-pipeline/src/lib.rs:880-920` (`advance_stage_locked`): When `run.current_stage == Stage::Idea` and `run.run_mode != RunMode::SpecFile`, if intake session is not Done, call `self.execute_stage_with_feedback(&mut run, &mut version, ctrl, None)` to execute Intake and generate the brief before advancing to `Stage::GateA`. Narrow provider check removed so `dispatch_chat` resolves routes (and surfaces `NoProviderRouted` / `provider_required` if unrouted).
+  - `crates/warsha-pipeline/src/lib.rs:1320-1388` (`execute_stage_with_feedback`): For `stage == Stage::Idea`, preserve the user's raw prompt in `"idea"` artifact and save the intake agent's output as `"brief"` artifact. Persist the file artifact to factory disk as `"brief"` (`brief.md`) so disk matches the SQLite brief artifact without clobbering `idea.md`.
+  - `crates/warshad/src/lib.rs:990-1015` (`start_run`): For runs with non-zero budget (Plan and SpecFile early-returned at line 850), chain `self.state.pipeline.advance_to_next_gate(run.id)` to execute intake and advance to `Stage::GateA` (or pause with `provider_required` if unrouted). Redundant mode re-guards and narrow provider gates removed.
+  - `crates/warsha-pipeline/src/lib.rs:2390-2440` (`check_stale_run`): Detect stalled runs in `RunStatus::Running` at non-gate stages with NO working sessions at all (`!sessions.iter().any(|s| s.status == SessionStatus::Working)`) when `now.signed_duration_since(run.updated_at) > timeout_chrono`. Sweep them to `RunStatus::Failed`, appending `EventKind::Error` with `action: "stage_failed"` and `retry_hint: "Check model provider configuration and retry stage"`, followed by `EventKind::RunFinished` with `status: "failed"`. Active runs with fresh working sessions are immune to false-positive reaping.
+  - `apps/desktop/src/v3/pages/project/index.tsx:145-155`: Update `extractEventSummary` to surface `retry_hint` alongside the summary in danger banners.
+  - `crates/warsha-pipeline/src/run_integrity.rs:242`: Reset mock call counter in concurrent advance test.
+- **Proving Tests**:
+  - `crates/warshad/src/tests/mod.rs:8420`: `start_run_in_agent_mode_executes_intake_and_advances_to_gate_a` (passes: proves `start_run` in Agent mode executes intake, creates session row for `Role::Intake` in `Done` status, updates brief/idea artifacts, records `AgentStep` event, and advances run to `Stage::GateA`).
+  - `crates/warshad/src/tests/mod.rs:8500`: `watchdog_reaps_stalled_stage_without_sessions` (passes: proves watchdog sweeps a stalled non-gate run with zero sessions to `Failed` with `stage_failed` and `retry_hint`).
+  - `crates/warshad/src/tests/mod.rs:8585`: `active_run_with_fresh_working_session_is_not_reaped` (passes: proves active run with fresh Working session is not falsely reaped by watchdog even when run.updated_at is older than timeout).
+  - `crates/warshad/src/tests/mod.rs:8260`: `cancel_during_hung_stage_stops_promptly` (passes: proving watchdog cancellation test remains green).
+  - `crates/warshad/tests/e2e_real_arabic_request.rs`: `e2e_real_arabic_request_clinic_flow` (passes: full end-to-end integration through shipped daemon path that passes intake, reaches Gate A, advances through all stages to Build, and produces real code files in project repo).
+- **Verification & Gates**:
+  - `cargo fmt --all -- --check`: 0 diff, clean.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: 0 warnings, clean.
+  - `cargo test -p warsha-pipeline --lib`: 600 passed, 0 failed, 7 ignored.
+  - `cargo test -p warshad --lib`: 334 passed, 0 failed, 4 ignored.
+  - `cargo test -p warshad --test e2e_real_arabic_request`: 2 passed, 0 failed.
+  - `cargo test -p warshad --test e2e_request_to_artifact`: 1 passed, 0 failed.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+- **Status**: BLOCKER F-R20-1 COMPLETE — changes uncommitted for lead review.
+
+## Run 2026-11-25 — Round 20 Minors m1-m3 (Apps Desktop UI Bundle)
+- **Worktree**: `.agents/worktrees/fix-r20-intake-dispatch` on `fix-r20-intake-dispatch`. Local-only: no push, no tag, no publish, `main` untouched. Left uncommitted for lead review.
+- **Addressed items**:
+  - **m1 (Default coding engine dropdown filtered to installed engines + direct model)**:
+    - `apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.tsx:106-121`: Dynamically computed `engineOptions` using `useMemo` filtering `backends` by `diagnostics[b.name]?.installed ?? b.installed`, keeping direct model (`native`) as permanent base option. Falls back `selectedEngine` to `'native'` if stored engine is uninstalled.
+    - `apps/desktop/src/v3/pages/settings/sections/CodingEnginesSection.test.tsx:16-17, 102-140`: Added tests ensuring uninstalled engines are excluded from options while direct model and installed engines remain, plus dynamic re-filtering upon CLI health check resolution.
+  - **m2 (Stray unknown badge hidden for custom/known endpoint in provider card)**:
+    - `apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx:501-511, 537-543`: For custom providers or providers with `api_base` (e.g. 9router), hide stray "unknown" auth label unless meaningful auth status exists (`authStatus.kind` is known, not 'none'/'unknown', and translation exists).
+    - `apps/desktop/src/v3/pages/settings/sections/ModelsSection.test.tsx:502-536`: Added proving tests verifying 9router custom endpoint hides stray unknown auth label in both English and Arabic while preserving fallback for standard providers.
+  - **m3 (Relative duration for waiting gate card timestamp)**:
+    - `apps/desktop/src/date.ts:129-141`: Exported `formatRelativeDuration(iso, nowMs, fallback)` computing compact elapsed time via `formatUptime`.
+    - `apps/desktop/src/date.test.ts:98-124`: Unit tests for `formatRelativeDuration` verifying relative durations, future clamp, and fallback on invalid inputs.
+    - `packages/i18n/src/v3/en/home.ts:68`, `packages/i18n/src/v3/ar/home.ts:66`: Updated `'home.needsyou.since'` translation template to `'Waiting since {duration}'` / `'ينتظر منذ {duration}'`.
+    - `apps/desktop/src/v3/pages/home/index.tsx:29, 1003-1008`: Imported `formatRelativeDuration` from `../../../date` and formatted `row.since` as relative duration (`{ duration, since }`).
+    - `apps/desktop/src/v3/pages/home/Home.test.tsx:1037-1082`: Added proving test verifying waiting gate card renders relative duration (`Waiting since 15m 30s`) rather than raw date-time string.
+- **Verification & Gates**:
+  - `pnpm --filter warsha-desktop exec vitest run src/v3/pages/developers/f5-proving.test.tsx`: 3 passed, 0 failed
+  - `pnpm --filter warsha-desktop lint`: 0 errors (1 preexisting warning in developers/index.tsx)
+  - `pnpm --filter warsha-desktop run typecheck`: 0 errors
+  - `pnpm --filter warsha-desktop exec vitest run src/date.test.ts src/v3/pages/settings/sections/CodingEnginesSection.test.tsx src/v3/pages/settings/sections/ModelsSection.test.tsx src/v3/pages/home/Home.test.tsx`: 63 passed, 0 failed
+- **Status**: MINORS m1-m3 COMPLETE — changes uncommitted for lead review; D-R20-INTAKE untouched (owned by blocker lane).
+
 ## Run 2026-11-25 — Round 19 LOW Residuals Fix (LOW-1..LOW-4, D-R19-JUNK)
 - **Worktree**: `.agents/worktrees/fix-r19-residuals` on `r-next/integration` (base `0c09b96`, branch `fix-r19-residuals`). Local-only: no push, no tag, no publish, `main` untouched.
 - **Addressed items**:

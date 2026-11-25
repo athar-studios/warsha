@@ -125,3 +125,21 @@ export function formatUptime(seconds: unknown, fallback: string = DATE_FALLBACK)
   const remH = h % 24;
   return `${d}d ${remH}h ${m}m`;
 }
+
+/**
+ * Format relative duration from an ISO timestamp to now (`45s`, `2m 5s`, `3h 12m 4s`, `2d 4h 10m`).
+ *
+ * Uses `formatUptime` to produce compact, scannable durations.
+ * Falls back to `—` for null, undefined, unparseable, or invalid inputs.
+ */
+export function formatRelativeDuration(
+  iso: unknown,
+  nowMs: number = Date.now(),
+  fallback: string = DATE_FALLBACK
+): string {
+  const date = parseSafeDate(iso);
+  if (date === null) return fallback;
+  const elapsedSec = Math.max(0, Math.floor((nowMs - date.getTime()) / 1000));
+  return formatUptime(elapsedSec, fallback);
+}
+

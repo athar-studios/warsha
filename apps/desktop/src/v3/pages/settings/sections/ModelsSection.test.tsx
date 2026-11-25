@@ -492,4 +492,54 @@ describe('ModelsSection - Model Discovery & Live List Diff', () => {
     expect(saveBtn).not.toHaveAttribute('aria-busy');
     expect(saveBtn).not.toBeDisabled();
   });
+
+  it('m2: removes/hides stray unknown badge next to custom endpoint (e.g. 9router)', async () => {
+    const customProviders: ProviderConfig[] = [
+      {
+        name: '9router',
+        kind: 'custom',
+        enabled: true,
+        api_base: 'http://127.0.0.1:8000/v1',
+      },
+    ];
+    const client = createClient({
+      listProviders: vi.fn().mockResolvedValue(customProviders),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'none' }),
+    });
+
+    renderSection(client, 'en');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-row-9router')).toBeDefined();
+    });
+
+    const row = screen.getByTestId('provider-row-9router');
+    expect(within(row).getByText('http://127.0.0.1:8000/v1')).toBeDefined();
+    expect(within(row).queryByText('Unknown')).toBeNull();
+  });
+
+  it('m2: removes/hides stray unknown badge in Arabic next to custom endpoint', async () => {
+    const customProviders: ProviderConfig[] = [
+      {
+        name: '9router',
+        kind: 'custom',
+        enabled: true,
+        api_base: 'http://127.0.0.1:8000/v1',
+      },
+    ];
+    const client = createClient({
+      listProviders: vi.fn().mockResolvedValue(customProviders),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'none' }),
+    });
+
+    renderSection(client, 'ar');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-row-9router')).toBeDefined();
+    });
+
+    const row = screen.getByTestId('provider-row-9router');
+    expect(within(row).getByText('http://127.0.0.1:8000/v1')).toBeDefined();
+    expect(within(row).queryByText('غير معروف')).toBeNull();
+  });
 });

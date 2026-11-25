@@ -25,6 +25,7 @@ import {
 } from '@warsha/ui/v3';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+import { formatRelativeDuration } from '../../../date';
 import { useAction } from '../../actions';
 import { useCapabilities } from '../../app/CapabilitiesContext';
 import { useClient } from '../../app/ClientContext';
@@ -1001,7 +1002,8 @@ export default function HomePage(): React.ReactElement {
                   <span className="v3-home-needsyou-subject">{row.subject}</span>
                   <span className="v3-home-needsyou-wait">
                     {t('home.needsyou.since', {
-                      since: new Date(row.since).toLocaleString(locale === 'ar' ? 'ar' : 'en'),
+                      duration: formatRelativeDuration(row.since),
+                      since: formatRelativeDuration(row.since),
                     })}
                   </span>
                   {row.kind === 'failed' && (

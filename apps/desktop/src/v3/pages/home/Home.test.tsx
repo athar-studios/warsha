@@ -1033,6 +1033,55 @@ describe('Round 12 F2 + F13: Home screen gate cards with real client', () => {
     expect(gateCards).toHaveLength(0);
     expect(document.querySelector('[data-testid="home-needsyou"]')).toBeNull();
   });
+
+  it('m3: renders relative duration on waiting gate card instead of raw date-time string', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const fixedNow = new Date('2026-10-04T09:15:30.000Z');
+    vi.setSystemTime(fixedNow);
+
+    try {
+      installRealDaemonFetch({
+        projects: [
+          {
+            id: 'proj-1',
+            name: 'Warsha Store',
+            created_at: '2026-10-01T08:00:00.000Z',
+            updated_at: '2026-10-02T09:00:00.000Z',
+          },
+        ],
+        runsByProject: {
+          'proj-1': [
+            {
+              id: 'run-parked-1',
+              project_id: 'proj-1',
+              current_stage: 'gate_a',
+              status: 'awaiting_gate',
+              started_at: '2026-10-04T08:00:00.000Z',
+              updated_at: '2026-10-04T09:00:00.000Z',
+              run_mode: 'agent',
+            },
+          ],
+        },
+      });
+
+      const realClient = createClient('http://127.0.0.1:8766', 'test-token');
+      await renderHome({ client: realClient, locale: 'en' });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('home-needsyou')).toBeInTheDocument();
+      });
+
+      const gateA = document.querySelector(
+        '[data-testid="home-needsyou-row-gate-run-parked-1-gate_a"]'
+      );
+      const waitElement = gateA?.querySelector('.v3-home-needsyou-wait');
+      expect(waitElement?.textContent).toBe('Waiting since 15m 30s');
+      expect(waitElement?.textContent).not.toContain('2026');
+      expect(waitElement?.textContent).not.toContain('AM');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('buildNeedsYou unit logic', () => {

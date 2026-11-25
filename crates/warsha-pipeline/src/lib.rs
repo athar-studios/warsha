@@ -878,6 +878,36 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     }
 
     async fn advance_stage_locked(&self, run_id: RunId, ctrl: &RunControl) -> Result<Run> {
+        // F-R20-1: If advancing from Idea stage, execute Idea (Intake) stage first if it hasn't run yet.
+        // SpecFile mode skips intake (the user provided their own spec brief).
+        {
+            let (mut run, mut version) = self.store.get_run_versioned(run_id).await?;
+            if run.status == RunStatus::Running
+                && run.current_stage == Stage::Idea
+                && run.run_mode != warsha_core::RunMode::SpecFile
+            {
+                let sessions = self.store.list_sessions_by_run(run.id).await?;
+                let idea_done = sessions.iter().any(|s| {
+                    s.role == Role::Intake && s.status == warsha_core::SessionStatus::Done
+                });
+                let env_has_key = warsha_providers::EnvLlmConfig::from_env()
+                    .map(|c| c.api_key.is_some())
+                    .unwrap_or(false);
+                let intake_routed = self.providers.read().await.route(Role::Intake).is_some()
+                    || env_has_key
+                    || std::env::var("WARSHA_LLM_PROVIDER")
+                        .map(|v| v.trim() == "fake")
+                        .unwrap_or(false);
+                if !idea_done && intake_routed {
+                    self.execute_stage_with_feedback(&mut run, &mut version, ctrl, None)
+                        .await?;
+                    if run.status == RunStatus::Failed || run.status == RunStatus::Paused {
+                        return Ok(run);
+                    }
+                }
+            }
+        }
+
         let (mut run, mut version, current, next) = {
             let _state_guard = ctrl.state_lock.lock().await;
             if *ctrl.cancel_tx.borrow() {
@@ -1295,7 +1325,25 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             // records each subagent's spend through record_cost), so the
             // CAS commit builds on `latest` — its spend, artifacts, budget
             // and version — not on the pre-stage snapshot.
-            latest.artifacts.insert(artifact_name.clone(), artifact);
+            if stage == Stage::Idea {
+                let prev_brief_v = latest
+                    .artifacts
+                    .get("brief")
+                    .map(|a| a.version)
+                    .unwrap_or(0);
+                let brief_art = Artifact {
+                    name: "brief".to_string(),
+                    content: artifact_content.clone(),
+                    stage,
+                    role: Some(role),
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                    version: prev_brief_v + 1,
+                };
+                latest.artifacts.insert("brief".to_string(), brief_art);
+            } else {
+                latest.artifacts.insert(artifact_name.clone(), artifact);
+            }
             latest.spent_cents += cost_cents;
             latest.updated_at = Utc::now();
 
@@ -1333,8 +1381,14 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             run.artifacts = latest.artifacts.clone();
             run.updated_at = latest.updated_at;
 
+            let disk_artifact_name = if stage == Stage::Idea {
+                "brief".to_string()
+            } else {
+                artifact_name
+            };
+
             (
-                artifact_name,
+                disk_artifact_name,
                 artifact_content,
                 budget_exceeded_info,
                 budget_warn_info,
@@ -1858,6 +1912,11 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         } else {
             "stage_failed"
         };
+        let retry_hint = if is_unrouted {
+            "Configure a provider route for this role in Settings -> Models"
+        } else {
+            "Check model provider configuration and retry stage"
+        };
 
         let error_event = Event {
             id: Ulid::new(),
@@ -1870,6 +1929,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 "stage": stage_to_string(stage),
                 "role": role,
                 "message": message,
+                "retry_hint": retry_hint,
             }),
             cost_cents: None,
             tokens: None,
@@ -2352,9 +2412,19 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             }
         }
 
-        let Some(stale) = stale_session else {
+        // A run is stale if a working session exceeded the timeout, OR if the run
+        // is in Running status at a non-gate stage with NO working sessions at all and
+        // the run has been sitting updated_at > timeout_chrono (e.g. stalled dispatch).
+        let has_working_session = sessions
+            .iter()
+            .any(|s| s.status == warsha_core::SessionStatus::Working);
+        let is_stale_without_session = !has_working_session
+            && !run.current_stage.is_gate()
+            && now.signed_duration_since(run.updated_at) > timeout_chrono;
+
+        if stale_session.is_none() && !is_stale_without_session {
             return Ok(run);
-        };
+        }
 
         // Mark working sessions failed
         for s in &sessions {
@@ -2377,11 +2447,21 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 .update_run_cas(&current_run, current_version)
                 .await?;
 
-            let elapsed_secs = now
-                .signed_duration_since(stale.started_at)
-                .num_seconds()
-                .max(timeout.as_secs() as i64);
-            let role = stale.role;
+            let elapsed_secs = match &stale_session {
+                Some(stale) => now
+                    .signed_duration_since(stale.started_at)
+                    .num_seconds()
+                    .max(timeout.as_secs() as i64),
+                None => now
+                    .signed_duration_since(current_run.updated_at)
+                    .num_seconds()
+                    .max(timeout.as_secs() as i64),
+            };
+            let role = stale_session
+                .as_ref()
+                .map(|s| s.role)
+                .or_else(|| crate::prompts::role_for_stage(current_run.current_stage))
+                .unwrap_or(Role::Intake);
             let stage_str = stage_to_string(current_run.current_stage);
             let error_event = Event {
                 id: Ulid::new(),
@@ -2398,6 +2478,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                         stage_str,
                         elapsed_secs,
                     ),
+                    "retry_hint": "Check model provider configuration and retry stage",
                 }),
                 cost_cents: None,
                 tokens: None,

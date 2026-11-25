@@ -8,6 +8,7 @@ import {
   DATE_FALLBACK,
   formatDate,
   formatInstant,
+  formatRelativeDuration,
   formatTime,
   formatUptime,
   parseSafeDate,
@@ -93,6 +94,31 @@ describe('formatUptime', () => {
       expect(() => formatUptime(broken)).not.toThrow();
       expect(formatUptime(broken)).toBe(DATE_FALLBACK);
       expect(formatUptime(broken, 'N/A')).toBe('N/A');
+    }
+  });
+});
+
+describe('formatRelativeDuration', () => {
+  const baseTime = Date.UTC(2026, 9, 28, 12, 0, 0); // 2026-10-28T12:00:00Z
+  const iso = '2026-10-28T12:00:00.000Z';
+
+  it('formats elapsed duration relative to nowMs', () => {
+    expect(formatRelativeDuration(iso, baseTime)).toBe('0s');
+    expect(formatRelativeDuration(iso, baseTime + 45 * 1000)).toBe('45s');
+    expect(formatRelativeDuration(iso, baseTime + 125 * 1000)).toBe('2m 5s');
+    expect(formatRelativeDuration(iso, baseTime + 3665 * 1000)).toBe('1h 1m 5s');
+    expect(formatRelativeDuration(iso, baseTime + 90060 * 1000)).toBe('1d 1h 1m');
+  });
+
+  it('clamps future timestamps safely to 0s', () => {
+    expect(formatRelativeDuration(iso, baseTime - 10000)).toBe('0s');
+  });
+
+  it('never throws and falls back for invalid inputs', () => {
+    for (const broken of [undefined, null, '', '   ', 'garbage', {}, []]) {
+      expect(() => formatRelativeDuration(broken)).not.toThrow();
+      expect(formatRelativeDuration(broken)).toBe(DATE_FALLBACK);
+      expect(formatRelativeDuration(broken, baseTime, 'N/A')).toBe('N/A');
     }
   });
 });

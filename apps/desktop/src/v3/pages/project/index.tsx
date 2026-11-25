@@ -145,13 +145,20 @@ export function buildSimpleStepperStages(
 export function extractEventSummary(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return '';
   const rec = payload as Record<string, unknown>;
-  if (typeof rec.summary === 'string' && rec.summary.trim()) {
-    return rec.summary.trim();
+  const base =
+    typeof rec.summary === 'string' && rec.summary.trim()
+      ? rec.summary.trim()
+      : typeof rec.message === 'string' && rec.message.trim()
+        ? rec.message.trim()
+        : '';
+  const hint =
+    typeof rec.retry_hint === 'string' && rec.retry_hint.trim()
+      ? rec.retry_hint.trim()
+      : '';
+  if (base && hint) {
+    return `${base} — ${hint}`;
   }
-  if (typeof rec.message === 'string' && rec.message.trim()) {
-    return rec.message.trim();
-  }
-  return '';
+  return base || hint;
 }
 
 export function formatBudgetUsd(amount: number | null | undefined): string {
