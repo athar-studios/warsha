@@ -252,7 +252,7 @@ async fn a_zero_config_run_walks_every_gate_to_feedback_completed() {
         .iter()
         .filter(|event| event.kind == EventKind::AgentStep)
         .count();
-    assert_eq!(steps, 8, "one agent step per executed stage: {steps}");
+    assert_eq!(steps, 9, "one agent step per executed stage: {steps}");
 
     // Calling advance_to_next_gate again on the finished run is a no-op that keeps
     // it completed.

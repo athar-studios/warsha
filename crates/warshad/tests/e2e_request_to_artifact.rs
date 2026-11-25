@@ -214,7 +214,7 @@ async fn e2e_request_to_artifact() {
         )
         .await
         .expect("runs.start succeeds");
-    assert_eq!(run.current_stage, Stage::Idea);
+    assert_eq!(run.current_stage, Stage::GateA);
     assert_eq!(
         run.artifacts
             .get("idea")
@@ -222,16 +222,24 @@ async fn e2e_request_to_artifact() {
             .content,
         HELLO_REQUEST
     );
+    assert!(
+        run.artifacts.contains_key("brief"),
+        "brief artifact must be present after intake execution"
+    );
     // The run's append-only log is written before any gate decision, so it is
-    // readable here: one `stage_started` event carrying the request.
+    // readable here: stage_started(idea), agent_step(idea), stage_started(gate_a).
     let started = rpc
         .get_events(&ext, run.id)
         .await
         .expect("the run's events are readable");
-    assert_eq!(started.len(), 1, "unexpected events: {started:?}");
+    assert_eq!(started.len(), 3, "unexpected events: {started:?}");
     assert_eq!(started[0].kind, EventKind::StageStarted);
     assert_eq!(started[0].stage, Stage::Idea);
     assert_eq!(started[0].payload["idea"], json!(HELLO_REQUEST));
+    assert_eq!(started[1].kind, EventKind::AgentStep);
+    assert_eq!(started[1].stage, Stage::Idea);
+    assert_eq!(started[2].kind, EventKind::StageStarted);
+    assert_eq!(started[2].stage, Stage::GateA);
 
     // ---- 3. The agent asks its clarifying question; the owner answers it.
     {
@@ -282,9 +290,8 @@ async fn e2e_request_to_artifact() {
     assert_eq!(approval.from, AgentMode::Plan);
     assert_eq!(approval.to, AgentMode::Agent);
 
-    // ---- 5. Execute the plan: advance to Gate A, approve, then run stages.
+    // ---- 5. Execute the plan: Gate A reached at runs.start; approve, then run stages.
     let engine = state.pipeline.clone();
-    let run = engine.advance_stage(run.id).await.expect("Idea -> Gate A");
     assert_eq!(run.current_stage, Stage::GateA);
 
     // Gate A: the owner's approval of the brief, through the daemon's RPC layer.
@@ -519,6 +526,7 @@ async fn daemon_state(data_dir: &Path) -> Arc<DaemonState> {
     let mut router = ProviderRouter::new();
     router.register_provider(Box::new(MockProvider::new(MOCK_PROVIDER)));
     for role in [
+        Role::Intake,
         Role::Researcher,
         Role::PM,
         Role::Designer,
