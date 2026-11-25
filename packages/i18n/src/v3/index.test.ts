@@ -70,4 +70,18 @@ describe('i18n v3', () => {
     expect(arKeys).toEqual(enKeys);
     expect(arKeys.length).toBeGreaterThan(0);
   });
+
+  it('keeps Simple, Factory, and Developers catalog keys paired', () => {
+    const prefixes = ['home.', 'project.', 'factory.', 'developers.', 'frame.mode_'];
+    const arKeys = Object.keys(catalogs.ar).filter((key) => prefixes.some((prefix) => key.startsWith(prefix))).sort();
+    const enKeys = Object.keys(catalogs.en).filter((key) => prefixes.some((prefix) => key.startsWith(prefix))).sort();
+    expect(arKeys).toEqual(enKeys);
+    expect(arKeys.length).toBeGreaterThan(0);
+    for (const key of arKeys) {
+      expect(catalogs.ar[key]?.trim().length).toBeGreaterThan(0);
+      expect(catalogs.en[key]?.trim().length).toBeGreaterThan(0);
+      expect(catalogs.ar[key]).not.toBe(key);
+      expect(catalogs.en[key]).not.toBe(key);
+    }
+  });
 });

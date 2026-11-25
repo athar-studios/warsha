@@ -3,7 +3,7 @@ export default {
   'frame.daemon_offline': 'Cannot reach Warsha daemon — retry',
   'frame.mode_simple': 'Simple',
   'frame.mode_factory': 'Factory',
-  'frame.mode_advanced': 'Advanced',
+  'frame.mode_advanced': 'Developers',
   'frame.anonymous_project': 'Unnamed project',
   'frame.skip_to_main': 'Skip to main content',
   'frame.select_project': 'Select project',

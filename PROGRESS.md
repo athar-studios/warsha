@@ -1,5 +1,14 @@
 # PROGRESS.md — Warsha Build Log
 
+## Lane C — native UI copy (Simple, Factory, Developers) — 2026-11-25
+
+- **Worktree**: `.agents/worktrees/lane-c-ui`, branch `r-next/lane-c-ui`, base `c7520f8`. Merged into `r-next/integration`.
+- **Decision**: D-RN-CLEAN1-C.
+- **Scope**: catalog strings only. No layout, no daemon, no new dependencies.
+- **Rewrote** calqued or raw pairs in `packages/i18n/src/v3/{en,ar}/{home,project,factory,developers,frame}.ts` and three Arabic role labels in `settings.ts`. Keys unchanged.
+- **Parity**: `packages/i18n/src/v3/index.test.ts` now also asserts home/project/factory/developers/frame.mode_* keys match, are non-empty, and are not the raw key.
+- **Pinned and left**: `home.inbox_single`, status pills asserted in Home/Projects/Frame tests, `project.run_failed_banner`, `project.retry_hint.stage_failed`, `developers.error`, `developers.budget`.
+
 ## Run 2026-11-25 — Lane A external harness (OpenCode proving test)
 
 - **Worktree**: `.agents/worktrees/lane-a-harness`, branch `r-next/lane-a-harness`, base `c7520f8`. Local-only: no merge, no push, no tag.

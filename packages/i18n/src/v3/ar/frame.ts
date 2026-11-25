@@ -3,7 +3,7 @@ export default {
   'frame.daemon_offline': 'تعذّر الوصول إلى خادم ورشة — أعِد المحاولة',
   'frame.mode_simple': 'بسيط',
   'frame.mode_factory': 'المصنع',
-  'frame.mode_advanced': 'متقدّم',
+  'frame.mode_advanced': 'المطورون',
   'frame.anonymous_project': 'مشروع بلا اسم',
   'frame.skip_to_main': 'انتقل إلى المحتوى الرئيسي',
   'frame.select_project': 'اختر مشروعًا',
