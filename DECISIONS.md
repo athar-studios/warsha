@@ -1,6 +1,30 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-FLOOR-R2-1: co-stationed markers are slotted per station
+
+Six agents waiting at one gate all took the global array index, so they stood 22 units apart on one row and their "Needs you" labels painted on top of each other. Station mapping stays: a gate stage is still Your decisions.
+
+- **Slot**: count only the agents already placed at this station (not idle, not handing off). Six fit one row at 56 units, which clears a middle-anchored "Needs you" label. A seventh wraps to the next row, 40 units down, under the label.
+- **Not now**: no new station, no change to the break area, no CSS. The list view is not the floor.
+
+## 2026-11-26 — D-RN-FLOOR-R2-2: marker ink and panel strings come from the catalogs
+
+`role.slice(0, 3)` turned intake into "int". The panel printed `agent_step`, the role id, and a literal cent sign.
+
+- **Marker**: `factory.role.*`, two letters, native in both catalogs (intake is "In" / "است"). A role with no short key still goes through `t`, so a missing entry shows the key rather than a slice. The panel role uses the existing `settings.role.*` names ("Intake" / "الاستلام").
+- **Action**: the wire kind, and the kind half of `kind: detail`, go through `events.*`. A cold-floor `gate` reads as `events.gate_decision`. The detail after the colon stays as stored.
+- **Cost**: `factory.cost_cents` is "{cents}¢" in en and "{cents} سنت" in ar. No literal glyph in the component.
+- **Not now**: the factory list still shows the raw role, the raw action, and `¢`. That view was not in the residual.
+
+## 2026-11-26 — D-RN-FLOOR-R2-3: a gate names itself on the project stage sentence
+
+`getSimpleStageLabelKey('gate_a')` is `stages.idea`, so a run at Gate A said "Current stage: Idea". Home, the stepper, and the activity feed still want that Simple map.
+
+- **Sentence only**: `stageSentenceLabelKey` returns `project.gate.gate_a` … `project.gate.gate_d` ("Gate A" / "البوابة أ", and B/C/D) and otherwise the Simple key. `getSimpleStageLabelKey` is unchanged.
+- **Citation**: the sentence lives in `apps/desktop/src/v3/pages/project/index.tsx`. `DecisionCard` has no stage line. An earlier PROGRESS note named that card; the note is corrected.
+- **Not now**: no merge, no push. FIXES COMPLETE is not declared.
+
 ## 2026-11-26 — D-RN-WRITER-1: the scripted backend derives the contract from the task title, not from the path
 
 The materialize fixture picks a body by exact path (`src/scaffold.rs` and the three siblings). A verifier can then land the four contracts without the task text selecting them. The scripted backend does not do that.

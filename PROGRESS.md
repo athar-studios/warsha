@@ -1,5 +1,16 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — floor labels, panel copy, gate name on the stage sentence
+
+- **Worktree**: `.agents/worktrees/fix-floor-r2`, branch `r-next/fix-floor-r2`. No push, no merge. FIXES COMPLETE is not declared.
+- **Decisions**: D-RN-FLOOR-R2-1, D-RN-FLOOR-R2-2, D-RN-FLOOR-R2-3.
+- **What changed**: agents that share a station are slotted against that station, 56 units apart, so six "Needs you" labels no longer share one row 22 units apart. Marker ink is `factory.role.*` (en "In", ar "است" for intake), not `role.slice(0, 3)`. The agent panel localizes `lastAction` through `events.*`, the role through `settings.role.*`, and the cost through `factory.cost_cents` (en "{cents}¢", ar "{cents} سنت"). A run at a gate names the gate on the project stage sentence (`project.gate.gate_a`: "Gate A" / "البوابة أ"). `getSimpleStageLabelKey` is unchanged.
+- **Citation corrected**: the stage line is `apps/desktop/src/v3/pages/project/index.tsx` (the `project-latest-sentence` block), not `packages/ui/src/v3/composites/DecisionCard.tsx`. The earlier note in this file named the card; that citation was wrong. DecisionCard has no stage line.
+- **Evidence** (this worktree, node_modules symlinked from the main checkout and removed after):
+  - `apps/desktop` vitest `src/v3/pages/factory src/v3/pages/project` — 7 files, 84 tests passed, 0 failed. The `./node_modules/.bin/vitest` shim looks up vitest from the worktree root and misses; the same binary was started with `node /home/moe/Downloads/Warsha/apps/desktop/node_modules/vitest/vitest.mjs run` on the same paths. Both symlinks were removed.
+- **Not run**: cargo, policy check. No Rust change. i18n parity test was not in the requested filter.
+- **Left alone**: the factory list view still prints the raw role, the raw last action, and a literal cent glyph. The task named the panel.
+
 ## Run 2026-11-26 — scripted coding backend derives the four proofcalc files
 
 - **Worktree**: `.agents/worktrees/fix-writer`, branch `r-next/fix-writer`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.
@@ -53,7 +64,7 @@
 - **Inputs per judgement**: the original task spec, the lane's diff, real test results, and the Playwright screenshots and report when present.
 - **Already merged, now judged**: the CLEAN-1 merges on this branch (`a194769` harness, `9583b97` copy, `d68a40f` secretary, `04d61a9` swarm, `d5a2aae` proofcalc, `492fef9` floor) landed before this rule and were judged retroactively as one range, `c7520f8..492fef9`.
 - **JUDGE PASS** — round 1 of 2, 93/100, attempt `attempt-096a92e2`, model `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`, verdict file `/tmp/judge-clean1-round1.md`. Scores: asked 36/40, evidence 27/30, no fabricated claims 20/20, native AR/EN 10/10. The Judge read the diff and the catalogs and wrote no repo files (review observed no change).
-- **Coordinator check of the verdict**: the two file citations are wrong. There is no `packages/desktop`. The panel is `apps/desktop/src/v3/pages/factory/AgentPanel.tsx` and the card is `packages/ui/src/v3/composites/DecisionCard.tsx`. The findings themselves match the Playwright report (panel says "Doing now: agent_step", stage line says "Current stage: Idea"). The Arabic phrases the Judge quoted (`ينتظرك`, `بلا عمل`, `قراراتك`) are real, in `packages/i18n/src/v3/ar/factory.ts`, which is `.ts`, not `.json`. The scores stand; the citations are corrected here. These two residuals are not merge blockers and were not claimed as fixed.
+- **Coordinator check of the verdict**: the two file citations are wrong. There is no `packages/desktop`. The panel is `apps/desktop/src/v3/pages/factory/AgentPanel.tsx`. The stage line is `apps/desktop/src/v3/pages/project/index.tsx` (`project-latest-sentence`), not `packages/ui/src/v3/composites/DecisionCard.tsx` — that card has no stage line. The findings themselves match the Playwright report (panel says "Doing now: agent_step", stage line says "Current stage: Idea"). The Arabic phrases the Judge quoted (`ينتظرك`, `بلا عمل`, `قراراتك`) are real, in `packages/i18n/src/v3/ar/factory.ts`, which is `.ts`, not `.json`. The scores stand. The floor-r2 run above addresses the panel string and the stage sentence; this note only corrects the citation.
 
 ## Run 2026-11-25 — factory floor places a gate wait at Your decisions
 
