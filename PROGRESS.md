@@ -1,5 +1,15 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — factory panel names the agent state
+
+- **Worktree**: `.agents/worktrees/fix-panel`, branch `r-next/fix-panel`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.
+- **Decision**: D-RN-PANEL-1.
+- **What changed**: the agent panel keeps the last-action row and adds a State row (`factory.panel.state`: en "State", ar "الحالة") that renders `factory.state.*`, the same keys the list already uses. A `waiting_on_owner` agent shows "Waiting on you" / "ينتظرك"; an idle agent shows "Idle" / "بلا عمل".
+- **Evidence** (this worktree):
+  - `apps/desktop` vitest `src/v3/pages/factory` — 4 files, 26 tests passed, including `AgentPanel.test.tsx` (2).
+  - `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures.
+- **Not run**: cargo. No Rust change.
+
 ## Run 2026-11-26 — CLEAN-1 Judge lane (owner addition, effective now)
 
 - **Rule**: a fifth lane, the Judge, gates every merge into `r-next/integration`. No lane output merges without a `JUDGE PASS` recorded here next to the merge. A `JUDGE FAIL` returns the work to its lane with the failed items; max 2 judge rounds per lane output, then escalate in the coordinator report. The Judge is a first-pass filter only — the external Claude verification at FIXES COMPLETE still applies and overrides.

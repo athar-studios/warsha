@@ -10,6 +10,7 @@ export default {
   'factory.idle': 'منطقة الاستراحة',
   'factory.idleDuration': 'بلا عمل منذ {duration} ثانية',
   'factory.panel.title': 'تفاصيل الوكيل',
+  'factory.panel.state': 'الحالة',
   'factory.panel.currentAction': 'يعمل الآن',
   'factory.panel.lastAction': 'آخر خطوة',
   'factory.panel.run': 'التشغيل',

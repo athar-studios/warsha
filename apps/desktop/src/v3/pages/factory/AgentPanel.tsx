@@ -6,7 +6,9 @@ import type { AgentStatus } from './state';
  * E3 agent panel (plan §8): the figures mirror E4's Developers screen for the
  * same run — cost from the same event stream (the store rows), model from the
  * payload when a backend reports one, last file from tool payloads when
- * present, the code route for the E6 viewer link.
+ * present, the code route for the E6 viewer link. The state row uses the same
+ * factory.state.* keys as the list, so a panel names idle and waiting the
+ * way the list already does.
  */
 
 export interface AgentPanelProps {
@@ -38,6 +40,8 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ agent, lastFile, codeHre
   <aside className="factory-agent-panel" data-testid="factory-agent-panel" aria-live="polite">
     <h2>{t('factory.panel.title')}</h2>
     <dl>
+      <dt>{t('factory.panel.state')}</dt>
+      <dd data-testid="factory-panel-state">{t(`factory.state.${agent.state}`)}</dd>
       <dt>{t('factory.panel.currentAction')}</dt>
       <dd data-testid="factory-panel-action">{agent.lastAction}</dd>
       <dt>{t('factory.panel.run')}</dt>
