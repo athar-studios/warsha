@@ -9399,3 +9399,12 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 - Verdict: JUDGE PASS, 100/100. Record: `/tmp/judge-clean1-round7.md`. Log: `/tmp/judge-r7-swarm.log`, 2 passed in 3.60s.
 - The primary route and the first fallback both failed before this pass. Nemotron produced nothing for twenty minutes. `openrouter/cohere/north-mini-code:free` returned 404, no longer served. The pass came from `openrouter/openrouter/free`, the last recorded fallback.
 - The lock is held across the env mutation and the walk. The peak-4 assertion is unchanged.
+
+## Run 2026-11-26 — gates at tip 5e942b9
+
+- `cargo test --workspace`: 69 targets ok, 1460 passed, 0 failed (`/tmp/ws-test2.log`).
+- `cargo fmt --all -- --check`: clean.
+- `cargo clippy --workspace --all-targets -- -D warnings`: clean, 27.61s.
+- `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+- Playwright evidence for this round: `/home/moe/tools/playwright-ux/runs/2026-11-26-304fc4b/`. The walk produced screenshots and notes but no report.md, and its worker ended on a raw tool call, so the stage is not complete. OCR of the shots: the panel is localized in both languages, the Gate A card says "Current stage: Gate A", and cancel says "This run was cancelled". The floor caption and the list were still raw at that tip; both are fixed in `94d6a5b`, merged as `876df09`, and have not been re-walked.
+- FIXES COMPLETE is not declared. The UX report path is not yet a finished report.
