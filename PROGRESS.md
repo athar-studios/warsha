@@ -9375,3 +9375,10 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 - Verdict: JUDGE PASS, 100/100. Record: `/tmp/judge-clean1-round5.md`.
 - The Judge's own desktop run covered the factory and project pages only: 7 files, 84 passed. It did not run the full suite, and its parent-tip figure (79 files, 277 tests, 1 failure) does not match this tree. The coordinator re-ran the full suite on `r-next/fix-floor-r2` before the merge: 89 files, 807 passed, 0 failed (`/tmp/floor-r2-full.log`).
 - The doc conflict in this merge kept both notes.
+
+## Run 2026-11-26 — Judge pass for the floor caption and the list
+
+- Commit `94d6a5b` (merged here) judged by lane `lane-judge-clean1-20261126` before the merge.
+- Verdict: JUDGE PASS, 100/100. Record: `/tmp/judge-clean1-round6.md`.
+- The Judge ran the full desktop suite itself and wrote `/tmp/judge-r6-vitest.log`: 89 files, 809 passed, 0 failed. The coordinator read that log.
+- The caption is painted once per station group. The list uses `roleLabel`, `actionLabel` and `factory.cost_cents`, the same catalogs as the panel.
