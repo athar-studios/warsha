@@ -1,5 +1,16 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — CLEAN-1 Judge lane (owner addition, effective now)
+
+- **Rule**: a fifth lane, the Judge, gates every merge into `r-next/integration`. No lane output merges without a `JUDGE PASS` recorded here next to the merge. A `JUDGE FAIL` returns the work to its lane with the failed items; max 2 judge rounds per lane output, then escalate in the coordinator report. The Judge is a first-pass filter only — the external Claude verification at FIXES COMPLETE still applies and overrides.
+- **Model**: free OpenRouter route, not Grok, not the model that wrote the code. Primary `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free` (already listed on the local provider `p1f9e6400a1c5fa45`, so no new 9Router combo). Fallback `openrouter/cohere/north-mini-code:free`, then `openrouter/openrouter/free`.
+- **Fleet**: lane `Judge` added to `~/.config/ZadLoop/harness/profiles/web/cordis.patch.yml` (id `lane-judge-clean1-20261126`), enabled, pointed at the primary route directly. Role text forbids writing code, merging, and editing.
+- **Rubric** (out of 100): does it do what was asked (40), real proving evidence — tests actually ran, numbers shown (30), no fabricated claims (20), UI text native in AR and EN where UI is touched (10). Verdict line is exactly `JUDGE PASS` (≥85 and no zero-evidence claim) or `JUDGE FAIL` with the failed items listed.
+- **Inputs per judgement**: the original task spec, the lane's diff, real test results, and the Playwright screenshots and report when present.
+- **Already merged, now judged**: the CLEAN-1 merges on this branch (`a194769` harness, `9583b97` copy, `d68a40f` secretary, `04d61a9` swarm, `d5a2aae` proofcalc, `492fef9` floor) landed before this rule and were judged retroactively as one range, `c7520f8..492fef9`.
+- **JUDGE PASS** — round 1 of 2, 93/100, attempt `attempt-096a92e2`, model `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`, verdict file `/tmp/judge-clean1-round1.md`. Scores: asked 36/40, evidence 27/30, no fabricated claims 20/20, native AR/EN 10/10. The Judge read the diff and the catalogs and wrote no repo files (review observed no change).
+- **Coordinator check of the verdict**: the two file citations are wrong. There is no `packages/desktop`. The panel is `apps/desktop/src/v3/pages/factory/AgentPanel.tsx` and the card is `packages/ui/src/v3/composites/DecisionCard.tsx`. The findings themselves match the Playwright report (panel says "Doing now: agent_step", stage line says "Current stage: Idea"). The Arabic phrases the Judge quoted (`ينتظرك`, `بلا عمل`, `قراراتك`) are real, in `packages/i18n/src/v3/ar/factory.ts`, which is `.ts`, not `.json`. The scores stand; the citations are corrected here. These two residuals are not merge blockers and were not claimed as fixed.
+
 ## Run 2026-11-25 — factory floor places a gate wait at Your decisions
 
 - **Worktree**: `.agents/worktrees/fix-floor`, branch `r-next/fix-floor`. No push, no merge. A cold Factory open reads persisted `runs.events` (the live ring stays an incremental merge) and a non-terminal run whose stage is still a gate is `waiting_on_owner` at Your decisions. Decision: D-RN-FLOOR-1. No new event kind.
