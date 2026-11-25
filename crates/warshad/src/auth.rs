@@ -397,6 +397,13 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         policy: Owner,
         tier: Spend,
     },
+    // Developers-mode read of what each rostered agent was given. Same read
+    // tier as the thread list: a session may see it, nobody spends on it.
+    M {
+        method: "secretary.provisioning.list",
+        policy: Session,
+        tier: Standard,
+    },
     // Ask mode (D4): a project-scoped secretary conversation, not a pipeline
     // run. It starts model work for the owner, so start/turn are Owner/Standard
     // and status is Session/Standard — the same shape as the interview family.

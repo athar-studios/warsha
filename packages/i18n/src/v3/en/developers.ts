@@ -44,4 +44,13 @@ export default {
   'developers.cost.packet_def': 'Cost per merged packet = run cost ÷ succeeded subtasks. — means no packet merged yet.',
   'developers.swarm.banner': 'Swarm run: {count} sub-agents',
   'developers.error': 'Could not load developer data',
+  'developers.provisioning.title': 'What each agent was given',
+  'developers.provisioning.empty': 'No agent has been provisioned for this project yet.',
+  'developers.provisioning.agent': 'Agent',
+  'developers.provisioning.skills': 'Skills',
+  'developers.provisioning.tools': 'Tools',
+  'developers.provisioning.source': 'Source',
+  'developers.provisioning.audited': 'Audited',
+  'developers.provisioning.not_audited': 'Not audited',
+  'developers.provisioning.none': 'none',
 };

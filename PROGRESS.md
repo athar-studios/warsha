@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — Lane D Secretary HR (PART 1)
+
+- **Worktree**: `.agents/worktrees/lane-d-secretary`, branch `r-next/lane-d-secretary`, base `c7520f8`. No merge, no push.
+- **Decision**: D-RN-CLEAN1-D.
+- **Shipped**: `FIXED_SECRETARY_SYSTEM_PROMPT` served to chat and interview. Migration 019 `agent_provisioning`. `propose_staffing` writes a provisioning record for every rostered agent. Developers mode lists it via `secretary.provisioning.list` (ar + en).
+- **Out of scope, not done**: Playwright, UX report, FIXES COMPLETE, swarm, harness backends.
+- **Verification**: pending the lane gates.
+
 ## Run 2026-11-25 — Round 21 Review-3 (SpecFile skip, stale hint, pause assertion)
 
 - **Worktree**: `.agents/worktrees/fix-r21-review3`, base `126103f`. Local-only: no commit, no merge, no push, `main` untouched. Left uncommitted.

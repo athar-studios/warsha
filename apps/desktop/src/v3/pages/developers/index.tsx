@@ -10,6 +10,7 @@ import {
   type RunSubtask,
   type RunSummary,
   type RunId,
+  type ProvisioningRecord,
   type Session,
   type WarshaEvent,
 } from '@warsha/client';
@@ -61,6 +62,7 @@ const DevelopersPage: React.FC = () => {
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [provisioning, setProvisioning] = useState<ProvisioningRecord[] | null>(null);
 
   const refreshAction = useAction('developers.list.refresh', async () => {
     if (!client || !runId) return;
@@ -121,12 +123,14 @@ const DevelopersPage: React.FC = () => {
     const load = async (): Promise<void> => {
       if (!client || !projectId) return;
       try {
-        const [runList, budgetStatus] = await Promise.all([
+        const [runList, budgetStatus, assigned] = await Promise.all([
           client.listRuns(projectId),
           client.getProjectBudget(projectId).catch(() => null),
+          client.listProvisioning(projectId).catch(() => null),
         ]);
         if (cancelled) return;
         setRuns(runList);
+        setProvisioning(assigned);
         setBudget(
           budgetStatus === null
             ? null
@@ -292,6 +296,7 @@ const DevelopersPage: React.FC = () => {
           onChange={(event) => {
             setProjectId((event.target.value as ProjectId) || null);
             setRunId(null);
+            setProvisioning(null);
             setSessions(null);
             setEvents(null);
             setSubtasks(null);
@@ -355,6 +360,50 @@ const DevelopersPage: React.FC = () => {
           </div>
         </Banner>
       )}
+
+      <section className="developers-provisioning" data-testid="developers-provisioning">
+        <h2 className="developers-provisioning-title">{t('developers.provisioning.title')}</h2>
+        {provisioning === null || provisioning.length === 0 ? (
+          <p className="developers-provisioning-empty">{t('developers.provisioning.empty')}</p>
+        ) : (
+          <table className="developers-provisioning-table">
+            <thead>
+              <tr>
+                <th>{t('developers.provisioning.agent')}</th>
+                <th>{t('developers.table.role')}</th>
+                <th>{t('developers.provisioning.skills')}</th>
+                <th>{t('developers.provisioning.tools')}</th>
+                <th>{t('developers.provisioning.source')}</th>
+                <th>{t('developers.provisioning.audited')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {provisioning.map((record) => (
+                <tr key={record.agentId} data-testid="developers-provisioning-row">
+                  <td>{record.agentId}</td>
+                  <td>{roleLabel(record.role)}</td>
+                  <td>
+                    {record.skills.length === 0
+                      ? t('developers.provisioning.none')
+                      : record.skills.join(', ')}
+                  </td>
+                  <td>
+                    {record.tools.length === 0
+                      ? t('developers.provisioning.none')
+                      : record.tools.join(', ')}
+                  </td>
+                  <td>{record.source}</td>
+                  <td>
+                    {record.audited
+                      ? t('developers.provisioning.audited')
+                      : t('developers.provisioning.not_audited')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
 
       <div className="developers-budget" data-testid="developers-budget">
         <span>

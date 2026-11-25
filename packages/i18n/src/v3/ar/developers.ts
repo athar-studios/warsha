@@ -44,4 +44,13 @@ export default {
   'developers.cost.packet_def': 'تكلفة الحزمة المدمجة = تكلفة التشغيل ÷ الحزم الناجحة. تعني الشرطة عدم وجود حزمة مدمجة بعد.',
   'developers.swarm.banner': 'تشغيل سرب: {count} وكلاء فرعيين',
   'developers.error': 'تعذر تحميل بيانات المطورين',
+  'developers.provisioning.title': 'ما أُعطي لكل وكيل',
+  'developers.provisioning.empty': 'لم يُجهَّز أي وكيل لهذا المشروع بعد.',
+  'developers.provisioning.agent': 'الوكيل',
+  'developers.provisioning.skills': 'المهارات',
+  'developers.provisioning.tools': 'الأدوات',
+  'developers.provisioning.source': 'المصدر',
+  'developers.provisioning.audited': 'دُقّق',
+  'developers.provisioning.not_audited': 'لم يُدقَّق',
+  'developers.provisioning.none': 'لا شيء',
 };

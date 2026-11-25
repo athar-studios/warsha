@@ -1,6 +1,16 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-25 — D-RN-CLEAN1-D: The Secretary prompt is fixed in code, and staffing persists a provisioning record
+
+Lane D (Secretary HR), packet PART 1 only. Playwright and the UX report are not this lane.
+
+- **Fixed prompt**: `FIXED_SECRETARY_SYSTEM_PROMPT` in `crates/warshad/src/secretary_chat.rs` (version `sec-hr-1`) is the system prompt served to the model for Secretary chat and for the interview. It is a const, not a per-run field, not a settings value. An installed `secretary-interview` skill may still refine the interview strategy note appended under the prompt; it cannot replace the prompt. The five duties and the never-write-code / never-merge / never-publish line stay in the const.
+- **Provisioning**: one row per `(project_id, agent_id)` in `agent_provisioning` (migration 019). The record is agent → skills → tools → audited source. Re-provisioning the same agent replaces the row. No secret is stored or printed; the source is a repository name or `builtin:warsha`.
+- **Roster**: the smallest slice of EX1. `TeamRoster` / `RosterMember` live in `crates/warshad/src/staffing.rs`. Members resolve to the existing 13 `Role` values. The core preset is PM, Secretary, Reviewer. A payments or auth assessment adds Security; analytics adds a data expert on `Role::Researcher`. HR (`hr/hr-recruiter`) is consulted and named, not hired onto the pipeline. The fixed pipeline stays the fallback for a project that skips staffing. A proposal is `proposed`; this slice does not start work.
+- **Developers mode**: `secretary.provisioning.list` (Session / Standard) returns the rows. The desktop page reads them through `WarshaClient.listProvisioning` and renders agent, role, skills, tools, source, and audited state from the ar + en catalogs. Simple mode does not show this table.
+- **Out of this decision**: generating a pipeline from an approved roster (EX1 §5, not this packet), change-request re-staffing UI, and the SPEC KIT artifact itself.
+
 ## 2026-11-25 — D-R21-REVIEW3: SpecFile resume keeps the owner brief, and a stale pause hint is not current
 
 Independent review of `e9c9b3d..126103f` was NOT CLEAR. The three prior findings stay closed.
