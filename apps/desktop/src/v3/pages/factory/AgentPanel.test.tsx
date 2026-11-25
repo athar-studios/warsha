@@ -3,7 +3,7 @@ import { I18nProvider, useT } from '@warsha/i18n/v3';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { AgentPanel } from './AgentPanel';
+import { actionLabel, AgentPanel, roleLabel } from './AgentPanel';
 import type { AgentStatus } from './state';
 
 function agent(overrides: Partial<AgentStatus> = {}): AgentStatus {
@@ -41,12 +41,12 @@ describe('Agent panel state row', () => {
     const waiting = screen.getByTestId('factory-panel-state');
     expect(waiting.textContent).toBe('Waiting on you');
     expect(waiting.previousElementSibling?.textContent).toBe('State');
-    expect(screen.getByTestId('factory-panel-action').textContent).toBe('agent_step');
+    expect(screen.getByTestId('factory-panel-action').textContent).toBe('Agent step');
     cleanup();
 
     draw('en', agent({ state: 'idle', lastAction: 'agent_step' }));
     expect(screen.getByTestId('factory-panel-state').textContent).toBe('Idle');
-    expect(screen.getByTestId('factory-panel-action').textContent).toBe('agent_step');
+    expect(screen.getByTestId('factory-panel-action').textContent).toBe('Agent step');
   });
 
   it('names the same states in Arabic', () => {
@@ -58,5 +58,32 @@ describe('Agent panel state row', () => {
 
     draw('ar', agent({ state: 'idle' }));
     expect(screen.getByTestId('factory-panel-state').textContent).toBe('بلا عمل');
+  });
+
+  it('localizes the last step, the role, and the cent glyph', () => {
+    const identity = (key: string): string => key;
+    expect(actionLabel('agent_step', identity)).toBe('events.agent_step');
+    expect(actionLabel('agent_step: git_status', identity)).toBe('events.agent_step: git_status');
+    expect(actionLabel('gate', identity)).toBe('events.gate_decision');
+    expect(actionLabel('', identity)).toBe('factory.panel.unknown');
+    expect(roleLabel('intake', identity)).toBe('intake');
+    expect(roleLabel('intake', (key) => (key === 'settings.role.intake' ? 'Intake' : key))).toBe(
+      'Intake'
+    );
+    expect(roleLabel(null, identity)).toBe('—');
+
+    draw('en', agent({ role: 'intake', lastAction: 'agent_step', costCents: 1 }));
+    expect(screen.getByTestId('factory-panel-action').textContent).toBe('Agent step');
+    expect(screen.getByTestId('factory-panel-action').textContent).not.toContain('agent_step');
+    expect(screen.getByTestId('factory-panel-role').textContent).toBe('Intake');
+    expect(screen.getByTestId('factory-panel-cost').textContent).toBe('1¢');
+    expect(screen.getByTestId('factory-panel-cost').textContent).not.toContain('¢¢');
+    cleanup();
+
+    draw('ar', agent({ role: 'intake', lastAction: 'agent_step', costCents: 1 }));
+    expect(screen.getByTestId('factory-panel-action').textContent).toBe('خطوة الوكيل');
+    expect(screen.getByTestId('factory-panel-role').textContent).toBe('الاستلام');
+    expect(screen.getByTestId('factory-panel-cost').textContent).toBe('1 سنت');
+    expect(screen.getByTestId('factory-panel-cost').textContent).not.toContain('¢');
   });
 });
