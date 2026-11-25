@@ -10,6 +10,7 @@ export default {
   'factory.idle': 'Break area',
   'factory.idleDuration': 'Idle for {duration}s',
   'factory.panel.title': 'Agent details',
+  'factory.panel.state': 'State',
   'factory.panel.currentAction': 'Doing now',
   'factory.panel.lastAction': 'Last step',
   'factory.panel.run': 'Run',

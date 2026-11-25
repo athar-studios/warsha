@@ -1,6 +1,13 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-PANEL-1: the agent panel names the same state the list already shows
+
+Clicking an agent opened the panel on "Doing now" (the last event kind) and never named `agent.state`. The list already says "Waiting on you" for `waiting_on_owner`. A person on the panel could not tell the agent was waiting.
+
+- **Row**: `AgentPanel` keeps the last-action row and adds a State row first in the same definition list. The label is `factory.panel.state` (en "State", ar "الحالة", the same words as `factory.list.state`). The value is `factory.state.${agent.state}`, the keys the list already renders. No new state, no CSS change, no layout redesign.
+- **Not now**: no daemon change, no merge, no push. FIXES COMPLETE is not declared.
+
 ## 2026-11-25 — D-RN-FLOOR-1: a cold floor reads persisted history, and a gate stage is a wait
 
 The factory painted every agent Idle in the break area after a daemon restart, including a run sitting at an undecided gate. Two sources already on disk are enough. No new event kind.
