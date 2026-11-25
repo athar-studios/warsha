@@ -9272,3 +9272,10 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 
 
 
+
+## Run 2026-11-26 — Judge pass for the vitest fix
+
+- Commit `1cc7031` (merged as `d6e6d47`) judged by lane `lane-judge-clean1-20261126` before the merge.
+- Verdict: JUDGE PASS, 100/100. Record: `/tmp/judge-clean1-round2.md`.
+- The Judge cited the real lines: the `Promise.resolve().then` wrapper at `apps/desktop/src/v3/pages/developers/index.tsx:126-130`, the `المطورون` expectation at `apps/desktop/src/v3/pages/frame/Frame.test.tsx:206`, and the two catalog keys. The coordinator confirmed those three before merging.
+- The coordinator's own evidence, which the Judge correctly treated as a claim: targeted vitest 4 files / 53 passed, full desktop vitest 89 files / 801 passed, 0 failures.
