@@ -685,7 +685,7 @@ async fn e2e_real_arabic_request_clinic_flow() {
         .get_events(&ext, run.id)
         .await
         .expect("the run's events are readable");
-    assert!(events.len() >= 2);
+    assert_eq!(events.len(), 3);
     assert_eq!(events[0].kind, EventKind::StageStarted);
     assert_eq!(events[0].stage, Stage::Idea);
 

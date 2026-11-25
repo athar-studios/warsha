@@ -339,9 +339,13 @@ async fn an_open_events_socket_receives_the_events_a_run_start_and_a_gate_decisi
     let started = socket.next_event_frame().await;
     assert_eq!(started["run_id"].as_str(), Some(run_id.as_str()));
     assert_eq!(started["kind"], json!("stage_started"));
+    assert_eq!(started["stage"], json!("idea"));
 
-    // Advance Idea -> Gate A so Gate A is the current stage before deciding it.
-    rpc_ok(daemon.rpc(), "runs.advance", json!([run_id.clone()])).await;
+    let agent_step = socket.next_event_frame().await;
+    assert_eq!(agent_step["run_id"].as_str(), Some(run_id.as_str()));
+    assert_eq!(agent_step["kind"], json!("agent_step"));
+    assert_eq!(agent_step["stage"], json!("idea"));
+
     let at_gate_a = socket.next_event_frame().await;
     assert_eq!(at_gate_a["run_id"].as_str(), Some(run_id.as_str()));
     assert_eq!(at_gate_a["kind"], json!("stage_started"));
@@ -365,7 +369,7 @@ async fn an_open_events_socket_receives_the_events_a_run_start_and_a_gate_decisi
     //    are looking at the same one.
     let stored = rpc_ok(daemon.rpc(), "runs.events", json!([run_id.clone()])).await;
     let stored = stored.as_array().expect("the run's event log").clone();
-    for delivered in [&started, &at_gate_a, &decided] {
+    for delivered in [&started, &agent_step, &at_gate_a, &decided] {
         let id = delivered["id"].as_str().expect("an event id").to_string();
         let persisted = store_event_by_id(&stored, &id);
         assert_eq!(

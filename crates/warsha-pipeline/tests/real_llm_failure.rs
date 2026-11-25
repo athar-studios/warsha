@@ -32,7 +32,7 @@ use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
-use warsha_core::{DeviceId, Event, EventKind, Project, ProjectId, RunStatus, Stage};
+use warsha_core::{Event, EventKind, Project, ProjectId, RunStatus, Stage};
 use warsha_pipeline::{settings::SettingsStore, PipelineEngine};
 use warsha_providers::ProviderRouter;
 use warsha_store::Store;
@@ -172,21 +172,10 @@ async fn a_refused_real_llm_call_fails_the_run_records_it_and_scrubs_the_key() {
             .await
             .map_err(|error| format!("the run starts: {error}"))?;
 
-        // The walk first lands on the pending GateA — nothing is dispatched for a
-        // gate. Approving it is what puts Research, the first executed stage, next:
-        // the env-openai call happens there, the stub refuses it, and the walk must
+        // Under the new contract, Idea (intake) is an executed stage and runs first.
+        // The env-openai call happens there, the stub refuses it, and the walk must
         // come back with the failed run in hand rather than hanging at a stage
         // that cannot run.
-        let at_gate = engine
-            .advance_to_next_gate(run.id)
-            .await
-            .map_err(|error| format!("the walk reaches Gate A: {error}"))?;
-        assert_eq!(at_gate.current_stage, Stage::GateA);
-        engine
-            .approve_gate(at_gate.id, Stage::GateA, DeviceId::new())
-            .await
-            .map_err(|error| format!("Gate A approves: {error}"))?;
-
         let walked = engine
             .advance_to_next_gate(run.id)
             .await
@@ -198,7 +187,7 @@ async fn a_refused_real_llm_call_fails_the_run_records_it_and_scrubs_the_key() {
         );
         assert_eq!(
             walked.current_stage,
-            Stage::Research,
+            Stage::Idea,
             "the walk stopped at the stage that failed"
         );
 
@@ -223,7 +212,7 @@ async fn a_refused_real_llm_call_fails_the_run_records_it_and_scrubs_the_key() {
             ));
         }
         let failure = failures[0];
-        if failure.payload["stage"] != "research" {
+        if failure.payload["stage"] != "idea" {
             return Err(format!("the event names its stage: {:?}", failure.payload));
         }
         let message = failure.payload["message"].as_str().unwrap_or_default();
