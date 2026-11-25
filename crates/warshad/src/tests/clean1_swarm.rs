@@ -12,7 +12,10 @@ use super::*;
 use futures::FutureExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use warsha_backends::{reset_fixture_materialize_peak, BuiltinBackend, CODING_BACKEND_FIXTURE_ENV};
+use warsha_backends::{
+    reset_fixture_materialize_peak, reset_scripted_execute_peak, scripted_execute_peak,
+    BuiltinBackend, ScriptedBackend, CODING_BACKEND_FIXTURE_ENV,
+};
 use warsha_core::{Role, RoleRouting, RoutingTarget, RunSubtaskStatus, Stage};
 use warsha_providers::{FAKE_MODEL_ID, FAKE_PROVIDER_ID};
 
@@ -76,11 +79,49 @@ async fn clean1_swarm_four_lanes_materialize_real_files() {
     }
 }
 
+/// Same walk, with the scripted backend instead of the materialize fixture.
+///
+/// No `WARSHA_CODING_BACKEND_FIXTURE` is set. The scripted backend derives each
+/// file from the lane title, so a path-keyed table is not what lands the four
+/// contracts. Its own in-flight counter is the peak witness: the dispatcher
+/// joins the first lane before the fourth starts, and a store poll of
+/// `Dispatched` rows never sees four.
+#[tokio::test]
+async fn clean1_swarm_four_lanes_scripted_backend_derives_files() {
+    let previous = std::env::var(CODING_BACKEND_FIXTURE_ENV).ok();
+    std::env::remove_var(CODING_BACKEND_FIXTURE_ENV);
+    let temp = crate::test_util::fresh_tempdir();
+    let result = std::panic::AssertUnwindSafe(run_clean1_scripted(temp.path()))
+        .catch_unwind()
+        .await;
+    match previous {
+        Some(value) => std::env::set_var(CODING_BACKEND_FIXTURE_ENV, value),
+        None => std::env::remove_var(CODING_BACKEND_FIXTURE_ENV),
+    }
+    match result {
+        Ok(Ok(())) => {}
+        Ok(Err(message)) => panic!("{message}"),
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
 async fn run_clean1(data_dir: &std::path::Path) -> std::result::Result<(), String> {
+    run_clean1_with(data_dir, std::sync::Arc::new(BuiltinBackend), "builtin").await
+}
+
+async fn run_clean1_scripted(data_dir: &std::path::Path) -> std::result::Result<(), String> {
+    run_clean1_with(data_dir, std::sync::Arc::new(ScriptedBackend), "scripted").await
+}
+
+async fn run_clean1_with(
+    data_dir: &std::path::Path,
+    backend: std::sync::Arc<dyn warsha_pipeline::coding_backend::CodingBackend>,
+    backend_name: &str,
+) -> std::result::Result<(), String> {
     let (state, _store) = test_state_with_router(data_dir, route_every_role_to_fake()).await;
     let registry = state.pipeline.backend_registry();
-    registry.register(std::sync::Arc::new(BuiltinBackend));
-    registry.set_default_backend(Some("builtin".to_string()));
+    registry.register(backend);
+    registry.set_default_backend(Some(backend_name.to_string()));
 
     let rpc = WarshaRpc::new(state.clone());
     let ext = owner_ext();
@@ -119,6 +160,7 @@ async fn run_clean1(data_dir: &std::path::Path) -> std::result::Result<(), Strin
         .map_err(|err| err.to_string())?;
 
     reset_fixture_materialize_peak();
+    reset_scripted_execute_peak();
     let peak = std::sync::Arc::new(AtomicUsize::new(0));
     let peak_poll = peak.clone();
     let store_poll = state.store.clone();
@@ -234,14 +276,17 @@ async fn run_clean1(data_dir: &std::path::Path) -> std::result::Result<(), Strin
     {
         return Err(format!("subtasks not all succeeded: {subtasks:?}"));
     }
-    let observed = peak
-        .load(Ordering::SeqCst)
-        .max(warsha_backends::fixture_materialize_peak());
+    let backend_peak = if backend_name == "scripted" {
+        scripted_execute_peak()
+    } else {
+        warsha_backends::fixture_materialize_peak()
+    };
+    let observed = peak.load(Ordering::SeqCst).max(backend_peak);
     if observed != EXPECTED_FILES.len() {
         return Err(format!(
-            "peak concurrent subtasks was {observed} (store {}, fixture {}), want {}",
+            "peak concurrent subtasks was {observed} (store {}, backend {}), want {}",
             peak.load(Ordering::SeqCst),
-            warsha_backends::fixture_materialize_peak(),
+            backend_peak,
             EXPECTED_FILES.len()
         ));
     }
@@ -260,7 +305,7 @@ async fn run_clean1(data_dir: &std::path::Path) -> std::result::Result<(), Strin
         }
         if !body.contains(&format!("clean1:{relative}")) {
             return Err(format!(
-                "{relative} was not written by the fixture backend:\n{body}"
+                "{relative} was not written by the {backend_name} backend:\n{body}"
             ));
         }
         assert_lane_contract(relative, &body)?;

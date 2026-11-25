@@ -1,6 +1,15 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-WRITER-1: the scripted backend derives the contract from the task title, not from the path
+
+The materialize fixture picks a body by exact path (`src/scaffold.rs` and the three siblings). A verifier can then land the four contracts without the task text selecting them. The scripted backend does not do that.
+
+- **Selector**: a whole word of the task title, compared case-insensitively. `scaffold` writes the add contract, `domain` writes `Money`, `engine` writes `apply_fee`, `provider` writes `RateSource`. The declared-file list, whether `task.files` or the `Declared files:` line, only names the destination. A path is not a word of the selector, so `src/scaffold.rs` alone selects nothing.
+- **Why the title, not the whole description**: `run_subtask_agent` copies the shared code-stage prompt into every subtask description. That prompt names all four contracts, so a scan of the description would make every lane ambiguous and write nothing. The lane title is the text that names one contract (`Scaffold the project and workspace.` and its three siblings). A title that names none, or more than one, returns `success: false` and writes no file.
+- **Kept**: `WARSHA_CODING_BACKEND_FIXTURE=materialize` still writes the same contracts by path. The first CLEAN-1 test still sets it. The new test does not. Absolute paths and `..` are refused on both. The scripted backend is not registered by production startup and is not in the catalog inventory.
+- **Not now**: no merge, no push. FIXES COMPLETE is not declared.
+
 ## 2026-11-26 — D-RN-PROV-1: a completed interview writes one provisioning row per rostered agent
 
 The provisioning table, the read RPC, and the Developers view already existed. Nothing in production called `propose_staffing` or `persist_proposal`, so the view always said no agent had been provisioned.

@@ -2,10 +2,12 @@
 
 pub mod catalog;
 pub mod permissions;
+pub mod scripted;
 pub mod stream;
 use async_trait::async_trait;
 pub use catalog::CliHealthDiagnostics;
 use chrono::Utc;
+pub use scripted::{reset_scripted_execute_peak, scripted_execute_peak, ScriptedBackend};
 use std::collections::HashMap;
 use std::io::Write;
 use stream::*;
