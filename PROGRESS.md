@@ -1,5 +1,27 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-25 — Round 21 Review-3 (SpecFile skip, stale hint, pause assertion)
+
+- **Worktree**: `.agents/worktrees/fix-r21-review3`, base `126103f`. Local-only: no commit, no merge, no push, `main` untouched. Left uncommitted.
+- **Decision**: D-R21-REVIEW3.
+- **Plugins**: Coder lane. No `brooks` binary is installed; no score.
+- **Closed, not reopened**: a placeholder brief is not intake-done; Agent Idea resume still re-dispatches unless a real Done Intake session exists; unrouted resume still pauses with `provider_required`; CAS retry still re-reads the full row.
+- **This round**:
+  - SpecFile Idea resume skips `execute_stage_with_feedback` and keeps the owner brief, then walks the same `advance_to_next_gate_locked` path.
+  - The paused banner uses only a `retry_hint` on the newest pause-causing event. A newest pause with no hint shows none and renders no hint element. The failed and cancelled banners still use the newest hint on any error event, including one with no action.
+  - The zero-budget comment no longer says `runs.advance` succeeds at budget 0.
+  - The MCP round-trip observes the settled pause at Idea and does not call `runs.resume` or `runs.advance` on it.
+- **Fail-before**: `specfile_idea_resume_skips_intake_and_keeps_owner_brief` panicked at `crates/warsha-pipeline/src/run_integrity.rs:743` (`left: 1`, `right: 0`) before the production skip.
+- **Verification** (this tree):
+  - `cargo fmt --all -- --check`: exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0.
+  - `cargo test -p warsha-pipeline --lib resume_`: exit 0, 4 passed.
+  - `cargo test -p warsha-pipeline --lib specfile_idea_resume_skips_intake_and_keeps_owner_brief`: exit 0, 1 passed.
+  - `cargo test -p warsha-cli --test mcp_serve binary_stdio_mcp_round_trip_against_loopback_daemon`: exit 0, 1 passed.
+  - `node scripts/check-engineering-policy.mjs`: exit 0 (`8 checks, 0 failures`).
+  - Desktop vitest was not run: this worktree cannot resolve it without the root `node_modules`. The assertion is in `Project.test.tsx`.
+- **Status**: ROUND-21 REVIEW-3 COMPLETE — left uncommitted. Local-only. No brooks score.
+
 ## Run 2026-11-25 — Round 21 Review-2 (HIGH-1, HIGH-2, MEDIUM-1..3, LOW-1..3)
 
 - **Worktree**: `.agents/worktrees/fix-r21-review2`, branch `fix-r21-review2`, base `e9c9b3d`. Local-only: no commit, no merge, no push, `main` and `r-next/integration` untouched. Left uncommitted.

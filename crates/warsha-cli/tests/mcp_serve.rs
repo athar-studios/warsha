@@ -372,20 +372,24 @@ async fn binary_stdio_mcp_round_trip_against_loopback_daemon() {
     .expect("pending_gates text is JSON");
     assert_eq!(pending.as_array().map(Vec::len), Some(4));
 
-    // M-1: start returns at Idea and the unrouted intake pauses asynchronously,
-    // still at Idea. Wait for that settled pause. An unrouted resume re-dispatches
-    // Intake and pauses again with provider_required; it must not fabricate a Done
-    // session. advance refuses a paused run, so this round-trip does not call it.
-    // Approve gate_a only when the run is actually Running at that gate.
+    // M-1 / R21-REVIEW3: start returns at Idea and the unrouted intake pauses
+    // asynchronously, still at Idea. A still-running Idea row is not settled.
+    // This daemon has no Intake route, so the start must be observed paused at
+    // Idea before continuing. Do not call runs.resume or runs.advance on that
+    // pause. Approve gate_a only if the run actually reached that gate while
+    // Running (a routed environment); do not treat still-running as that path.
     let settle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let settled = loop {
         let status = daemon_rpc_ok(rpc_port, "runs.get", json!([run_id.clone()])).await;
-        if status["status"] == "paused" || status["status"] == "running" {
+        let stage = status["current_stage"].as_str();
+        let paused_at_idea = status["status"] == "paused" && stage == Some("idea");
+        let running_at_gate_a = status["status"] == "running" && stage == Some("gate_a");
+        if paused_at_idea || running_at_gate_a {
             break status;
         }
         assert!(
             std::time::Instant::now() < settle_deadline,
-            "run never settled before the round-trip continued: {status}"
+            "unrouted start never settled paused at Idea: {status}"
         );
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     };
@@ -394,6 +398,16 @@ async fn binary_stdio_mcp_round_trip_against_loopback_daemon() {
     if at_gate_a {
         daemon_rpc_ok(rpc_port, "runs.advance", json!([run_id.clone()])).await;
         daemon_rpc_ok(rpc_port, "gates.approve", json!([run_id.clone(), "gate_a"])).await;
+    } else {
+        assert_eq!(
+            settled["status"], "paused",
+            "unrouted start must be paused, not still running: {settled}"
+        );
+        assert_eq!(
+            settled["current_stage"].as_str(),
+            Some("idea"),
+            "unrouted pause stays at Idea: {settled}"
+        );
     }
 
     send_frame(
@@ -428,7 +442,10 @@ async fn binary_stdio_mcp_round_trip_against_loopback_daemon() {
     if at_gate_a {
         assert_eq!(stages_after, vec!["gate_b", "gate_c", "gate_d"]);
     } else {
-        // Paused at Idea: advance was not called, so the four gates stay pending.
+        // Observed pause at Idea: runs.advance and runs.resume were not called,
+        // so the four gates stay pending. Length alone is not the pause proof.
+        assert_eq!(settled["status"], "paused");
+        assert_eq!(settled["current_stage"].as_str(), Some("idea"));
         assert_eq!(stages_after.len(), 4);
     }
 

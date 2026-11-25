@@ -2335,12 +2335,14 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     .contains_key(&stage_to_string(stage).to_lowercase())
             };
             // A placeholder brief written at start_run is not intake. Resume of an
-            // Idea run re-dispatches Intake unless a real Intake session is already
-            // Done. SpecFile runs skip intake (see advance_stage_locked). A
-            // session-list error must not fail the resume after the status CAS.
-            let intake_already_done = if stage == Stage::Idea
-                && run.run_mode != warsha_core::RunMode::SpecFile
-            {
+            // Agent or Plan Idea run re-dispatches Intake unless a real Intake
+            // session is already Done. SpecFile skips intake the same way
+            // advance_stage_locked does: the owner brief is the spec, so resume
+            // must not call execute_stage_with_feedback for Intake. A session-list
+            // error must not fail the resume after the status CAS.
+            let specfile_skips_intake =
+                stage == Stage::Idea && run.run_mode == warsha_core::RunMode::SpecFile;
+            let intake_already_done = if stage == Stage::Idea && !specfile_skips_intake {
                 match self.store.list_sessions_by_run(run.id).await {
                     Ok(sessions) => sessions.iter().any(|s| {
                         s.role == Role::Intake && s.status == warsha_core::SessionStatus::Done
@@ -2355,9 +2357,11 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     }
                 }
             } else {
-                false
+                specfile_skips_intake
             };
-            if needs_exec || (stage == Stage::Idea && !intake_already_done) {
+            if !specfile_skips_intake
+                && (needs_exec || (stage == Stage::Idea && !intake_already_done))
+            {
                 // Re-dispatch. NoProviderRouted records provider_required and
                 // pauses again; do not fabricate a Done session. The pause is the
                 // resume result, not a failed resume call.
@@ -2458,10 +2462,11 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         // A zero-budget Idea run was never dispatched (runs.start skips intake when
         // budget_cents == Some(0), because the budget is already exhausted). It is not
         // a stalled dispatch, so the no-session reap must not fail it with stage_failed
-        // (L-4). The run stays Running at Idea with no sessions until an explicit
-        // runs.advance. resume_run returns immediately for a Running run, and
-        // set_run_budget only writes the row, so neither moves it. The reap skip
-        // only prevents a false stage_failed.
+        // (L-4). The run stays at Idea until the budget is raised. An advance while
+        // the budget is still zero fails with BudgetExceeded: ensure_budget rejects
+        // spent >= budget, and a never-dispatched run has spent_cents == 0. resume_run
+        // returns immediately for a Running run, and set_run_budget only writes the
+        // row, so neither moves it. The reap skip only prevents a false stage_failed.
         let never_dispatched_zero_budget =
             run.current_stage == Stage::Idea && run.budget_cents == Some(0);
         let is_stale_without_session = !has_working_session

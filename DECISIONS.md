@@ -1,6 +1,15 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-25 — D-R21-REVIEW3: SpecFile resume keeps the owner brief, and a stale pause hint is not current
+
+Independent review of `e9c9b3d..126103f` was NOT CLEAR. The three prior findings stay closed.
+
+- **SpecFile skip**: Idea resume for `RunMode::SpecFile` does not call `execute_stage_with_feedback`. The owner brief is the spec. Resume then uses the existing `advance_to_next_gate_locked` walk, the same skip `advance_stage_locked` already uses. Agent and Plan Idea resume still re-dispatch unless a real Done Intake session exists.
+- **Stale hint**: the paused banner reads `retry_hint` only from the newest pause-causing event (`provider_required`, `run_interrupted`, or `budget_exceeded`). A newest pause with no hint shows no hint and no empty hint element. The failed and cancelled banners still show the newest `retry_hint` on any error event, including one with no action. An unknown current hint stays raw.
+- **Zero budget**: the run stays at Idea until the budget is raised. An advance while the budget is still zero fails `BudgetExceeded`.
+- **MCP pause**: the stdio round-trip must observe `paused` at Idea before continuing, and must not call `runs.resume` or `runs.advance` on that pause. A run that actually reached `gate_a` while Running still takes the approval path.
+
 ## 2026-11-25 — D-R21-REVIEW2: A placeholder brief is not intake, and recovery must not write a stale row
 
 Independent Reviewer on `e9c9b3d` returned NOT CLEAR. Two HIGH claims were confirmed by reading the files.

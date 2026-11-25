@@ -279,6 +279,50 @@ describe('ProjectPage helpers', () => {
       ])
     ).toBe('Verify model endpoint');
   });
+
+  it('uses only the newest pause-causing hint, not an older one', () => {
+    const older = {
+      id: 'evt-old',
+      runId: 'run-paused' as RunId,
+      stage: 'idea' as const,
+      role: null,
+      kind: 'error',
+      payload: {
+        action: 'provider_required',
+        retry_hint: 'Configure a provider route for this role in Settings -> Models',
+      },
+      costCents: null,
+      createdAt: '2026-10-02T08:00:00.000Z',
+      deviceId: null,
+    };
+    const newest = {
+      id: 'evt-new',
+      runId: 'run-paused' as RunId,
+      stage: 'idea' as const,
+      role: null,
+      kind: 'error',
+      payload: { action: 'run_interrupted' },
+      costCents: null,
+      createdAt: '2026-10-02T09:00:00.000Z',
+      deviceId: null,
+    };
+    expect(findRetryHint([older, newest], 'paused')).toBe('');
+    expect(findRetryHint([newest, older], 'paused')).toBe('');
+    expect(
+      findRetryHint(
+        [
+          newest,
+          {
+            ...older,
+            id: 'evt-current',
+            createdAt: '2026-10-02T10:00:00.000Z',
+            payload: { action: 'provider_required', retry_hint: 'project.retry_hint_provider' },
+          },
+        ],
+        'paused',
+      ),
+    ).toBe('project.retry_hint_provider');
+  });
 });
 
 describe('ProjectPage component', () => {
@@ -579,6 +623,56 @@ describe('ProjectPage component', () => {
     expect(retryHintText('provider route was reworded by the daemon')).toBe(
       'provider route was reworded by the daemon'
     );
+  });
+
+  it('does not render a hint copied from an older pause when the newest pause has none', async () => {
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([PAUSED_RUN]),
+      subscribeRun: vi.fn().mockResolvedValue({
+        seq: 1,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: PAUSED_RUN,
+        events: [
+          {
+            id: 'evt-old-hint',
+            runId: 'run-paused' as RunId,
+            stage: 'idea',
+            role: 'intake',
+            kind: 'error',
+            payload: {
+              action: 'provider_required',
+              retry_hint: 'Configure a provider route for this role in Settings -> Models',
+            },
+            costCents: null,
+            createdAt: '2026-10-02T08:00:00.000Z',
+            deviceId: null,
+          },
+          {
+            id: 'evt-interrupted',
+            runId: 'run-paused' as RunId,
+            stage: 'idea',
+            role: null,
+            kind: 'error',
+            payload: { action: 'run_interrupted' },
+            costCents: null,
+            createdAt: '2026-10-02T09:00:00.000Z',
+            deviceId: null,
+          },
+        ],
+      }),
+    });
+
+    renderProject(client, '/p/proj-1', 'en');
+    await waitFor(() => {
+      expect(screen.getByTestId('project-ready')).toBeDefined();
+    });
+    expect(screen.queryByTestId('project-paused-notice')).toBeNull();
+    expect(screen.queryByTestId('project-banner-retry-hint')).toBeNull();
+    // The older sentence may still appear in the activity feed. It must not
+    // appear as the paused banner hint.
+    expect(screen.queryByTestId('project-banner-retry-hint')).toBeNull();
   });
 
   it('keeps the danger banner free of a retry hint when no event carries one', async () => {

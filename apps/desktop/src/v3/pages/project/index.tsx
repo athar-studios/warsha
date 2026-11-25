@@ -167,13 +167,46 @@ export function extractRetryHint(payload: unknown): string {
   return typeof rec.retry_hint === 'string' ? rec.retry_hint.trim() : '';
 }
 
-export function findRetryHint(events: readonly WarshaEvent[] | null | undefined): string {
+/**
+ * Newest retry hint for the banner that is showing.
+ *
+ * `failed` (the default, used by the failed and cancelled banners) is the
+ * newest `retry_hint` on any error event, including one with no action.
+ * `paused` uses only the newest pause-causing event (`provider_required`,
+ * `run_interrupted`, or `budget_exceeded`). A current pause with no hint
+ * returns '' and must not reuse an older sentence. An unknown current hint
+ * stays raw for the catalog fallback.
+ */
+export function findRetryHint(
+  events: readonly WarshaEvent[] | null | undefined,
+  scope: 'failed' | 'paused' = 'failed',
+): string {
   if (!events || events.length === 0) return '';
-  for (let i = events.length - 1; i >= 0; i--) {
-    const hint = extractRetryHint(events[i]?.payload);
-    if (hint) return hint;
+  if (scope === 'paused') {
+    let newest: WarshaEvent | undefined;
+    for (const event of events) {
+      if (!isPauseCausingEvent(event)) continue;
+      if (!newest || event.createdAt >= newest.createdAt) newest = event;
+    }
+    return newest ? extractRetryHint(newest.payload) : '';
   }
-  return '';
+  let hint = '';
+  let at = '';
+  for (const event of events) {
+    if (event.kind !== 'error') continue;
+    const next = extractRetryHint(event.payload);
+    if (!next || event.createdAt < at) continue;
+    hint = next;
+    at = event.createdAt;
+  }
+  return hint;
+}
+
+function isPauseCausingEvent(event: WarshaEvent): boolean {
+  if (event.kind === 'budget_exceeded') return true;
+  if (event.kind !== 'error' || !event.payload || typeof event.payload !== 'object') return false;
+  const action = (event.payload as Record<string, unknown>).action;
+  return action === 'provider_required' || action === 'run_interrupted';
 }
 
 /** Map a daemon retry_hint sentence onto a catalog key, or '' when unknown. */
@@ -535,12 +568,13 @@ export default function ProjectPage(): React.ReactElement {
 
   const isFailedOrCancelled =
     currentRun !== null && (currentRun.status === 'failed' || currentRun.status === 'cancelled');
+  const isPaused = currentRun !== null && currentRun.status === 'paused';
 
-  // Paused + provider_required is the unrouted-intake pause (M-1). It is not a
-  // failure, but the owner still needs the same hint the daemon wrote on the event.
-  const rawRetryHint = findRetryHint(eventsResult.data);
-  const isPausedProviderRequired =
-    currentRun !== null && currentRun.status === 'paused' && rawRetryHint.length > 0;
+  // A paused banner uses only the newest pause-causing event. A failed or
+  // cancelled banner keeps the newest hint on any error event, including one
+  // with no action. An empty hint renders no hint element.
+  const rawRetryHint = findRetryHint(eventsResult.data, isPaused ? 'paused' : 'failed');
+  const isPausedProviderRequired = isPaused && rawRetryHint.length > 0;
 
   const showRetryHint = isFailedOrCancelled || isPausedProviderRequired;
 
@@ -731,7 +765,7 @@ export default function ProjectPage(): React.ReactElement {
                   : t('project.run_failed_banner')}
               </div>
             ) : null}
-            {retryHint ? (
+            {retryHint.trim() ? (
               <div
                 className="v3-project-banner-retry-hint"
                 data-testid="project-banner-retry-hint"
