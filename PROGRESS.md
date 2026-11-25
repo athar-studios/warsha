@@ -9309,3 +9309,11 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 - Verdict: JUDGE PASS, 100/100. Record: `/tmp/judge-clean1-round3.md`.
 - The Judge cited `crates/warshad/src/secretary.rs:843-845` and the daemon test at `crates/warshad/src/tests/mod.rs:8834-8959`, and ran the test itself (1 passed in 0.70s). The coordinator confirmed both citations before merging.
 - Limit, stated by the commit and accepted by the Judge: there is no owner-accept handler for a roster, so interview completion is the write.
+
+## Run 2026-11-26 — Judge pass for the scripted writer
+
+- Commit `2a33414` (merged here) judged by lane `lane-judge-clean1-20261126` before the merge.
+- Verdict: JUDGE PASS, 95/100. Record: `/tmp/judge-clean1-round4.md`.
+- The Judge read `contract_kind_from_task` at `crates/warsha-backends/src/scripted.rs:205` and confirmed the title is the only selector. A path cannot select a contract. It ran the walk itself: 2 passed in 3.63s. The coordinator's own run was 2 passed in 3.47s.
+- The five-point deduction is the commit subject saying "from the task title" while the file list still comes from the `Declared files:` line. That is accurate, and it is not a path-keyed table.
+- Honest limit, unchanged: the file bytes are rendered from templates. What the task decides is which contract, not the bytes.
