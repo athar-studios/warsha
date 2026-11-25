@@ -1220,6 +1220,10 @@ fn append_cli_log_line(log: &mut Option<std::fs::File>, stream: &str, line: &str
 
 /// The diff and changed paths a run left in `work_dir`, or an empty pair when it
 /// is not a git repository. Read-only: it never stages, commits or cleans.
+///
+/// `git diff HEAD` omits untracked files. Those are appended with
+/// `git diff --no-index -- /dev/null <path>`, which does not write the index.
+/// `git add -N` is not used: intent-to-add stages the path.
 async fn capture_changes(work_dir: &std::path::Path) -> (Option<String>, Vec<String>) {
     let status = tokio::process::Command::new("git")
         .arg("-C")
@@ -1227,7 +1231,7 @@ async fn capture_changes(work_dir: &std::path::Path) -> (Option<String>, Vec<Str
         .args(["status", "--porcelain", "-u"])
         .output()
         .await;
-    let diff = tokio::process::Command::new("git")
+    let tracked = tokio::process::Command::new("git")
         .arg("-C")
         .arg(work_dir)
         .args([
@@ -1242,24 +1246,67 @@ async fn capture_changes(work_dir: &std::path::Path) -> (Option<String>, Vec<Str
         .await;
 
     let mut files = Vec::new();
+    let mut untracked = Vec::new();
     if let Ok(output) = status {
         if output.status.success() {
             for line in String::from_utf8_lossy(&output.stdout).lines() {
                 if let Some(path) = line.get(3..) {
                     let path = path.trim().trim_matches('"');
                     if !path.is_empty() && !is_warsha_internal_path(path) {
+                        // A trailing slash is an untracked directory. `-u` lists
+                        // the files inside it; do not diff the directory itself.
+                        if line.starts_with("??") && !path.ends_with('/') {
+                            untracked.push(path.to_string());
+                        }
                         files.push(path.to_string());
                     }
                 }
             }
         }
     }
-    let diff = diff
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).to_string())
-        .filter(|diff| !diff.trim().is_empty());
+    let mut diff = String::new();
+    if let Ok(output) = tracked {
+        if output.status.success() {
+            diff = String::from_utf8_lossy(&output.stdout).into_owned();
+        }
+    }
+    for path in &untracked {
+        if let Some(piece) = untracked_file_diff(work_dir, path).await {
+            if !diff.is_empty() && !diff.ends_with('\n') {
+                diff.push('\n');
+            }
+            diff.push_str(&piece);
+        }
+    }
+    let diff = Some(diff).filter(|text| !text.trim().is_empty());
     (diff, files)
+}
+
+/// Unified diff of one untracked file against `/dev/null`.
+///
+/// `git diff --no-index` exits 1 when the paths differ. That is a diff, not a
+/// failure, and it does not stage the file. Any other exit is treated as "no
+/// diff", matching the best-effort capture of `git diff HEAD`.
+async fn untracked_file_diff(work_dir: &std::path::Path, path: &str) -> Option<String> {
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(work_dir)
+        .args(["diff", "--no-index", "--no-ext-diff", "--"])
+        .arg("/dev/null")
+        .arg(path)
+        .output()
+        .await
+        .ok()?;
+    match output.status.code() {
+        Some(0) | Some(1) => {}
+        _ => return None,
+    }
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 /// Factory for creating backends

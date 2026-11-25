@@ -1,5 +1,16 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — residuals: untracked diffs and the e2e event race
+
+- **Worktree**: `.agents/worktrees/fix-residuals`, branch `r-next/fix-residuals`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.
+- **Decision**: D-RN-RESIDUAL-1.
+- **What changed**: `capture_changes` appends `git diff --no-index -- /dev/null <path>` for each untracked file. `git add -N` is not used because intent-to-add stages. `e2e_request_to_artifact` waits until at least 3 events are persisted before asserting the three kinds and stages. Written names of the B2 proving test now carry the `tests::` prefix.
+- **Evidence** (this worktree, stdout redirected):
+  - `CARGO_INCREMENTAL=0 cargo test -p warsha-backends --test opencode_harness_proving` — 2 passed, 0 failed, 0 filtered out, finished in 0.04s. `opencode_backend_on_path_writes_nonempty_rs_into_git_diff` and `untracked_file_written_without_git_add_is_in_the_diff` both passed. First compile failed: `execute` is on `CodingBackend`, not inherent to `CliBackend`. The import was added and the re-run was green.
+  - `CARGO_INCREMENTAL=0 cargo test -p warshad --test e2e_request_to_artifact` — 1 passed, 0 failed, 0 filtered out, finished in 1.03s.
+  - `cargo fmt --all -- --check` — clean. `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures.
+- **Not exercised**: the full warshad lib suite. No network, no model API.
+
 ## Run 2026-11-26 — scripted coding backend derives the four proofcalc files
 
 - **Worktree**: `.agents/worktrees/fix-writer`, branch `r-next/fix-writer`. No push, no merge. `main` untouched. FIXES COMPLETE is not declared.
@@ -185,7 +196,7 @@
 - **Citation corrections** (read from the files, not copied from the prior log):
   - `crates/warshad/src/tests/mod.rs:8300` `cancel_during_hung_stage_stops_promptly` (was :8288).
   - `crates/warshad/src/tests/mod.rs:8488` `start_run_in_agent_mode_executes_intake_and_advances_to_gate_a` (was :8454).
-  - `crates/warshad/src/tests/mod.rs:8592` `unrouted_agent_run_start_pauses_immediately_with_provider_required`.
+  - `crates/warshad/src/tests/mod.rs:8592` `tests::unrouted_agent_run_start_pauses_immediately_with_provider_required`. The bare `--exact` filter matches 0 tests.
   - `crates/warshad/src/tests/mod.rs:8659` `watchdog_reaps_stalled_stage_without_sessions` (was :8535).
   - `crates/warshad/src/tests/mod.rs:8748` `active_run_with_fresh_working_session_is_not_reaped` (was :8624).
   - `apps/desktop/src/v3/pages/home/index.tsx:993` `formatRelativeDurationLocalized(row.since, locale)` (was :1005-1006).
@@ -258,7 +269,7 @@ Zero Critical or Warning defects. The retry_hint hook ordering issue was caught 
 - **Decision & Fix (D-R20-INTAKE)**:
   - `crates/warsha-pipeline/src/lib.rs:880-920` (`advance_stage_locked`): When `run.current_stage == Stage::Idea` and `run.run_mode != RunMode::SpecFile`, if intake session is not Done, call `self.execute_stage_with_feedback(&mut run, &mut version, ctrl, None)` to execute Intake and generate the brief before advancing to `Stage::GateA`. Narrow provider check removed so `dispatch_chat` resolves routes (and surfaces `NoProviderRouted` / `provider_required` if unrouted).
   - `crates/warsha-pipeline/src/lib.rs:1320-1388` (`execute_stage_with_feedback`): For `stage == Stage::Idea`, preserve the user's raw prompt in `"idea"` artifact and save the intake agent's output as `"brief"` artifact. Persist the file artifact to factory disk as `"brief"` (`brief.md`) so disk matches the SQLite brief artifact without clobbering `idea.md`.
-  - `start_run` (`crates/warshad/src/lib.rs`): For runs with a non-zero budget (Plan and SpecFile modes do not reach this path), chain `self.state.pipeline.advance_to_next_gate(run.id)` unconditionally to execute intake and advance the run to `Stage::GateA`. No narrow pre-flight provider check guards the call: the adjacent `intake_routed` probe is removed, so an unrouted intake reaches `dispatch_chat` and `record_stage_failure` records the `NoProviderRouted` failure as `Paused` carrying `action: "provider_required"` instead of stalling at `Stage::Idea`. That code lives in the B2 lane with proving test `unrouted_agent_run_start_pauses_immediately_with_provider_required` in `crates/warshad/src/tests/mod.rs`.
+  - `start_run` (`crates/warshad/src/lib.rs`): For runs with a non-zero budget (Plan and SpecFile modes do not reach this path), chain `self.state.pipeline.advance_to_next_gate(run.id)` unconditionally to execute intake and advance the run to `Stage::GateA`. No narrow pre-flight provider check guards the call: the adjacent `intake_routed` probe is removed, so an unrouted intake reaches `dispatch_chat` and `record_stage_failure` records the `NoProviderRouted` failure as `Paused` carrying `action: "provider_required"` instead of stalling at `Stage::Idea`. That code lives in the B2 lane with proving test `tests::unrouted_agent_run_start_pauses_immediately_with_provider_required` in `crates/warshad/src/tests/mod.rs`. A `--exact` filter without the `tests::` prefix matches 0 tests.
   - `crates/warsha-pipeline/src/lib.rs:2390-2440` (`check_stale_run`): Detect stalled runs in `RunStatus::Running` at non-gate stages with NO working sessions at all (`!sessions.iter().any(|s| s.status == SessionStatus::Working)`) when `now.signed_duration_since(run.updated_at) > timeout_chrono`. Sweep them to `RunStatus::Failed`, appending `EventKind::Error` with `action: "stage_failed"` and `retry_hint: "Check model provider configuration and retry stage"`, followed by `EventKind::RunFinished` with `status: "failed"`. Active runs with fresh working sessions are immune to false-positive reaping.
   - `apps/desktop/src/v3/pages/project/index.tsx:145-162`: Update `extractEventSummary` to surface `retry_hint` alongside the summary in the activity feed (and in the danger banner via `findRetryHint` in round 21).
   - `crates/warsha-pipeline/src/run_integrity.rs:242`: Reset mock call counter in concurrent advance test.
