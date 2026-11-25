@@ -5,7 +5,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { Floor, markerPosition, markerRoleKey } from './Floor';
+import { Floor, markerPosition, markerRoleKey, showsNeedsYou } from './Floor';
 import type { AgentStatus } from './state';
 
 const t = (key: string): string => key;
@@ -120,10 +120,34 @@ describe('Factory floor geometry', () => {
     expect(positions.every((position) => position.stationKey === 'gates')).toBe(true);
     const xs = positions.map((position) => position.x);
     expect(new Set(xs).size).toBe(6);
-    for (let index = 1; index < xs.length; index += 1) {
-      expect(xs[index] - xs[index - 1]).toBeGreaterThanOrEqual(48);
-    }
     expect(positions.every((position) => position.y === positions[0].y)).toBe(true);
+    // Six circles stay inside the station box and the floor (view width 1000).
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(650 + 11);
+    expect(Math.max(...xs)).toBeLessThanOrEqual(800 - 11);
+  });
+
+  it('paints Needs you once for six waiting agents at one station', () => {
+    const waiting = Array.from({ length: 6 }, (_, index) =>
+      agent({
+        key: `run-${index}:intake`,
+        runId: `run-${index}`,
+        role: 'intake',
+        state: 'waiting_on_owner',
+        stage: 'gate_a',
+      })
+    );
+    const shown = waiting.map((status, index) => showsNeedsYou(status, index, waiting));
+    expect(shown.filter(Boolean)).toHaveLength(1);
+    expect(shown[0]).toBe(true);
+
+    draw('ltr', waiting);
+    const labels = screen.getAllByTestId('factory-needs-you');
+    expect(labels).toHaveLength(1);
+    expect(labels[0].textContent).toBe('factory.needsYou');
+    // Centered on Your decisions (x 650, width 150), so the caption stays on the floor.
+    const host = labels[0].parentElement as Element;
+    const hostX = Number(host.getAttribute('transform')?.match(/-?\d+(\.\d+)?/)?.[0]);
+    expect(hostX + num(labels[0], 'x')).toBe(725);
   });
 
   it('paints the catalog short role, not a three-character slice of the role id', () => {

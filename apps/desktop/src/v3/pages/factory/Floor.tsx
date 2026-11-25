@@ -91,10 +91,25 @@ const BREAK_BOX_HEIGHT = 82;
 const BREAK_LABEL_Y = BREAK_AREA.y - 46;
 const AGENT_RADIUS = 11;
 const PER_ROW = 6;
-/** Horizontal gap between co-stationed markers. Wider than the "Needs you" label. */
-const SLOT_GAP = 56;
-/** "Needs you" sits above the circle; the next row starts below that label. */
-const ROW_GAP = 40;
+/** Inset so a marker circle stays inside its station box. */
+const SLOT_INSET = 16;
+/** Next row starts below the marker, under the shared station caption. */
+const ROW_GAP = 36;
+
+/**
+ * Gap between co-stationed markers. Sized from the station so a full row
+ * stays inside the box. The "Needs you" caption is painted once per station
+ * group, not once per marker, so this gap does not have to clear that string.
+ */
+function slotGap(stationWidth: number): number {
+  return (stationWidth - SLOT_INSET * 2) / (PER_ROW - 1);
+}
+
+function stationCenter(stationKey: string): number {
+  const station = STATIONS.find((candidate) => candidate.key === stationKey);
+  if (station === undefined) return VIEW_WIDTH / 2;
+  return station.x + station.width / 2;
+}
 
 function stationOf(agent: AgentStatus): Station | null {
   const byStage = STATIONS.find((station) => station.stages.includes(agent.stage ?? ''));
@@ -130,8 +145,7 @@ export function markerPosition(
   const station = stationOf(agent);
   if (station === null) return { x: VIEW_WIDTH / 2, y: WORK_ROW_Y, stationKey: null };
   // Slot by who already stands at this station, not by the global array index.
-  // Six agents waiting at one gate otherwise share one row, 22 units apart, and
-  // their "Needs you" labels paint on top of each other.
+  // A shared index stacked six gate waits on one point.
   const here = all.filter(
     (candidate, candidateIndex) =>
       candidateIndex <= index &&
@@ -143,10 +157,29 @@ export function markerPosition(
   const slot = slotIndex % PER_ROW;
   const row = Math.floor(slotIndex / PER_ROW);
   return {
-    x: station.x + 22 + slot * SLOT_GAP,
+    x: station.x + SLOT_INSET + slot * slotGap(station.width),
     y: WORK_ROW_Y + row * ROW_GAP,
     stationKey: station.key,
   };
+}
+
+/**
+ * One "Needs you" caption per station group, not one per marker.
+ *
+ * A middle-anchored caption on every co-stationed marker is wider than any
+ * gap that still fits six circles inside the station box, so the copies paint
+ * on top of each other and the last one runs off the floor. The caption is
+ * drawn once, centered on the group, and every later marker returns false.
+ */
+export function showsNeedsYou(agent: AgentStatus, index: number, all: AgentStatus[]): boolean {
+  if (agent.state !== 'waiting_on_owner') return false;
+  const stationKey = stationOf(agent)?.key ?? null;
+  for (let earlier = 0; earlier < index; earlier += 1) {
+    const candidate = all[earlier];
+    if (candidate.state !== 'waiting_on_owner') continue;
+    if ((stationOf(candidate)?.key ?? null) === stationKey) return false;
+  }
+  return true;
 }
 
 /** Short role mark painted inside a marker. Catalog short labels, never a slice of the role id. */
@@ -274,8 +307,9 @@ export const Floor: React.FC<FloorProps> = ({
               <text y={3} textAnchor="middle" fontSize="9" fontWeight={600} fill={colours.ink}>
                 {t(markerRoleKey(agent.role))}
               </text>
-              {agent.state === 'waiting_on_owner' && (
+              {showsNeedsYou(agent, index, agents) && position.stationKey !== null && (
                 <text
+                  x={px(stationCenter(position.stationKey)) - px(position.x)}
                   y={-AGENT_RADIUS - 6}
                   textAnchor="middle"
                   fontSize="11"
