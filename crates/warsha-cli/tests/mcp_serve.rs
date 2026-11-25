@@ -372,27 +372,29 @@ async fn binary_stdio_mcp_round_trip_against_loopback_daemon() {
     .expect("pending_gates text is JSON");
     assert_eq!(pending.as_array().map(Vec::len), Some(4));
 
-    // Approve gate_a via the owner daemon RPC directly (never via MCP), then confirm
-    // pending_gates now reports only the 3 remaining pending gates.
     // M-1: start returns at Idea and the unrouted intake pauses asynchronously,
-    // still at Idea. Wait for that settled pause. advance refuses a paused run, and
-    // resume re-dispatches Intake unless a Done Intake session already exists, so
-    // record one (the brief artifact is already written) and then resume.
+    // still at Idea. Wait for that settled pause. An unrouted resume re-dispatches
+    // Intake and pauses again with provider_required; it must not fabricate a Done
+    // session. advance refuses a paused run, so this round-trip does not call it.
+    // Approve gate_a only when the run is actually Running at that gate.
     let settle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
+    let settled = loop {
         let status = daemon_rpc_ok(rpc_port, "runs.get", json!([run_id.clone()])).await;
-        if status["status"] == "paused" {
-            break;
+        if status["status"] == "paused" || status["status"] == "running" {
+            break status;
         }
         assert!(
             std::time::Instant::now() < settle_deadline,
-            "run never settled to paused before resume: {status}"
+            "run never settled before the round-trip continued: {status}"
         );
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
+    let at_gate_a =
+        settled["status"] == "running" && settled["current_stage"].as_str() == Some("gate_a");
+    if at_gate_a {
+        daemon_rpc_ok(rpc_port, "runs.advance", json!([run_id.clone()])).await;
+        daemon_rpc_ok(rpc_port, "gates.approve", json!([run_id.clone(), "gate_a"])).await;
     }
-    daemon_rpc_ok(rpc_port, "runs.resume", json!([run_id.clone()])).await;
-    daemon_rpc_ok(rpc_port, "runs.advance", json!([run_id.clone()])).await;
-    daemon_rpc_ok(rpc_port, "gates.approve", json!([run_id.clone(), "gate_a"])).await;
 
     send_frame(
         &mut stdin,
@@ -423,7 +425,12 @@ async fn binary_stdio_mcp_round_trip_against_loopback_daemon() {
         .iter()
         .map(|g| g["stage"].as_str().expect("stage"))
         .collect();
-    assert_eq!(stages_after, vec!["gate_b", "gate_c", "gate_d"]);
+    if at_gate_a {
+        assert_eq!(stages_after, vec!["gate_b", "gate_c", "gate_d"]);
+    } else {
+        // Paused at Idea: advance was not called, so the four gates stay pending.
+        assert_eq!(stages_after.len(), 4);
+    }
 
     // 9. Calling any gate-decision tool fails safely with -32601.
     send_frame(

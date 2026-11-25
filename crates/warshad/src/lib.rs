@@ -1005,9 +1005,15 @@ impl WarshaApiServer for WarshaRpc {
                     warn!(run_id = %run_id.0, "async intake dispatch failed: {err}");
                 }
             });
-            if let Ok(mut tasks) = self.state.intake_tasks.lock() {
-                tasks.push(handle);
-            }
+            // Prune finished handles and still track the new one if the mutex
+            // was poisoned.
+            let mut tasks = self
+                .state
+                .intake_tasks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            tasks.retain(|task| !task.is_finished());
+            tasks.push(handle);
         }
 
         Ok(run)

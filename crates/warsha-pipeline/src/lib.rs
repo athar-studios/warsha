@@ -2334,29 +2334,47 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                 !run.artifacts
                     .contains_key(&stage_to_string(stage).to_lowercase())
             };
-            // An unrouted Idea pause writes the brief and then fails before the
-            // Intake session is marked Done, so resume would re-dispatch the missing
-            // provider and never settle. Record the session as Done and skip the
-            // re-dispatch; the advance below walks Idea to GateA.
-            if stage == Stage::Idea && run.artifacts.contains_key("brief") {
-                let session = warsha_core::Session {
-                    id: warsha_core::SessionId(Ulid::new()),
-                    run_id: Some(run.id),
-                    project_id: run.project_id,
-                    role: Role::Intake,
-                    backend: "pipeline".to_string(),
-                    provider: "unrouted".to_string(),
-                    model: "none".to_string(),
-                    status: warsha_core::SessionStatus::Done,
-                    started_at: Utc::now(),
-                    ended_at: Some(Utc::now()),
-                    parent_session_id: None,
-                    cli_session_id: None,
-                };
-                self.store.create_session(&session).await?;
-            } else if needs_exec {
-                self.execute_stage_with_feedback(&mut run, &mut version, &ctrl, None)
-                    .await?;
+            // A placeholder brief written at start_run is not intake. Resume of an
+            // Idea run re-dispatches Intake unless a real Intake session is already
+            // Done. SpecFile runs skip intake (see advance_stage_locked). A
+            // session-list error must not fail the resume after the status CAS.
+            let intake_already_done = if stage == Stage::Idea
+                && run.run_mode != warsha_core::RunMode::SpecFile
+            {
+                match self.store.list_sessions_by_run(run.id).await {
+                    Ok(sessions) => sessions.iter().any(|s| {
+                        s.role == Role::Intake && s.status == warsha_core::SessionStatus::Done
+                    }),
+                    Err(error) => {
+                        tracing::warn!(
+                            run_id = %run.id,
+                            error = %error,
+                            "resume could not list sessions after flipping the run to Running; leaving it Running for an explicit advance"
+                        );
+                        true
+                    }
+                }
+            } else {
+                false
+            };
+            if needs_exec || (stage == Stage::Idea && !intake_already_done) {
+                // Re-dispatch. NoProviderRouted records provider_required and
+                // pauses again; do not fabricate a Done session. The pause is the
+                // resume result, not a failed resume call.
+                if let Err(error) = self
+                    .execute_stage_with_feedback(&mut run, &mut version, &ctrl, None)
+                    .await
+                {
+                    if let Ok((latest, _)) = self.store.get_run_versioned(run.id).await {
+                        if latest.status == RunStatus::Paused {
+                            return Ok(latest);
+                        }
+                    }
+                    if run.status == RunStatus::Paused {
+                        return Ok(run);
+                    }
+                    return Err(error);
+                }
                 if run.status != RunStatus::Running {
                     return Ok(run);
                 }
@@ -2440,7 +2458,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         // A zero-budget Idea run was never dispatched (runs.start skips intake when
         // budget_cents == Some(0), because the budget is already exhausted). It is not
         // a stalled dispatch, so the no-session reap must not fail it with stage_failed
-        // (L-4). A later resume is what moves it, after the owner raises the budget.
+        // (L-4). The run stays Running at Idea with no sessions until an explicit
+        // runs.advance. resume_run returns immediately for a Running run, and
+        // set_run_budget only writes the row, so neither moves it. The reap skip
+        // only prevents a false stage_failed.
         let never_dispatched_zero_budget =
             run.current_stage == Stage::Idea && run.budget_cents == Some(0);
         let is_stale_without_session = !has_working_session

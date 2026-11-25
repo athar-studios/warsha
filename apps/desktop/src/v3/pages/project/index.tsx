@@ -187,6 +187,11 @@ export function retryHintKey(hint: string): string {
   return '';
 }
 
+/** Catalog key for a known daemon hint, otherwise the raw hint itself. */
+export function retryHintText(hint: string): string {
+  return retryHintKey(hint) || hint;
+}
+
 export function formatBudgetUsd(amount: number | null | undefined): string {
   const safe = typeof amount === 'number' && Number.isFinite(amount) ? amount : 0;
   return `$${safe.toFixed(2)}`;
@@ -533,18 +538,16 @@ export default function ProjectPage(): React.ReactElement {
 
   // Paused + provider_required is the unrouted-intake pause (M-1). It is not a
   // failure, but the owner still needs the same hint the daemon wrote on the event.
+  const rawRetryHint = findRetryHint(eventsResult.data);
   const isPausedProviderRequired =
-    currentRun !== null &&
-    currentRun.status === 'paused' &&
-    findRetryHint(eventsResult.data) ===
-      'Configure a provider route for this role in Settings -> Models';
+    currentRun !== null && currentRun.status === 'paused' && rawRetryHint.length > 0;
 
   const showRetryHint = isFailedOrCancelled || isPausedProviderRequired;
 
   const retryHint = useMemo(() => {
     if (!showRetryHint) return '';
-    return retryHintKey(findRetryHint(eventsResult.data));
-  }, [showRetryHint, eventsResult.data]);
+    return retryHintText(rawRetryHint);
+  }, [showRetryHint, rawRetryHint]);
 
   const statusPillState = computeRunStatusPill(currentRun, pendingGate);
   const statusLabels: Record<StatusPillState, string> = {
@@ -738,7 +741,9 @@ export default function ProjectPage(): React.ReactElement {
                   color: 'var(--w-text-muted)',
                 }}
               >
-                <bdi dir="auto">{t(retryHint)}</bdi>
+                <bdi dir="auto">
+                  {retryHint.startsWith('project.') ? t(retryHint) : retryHint}
+                </bdi>
               </div>
             ) : null}
           </div>
