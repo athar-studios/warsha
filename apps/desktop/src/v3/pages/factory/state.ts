@@ -39,7 +39,12 @@ export interface AgentStatus {
   handoffFrom: string | null;
 }
 
-const WORKING_KINDS = new Set(['StageStarted', 'AgentStep', 'ToolCall', 'StageCompleted']);
+/** Normalize PascalCase or snake_case event kinds (`StageStarted` / `stage_started`) to snake_case. */
+export function normalizeEventKind(kind: string): string {
+  return kind.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+const WORKING_KINDS = new Set(['stage_started', 'agent_step', 'tool_call', 'stage_completed']);
 
 /** Wire names of `warsha_core::Stage` gates. A run whose current stage is one of these has not passed an approval. */
 export const GATE_STAGES = new Set(['gate_a', 'gate_b', 'gate_c', 'gate_d']);
@@ -139,12 +144,14 @@ export function applyEvent(
     }
   }
 
+  const kind = normalizeEventKind(event.kind);
+
   // A role-less StageStarted is how the pipeline announces a stage change
   // (advance_stage_locked writes role: None). A gate stage means the run is
   // sitting at an undecided gate — every live agent of that run waits. A
   // non-gate announcement means the run left the gate, so a prior wait ends.
   // It never creates an agent and never knocks a working agent to idle.
-  if (event.role === null && event.kind === 'StageStarted') {
+  if (event.role === null && kind === 'stage_started') {
     const announced = announcedStage(event);
     if (announced === null) return next;
     const waiting = isGateStage(announced);
@@ -173,7 +180,7 @@ export function applyEvent(
 
   // A finished/cancelled run emits a role-less RunFinished. That still wins
   // over a gate wait; it must not be dropped the way other role-less events are.
-  if (event.role === null && event.kind === 'RunFinished') {
+  if (event.role === null && kind === 'run_finished') {
     for (const [agentKey, agent] of next) {
       if (agent.runId !== event.runId || agent.state === 'done') continue;
       next.set(agentKey, {
@@ -204,18 +211,18 @@ export function applyEvent(
   }
 
   if (
-    event.kind === 'GateDecision' &&
+    kind === 'gate_decision' &&
     payloadRecord !== null &&
     payloadRecord['state'] === 'pending'
   ) {
     updated = { ...updated, state: 'waiting_on_owner', lastAction: actionOf(event) };
-  } else if (event.kind === 'RunFinished') {
+  } else if (kind === 'run_finished') {
     updated = { ...updated, state: 'done', lastAction: actionOf(event) };
-  } else if (event.kind === 'AgentStep' && isGateStage(event.stage)) {
+  } else if (kind === 'agent_step' && isGateStage(event.stage)) {
     // The required stream shape: a role-bearing step whose stage is the gate
     // is the owner waiting, not an agent still working that stage.
     updated = { ...updated, state: 'waiting_on_owner', lastAction: actionOf(event) };
-  } else if (WORKING_KINDS.has(event.kind)) {
+  } else if (WORKING_KINDS.has(kind)) {
     updated = { ...updated, state: 'working', lastAction: actionOf(event) };
   } else {
     updated = { ...updated, lastAction: actionOf(event) };

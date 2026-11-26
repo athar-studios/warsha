@@ -255,4 +255,40 @@ describe('Factory floor (E3)', () => {
     expect(spy.mock.calls.length).toBe(afterHide);
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
   });
+
+  it('places active non-gate snake_case runs at their working station with localized actions in Arabic', async () => {
+    const client = createMockClient({
+      listRuns: vi.fn().mockResolvedValue([
+        { ...run('run-1', 'running'), stage: 'research' },
+      ]),
+      subscribeRun: vi.fn().mockResolvedValue({
+        seq: 2,
+        gap_detected: false,
+        resync_required: false,
+        dropped_count: 0,
+        run: null,
+        events: [
+          event({
+            id: 'e1',
+            kind: 'stage_started',
+            role: 'researcher',
+            stage: 'research',
+            payload: { action: 'start_run' },
+          }),
+        ],
+      }),
+    });
+    renderFactory(client, 'ar');
+    const marker = await screen.findByTestId('factory-agent-run-1:researcher');
+    // Planning station work row is at y=120, not break area y=258.
+    expect(marker.getAttribute('transform')).toContain(', 120)');
+    expect(marker.getAttribute('transform')).not.toContain(', 258)');
+
+    fireEvent.keyDown(window, { key: 'l' });
+    const row = await screen.findByTestId('factory-list-row-run-1:researcher');
+    expect(row.querySelectorAll('td')[1]?.textContent).toBe('يعمل');
+    const action = row.querySelector('[data-testid="factory-list-action"]')?.textContent ?? '';
+    expect(action).toBe('بدأت المرحلة: بدء التشغيل');
+    expect(action).not.toContain('start_run');
+  });
 });
