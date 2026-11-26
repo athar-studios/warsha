@@ -1881,17 +1881,48 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         } else {
             run.status = RunStatus::Failed;
         }
-        run.updated_at = Utc::now();
-        let cas_ok = match self.store.update_run_cas(run, version).await {
-            Ok(_) => true,
-            Err(store_error) => {
-                warn!(
-                    "the failed-run write for run {} did not land: {store_error}",
-                    run.id.0
-                );
-                false
+        let target_status = run.status;
+        let mut version = version;
+        let mut cas_ok = false;
+        for attempt in 0..8 {
+            run.updated_at = Utc::now();
+            match self.store.update_run_cas(run, version).await {
+                Ok(_) => {
+                    cas_ok = true;
+                    break;
+                }
+                Err(warsha_store::StoreError::VersionConflict { .. }) if attempt < 7 => {
+                    // Dispatch runs outside state_lock. A budget/followup write can
+                    // advance the row while it is in flight; rebase the transition,
+                    // not just its version, so those newer fields survive.
+                    match self.store.get_run_versioned(run.id).await {
+                        Ok((latest, latest_version)) => {
+                            if matches!(
+                                latest.status,
+                                RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled
+                            ) {
+                                *run = latest;
+                                return PipelineError::Other(message);
+                            }
+                            *run = latest;
+                            run.status = target_status;
+                            version = latest_version;
+                        }
+                        Err(store_error) => {
+                            warn!("could not reload failed run {}: {store_error}", run.id.0);
+                            break;
+                        }
+                    }
+                }
+                Err(store_error) => {
+                    warn!(
+                        "the failed-run write for run {} did not land: {store_error}",
+                        run.id.0
+                    );
+                    break;
+                }
             }
-        };
+        }
 
         let action = if is_unrouted {
             "provider_required"

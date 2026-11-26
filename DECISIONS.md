@@ -16,6 +16,13 @@
 - Developers run options reuse `getStatusLabelKey` and existing ar/en status catalogs. No new user-facing copy or CSS is required.
 - Gate A brief stays escaped `pre` / `bdi dir="auto"` text. Remove known generated technical header lines (project/run ids, version, created/updated timestamps, sign-off flag), heading/quote/list/emphasis/code markers and separator lines; preserve authored heading/question/answer content, including literal HTML-shaped text. This is readable text presentation, not generated-content translation or a general Markdown renderer.
 - Owner commands are frozen acceptance gates. Capacity merges implementer/self-review/check-runner roles explicitly in ignored run state; no independent review or acceptance claimed. Local-only worktree `fix-ui-r4` at base `b5d52da`; no push/tag/merge, crates edits or real model API calls.
+## 2026-11-26 — D-RN-UNROUTED-1: rebase failed-stage transitions on CAS conflicts
+
+- **Cause**: Intake dispatch snapshots a run outside `state_lock`. Home calls `budget.set` after `runs.start`; the budget writer advances the row version under that lock. `record_stage_failure` later acquired the lock but attempted its stale version once, logged the conflict, and emitted `provider_required` while the persisted run remained Running.
+- **Fix**: retain CAS and retry at most eight attempts on version conflicts, reloading the entire row and reapplying only the target status/timestamp. Preserve concurrent budget/artifact changes and do not overwrite a newer terminal status. Other storage errors remain logged, not retried indefinitely.
+- **Proof**: RPC-start regression with a registered mock provider and no role routes holds the state lock until dispatch fails, commits a concurrent budget write, joins the intake task, then requires persisted Paused, one `provider_required` action, preserved budget, and exactly the next row version. No sleeps or real model calls. Before the production fix it failed with `left: Running`, `right: Paused`.
+- **Cancel assessment**: `cancel_run_with_device` already reloads inside `state_lock` on each CAS attempt (up to eight retries), signals active dispatch cancellation, and only returns after persisting Cancelled. Existing active-stage cancellation/stale-write tests cover that behavior; no demonstrated equivalent cancel defect, so no cancel change. The known flaky daemon cancel test remains another lane's responsibility.
+- **Process**: local-only daemon/pipeline scope; planner/implementer/reviewer/verifier capacity-merged explicitly in `/tmp/unrouted-cas-evidence/state.json`, not independent acceptance. No push/tag/merge or desktop edits.
 
 ## 2026-11-26 — D-RN-CAPTURE-LIVE-1: real OpenCode leaves unstaged output; capture needs no further filter
 
