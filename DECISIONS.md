@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-FLAKE-1: the followup version test starts its runs without the intake task
+
+`tests::runs_followup::stale_followup_cannot_resurrect_cancel_and_valid_followup_bumps_version` asserts exact run versions (`initial + 1` after followup, `initial + 2` after cancel). It started both runs with `runs.start`, which spawns `advance_to_next_gate` as an intake task. That task commits the brief (`execute_stage_with_feedback`, CAS under `state_lock`) and then advances Idea → GateA (`advance_stage_locked`, CAS under `state_lock`), one version bump each. Under a loaded suite the task ran between the test's reads, so the cancel version came out at 6, not 5 (reproduced at `crates/warshad/src/tests/mod.rs:5211` on the 5th of a 50-run loop of `tests::runs_followup -- --test-threads=16`, with other CPU-heavy builds running on the host; the same test passed alone).
+
+- **Not a production race**: followup and intake both take `state_lock`; cancel sets the signal, takes `state_lock`, reloads the latest version and CAS-writes `Cancelled` with retry. A followup or stage write built on a stale snapshot fails CAS (the test's step 4 and `run_integrity::stale_stage_write_cannot_overwrite_cancelled_status` assert it). An intake write that lands before cancel takes the lock is a legitimate earlier write that cancel builds on, not a resurrection. No production change.
+- **Fix**: both runs in the test come from `state.pipeline.start_run`, which persists the run and its start event and spawns nothing. Every assertion is unchanged, and followup and cancel still go through the RPC methods. A sleep or a looser version assertion would keep the test dependent on scheduling.
+- **Not now**: `runs.start` intake dispatch keeps its own coverage in `unrouted_agent_run_start_pauses_immediately_with_provider_required` and the agent-mode start tests. No merge, no push. FIXES COMPLETE is not declared.
+
 ## 2026-11-26 — D-RN-SWARM-RACE-1: the two CLEAN-1 swarm walks hold one named process lock
 
 `clean1_swarm_four_lanes_materialize_real_files` sets `WARSHA_CODING_BACKEND_FIXTURE=materialize`. `clean1_swarm_four_lanes_scripted_backend_derives_files` removes it. `FIXTURE_IN_FLIGHT` and `FIXTURE_PEAK` are process-global, and both walks call `reset_fixture_materialize_peak`. Beside each other, one walk restores or clears the switch while the other is inside `execute`, so the materialize path never writes and the peak stays at 2 (store 2, backend 0). One walk's reset can also zero the other's count.
