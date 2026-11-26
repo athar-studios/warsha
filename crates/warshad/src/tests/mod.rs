@@ -7106,7 +7106,11 @@ mod mcp_approval {
             .has_grant(&run_id.0.to_string(), "test_srv", "echo", "agent"));
         assert_eq!(mcp.count(), 0, "an ask reached the transport");
 
-        // The run finishes: `runs.advance` from Feedback completes it.
+        // The run finishes: `runs.advance` from Feedback completes it. The run came
+        // from `runs.start`, whose intake task bumps the row twice (brief commit,
+        // Idea -> GateA); let it land first so the CAS below reads a version nothing
+        // else is about to move.
+        await_intake_settled(&store, run_id).await;
         let (mut run, version) = store
             .get_run_versioned(run_id)
             .await
@@ -8343,15 +8347,14 @@ async fn cancel_during_hung_stage_stops_promptly() {
         .await
         .expect("project created");
 
-    let run = rpc
-        .start_run(
-            &owner_ext(),
-            project.id,
-            "test cancel while hanging".to_string(),
-            None,
-            None,
-            None,
-        )
+    // The pipeline's own start, not `runs.start`: the RPC spawns an intake task that
+    // commits the brief and advances Idea -> GateA, writing the run row and the
+    // Intake session itself. This test overwrites the row to force an approved
+    // GateA and then drives `advance_run`, so it must be the only writer; an intake
+    // write landing after the overwrite moves the run (and the stage) under it.
+    let run = state
+        .pipeline
+        .start_run(project.id, "test cancel while hanging")
         .await
         .expect("run starts");
 

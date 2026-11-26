@@ -1,5 +1,14 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — hung-stage cancel intake flake (D-RN-FLAKE-2)
+
+- Worktree `.agents/worktrees/fix-hung-cancel-flake`, branch `r-next/fix-hung-cancel-flake`, base `ea9b6a7`; initially clean, no unfamiliar changes encountered. Local only; no push/tag/publish/merge, no real model API.
+- Root cause and reproductions: D-RN-FLAKE-2. Original test failed twice in nine loaded full-suite binaries; diagnostic reproduction showed advance returning Running at GateA and only an Intake session. Start fixture via pipeline so the Working session is the intended hung Researcher, retaining every cancellation assertion/RPC. Also fixed the demonstrated MCP completion-fixture CAS race with existing intake-settled helper before version read.
+- Stress: 60 isolated original target loops passed; 18 loaded full-suite binaries after the primary fix all passed the target. Stress also exposed unrelated CLEAN-1 peak assertions; left unchanged. MCP completion CAS failure was separately reproduced and fixed. Stress logs `/tmp/flake2-full-*.log`, `/tmp/flake2-e-*.log`, `/tmp/flake2-f-*.log`; two successful original logs were truncated to recover from a temporary /tmp quota failure, failure logs retained.
+- Checks, all cargo with `CARGO_INCREMENTAL=0`, output redirected and read: `cargo fmt --all -- --check` exit 0 (`/tmp/flake2-fmt.log`); `cargo clippy -p warshad --all-targets -- -D warnings` exit 0 (`/tmp/flake2-clippy.log`); `cargo test -p warshad --lib tests::cancel_during_hung_stage_stops_promptly` 1 passed, 0 failed, 344 filtered (`/tmp/flake2-target.log`); five consecutive `cargo test -p warshad --lib` each 341 passed, 0 failed, 4 ignored (`/tmp/flake2-accept-1.log` through `/tmp/flake2-accept-5.log`); `node scripts/check-engineering-policy.mjs` 8 checks, 0 failures (`/tmp/flake2-policy.log`).
+- Scan candidates retained without speculative fixes: seven named mod.rs tests and six e5_wiring start-helper consumers recorded in D-RN-FLAKE-2. MCP/RunFinished exact counts are filtered, not whole-log counts. No production changes or relaxed assertions/timeouts.
+- Process limitations: implementer performed self-review and checks, not independent verification/acceptance. Initial policy checkpoint missed; no retroactive claim of timely lifecycle evidence. Full workspace tests not run. Commit hash supplied in handoff.
+
 ## Run 2026-11-26 — real OpenCode unstaged capture proof
 
 - **Worktree**: `.agents/worktrees/clean1-capture`, `r-next/clean1-capture`, base `90aad8d`; initially clean. No other sessions' changes encountered. No production edits; no push, tag, publish or merge. Decision D-RN-CAPTURE-LIVE-1.
