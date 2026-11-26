@@ -1,5 +1,9 @@
 # PROGRESS.md — Warsha Build Log
 
+## FIXES COMPLETE — CLEAN-5 — 2026-11-27
+
+Both blockers proven practically at the merged tip `bd4edcc`: the Playwright AR+EN walk at `/home/moe/tools/playwright-ux/runs/2026-11-27-bd4edcc/` (report.md, notes.json, captured.json, 14 screenshots) passed **31/31 checks** — B-1 creates a working project from an ordinary non-git folder after the localized confirm (files preserved, cancelled folder untouched), B-2 captures `"private": true` by default (explicit Public only by choice) with `"description": ""` — the idea never reaches the wire — and R-4 renders the daemon error translated with the raw detail preserved. Judges: r31 **PASS 94/100** at `97a5f1a` (`d9c8fbe`), r32 **PASS 100/100** at `dd85e30` (`c01d2e3`); records commit `bd4edcc` carries lane SHAs + merge SHAs + round. Full workspace gates green (`cargo test --workspace` 1473/0/13 at the base; per-crate and vitest/tsc/eslint/vite/policy gates recorded on the lanes). `main` untouched (`5f4b742`); nothing pushed, tagged, or published. R-2 (orphaned remote repo on partial failure) was not ordered and remains open.
+
 ## Run 2026-11-27 — CLEAN-5 FIX ROUND merge record (round CLEAN-5; merge freeze lifted for this round only)
 
 - **Lanes judged at their exact SHAs, then merged into `r-next/integration`:**
