@@ -110,6 +110,28 @@ export interface ProjectSummary {
   approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask';
   permissions?: ProjectPermissions;
   repoPath?: string;
+  repoUrl?: string;
+}
+
+export interface GithubStatus {
+  configured: boolean;
+  source: string | null;
+}
+
+export interface PreparedFolder {
+  repoPath: string;
+}
+
+export interface ClonedRepo {
+  repoPath: string;
+  repoUrl: string | null;
+}
+
+export interface CreatedGithubRepo {
+  repoPath: string;
+  repoUrl: string;
+  fullName: string;
+  htmlUrl: string;
 }
 
 export interface RunSummary {
@@ -469,8 +491,9 @@ export function decodeProjectSummary(source: unknown): ProjectSummary {
   };
 
   const repoPath = summaryString(field(record, 'repo_path', 'repoPath'));
+  const repoUrl = summaryString(field(record, 'repo_url', 'repoUrl'));
 
-  return {
+  const summary: ProjectSummary = {
     id: summaryId(field(record, 'id'), 'project') as ProjectId,
     name: summaryString(field(record, 'name')) ?? '',
     createdAt,
@@ -480,6 +503,55 @@ export function decodeProjectSummary(source: unknown): ProjectSummary {
     permissions,
     repoPath: repoPath ?? undefined,
   };
+  if (repoUrl !== undefined) {
+    summary.repoUrl = repoUrl;
+  }
+  return summary;
+}
+
+export function decodeGithubStatus(source: unknown): GithubStatus {
+  const record = summaryObject(source, 'github status');
+  const rawSource = field(record, 'source');
+  return {
+    configured: !!field(record, 'configured'),
+    source: summaryString(rawSource) ?? null,
+  };
+}
+
+export function decodePreparedFolder(source: unknown): PreparedFolder {
+  const record = summaryObject(source, 'prepared folder');
+  const repoPath = summaryString(field(record, 'repo_path', 'repoPath'));
+  if (repoPath === undefined) {
+    throw new Error('Malformed summary: prepared folder has no "repo_path"');
+  }
+  return { repoPath };
+}
+
+export function decodeClonedRepo(source: unknown): ClonedRepo {
+  const record = summaryObject(source, 'cloned repo');
+  const repoPath = summaryString(field(record, 'repo_path', 'repoPath'));
+  if (repoPath === undefined) {
+    throw new Error('Malformed summary: cloned repo has no "repo_path"');
+  }
+  const repoUrl = summaryString(field(record, 'repo_url', 'repoUrl')) ?? null;
+  return { repoPath, repoUrl };
+}
+
+export function decodeCreatedGithubRepo(source: unknown): CreatedGithubRepo {
+  const record = summaryObject(source, 'created github repo');
+  const repoPath = summaryString(field(record, 'repo_path', 'repoPath'));
+  const repoUrl = summaryString(field(record, 'repo_url', 'repoUrl'));
+  const fullName = summaryString(field(record, 'full_name', 'fullName'));
+  const htmlUrl = summaryString(field(record, 'html_url', 'htmlUrl'));
+  if (
+    repoPath === undefined ||
+    repoUrl === undefined ||
+    fullName === undefined ||
+    htmlUrl === undefined
+  ) {
+    throw new Error('Malformed summary: created github repo is missing required fields');
+  }
+  return { repoPath, repoUrl, fullName, htmlUrl };
 }
 
 /**
@@ -2690,15 +2762,22 @@ export class WarshaClient
     description: string,
     language: string,
     confinementOrRepoPath?: 'read-only' | 'workspace-write' | 'full-access' | string,
-    approvalMode?: 'ask-always' | 'ask-for-risky' | 'never-ask',
-    repoPath?: string
+    approvalModeOrRepoUrl?: 'ask-always' | 'ask-for-risky' | 'never-ask' | string,
+    repoPath?: string,
+    repoUrl?: string
   ): Promise<ProjectSummary> {
     const isConfinement =
       confinementOrRepoPath === 'read-only' ||
       confinementOrRepoPath === 'workspace-write' ||
       confinementOrRepoPath === 'full-access';
+    const isApprovalMode =
+      approvalModeOrRepoUrl === 'ask-always' ||
+      approvalModeOrRepoUrl === 'ask-for-risky' ||
+      approvalModeOrRepoUrl === 'never-ask';
     const confinement = isConfinement ? confinementOrRepoPath : undefined;
+    const approvalMode = isApprovalMode ? approvalModeOrRepoUrl : undefined;
     const resolvedRepoPath = repoPath ?? (!isConfinement ? confinementOrRepoPath : undefined);
+    const resolvedRepoUrl = repoUrl ?? (!isApprovalMode ? approvalModeOrRepoUrl : undefined);
     const row = await this.rpc<unknown>('projects.create', {
       name,
       description,
@@ -2706,8 +2785,48 @@ export class WarshaClient
       confinement,
       approval_mode: approvalMode,
       repo_path: resolvedRepoPath ?? null,
+      repo_url: resolvedRepoUrl,
     });
     return decodeProjectSummary(row);
+  }
+
+  async getGithubStatus(): Promise<GithubStatus> {
+    const row = await this.rpc<unknown>('projects.github_status');
+    return decodeGithubStatus(row);
+  }
+
+  async prepareProjectFolder(parentDir: string, name: string): Promise<PreparedFolder> {
+    const row = await this.rpc<unknown>('projects.prepare_folder', {
+      parent_dir: parentDir,
+      name,
+    });
+    return decodePreparedFolder(row);
+  }
+
+  async cloneProjectRepo(
+    repoUrl: string,
+    parentDir?: string,
+    folderName?: string
+  ): Promise<ClonedRepo> {
+    const row = await this.rpc<unknown>('projects.clone_repo', {
+      repo_url: repoUrl,
+      parent_dir: parentDir ?? null,
+      folder_name: folderName ?? null,
+    });
+    return decodeClonedRepo(row);
+  }
+
+  async createGithubRepo(
+    name: string,
+    description?: string,
+    parentDir?: string
+  ): Promise<CreatedGithubRepo> {
+    const row = await this.rpc<unknown>('projects.create_github_repo', {
+      name,
+      description: description ?? null,
+      parent_dir: parentDir ?? null,
+    });
+    return decodeCreatedGithubRepo(row);
   }
 
   async attachProject(projectId: ProjectId, repoPath: string): Promise<ProjectSummary> {

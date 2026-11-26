@@ -1,6 +1,23 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-PROJECT-SOURCE-1: backend, git/worktree, daemon RPC, and client support for Project Source Options Round
+
+- **Context**: Project creation previously only supported creating a fresh repo under `<data_dir>/projects/<id>/repo` or passing an already-existing `repo_path` without recording `repo_url` or supporting folder preparation, repository cloning, or GitHub repo creation.
+- **Decisions**:
+  1. **`warsha-git` (`crates/warsha-git/src/lib.rs`)**: added `#[serde(default)] pub clone_url: String` to `Repository` so `GitHubClient::create_repo` preserves GitHub's `clone_url` while keeping existing partial JSON fixtures valid; derived `Clone` on `GitHubClient` (leaving `Debug` unimplemented to avoid token leakage) and exposed `pub fn token(&self) -> &str` for unified startup token reuse.
+  2. **`warsha-pipeline::worktree` (`crates/warsha-pipeline/src/worktree.rs`)**:
+     - Added `prepare_new_folder(parent, name)`: validates `parent.is_dir()` and single-segment safe folder name; uses `target.join(".git").exists()` before calling `validate_repository` so subdirectories inside an ancestor repo (e.g. `target/tmp`) are initialized as their own independent repositories rather than misidentified as already-initialized; runs `git init -q`, ensures local git identity fallback, writes `.gitignore`/`README.md` only if missing, and creates an initial commit if `HEAD` does not exist.
+     - Added `clone_repository(source, dest_parent, folder_name, github_token)`: rejects blank inputs, leading `-` (git option injection), and `ext::`; normalizes `owner/repo` shorthand to `https://github.com/<owner>/<repo>.git`; strips embedded URL credentials from `https://`/`http://`/`ssh://` URLs before returning `clean_repo_url` or passing to `git clone` so secrets are never written to `.git/config`; passes HTTPS token only via transient `-c http.extraHeader=Authorization: Basic ...` with `GIT_TERMINAL_PROMPT=0` and redacts token occurrences on error; initializes an empty cloned repository with an initial commit without touching `origin`.
+  3. **`warshad` (`crates/warshad/src/{state.rs,startup.rs,api.rs,auth.rs,rpc/mod.rs,lib.rs}`)**:
+     - Added `#[serde(default)] pub github_api_base: Option<String>` to `DaemonConfig` (default `None` -> `https://api.github.com`) so mock GitHub HTTP tests run deterministically without env-var races.
+     - Unified GitHub token resolution (`resolve_github_token`) checks: (1) `secrets.load(&wave2::integration_secret_account("github"))`, (2) `secrets.load("github_token")`, (3) startup keychain `self.state.github.as_ref().map(|c| c.token())`.
+     - Added RPCs `projects.github_status` (`Policy::Session`), `projects.prepare_folder` (`Policy::Owner`), `projects.clone_repo` (`Policy::Owner`), and `projects.create_github_repo` (`Policy::Owner`); extended `projects.create` with trailing optional `repo_url: Option<String>` persisted on `Project.repo_url`.
+  4. **`@warsha/client` (`packages/client/src/index.ts`) and e2e harness (`apps/desktop/e2e/harness.ts`)**:
+     - Added `GithubStatus`, `PreparedFolder`, `ClonedRepo`, `CreatedGithubRepo`, `ProjectSummary.repoUrl`, corresponding decoders, and `getGithubStatus()`, `prepareProjectFolder()`, `cloneProjectRepo()`, `createGithubRepo()`.
+     - Extended `createProject(name, description, language, confinementOrRepoPath?, approvalModeOrRepoUrl?, repoPath?, repoUrl?)` while keeping `repo_url: resolvedRepoUrl` as `undefined` when omitted so `JSON.stringify` omits `repo_url` (preserving the static inline object literal for `scripts/check-wire-contract.mjs` W7/W8 and keeping `index.test.ts` key-set assertions intact). Added stubs for the 4 new `projects.*` RPCs in `apps/desktop/e2e/harness.ts` (`RPC_METHODS` + switch).
+- **Proof**: `cargo fmt --all -- --check` exit 0; `cargo clippy --workspace --all-targets -- -D warnings` exit 0; `CARGO_INCREMENTAL=0 cargo test -p warsha-git -p warsha-pipeline -p warshad` exit 0 (**1129 passed, 0 failed, 12 ignored**); `pnpm --filter @warsha/client test` exit 0 (**2 files / 208 passed**); `pnpm --filter @warsha/client exec tsc --noEmit` exit 0; `node scripts/check-engineering-policy.mjs` (**8 checks, 0 failures**).
+
 ## 2026-11-26 — D-RN-SIMPLE-HOME-WIDTH-1: widen Simple Home container to --w-content (1120px) while keeping --w-content-narrow at 720px
 
 - **Context**: Owner decision 2026-11-26 — SIMPLE HOME WIDTH ROUND. Simple Home (`apps/desktop/src/v3/pages/home/home.css`) previously capped `.v3-home-narrow` at `var(--w-content-narrow)` (720px), narrower than Settings, Factory, and Projects (`var(--w-content)` = 1120px).

@@ -670,6 +670,61 @@ impl WarshaRpc {
             .map_err(rpc_policy_refused)?;
         catalog_from_registry(&registry, &rows, None).map_err(rpc_policy_refused)
     }
+
+    pub(crate) async fn resolve_github_token(&self) -> Option<(String, &'static str)> {
+        if let Ok(secret) = self
+            .state
+            .secrets
+            .load(&wave2::integration_secret_account("github"))
+            .await
+        {
+            let trimmed = secret.trim().to_string();
+            if !trimmed.is_empty() {
+                return Some((trimmed, "integrations"));
+            }
+        }
+        if let Ok(secret) = self.state.secrets.load("github_token").await {
+            let trimmed = secret.trim().to_string();
+            if !trimmed.is_empty() {
+                return Some((trimmed, "secrets"));
+            }
+        }
+        if let Some(client) = &self.state.github {
+            let trimmed = client.token().trim().to_string();
+            if !trimmed.is_empty() {
+                return Some((trimmed, "keychain"));
+            }
+        }
+        None
+    }
+
+    pub(crate) async fn resolve_projects_parent_dir(
+        &self,
+        parent_dir: Option<String>,
+    ) -> RpcResult<PathBuf> {
+        match parent_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
+            Some(path_str) => {
+                let path = PathBuf::from(path_str);
+                if !path.is_dir() {
+                    return Err(rpc_invalid_params(format!(
+                        "parent directory `{path_str}` does not exist or is not a directory"
+                    )));
+                }
+                Ok(path)
+            }
+            None => {
+                let default_dir = self.state.config.data_dir.join("projects");
+                tokio::fs::create_dir_all(&default_dir)
+                    .await
+                    .map_err(rpc_error)?;
+                Ok(default_dir)
+            }
+        }
+    }
 }
 
 /// Seconds since the Unix epoch, or `0` on a clock that cannot answer.

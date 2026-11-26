@@ -215,6 +215,9 @@ pub struct DaemonConfig {
     /// [`crate::start_daemon`] in-process can set the field without touching the environment.
     #[serde(default)]
     pub remote_assets_dir: Option<PathBuf>,
+    /// Optional override for the GitHub REST API base URL (defaults to `https://api.github.com`).
+    #[serde(default)]
+    pub github_api_base: Option<String>,
 }
 
 impl Default for DaemonConfig {
@@ -238,6 +241,7 @@ impl Default for DaemonConfig {
             rate_limits: RateLimitConfig::default(),
             allowed_commands: Vec::new(),
             remote_assets_dir: None,
+            github_api_base: None,
             remote_bind: RemoteBind::default(),
         }
     }

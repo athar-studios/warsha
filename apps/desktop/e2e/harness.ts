@@ -167,9 +167,13 @@ export const RPC_METHODS = [
   'preview.status',
   'preview.stop',
   'projects.attach',
+  'projects.clone_repo',
   'projects.create',
+  'projects.create_github_repo',
   'projects.get',
+  'projects.github_status',
   'projects.list',
+  'projects.prepare_folder',
   'providers.add',
   'providers.auth_complete',
   'providers.auth_start',
@@ -1881,6 +1885,37 @@ export function rpcResult(
           createdAt: CREATED_AT,
           updatedAt: CREATED_AT,
           repo_path: repoPath,
+        },
+      };
+    }
+    case 'projects.github_status': {
+      return { ok: true, result: { configured: false, source: null } };
+    }
+    case 'projects.prepare_folder': {
+      if (!paramEntry(params, 'parent_dir').found) return missingField('parent_dir');
+      if (!paramEntry(params, 'name').found) return missingField('name');
+      const parentDir = paramValue(params, 'parent_dir') ?? '';
+      const name = paramValue(params, 'name') ?? '';
+      return { ok: true, result: { repo_path: `${parentDir}/${name}` } };
+    }
+    case 'projects.clone_repo': {
+      if (!paramEntry(params, 'repo_url').found) return missingField('repo_url');
+      const repoUrl = paramValue(params, 'repo_url') ?? '';
+      return {
+        ok: true,
+        result: { repo_path: '/tmp/cloned-repo', repo_url: repoUrl },
+      };
+    }
+    case 'projects.create_github_repo': {
+      if (!paramEntry(params, 'name').found) return missingField('name');
+      const name = paramValue(params, 'name') ?? 'repo';
+      return {
+        ok: true,
+        result: {
+          repo_path: `/tmp/${name}`,
+          repo_url: `https://github.com/octo/${name}.git`,
+          full_name: `octo/${name}`,
+          html_url: `https://github.com/octo/${name}`,
         },
       };
     }

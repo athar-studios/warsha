@@ -297,6 +297,9 @@ pub struct Repository {
     /// Browser URL of the repository.
     #[serde(default)]
     pub html_url: String,
+    /// HTTPS clone URL of the repository.
+    #[serde(default)]
+    pub clone_url: String,
     /// Default branch name.
     #[serde(default)]
     pub default_branch: Option<String>,
@@ -438,6 +441,7 @@ struct MergeBody {
 }
 
 /// Minimal GitHub REST client covering the operations Warsha needs.
+#[derive(Clone)]
 pub struct GitHubClient {
     client: reqwest::Client,
     token: String,
@@ -465,6 +469,11 @@ impl GitHubClient {
     pub fn with_api_base(mut self, api_base: &str) -> Self {
         self.api_base = api_base.trim_end_matches('/').to_string();
         self
+    }
+
+    /// Return the bearer token held by this client (for transient git HTTPS auth).
+    pub fn token(&self) -> &str {
+        &self.token
     }
 
     /// Create a repository owned by the authenticated account.
@@ -1293,5 +1302,18 @@ mod tests {
         assert_eq!(MergeMethod::Rebase.as_str(), "rebase");
         assert_eq!(MergeMethod::default(), MergeMethod::Merge);
         assert_eq!(MergeMethod::Squash.to_string(), "squash");
+    }
+
+    #[test]
+    fn repository_deserializes_clone_url_and_defaults_when_absent() {
+        let with_clone: Repository = serde_json::from_str(
+            r#"{"id":1,"name":"demo","full_name":"u/demo","html_url":"https://github.com/u/demo","clone_url":"https://github.com/u/demo.git"}"#,
+        )
+        .expect("deserialize with clone_url");
+        assert_eq!(with_clone.clone_url, "https://github.com/u/demo.git");
+
+        let without_clone: Repository = serde_json::from_str(r#"{"id":2,"name":"demo2"}"#)
+            .expect("deserialize without clone_url");
+        assert_eq!(without_clone.clone_url, "");
     }
 }

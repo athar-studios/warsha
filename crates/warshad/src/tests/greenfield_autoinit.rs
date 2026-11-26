@@ -28,6 +28,7 @@ async fn test_greenfield_create_project_auto_inits_repo_and_start_run_yields_wor
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("create_project succeeds for greenfield");
@@ -134,6 +135,7 @@ async fn test_greenfield_create_project_with_empty_or_whitespace_repo_path() {
             None,
             None,
             Some("   \t  \n".to_string()),
+            None,
         )
         .await
         .expect("create_project with whitespace repo_path succeeds");
@@ -175,6 +177,7 @@ async fn test_greenfield_create_project_fail_closed_on_unwritable_path() {
             "Unwritable Greenfield".to_string(),
             "Cannot write to blocked projects directory".to_string(),
             "en".to_string(),
+            None,
             None,
             None,
             None,
@@ -229,6 +232,7 @@ async fn test_greenfield_project_allows_attaching_real_repo_later() {
             "Upgraded Project".to_string(),
             "Started greenfield then attached real repo".to_string(),
             "en".to_string(),
+            None,
             None,
             None,
             None,
