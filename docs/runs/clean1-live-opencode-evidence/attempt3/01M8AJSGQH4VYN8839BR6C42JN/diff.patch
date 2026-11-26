@@ -1,0 +1,21 @@
+diff --git a/src/engine.rs b/src/engine.rs
+new file mode 100644
+index 0000000..a49920d
+--- /dev/null
++++ b/src/engine.rs
+@@ -0,0 +1,15 @@
++pub fn apply_fee(amount: i64, bps: u32) -> Option<i64> {
++    if bps > 10000 {
++        return None;
++    }
++    let fee = (amount.unsigned_abs() as u128)
++        .checked_mul(u128::from(bps))
++        .and_then(|product| product.checked_div(10000))?;
++    let signed_fee = if amount < 0 { -(fee as i128) } else { fee as i128 };
++    let total = i128::from(amount) + signed_fee;
++    if i128::from(i64::MIN) <= total && total <= i128::from(i64::MAX) {
++        Some(total as i64)
++    } else {
++        None
++    }
++}

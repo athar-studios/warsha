@@ -152,10 +152,10 @@ fn artifact_for(stage: &str, hash: &str, slug: &str) -> String {
              Plan id: fake-plan-{hash}\n\
              Excerpt: {slug}\n\n\
              ## Tasks\n\
-             1. Scaffold the project and workspace. files: src/scaffold.rs\n\
-             2. Implement the domain model and store. files: src/domain.rs\n\
-             3. Wire the stage engine and gates. files: src/engine.rs\n\
-             4. Add the provider layer and router. files: src/provider.rs\n\n\
+             1. Scaffold the project and workspace. Write only this Rust module, with no imports or other public items: public function add(a: i64, b: i64) returns i64, using checked_add and saturating to i64::MAX on positive overflow or i64::MIN on negative overflow. No unwrap, I/O, dependencies, or other files. files: src/scaffold.rs\n\
+             2. Implement the domain model and store. Write only this Rust module, with no imports: public struct Money with its only field public cents: i64; its public method checked_add(self, other: Money) returns Option<Money>, adding cents with i64::checked_add and returning None on overflow. No formatting, currency, unwrap, I/O, dependencies, or other files. files: src/domain.rs\n\
+             3. Wire the stage engine and gates. Write only this Rust module, with no imports: public function apply_fee(amount: i64, bps: u32) returns Option<i64>. Reject bps above 10000. Calculate fee as amount.unsigned_abs() cast to u128 times u128::from(bps), checked for overflow, divided by 10000; add the fee to amount with the sign of amount, returning None if the signed total cannot fit i64. Zero returns Some(0) for allowed bps. For example 10000 and 250 returns Some(10250). No floats, unwrap, I/O, dependencies, or other files. files: src/engine.rs\n\
+             4. Add the provider layer and router. Write only this Rust module, with no imports: public trait RateSource with exactly one required method rate_bps taking an immutable self reference and returning u32. No default body, associated type, implementation, second method, I/O, dependencies, or other files. files: src/provider.rs\n\n\
              ## Definition of done\n\
              Every task is test-covered and the walk is green.\n"
         ),
@@ -452,6 +452,40 @@ mod tests {
             titles.iter().any(|t| t.contains("Task Plan")),
             "no plan title in {titles:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn plan_tasks_carry_disjoint_proofcalc_contracts() {
+        let plan = content(
+            &FakeProvider::new(),
+            stage_request("architect", "proofcalc"),
+        )
+        .await;
+        let tasks: Vec<_> = plan
+            .lines()
+            .filter(|line| line.contains("files:"))
+            .collect();
+        assert_eq!(tasks.len(), 4);
+        for (task, (word, path, contract)) in tasks.iter().zip([
+            ("Scaffold", "src/scaffold.rs", "add(a: i64, b: i64)"),
+            ("domain", "src/domain.rs", "checked_add(self, other: Money)"),
+            (
+                "engine",
+                "src/engine.rs",
+                "apply_fee(amount: i64, bps: u32)",
+            ),
+            ("provider", "src/provider.rs", "rate_bps"),
+        ]) {
+            assert!(task.contains(word), "{task}");
+            assert!(task.ends_with(&format!("files: {path}")), "{task}");
+            assert!(task.contains(contract), "{task}");
+            assert!(task.contains("only this Rust module"), "{task}");
+            assert!(task.contains("no imports"), "{task}");
+        }
+        assert!(tasks[0].contains("i64::MAX"));
+        assert!(tasks[1].contains("None on overflow"));
+        assert!(tasks[2].contains("Some(10250)"));
+        assert!(tasks[3].contains("exactly one required method"));
     }
 
     #[tokio::test]

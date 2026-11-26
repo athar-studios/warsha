@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+     Running unittests src/lib.rs (/tmp/warsha-clean1-live/target/debug/deps/warshad-de93b01ee9b548c0)
+
+running 1 test
+test tests::clean1_swarm::clean1_swarm_four_lanes_scripted_backend_derives_files ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 344 filtered out; finished in 1.13s
+

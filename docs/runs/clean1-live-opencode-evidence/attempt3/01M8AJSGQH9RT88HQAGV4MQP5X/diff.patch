@@ -1,0 +1,16 @@
+diff --git a/src/domain.rs b/src/domain.rs
+new file mode 100644
+index 0000000..a5ec93e
+--- /dev/null
++++ b/src/domain.rs
+@@ -0,0 +1,10 @@
++pub struct Money {
++    pub cents: i64,
++}
++
++impl Money {
++    pub fn checked_add(self, other: Money) -> Option<Money> {
++        let cents = self.cents.checked_add(other.cents)?;
++        Some(Money { cents })
++    }
++}

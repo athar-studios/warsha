@@ -1,0 +1,10 @@
+pub struct Money {
+    pub cents: i64,
+}
+
+impl Money {
+    pub fn checked_add(self, other: Money) -> Option<Money> {
+        let cents = self.cents.checked_add(other.cents)?;
+        Some(Money { cents })
+    }
+}
