@@ -241,9 +241,14 @@ describe('live gate regressions', () => {
     version: 1,
   } satisfies RunArtifact;
 
-  it.each(['live', 'persisted'])(
-    'shows Gate A and its brief from a %s role-less stage event without remounting',
-    async (source) => {
+  it.each([
+    ['live', 'StageStarted'],
+    ['persisted', 'StageStarted'],
+    ['live', 'stage_started'],
+    ['persisted', 'stage_started'],
+  ] as const)(
+    'shows Gate A and its brief from a %s %s role-less stage event without remounting',
+    async (source, eventKind) => {
       vi.useFakeTimers();
       const ideaRun = { ...AWAITING_GATE_RUN, stage: 'idea', status: 'running' };
       const event = {
@@ -251,7 +256,7 @@ describe('live gate regressions', () => {
         runId: ideaRun.id,
         stage: 'gate_a',
         role: null,
-        kind: 'StageStarted',
+        kind: eventKind,
         payload: { from: 'idea', to: 'gate_a' },
         costCents: null,
         createdAt: '2026-11-26T00:00:01Z',

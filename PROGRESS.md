@@ -1,5 +1,23 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — Arabic Factory Floor UX fixes (D-RN-FLOOR-AR-1)
+
+- **Worktree/scope**: `.agents/worktrees/fix-floor-ar`, branch `r-next/fix-floor-ar`, base `6ca306e`. UI/i18n/factory/project/toast fixes only (`F1`–`F5` from `/home/moe/tools/playwright-ux/runs/2026-11-26-6ca306e-floor-ar/report.md`). No crates edits, no `main` or `r-next/integration` edits, no push/tag/publish.
+- **Fixes (D-RN-FLOOR-AR-1)**:
+  - **F1**: Normalized `event.kind` (`PascalCase` → `snake_case`) in `apps/desktop/src/v3/pages/factory/state.ts` and handled `'stage_started' | 'StageStarted'` in `apps/desktop/src/v3/pages/project/index.tsx:327`, keeping PascalCase unit tests passing while moving active snake_case runs from break area to their station.
+  - **F5**: Added 11 `factory.action.*` keys to `packages/i18n/src/v3/{en,ar}/factory.ts` and updated `actionLabel` in `apps/desktop/src/v3/pages/factory/AgentPanel.tsx` so pipeline/daemon tokens (`start_run`, etc.) localize cleanly in Arabic and English while tool names stay verbatim.
+  - **F2 + F3**: Updated `apps/desktop/src/v3/pages/factory/Floor.tsx` to slot idle markers by `idleSlot`, set `pointerEvents="none"` on role `<text>` inside `.factory-floor__agent`, move `factory-needs-you` into its own `pointerEvents="none"` `<g>` centered on `stationCenter`, and replace per-marker idle duration `<text>` elements with `<title>` tooltips plus a single break-area `factory-idle-caption` at `y = 236` clear of row-0 circles (`y = 258`).
+  - **F4**: Updated `.w-toast-container` in `packages/ui/src/v3/composites/Toast.css` from `inset-block-start` to `inset-block-end` (`inset-inline-end` preserved) so toast notifications clear the sticky top bar in LTR and RTL.
+- **Checks**:
+  - `pnpm --dir packages/i18n test`: 2 files, 61 passed.
+  - `pnpm --dir packages/ui test`: 58 files, 392 passed.
+  - Targeted desktop vitest (`state.test.tsx`, `Floor.test.tsx`, `index.test.tsx`, `Project.test.tsx`, `AgentPanel.test.tsx`): 5 files, 72 passed.
+  - Full `pnpm --dir apps/desktop exec vitest run`: 90 files, 851 passed.
+  - `pnpm --dir apps/desktop exec tsc --noEmit`: exit 0.
+  - `pnpm --dir apps/desktop run lint`: exit 0 (0 errors; 1 pre-existing warning in `apps/desktop/src/v3/pages/developers/index.tsx:282`).
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+- **Notes**: Temporary `node_modules` symlinks used for vitest/tsc/eslint were removed cleanly before committing; proving unit/component tests cover F1–F5, while live Playwright browser re-run was not executed in this worktree.
+
 ## Run 2026-11-26 — desktop Vitest load timeouts (D-RN-VITEST-LOAD-1)
 
 - **Worktree/scope**: `.agents/worktrees/fix-vitest-load`, branch `r-next/fix-vitest-load`, base `6ca306e`. Local only; no push/merge, no crates edits.

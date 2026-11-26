@@ -324,7 +324,13 @@ export default function ProjectPage(): React.ReactElement {
   useEffect(() => {
     let changed = false;
     for (const event of eventsResult.data ?? []) {
-      if (event.runId !== runId || event.role !== null || event.kind !== 'StageStarted') continue;
+      if (
+        event.runId !== runId ||
+        event.role !== null ||
+        (event.kind !== 'stage_started' && event.kind !== 'StageStarted')
+      ) {
+        continue;
+      }
       if (seenStageEvents.current.has(event.id)) continue;
       seenStageEvents.current.add(event.id);
       changed = true;

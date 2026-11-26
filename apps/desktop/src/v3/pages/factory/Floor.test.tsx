@@ -168,4 +168,48 @@ describe('Factory floor geometry', () => {
     expect(circle.getAttribute('fill')).toBe('var(--w-surface)');
     expect(circle.getAttribute('stroke')).toBe('var(--w-line-strong)');
   });
+
+  it('disables pointer events on non-interactive marker text and isolates Needs you from marker groups', () => {
+    const waiting = [
+      agent({
+        key: 'run-1:intake',
+        runId: 'run-1',
+        role: 'intake',
+        state: 'waiting_on_owner',
+        stage: 'gate_a',
+      }),
+    ];
+    draw('ltr', waiting);
+    const marker = screen.getByTestId('factory-agent-run-1:intake');
+    const markerTexts = Array.from(marker.querySelectorAll('text'));
+    expect(markerTexts).toHaveLength(1);
+    expect(markerTexts[0].getAttribute('pointer-events')).toBe('none');
+
+    const label = screen.getByTestId('factory-needs-you');
+    expect(marker.contains(label)).toBe(false);
+    expect(label.parentElement?.classList.contains('factory-floor__agent')).toBe(false);
+    expect(label.parentElement?.getAttribute('pointer-events')).toBe('none');
+  });
+
+  it('renders at most one break-area idle caption clear of all idle circles', () => {
+    const manyIdlers = Array.from({ length: 12 }, (_, index) => idler(`idle-${index}`));
+    const svg = draw('rtl', manyIdlers);
+    const captions = screen.getAllByTestId('factory-idle-caption');
+    expect(captions).toHaveLength(1);
+    expect(captions[0].parentElement?.getAttribute('pointer-events')).toBe('none');
+
+    const breakBox = svg.querySelector('rect[stroke-dasharray]') as SVGRectElement;
+    const captionY = num(captions[0], 'y');
+    const captionFont = num(captions[0], 'font-size');
+    // Caption sits inside the break box and strictly above row-0 circles (y=258, r=11 -> top 247).
+    expect(captionY - captionFont).toBeGreaterThan(num(breakBox, 'y'));
+    expect(captionY + 3).toBeLessThan(258 - 11);
+
+    // Every idle marker keeps a <title> tooltip without rendering overlapping <text> captions inside.
+    for (const entry of manyIdlers) {
+      const marker = screen.getByTestId(`factory-agent-${entry.key}`);
+      expect(marker.querySelectorAll('text')).toHaveLength(1);
+      expect(marker.querySelector('title')?.textContent).toBe('factory.idleDuration');
+    }
+  });
 });

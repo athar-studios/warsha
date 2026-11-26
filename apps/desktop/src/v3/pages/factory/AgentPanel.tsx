@@ -4,6 +4,7 @@ import { getEventKey } from '../../copy/events';
 import { roleLabel } from '../../copy/roles';
 
 import type { AgentStatus } from './state';
+import { normalizeEventKind } from './state';
 
 /**
  * E3 agent panel (plan §8): the figures mirror E4's Developers screen for the
@@ -23,19 +24,37 @@ export interface AgentPanelProps {
   t: (key: string, vars?: Record<string, string | number>) => string;
 }
 
+const ACTION_DETAIL_TO_KEY: Record<string, string> = {
+  start_run: 'factory.action.start_run',
+  run_resumed: 'factory.action.run_resumed',
+  run_cancelled: 'factory.action.run_cancelled',
+  run_interrupted: 'factory.action.run_interrupted',
+  stage_failed: 'factory.action.stage_failed',
+  provider_required: 'factory.action.provider_required',
+  followup: 'factory.action.followup',
+  mcp_allow_once: 'factory.action.mcp_allow_once',
+  replay_gap: 'factory.action.replay_gap',
+  stream_gap: 'factory.action.stream_gap',
+  unsubscribed: 'factory.action.unsubscribed',
+};
+
 /**
  * Panel text for a stored last action. Wire kinds (`agent_step`) and the
- * `kind: detail` form actionOf writes both go through the event catalog.
+ * `kind: detail` form actionOf writes both go through the event catalog,
+ * and known pipeline/daemon action tokens resolve through `factory.action.*`.
  * A bare `gate` (a cold floor that has no event yet) stays a gate decision.
  */
 export function actionLabel(lastAction: string, t: (key: string) => string): string {
   if (lastAction.length === 0) return t('factory.panel.unknown');
   if (lastAction === 'gate') return t(getEventKey('gate_decision'));
   const separator = lastAction.indexOf(': ');
-  const kind = separator === -1 ? lastAction : lastAction.slice(0, separator);
+  const rawKind = separator === -1 ? lastAction : lastAction.slice(0, separator);
   const detail = separator === -1 ? '' : lastAction.slice(separator + 2);
-  const named = t(getEventKey(kind));
-  return detail.length > 0 ? `${named}: ${detail}` : named;
+  const named = t(getEventKey(normalizeEventKind(rawKind)));
+  if (detail.length === 0) return named;
+  const detailKey = ACTION_DETAIL_TO_KEY[detail];
+  const localizedDetail = detailKey !== undefined ? t(detailKey) : detail;
+  return `${named}: ${localizedDetail}`;
 }
 
 /** Panel role: the catalog name when one exists, the role id otherwise. */

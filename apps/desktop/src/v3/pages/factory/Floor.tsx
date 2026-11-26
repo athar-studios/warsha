@@ -127,9 +127,13 @@ export function markerPosition(
   all: AgentStatus[]
 ): { x: number; y: number; stationKey: string | null } {
   if (agent.state === 'idle') {
-    const row = Math.floor(index / PER_ROW);
+    const idleBefore = all
+      .slice(0, index + 1)
+      .filter((candidate) => candidate.state === 'idle').length;
+    const idleSlot = Math.max(0, idleBefore - 1);
+    const row = Math.floor(idleSlot / PER_ROW);
     return {
-      x: BREAK_AREA.x + 30 + (index % PER_ROW) * 22,
+      x: BREAK_AREA.x + 30 + (idleSlot % PER_ROW) * 22,
       y: BREAK_AREA.y + row * 26,
       stationKey: null,
     };
@@ -222,6 +226,18 @@ export const Floor: React.FC<FloorProps> = ({
   const transition = reducedMotion
     ? 'none'
     : 'transform var(--w-dur-slow) var(--w-ease), opacity var(--w-dur-slow) var(--w-ease)';
+  const selectedAgent = selectedKey === null ? undefined : agents.find((a) => a.key === selectedKey);
+  const idleAgents = agents.filter((a) => a.state === 'idle');
+  const idleCaptionAgent =
+    selectedAgent?.state === 'idle'
+      ? selectedAgent
+      : idleAgents.reduce<AgentStatus | undefined>(
+          (longest, candidate) =>
+            longest === undefined || idleMsOf(candidate, nowMs) > idleMsOf(longest, nowMs)
+              ? candidate
+              : longest,
+          undefined
+        );
 
   return (
     <div className={className} data-testid="factory-floor" role="img" aria-label={t('factory.title')}>
@@ -298,38 +314,74 @@ export const Floor: React.FC<FloorProps> = ({
               data-action="factory.agent.view"
               data-testid={`factory-agent-${agent.key}`}
             >
+              {agent.state === 'idle' && (
+                <title>
+                  {t('factory.idleDuration', {
+                    duration: Math.round(idleMsOf(agent, nowMs) / 1000),
+                  })}
+                </title>
+              )}
               <circle
                 r={AGENT_RADIUS}
                 fill={colours.fill}
                 stroke={selected ? 'var(--w-focus)' : colours.stroke}
                 strokeWidth={selected ? 3 : 1.5}
               />
-              <text y={3} textAnchor="middle" fontSize="9" fontWeight={600} fill={colours.ink}>
+              <text
+                y={3}
+                textAnchor="middle"
+                fontSize="9"
+                fontWeight={600}
+                fill={colours.ink}
+                pointerEvents="none"
+              >
                 {t(markerRoleKey(agent.role))}
               </text>
-              {showsNeedsYou(agent, index, agents) && position.stationKey !== null && (
-                <text
-                  x={px(stationCenter(position.stationKey)) - px(position.x)}
-                  y={-AGENT_RADIUS - 6}
-                  textAnchor="middle"
-                  fontSize="11"
-                  fontWeight={600}
-                  fill="var(--w-attention)"
-                  data-testid="factory-needs-you"
-                >
-                  {t('factory.needsYou')}
-                </text>
-              )}
-              {agent.state === 'idle' && (
-                <text y={-AGENT_RADIUS - 6} textAnchor="middle" fontSize="10" fill="var(--w-text-muted)">
-                  {t('factory.idleDuration', {
-                    duration: Math.round(idleMsOf(agent, nowMs) / 1000),
-                  })}
-                </text>
-              )}
             </g>
           );
         })}
+        {agents.map((agent, index) => {
+          const position = markerPosition(agent, index, agents);
+          if (!showsNeedsYou(agent, index, agents) || position.stationKey === null) {
+            return null;
+          }
+          const centerX = px(stationCenter(position.stationKey));
+          return (
+            <g
+              key={`needs-you-${position.stationKey}`}
+              transform={`translate(${centerX}, ${position.y})`}
+              pointerEvents="none"
+            >
+              <text
+                x={0}
+                y={-AGENT_RADIUS - 6}
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight={600}
+                fill="var(--w-attention)"
+                data-testid="factory-needs-you"
+              >
+                {t('factory.needsYou')}
+              </text>
+            </g>
+          );
+        })}
+        {idleCaptionAgent !== undefined && (
+          <g pointerEvents="none">
+            <text
+              x={px(BREAK_AREA.x + BREAK_AREA.width / 2)}
+              y={BREAK_BOX_TOP + 14}
+              textAnchor="middle"
+              fontSize="10"
+              fill="var(--w-text-muted)"
+              data-testid="factory-idle-caption"
+            >
+              {t('factory.idleDuration', {
+                duration: Math.round(idleMsOf(idleCaptionAgent, nowMs) / 1000),
+              })}
+            </text>
+          </g>
+        )}
       </svg>
     </div>
   );

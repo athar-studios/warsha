@@ -149,4 +149,70 @@ describe('factory floor state machine (E3)', () => {
     const working = placeWaitingAgents(new Map(), [{ ...run, stage: 'code' }]);
     expect(working.size).toBe(0);
   });
+
+  it('transitions active non-gate running agents to working on snake_case wire events', () => {
+    const research = reduceEvents([
+      event({
+        id: 'e1',
+        kind: 'stage_started',
+        role: null,
+        stage: 'idea',
+        payload: { action: 'start_run' },
+      }),
+      event({ id: 'e2', kind: 'agent_step', stage: 'research', role: 'researcher' }),
+      event({
+        id: 'e3',
+        kind: 'tool_call',
+        stage: 'research',
+        role: 'researcher',
+        payload: { tool: 'web_search' },
+        costCents: 4,
+      }),
+    ]);
+    const researcher = research.get('run-1:researcher');
+    expect(researcher?.state).toBe('working');
+    expect(researcher?.stage).toBe('research');
+    expect(researcher?.lastAction).toBe('tool_call: web_search');
+    expect(researcher?.costCents).toBe(4);
+
+    const designGateAndResume = reduceEvents([
+      event({ id: 'e1', kind: 'agent_step', stage: 'design', role: 'designer' }),
+      event({
+        id: 'e2',
+        kind: 'stage_started',
+        role: null,
+        stage: 'gate_a',
+        payload: { from: 'design', to: 'gate_a' },
+      }),
+      event({
+        id: 'e3',
+        kind: 'gate_decision',
+        role: null,
+        stage: 'gate_a',
+        payload: { decision: 'approved' },
+      }),
+      event({
+        id: 'e4',
+        kind: 'stage_started',
+        role: null,
+        stage: 'design',
+        payload: { from: 'gate_a', to: 'design' },
+      }),
+      event({ id: 'e5', kind: 'stage_completed', stage: 'design', role: 'designer' }),
+    ]);
+    const designer = designGateAndResume.get('run-1:designer');
+    expect(designer?.state).toBe('working');
+    expect(designer?.stage).toBe('design');
+
+    const pendingGate = reduceEvents([
+      event({ id: 'e1', kind: 'gate_decision', stage: 'gate_b', payload: { state: 'pending' } }),
+    ]);
+    expect(pendingGate.get('run-1:coder')?.state).toBe('waiting_on_owner');
+
+    const finished = reduceEvents([
+      event({ id: 'e1', kind: 'agent_step', stage: 'code', role: 'coder' }),
+      event({ id: 'e2', kind: 'run_finished', role: null, payload: { status: 'completed' } }),
+    ]);
+    expect(finished.get('run-1:coder')?.state).toBe('done');
+  });
 });

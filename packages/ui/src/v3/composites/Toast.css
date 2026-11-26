@@ -2,7 +2,7 @@
 
 .w-toast-container {
   position: fixed;
-  inset-block-start: var(--w-space-5);
+  inset-block-end: var(--w-space-5);
   inset-inline-end: var(--w-space-5);
   z-index: var(--w-layer-toast);
   display: flex;

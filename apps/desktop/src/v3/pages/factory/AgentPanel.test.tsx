@@ -86,4 +86,22 @@ describe('Agent panel state row', () => {
     expect(screen.getByTestId('factory-panel-cost').textContent).toBe('1 سنت');
     expect(screen.getByTestId('factory-panel-cost').textContent).not.toContain('¢');
   });
+
+  it('localizes known pipeline and daemon action tokens without raw snake_case leaks', () => {
+    draw('ar', agent({ state: 'working', lastAction: 'stage_started: start_run' }));
+    const arText = screen.getByTestId('factory-panel-action').textContent;
+    expect(arText).toBe('بدأت المرحلة: بدء التشغيل');
+    expect(arText).not.toContain('start_run');
+    expect(arText).not.toContain('stage_started');
+    cleanup();
+
+    draw('en', agent({ state: 'working', lastAction: 'stage_started: start_run' }));
+    const enText = screen.getByTestId('factory-panel-action').textContent;
+    expect(enText).toBe('Stage started: Starting run');
+    expect(enText).not.toContain('start_run');
+    cleanup();
+
+    draw('ar', agent({ state: 'working', lastAction: 'ToolCall: git_status' }));
+    expect(screen.getByTestId('factory-panel-action').textContent).toBe('استدعاء أداة: git_status');
+  });
 });
