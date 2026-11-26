@@ -21,6 +21,12 @@ which = "6.0"
 ulid = { workspace = true }
 chrono = { workspace = true }
 
+[features]
+# Test-only fixtures (R-F3e, D-RN-FIXTURE-GATE-1): the `WARSHA_CODING_BACKEND_FIXTURE`
+# materialize switch on `BuiltinBackend` and `ScriptedBackend`. Never on by default;
+# downstream crates enable it only from `[dev-dependencies]`.
+test-fixtures = []
+
 [dev-dependencies]
 tempfile = { workspace = true }
 warsha-store = { path = "../warsha-store" }

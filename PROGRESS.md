@@ -1,5 +1,11 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — R-F3e test fixtures out of the shipped binary (D-RN-FIXTURE-GATE-1)
+
+- **Worktree/branch**: `.agents/worktrees/clean3-backends`, branch `r-next/clean3-backends`, base `5183b37` (clean). No push/merge; `apps/` and `packages/` untouched.
+- **Fix**: new non-default `test-fixtures` feature on `warsha-backends`. The builtin materialize switch moved to `crates/warsha-backends/src/fixture.rs`. It and `scripted` are gated `cfg(any(test, feature = "test-fixtures"))`, and `warshad` enables the feature through `[dev-dependencies]` only (resolver 2).
+- **Checks**: production `warshad` binary has 0 `WARSHA_CODING_BACKEND_FIXTURE` strings (red 1); the normal feature tree has 0 `test-fixtures`. clean1_swarm 2 passed; warsha-backends all pass; d5_swarm_engine 9 passed; fmt and both clippy runs exit 0. Full workspace exit 0: 1464 passed / 0 failed / 13 ignored. One earlier run failed `e2e_real_arabic_request.rs:718`; that is a filesystem-timing flake, see D-RN-FIXTURE-GATE-1.
+
 ## Run 2026-11-26 — Factory Floor re-audit fixes r2 (D-RN-FLOOR-R4)
 
 - **Browser re-walk at `8e6c117`** (`/home/moe/tools/playwright-ux/runs/2026-11-26-8e6c117-floor-r2/`, report + notes.json + 12 shots, observe-only lane, worktree left clean at `8e6c117`): **F1 PASS and F2 PASS in all four configs** (ar/en × 1280x800/1920x1080). F1: code-stage run with only a role-less `stage_started {from: plan_tasks, to: code}` and zero role-bearing `stage=code` events rendered all 5 markers on البرمجة/Coding, all يعمل/Working, 0 on planning. F2: `circleOverlaps` 0 at every station; التسليم holds 7 markers (6 in row 0 at pitch 24, min pairwise circle gap 2.0 units ≈ 2.09 px), all boxes inside their station rect. OCR limitation: at ar 1920x1080 tesseract missed التخطيط, which the DOM shows with 0 markers. Row-2 spill (>12 roles) not exercisable with the 7-role catalogue.
