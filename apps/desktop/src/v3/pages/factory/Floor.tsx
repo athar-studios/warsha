@@ -1,7 +1,7 @@
 import React from 'react';
 
 import type { AgentStatus } from './state';
-import { idleMsOf } from './state';
+import { idleMsOf, isGateStage } from './state';
 
 /**
  * E3 Factory floor schematic (plan §8): SVG + CSS only — stations drawn as
@@ -133,7 +133,14 @@ function stationCenter(stationKey: string): number {
 }
 
 function stationOf(agent: AgentStatus): Station | null {
-  const byStage = STATIONS.find((station) => station.stages.includes(agent.stage ?? ''));
+  // A gate station means "a decision is pending". A done agent is history: even
+  // when its role owns no stage (so its stage is still the gate it waited at) it
+  // must not sit there (B-1).
+  const stage = agent.stage ?? '';
+  const byStage =
+    agent.state === 'done' && isGateStage(stage)
+      ? undefined
+      : STATIONS.find((station) => station.stages.includes(stage));
   if (byStage !== undefined) return byStage;
   if (agent.state === 'done') return STATIONS[STATIONS.length - 1];
   if (agent.state === 'waiting_on_owner') return STATIONS[3];

@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 
 import { render, screen, waitFor } from '@testing-library/react';
 import type { WarshaClient } from '@warsha/client';
+import { LOCALE_STORAGE_KEY } from '@warsha/i18n/v3';
 import { fontSizes, lineHeights } from '@warsha/ui/v3';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -11,6 +12,7 @@ import { V3App } from './V3App';
 
 describe('V3App', () => {
   it('displays danger banner when startup decision errors and clears it when rerun succeeds', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
     const failingClient = {
       health: vi.fn().mockRejectedValue(new Error('Cannot reach Warsha daemon')),
       listProjects: vi.fn().mockResolvedValue([]),
@@ -21,7 +23,8 @@ describe('V3App', () => {
     await waitFor(() => {
       const banner = container.querySelector('.v3-danger-banner');
       expect(banner).not.toBeNull();
-      expect(banner).toHaveTextContent('Cannot reach Warsha daemon');
+      // The message is catalog copy; the raw exception stays a separate detail.
+      expect(banner).toHaveTextContent('Cannot reach the Warsha daemon');
     });
 
     const healthyClient = {
@@ -39,6 +42,35 @@ describe('V3App', () => {
       expect(container.querySelector('.v3-danger-banner')).toBeNull();
     });
   });
+  // U-2: the danger bar renders a catalog key through `t`, so an Arabic UI shows
+  // Arabic copy and keeps the raw diagnostic in its own LTR-isolated span.
+  it('renders the startup error in Arabic copy, never the raw English string', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'ar');
+    try {
+      const failingClient = {
+        health: vi.fn().mockRejectedValue(new Error('Connection refused')),
+        listProjects: vi.fn().mockResolvedValue([]),
+      } as unknown as WarshaClient;
+
+      const { container } = render(<V3App client={failingClient} />);
+
+      await waitFor(() => {
+        const banner = container.querySelector('.v3-danger-banner');
+        expect(banner).not.toBeNull();
+        expect(banner).toHaveTextContent('تعذّر الوصول إلى خادم ورشة');
+      });
+
+      const banner = container.querySelector('.v3-danger-banner');
+      expect(banner?.textContent).not.toContain('startup.errors.');
+      expect(banner?.textContent).not.toContain('Cannot reach the Warsha daemon');
+      const detail = banner?.querySelector('.v3-danger-detail');
+      expect(detail?.getAttribute('dir')).toBe('auto');
+      expect(detail).toHaveTextContent('Connection refused');
+    } finally {
+      window.localStorage.removeItem(LOCALE_STORAGE_KEY);
+    }
+  });
+
   it('renders Frame with route page and main data-ready="true"', () => {
     const { container } = render(<V3App initialRoute="/projects" />);
 

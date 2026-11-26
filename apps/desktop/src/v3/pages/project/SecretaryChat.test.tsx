@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientProvider } from '../../app/ClientContext';
 
-import SecretaryChat, { ProposalCard } from './SecretaryChat';
+import SecretaryChat, { interviewProgressKey, ProposalCard } from './SecretaryChat';
 
 type ProjectId = Parameters<WarshaClient['startRun']>[0];
 
@@ -158,11 +158,47 @@ describe('SecretaryChat', () => {
       expect(screen.queryByText('enough')).toBeNull();
       expect(screen.getByText(t('secretary.interview.enough_answer'))).toBeTruthy();
       expect(screen.getByText('Teachers')).toBeTruthy();
-      // A finished interview reads as finished, not as partial progress (D-RN-CLEAN3-COPY-1).
-      expect(screen.getByText(locale === 'ar' ? 'انتهت المقابلة — غطّينا 1 من 1 محاور' : 'Interview finished — we covered 1 of 1 topics')).toBeTruthy();
-      expect(screen.queryByText(t('secretary.interview.progress', { covered: 1, total: 1 }))).toBeNull();
+      // A finished single-topic interview reads as finished and singular, never
+      // as "1 of 1 topics" (D-RN-CLEAN3-COPY-1, CLEAN-4).
+      expect(
+        screen.getByText(
+          locale === 'ar'
+            ? 'انتهت المقابلة — غطّينا المحور الوحيد'
+            : 'Interview finished — we covered the one topic'
+        )
+      ).toBeTruthy();
+      expect(screen.queryByText(t('secretary.interview.progress_done', { covered: 1, total: 1 }))).toBeNull();
     }
   );
+
+  it('picks the singular progress key for a one-topic interview', () => {
+    expect(interviewProgressKey(0, 1, false)).toBe('secretary.interview.progress_one_pending');
+    expect(interviewProgressKey(1, 1, false)).toBe('secretary.interview.progress_one');
+    expect(interviewProgressKey(1, 1, true)).toBe('secretary.interview.progress_done_one');
+    expect(interviewProgressKey(1, 3, false)).toBe('secretary.interview.progress');
+    expect(interviewProgressKey(3, 3, true)).toBe('secretary.interview.progress_done');
+  });
+
+  it('renders the singular Arabic progress while one topic is still open', async () => {
+    const client = mockClient({});
+    vi.mocked(client.interviewStatus).mockResolvedValue({
+      project_id: 'p1',
+      brief: {},
+      covered_topics: [],
+      open_topics: ['audience'],
+      transcript: [],
+      is_done: false,
+      updated_at: '',
+    } as unknown as InterviewState);
+    render(
+      <I18nProvider initialLocale="ar">
+        <ClientProvider client={client}>
+          <SecretaryChat projectId={'p1' as ProjectId} t={(key, vars) => translate('ar', key, vars)} />
+        </ClientProvider>
+      </I18nProvider>
+    );
+    expect(await screen.findByText('لم يُغطَّ المحور الوحيد بعد')).toBeTruthy();
+  });
 
   it('does not fall back to general chat when interview status fails, and retries', async () => {
     const client = mockClient({});

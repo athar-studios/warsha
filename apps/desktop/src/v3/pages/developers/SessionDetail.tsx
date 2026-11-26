@@ -72,7 +72,7 @@ const SessionDetail: React.FC<Props> = ({ session, events, projectId, runId }) =
         </p>
         <p className="developers-detail-now">
           {t('developers.detail.now', {
-            elapsed: formatMs(elapsedMs(session)),
+            elapsed: formatMs(elapsedMs(session), t),
             status: sessionStatusLabel(session.status, t),
           })}
         </p>
@@ -134,7 +134,7 @@ const SessionDetail: React.FC<Props> = ({ session, events, projectId, runId }) =
               <span className="developers-detail-step-kind" title={event.kind}>{eventKindLabel(event.kind, t)}</span>
               {durationMs !== null && (
                 <span className="developers-detail-step-duration">
-                  {t('developers.detail.step_duration', { duration: formatMs(durationMs) })}
+                  {t('developers.detail.step_duration', { duration: formatMs(durationMs, t) })}
                 </span>
               )}
             </li>

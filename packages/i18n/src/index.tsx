@@ -719,7 +719,6 @@ export const messages: Record<Locale, Record<string, string>> = {
     'app.factoryMode': 'المصنع',
     'app.settings': 'الإعدادات',
     'app.mode_label': 'نمط الواجهة',
-    'app.mode_hint': 'بسيط هو الطاولة الأساسية؛ المتقدّم يكشف التفاصيل نفسها ولا يغيّر شيئاً.',
     'app.skip_to_bench': 'انتقل إلى طاولة العمل',
     'app.bench_label': 'طاولة العمل',
     'app.tagline_short': 'مصنع البرمجيات',
@@ -1979,8 +1978,6 @@ export const messages: Record<Locale, Record<string, string>> = {
     'app.factoryMode': 'Factory',
     'app.settings': 'Settings',
     'app.mode_label': 'Interface mode',
-    'app.mode_hint':
-      'Simple is the primary bench; Advanced discloses the same detail and changes nothing.',
     'app.skip_to_bench': 'Skip to the workbench',
     'app.bench_label': 'Workbench',
     'app.tagline_short': 'AI software factory',

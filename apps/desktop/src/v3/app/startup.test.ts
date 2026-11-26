@@ -1,7 +1,8 @@
 import type { ProjectId, ProjectSummary } from '@warsha/client';
+import { translate } from '@warsha/i18n/v3';
 import { describe, expect, it } from 'vitest';
 
-import { decideStartupRoute, type StartupOptions } from './startup';
+import { decideStartupRoute, type StartupOptions, type StartupErrorKey } from './startup';
 
 describe('decideStartupRoute', () => {
   it('routes to /onboarding only when onboarding_complete is unset', async () => {
@@ -42,7 +43,8 @@ describe('decideStartupRoute', () => {
     };
     const decision = await decideStartupRoute(opts);
     expect(decision.route).toBe('/');
-    expect(decision.error).toBe('Connection refused');
+    expect(decision.error).toBe('startup.errors.daemon_unreachable');
+    expect(decision.errorDetail).toBe('Connection refused');
     expect(decision.route).not.toBe('/onboarding');
   });
 
@@ -77,7 +79,8 @@ describe('decideStartupRoute', () => {
     };
     const decision = await decideStartupRoute(opts);
     expect(decision.route).toBe('/');
-    expect(decision.error).toBe('Cannot reach Warsha daemon');
+    expect(decision.error).toBe('startup.errors.daemon_unreachable');
+    expect(decision.errorDetail).toBeUndefined();
     expect(decision.route).not.toBe('/onboarding');
   });
 
@@ -97,7 +100,8 @@ describe('decideStartupRoute', () => {
     };
     const decision = await decideStartupRoute(opts);
     expect(decision.route).toBe('/');
-    expect(decision.error).toBe('IPC failed');
+    expect(decision.error).toBe('startup.errors.config_read');
+    expect(decision.errorDetail).toBe('IPC failed');
     expect(decision.route).not.toBe('/onboarding');
   });
 
@@ -115,7 +119,58 @@ describe('decideStartupRoute', () => {
     };
     const decision = await decideStartupRoute(opts);
     expect(decision.route).toBe('/');
-    expect(decision.error).toBe('Daemon status: offline');
+    expect(decision.error).toBe('startup.errors.daemon_status');
+    expect(decision.errorDetail).toBe('offline');
     expect(decision.route).not.toBe('/onboarding');
+  });
+
+  it('routes to Frame route with danger error when listProjects throws, never onboarding', async () => {
+    const opts: StartupOptions = {
+      readConfig: async (key) => (key === 'onboarding_complete' ? 'true' : ''),
+      client: {
+        health: async () => ({
+          status: 'ok',
+          version: '0.2.1',
+          capabilities: { runControls: false },
+        }),
+        listProjects: async () => {
+          throw new Error('list failed');
+        },
+      },
+      lastProjectId: 'proj-123',
+    };
+    const decision = await decideStartupRoute(opts);
+    expect(decision.route).toBe('/');
+    expect(decision.error).toBe('startup.errors.project_list');
+    expect(decision.errorDetail).toBe('list failed');
+    expect(decision.route).not.toBe('/onboarding');
+  });
+
+  it('carries catalog keys, never raw copy, in both locales (U-2)', async () => {
+    const decisions = await Promise.all([
+      decideStartupRoute({ readConfig: async () => '', client: null }),
+      decideStartupRoute({
+        readConfig: async () => '',
+        client: {
+          health: async () => ({
+            status: 'offline',
+            version: '0.2.1',
+            capabilities: { runControls: false },
+          }),
+          listProjects: async () => [],
+        },
+      }),
+    ]);
+    const keys = decisions.map((decision) => decision.error as StartupErrorKey);
+    keys.push('startup.errors.config_read', 'startup.errors.project_list', 'startup.errors.unexpected');
+    for (const key of keys) {
+      expect(key.startsWith('startup.errors.')).toBe(true);
+      const en = translate('en', key);
+      const ar = translate('ar', key);
+      expect(en).not.toBe(key);
+      expect(ar).not.toBe(key);
+      // Arabic copy is Arabic: no Latin letters leak into the localized message.
+      expect(ar).not.toMatch(/[A-Za-z]/);
+    }
   });
 });

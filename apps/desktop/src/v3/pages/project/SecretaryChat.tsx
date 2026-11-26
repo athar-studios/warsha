@@ -173,6 +173,18 @@ export function ProposalCard(props: ProposalCardProps): React.ReactElement | nul
   );
 }
 
+/**
+ * The progress key for the interview counter. A single-topic interview reads as
+ * "the one topic", never as "1 of 1 topics" (CLEAN-4).
+ */
+export function interviewProgressKey(covered: number, total: number, isDone: boolean): string {
+  if (total === 1) {
+    if (isDone) return 'secretary.interview.progress_done_one';
+    return covered >= 1 ? 'secretary.interview.progress_one' : 'secretary.interview.progress_one_pending';
+  }
+  return isDone ? 'secretary.interview.progress_done' : 'secretary.interview.progress';
+}
+
 export interface SecretaryChatProps {
   /** The project thread to open on mount, or `null` for the global thread. */
   projectId: ProjectId | null;
@@ -258,7 +270,7 @@ function SecretaryInterview({ client, initialState, projectId, t }: {
   };
   return <section className="v3-secretary" data-testid="secretary-interview" aria-label={t('secretary.interview.title')}>
     <h3>{t('secretary.interview.title')}</h3>
-    <p role="status">{t(state.is_done ? 'secretary.interview.progress_done' : 'secretary.interview.progress', { covered: state.covered_topics.length, total: state.covered_topics.length + state.open_topics.length })}</p>
+    <p role="status">{t(interviewProgressKey(state.covered_topics.length, state.covered_topics.length + state.open_topics.length, state.is_done), { covered: state.covered_topics.length, total: state.covered_topics.length + state.open_topics.length })}</p>
     {state.transcript.map((turn, index) => <div key={index}><p dir="auto">{turn.question}</p><p dir="auto">{isStopAnswer(turn.answer) ? t('secretary.interview.enough_answer') : turn.answer}</p></div>)}
     {state.is_done ? <>
       <h4>{t('secretary.interview.completed')}</h4>

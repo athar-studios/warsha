@@ -60,7 +60,8 @@ export function isGateStage(stage: string | null | undefined): boolean {
  * Roles that work each non-gate pipeline stage. Mirrors `role_for_stage` in
  * `crates/warsha-pipeline/src/prompts.rs`, with role ids as the client decodes
  * them (`canonicalRoleKey`: `p_m` → `pm`). `review_qa_security` is shared by
- * reviewer, QA and security, so it has no single owner and seeds no marker.
+ * reviewer, QA and security, so it has no single owner; it seeds its lead role
+ * instead (`STAGE_SEED_ROLES`, R5A-r1).
  */
 const STAGE_ROLES: Readonly<Record<string, readonly string[]>> = {
   idea: ['intake'],
@@ -79,6 +80,36 @@ const STAGE_ROLES: Readonly<Record<string, readonly string[]>> = {
 export function rolesForStage(stage: string): readonly string[] {
   return STAGE_ROLES[stage] ?? [];
 }
+
+/**
+ * The stage each role owns — the inverse of `STAGE_ROLES`, first listed stage
+ * winning when a stage is shared (`review_qa_security` → reviewer, qa, security).
+ */
+const ROLE_STAGES: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(STAGE_ROLES).flatMap(([stage, roles]) =>
+    roles.map((role): [string, string] => [role, stage])
+  )
+);
+
+/**
+ * The stage a role works, or null when the role owns none. A done agent is put
+ * back on the stage it owns so the floor keeps it at its own station instead of
+ * the gate it was released from (B-1).
+ */
+export function stageOfRole(role: string | null): string | null {
+  if (role === null) return null;
+  return ROLE_STAGES[role] ?? null;
+}
+
+/**
+ * The role a shared stage seeds when no owner marker exists yet. Mirrors
+ * `role_for_stage` in `crates/warsha-pipeline/src/prompts.rs` (R5A-r1): the
+ * reviewer leads `review_qa_security`, so the floor shows it working instead of
+ * an empty station until the first role-bearing event arrives.
+ */
+const STAGE_SEED_ROLES: Readonly<Record<string, string>> = {
+  review_qa_security: 'reviewer',
+};
 
 /**
  * True once RunFinished closed this run: some agent of the run is done and its
@@ -192,9 +223,11 @@ export function applyEvent(
   // this one (D-RN-FLOOR-R5A-1). Only the announced stage's own role(s) work it:
   // their live agents move onto the stage as working, and when the stage has a
   // single owner that has no marker yet one is seeded, because the owner's
-  // first role-bearing event only lands after its model call returns. Every
-  // other live agent of the run belonged to a stage the run has left, so it is
-  // done — it stays on the station it finished. Done agents are never
+  // first role-bearing event only lands after its model call returns. A stage
+  // shared by several roles seeds its lead role instead (`STAGE_SEED_ROLES`).
+  // Every other live agent of the run belonged to a stage the run has left, so
+  // it is done — moved back onto the stage its role owns, so it stays at its own
+  // station rather than the gate it just left (B-1). Done agents are never
   // resurrected, and a finished run is never re-seeded.
   if (event.role === null && kind === 'stage_started') {
     const announced = announcedStage(event);
@@ -229,16 +262,22 @@ export function applyEvent(
               lastAction: actionOf(event),
               lastUpdated: event.createdAt,
             }
-          : { ...agent, state: 'done', lastAction: actionOf(event), lastUpdated: event.createdAt }
+          : {
+              ...agent,
+              state: 'done',
+              stage: stageOfRole(agent.role) ?? agent.stage,
+              lastAction: actionOf(event),
+              lastUpdated: event.createdAt,
+            }
       );
     }
-    const owner = owners.length === 1 ? owners[0] : undefined;
-    if (owner !== undefined && !ownerMarked && !runFinished(agents, event.runId)) {
-      const key = `${event.runId}:${owner}`;
+    const seedRole = owners.length === 1 ? owners[0] : STAGE_SEED_ROLES[announced];
+    if (seedRole !== undefined && !ownerMarked && !runFinished(agents, event.runId)) {
+      const key = `${event.runId}:${seedRole}`;
       next.set(key, {
         key,
         runId: event.runId,
-        role: owner,
+        role: seedRole,
         state: 'working',
         stage: announced,
         lastAction: actionOf(event),

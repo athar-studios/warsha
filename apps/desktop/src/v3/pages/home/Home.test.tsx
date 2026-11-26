@@ -637,23 +637,43 @@ describe('HomePage', () => {
     });
   });
 
-  it('uses standard 1120px --w-content width for .v3-home-narrow while preserving --w-content-narrow at 720px', async () => {
+  it('renders .v3-home-narrow at the 1120px content width, not the 720px narrow one', async () => {
     await renderHome({ locale: 'en' });
 
-    expect(document.querySelector('.v3-home-narrow')).not.toBeNull();
+    const narrow = document.querySelector<HTMLElement>('.v3-home-narrow');
+    if (narrow === null) throw new Error('missing .v3-home-narrow');
 
+    // vitest loads no stylesheet and jsdom has no layout engine, so the two real
+    // files the page ships with are mounted here and the cascade is read back:
+    // the resolved max-width token is what the browser would apply.
     const here = dirname(fileURLToPath(import.meta.url));
+    const tokensCss = readFileSync(
+      resolve(here, '../../../../../../packages/ui/src/v3/tokens/tokens.css'),
+      'utf8'
+    );
     const homeCss = readFileSync(resolve(here, 'home.css'), 'utf8');
+    const style = document.createElement('style');
+    style.textContent = `${tokensCss}\n${homeCss}`;
+    document.head.appendChild(style);
+    try {
+      const computed = getComputedStyle(narrow);
+      expect(computed.width).toBe('100%');
+      const tokenMatch = /^var\((--[\w-]+)\)$/.exec(computed.maxWidth);
+      expect(tokenMatch, `max-width is a content token, got ${computed.maxWidth}`).not.toBeNull();
+      expect(tokenMatch?.[1]).toBe('--w-content');
+      const rootStyle = getComputedStyle(document.documentElement);
+      expect(rootStyle.getPropertyValue('--w-content').trim()).toBe('1120px');
+      expect(rootStyle.getPropertyValue('--w-content-narrow').trim()).toBe('720px');
+    } finally {
+      style.remove();
+    }
+
+    // Secondary: the declarations as written in the files.
     const ruleMatch = homeCss.match(/\.v3-home-narrow\s*\{([^}]*)\}/);
     expect(ruleMatch, '.v3-home-narrow rule exists in home.css').not.toBeNull();
     const ruleBody = ruleMatch![1];
     expect(ruleBody).toMatch(/max-width:\s*var\(--w-content\)\s*;/);
     expect(ruleBody).not.toContain('var(--w-content-narrow)');
-
-    const tokensCss = readFileSync(
-      resolve(here, '../../../../../../packages/ui/src/v3/tokens/tokens.css'),
-      'utf8'
-    );
     expect(tokensCss).toContain('--w-content-narrow: 720px;');
     expect(tokensCss).toContain('--w-content: 1120px;');
   });
