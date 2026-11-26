@@ -64,6 +64,7 @@ import {
   useRunEvents,
   useRuns,
 } from '../../data';
+import { applyCancelledRun } from '../../data/runUpdates';
 import { useRoute } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 import { extractGateCode, findPendingGateAtCurrentStage, formatTime24 } from '../inbox/gateHelpers';
@@ -275,6 +276,20 @@ export function extractTestArtifacts(
       nameLower.includes('verify')
     );
   });
+}
+
+// Presentation only: preserve authored content as escaped text, not executable HTML.
+export function readableBrief(content: string): string {
+  return content.split('\n')
+    .filter((line) => !/^\s*(?:\*\*)?(?:Project ID|Run ID|Version|Created|Updated|Gate A Signed Off)(?:\*\*)?\s*:/i.test(line))
+    .filter((line) => !/^\s*(?:---+|\*\*\*+|___+)\s*$/.test(line))
+    .map((line) => line
+      .replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^\s*>\s?/, '')
+      .replace(/^\s*[-*+]\s+/, '')
+      .replace(/\*\*([^\n]+?)\*\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1'))
+    .join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export default function ProjectPage(): React.ReactElement {
@@ -545,7 +560,8 @@ export default function ProjectPage(): React.ReactElement {
 
   const runCancelConfirmAction = useAction('project.run.cancel.confirm', async () => {
     if (!client || !currentRun) return;
-    await client.cancelRun(currentRun.id as RunId);
+    const cancelled = await client.cancelRun(currentRun.id as RunId);
+    applyCancelledRun(client, cancelled);
     setCancelDialogOpen(false);
     reloadAll();
   });
@@ -857,7 +873,7 @@ export default function ProjectPage(): React.ReactElement {
               className="v3-project-gate-brief"
               style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
             >
-              <bdi dir="auto">{gateBrief.content}</bdi>
+              <bdi dir="auto">{readableBrief(gateBrief.content)}</bdi>
             </pre>
           )}
 

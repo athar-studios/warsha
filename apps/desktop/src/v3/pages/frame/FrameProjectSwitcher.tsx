@@ -15,6 +15,7 @@ export interface FrameProjectSwitcherProps {
   currentProjectId?: string;
   projects: readonly ProjectSummary[];
   runsByProject: Readonly<Record<string, readonly RunSummary[]>>;
+  waitingRunIds?: ReadonlySet<string>;
   onSelectProject: (projectId: string) => void;
   onNewProject: () => void;
 }
@@ -26,18 +27,25 @@ interface ResolvedStatus {
 
 export function resolveProjectStatus(
   runs: readonly RunSummary[] | undefined,
-  t: (key: string) => string
+  t: (key: string) => string,
+  waitingRunIds?: ReadonlySet<string>
 ): ResolvedStatus {
   if (!runs || runs.length === 0) {
     return { status: 'idle', label: t('frame.status_idle') };
   }
 
-  const awaiting = runs.find((run) => run.status === 'awaiting_gate');
+  const isWaiting = (run: RunSummary): boolean => run.status === 'awaiting_gate' ||
+    ((run.status === 'running' || run.status === 'in_progress') && waitingRunIds?.has(run.id) === true);
+  const awaiting = runs.find(isWaiting);
   const candidate =
     awaiting ??
     [...runs].sort((a, b) =>
       (b.updatedAt || b.startedAt).localeCompare(a.updatedAt || a.startedAt)
     )[0];
+
+  if (candidate && isWaiting(candidate)) {
+    return { status: 'waiting', label: t('frame.status_waiting') };
+  }
 
   switch (candidate?.status) {
     case 'awaiting_gate':
@@ -64,6 +72,7 @@ export function FrameProjectSwitcher({
   currentProjectId,
   projects,
   runsByProject,
+  waitingRunIds,
   onSelectProject,
   onNewProject,
 }: FrameProjectSwitcherProps): React.ReactElement {
@@ -117,7 +126,7 @@ export function FrameProjectSwitcher({
     : t('frame.select_project');
 
   const currentStatus = currentProjectId
-    ? resolveProjectStatus(runsByProject[currentProjectId], t)
+    ? resolveProjectStatus(runsByProject[currentProjectId], t, waitingRunIds)
     : undefined;
 
   useEffect(() => {
@@ -304,7 +313,7 @@ export function FrameProjectSwitcher({
               filteredProjects.map((project) => {
                 const name = sanitizeProjectName(project.name, anonymousFallback);
                 const isSelected = currentProjectId === project.id;
-                const status = resolveProjectStatus(runsByProject[project.id], t);
+                const status = resolveProjectStatus(runsByProject[project.id], t, waitingRunIds);
                 return (
                   <button
                     key={project.id}

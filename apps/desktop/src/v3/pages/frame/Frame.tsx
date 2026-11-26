@@ -21,6 +21,7 @@ import { useDensity, type AppMode } from '../../app/DensityContext';
 import { subscribeToast, type ToastMessage } from '../../app/toast';
 import { useSoundCues } from '../../app/useSoundCues';
 import { isDaemonHealthy, useHealth, useProjects } from '../../data';
+import { mergeRunUpdates, useRunUpdates } from '../../data/runUpdates';
 import { useNavigate, useRoute } from '../../router';
 
 import '@warsha/ui/v3/tokens/tokens.css';
@@ -82,7 +83,12 @@ export function Frame({ children }: FrameProps): React.ReactElement {
   const healthResult = useHealth();
 
   const [inboxCount, setInboxCount] = useState<number>(0);
-  const [runsByProject, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
+  const [runSnapshots, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
+  const [waitingRunIds, setWaitingRunIds] = useState<ReadonlySet<string>>(new Set());
+  const runUpdates = useRunUpdates(client);
+  const runsByProject = useMemo(() => Object.fromEntries(
+    Object.entries(runSnapshots).map(([id, runs]) => [id, mergeRunUpdates(runs, runUpdates)])
+  ), [runSnapshots, runUpdates]);
   const initialModeSyncedRef = useRef(false);
 
   // Sync mode with Tauri shell config on mount if available
@@ -132,6 +138,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
     const loadData = async (): Promise<void> => {
       const runsMap: Record<string, RunSummary[]> = {};
       let totalWaiting = 0;
+      const waitingIds = new Set<string>();
 
       await Promise.all(
         projectList.map(async (project: ProjectSummary) => {
@@ -152,7 +159,9 @@ export function Frame({ children }: FrameProps): React.ReactElement {
               try {
                 const gates = await client.getGates(run.id);
                 // Amendment §5.5-b: only count the gate at the run's current stage
-                totalWaiting += countPendingGatesAtCurrentStage(gates, run.stage);
+                const waiting = countPendingGatesAtCurrentStage(gates, run.stage);
+                totalWaiting += waiting;
+                if (waiting > 0) waitingIds.add(run.id);
               } catch {
                 // Ignore gate query failure for single run
               }
@@ -166,6 +175,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
       if (active) {
         setRunsByProject(runsMap);
         setInboxCount(totalWaiting);
+        setWaitingRunIds(waitingIds);
         // runs.start returns before intake finishes; project actions also update the
         // daemon independently of this frame. Read authoritative rows, never infer
         // status from an error event (provider_required is a pause, not a failure).
@@ -429,6 +439,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
       currentProjectId={params.projectId}
       projects={projectsResult.data ?? []}
       runsByProject={runsByProject}
+      waitingRunIds={waitingRunIds}
       onSelectProject={handleSelectProject}
       onNewProject={handleNewProject}
     />

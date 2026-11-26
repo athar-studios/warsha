@@ -29,6 +29,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAction } from '../../actions';
 import { useClient } from '../../app/ClientContext';
 import DevelopersList from '../../components/developers/DevelopersList';
+import { getStatusLabelKey } from '../bench/helpers';
 
 import SessionDetail from './SessionDetail';
 import './developers.css';
@@ -318,7 +319,7 @@ const DevelopersPage: React.FC = () => {
           }}
           options={(runs ?? []).map((item) => ({
             value: item.id,
-            label: `${item.id} · ${item.stage} · ${item.status}`,
+            label: `${item.id} · ${item.stage} · ${t(getStatusLabelKey(item.status))}`,
           }))}
         />
         <Select

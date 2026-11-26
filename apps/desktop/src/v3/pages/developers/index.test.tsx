@@ -108,12 +108,12 @@ function createClient(): WarshaClient {
   } as unknown as WarshaClient;
 }
 
-function renderPage(locale: Locale = 'en'): void {
+function renderPage(locale: Locale = 'en', client: WarshaClient = createClient()): void {
   render(
     <I18nProvider initialLocale={locale}>
       <ThemeProvider>
         <DensityProvider>
-          <ClientProvider client={createClient()}>
+          <ClientProvider client={client}>
             <DataReadyProvider>
               <DevelopersPage />
             </DataReadyProvider>
@@ -129,6 +129,15 @@ async function ready(): Promise<void> {
 }
 
 describe('DevelopersPage (E4)', () => {
+  it.each([['en', 'Cancelled'], ['ar', 'ملغاة']] as const)('localizes cancelled run options in %s', async (locale, label) => {
+    const client = createClient();
+    vi.mocked(client.listRuns).mockResolvedValue([{ ...RUN, status: 'cancelled' }]);
+    renderPage(locale, client);
+    await ready();
+    const option = screen.getAllByRole('option').find((item) => item.textContent?.includes('run-1'));
+    expect(option).toHaveTextContent(label);
+    expect(option).not.toHaveTextContent('cancelled');
+  });
   it('renders both fixture sessions grouped under the parent', async () => {
     renderPage();
     await ready();
