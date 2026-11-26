@@ -1,0 +1,136 @@
+{
+  "id": "01M8AW3M2D30WSNFQ94ECHM0Z4",
+  "project_id": "4b0fce85-7f0e-42e1-a337-d74a7fd9b740",
+  "current_stage": "feedback",
+  "gate_states": {
+    "gate_b": {
+      "state": "approved",
+      "detail": {
+        "by": "36884eba-1c66-4148-9f65-41cc1a5c8b01",
+        "at": "2026-11-26T02:49:15.956512093Z"
+      }
+    },
+    "gate_d": {
+      "state": "approved",
+      "detail": {
+        "by": "36884eba-1c66-4148-9f65-41cc1a5c8b01",
+        "at": "2026-11-26T02:50:38.488440289Z"
+      }
+    },
+    "gate_c": {
+      "state": "approved",
+      "detail": {
+        "by": "36884eba-1c66-4148-9f65-41cc1a5c8b01",
+        "at": "2026-11-26T02:50:38.255754189Z"
+      }
+    },
+    "gate_a": {
+      "state": "approved",
+      "detail": {
+        "by": "36884eba-1c66-4148-9f65-41cc1a5c8b01",
+        "at": "2026-11-26T02:49:15.380742887Z"
+      }
+    }
+  },
+  "artifacts": {
+    "launch_drafts": {
+      "name": "launch_drafts",
+      "content": "# Fake Launch Drafts\n\n- id: fake-launch-be1de27ce8fed102\n- excerpt: every-task-is-test-covered-and-the-walk\n\n## Store copy\n- One-line pitch, long description, keywords.\n\n## Announcements\n- Launch post draft in English and Arabic.\n",
+      "stage": "launch_drafts",
+      "role": "marketer",
+      "created_at": "2026-11-26T02:50:38.603256180Z",
+      "updated_at": "2026-11-26T02:50:38.603257984Z",
+      "version": 1
+    },
+    "idea": {
+      "name": "idea",
+      "content": "Build proofcalc, the four disjoint pure Rust modules described by the task plan. Write only your assigned module. Do not stage or commit files. Cargo.toml, lib.rs and integration tests are sequential follow-ups supplied later.",
+      "stage": "idea",
+      "role": "intake",
+      "created_at": "2026-11-26T02:49:13.037114273Z",
+      "updated_at": "2026-11-26T02:49:13.037114763Z",
+      "version": 1
+    },
+    "plan_tasks": {
+      "name": "plan_tasks",
+      "content": "# Fake Task Plan\n\nPlan id: fake-plan-cc7d25cfd6316f03\nExcerpt: no-markdown-no-extra-commentary\n\n## Tasks\n1. Scaffold the project and workspace. Write only this Rust module, with no imports or other public items: public function add(a: i64, b: i64) returns i64, using checked_add and saturating to i64::MAX on positive overflow or i64::MIN on negative overflow. No unwrap, I/O, dependencies, or other files. files: src/scaffold.rs\n2. Implement the domain model and store. Write only this Rust module, with no imports: public struct Money with its only field public cents: i64; its public method checked_add(self, other: Money) returns Option<Money>, adding cents with i64::checked_add and returning None on overflow. No formatting, currency, unwrap, I/O, dependencies, or other files. files: src/domain.rs\n3. Wire the stage engine and gates. Write only this Rust module, with no imports: public function apply_fee(amount: i64, bps: u32) returns Option<i64>. Reject bps above 10000. Calculate fee as amount.unsigned_abs() cast to u128 times u128::from(bps), checked for overflow, divided by 10000; add the fee to amount with the sign of amount, returning None if the signed total cannot fit i64. Zero returns Some(0) for allowed bps. For example 10000 and 250 returns Some(10250). No floats, unwrap, I/O, dependencies, or other files. files: src/engine.rs\n4. Add the provider layer and router. Write only this Rust module, with no imports: public trait RateSource with exactly one required method rate_bps taking an immutable self reference and returning u32. No default body, associated type, implementation, second method, I/O, dependencies, or other files. files: src/provider.rs\n\n## Definition of done\nEvery task is test-covered and the walk is green.\n",
+      "stage": "plan_tasks",
+      "role": "architect",
+      "created_at": "2026-11-26T02:49:16.476374570Z",
+      "updated_at": "2026-11-26T02:49:16.476377079Z",
+      "version": 1
+    },
+    "review_qa_security": {
+      "name": "review_qa_security",
+      "content": "# Fake Review, QA & Security Report\n\n- id: fake-review-311fa03a1dca724a\n- excerpt: every-task-is-test-covered-and-the-walk\n\n## Review\n- No blocking findings; the diff matches the plan.\n\n## QA\n--- FILE: tests/acceptance.rs ---\n#[test]\nfn the_walk_is_deterministic() {\n    assert!(!\"311fa03a1dca724a\".is_empty());\n}\n\n## Security\n- No secrets in artifacts; provider keys stay in the keychain.\n",
+      "stage": "review_qa_security",
+      "role": "reviewer",
+      "created_at": "2026-11-26T02:50:38.089512199Z",
+      "updated_at": "2026-11-26T02:50:38.089513447Z",
+      "version": 1
+    },
+    "prd_spec": {
+      "name": "prd_spec",
+      "content": "# Fake PRD & Spec\n\n- id: fake-prd-0929f5e10d4ecbfc\n- excerpt: write-the-prd-ambiguities-are-decided-an\n\n## User stories\n- As the owner I can start a run and get a gated plan.\n- As a reviewer I can approve or reject at each gate.\n\n## Functional requirements\n- F1: every stage writes exactly one artifact (must).\n- F2: gates block advancement until decided (must).\n\n## Non-functional requirements\n- N1: deterministic offline runs via the fake provider.\n\n## Milestones\n- M1: pipeline walk to Feedback.\n",
+      "stage": "prd_spec",
+      "role": "p_m",
+      "created_at": "2026-11-26T02:49:15.791771169Z",
+      "updated_at": "2026-11-26T02:49:15.791772914Z",
+      "version": 1
+    },
+    "code": {
+      "name": "code",
+      "content": "Swarm run of 4 subtasks (max parallel 4, rate-limited halt: false):\n- Scaffold the project and workspace. Write only this Rust module, with no imports or other public items: public function add(a: i64, b: i64) returns i64, using checked_add and saturating to i64::MAX on positive overflow or i64::MIN on negative overflow. No unwrap, I/O, dependencies, or other files.: succeeded (1\u00a2)\n- Implement the domain model and store. Write only this Rust module, with no imports: public struct Money with its only field public cents: i64; its public method checked_add(self, other: Money) returns Option<Money>, adding cents with i64::checked_add and returning None on overflow. No formatting, currency, unwrap, I/O, dependencies, or other files.: succeeded (1\u00a2)\n- Wire the stage engine and gates. Write only this Rust module, with no imports: public function apply_fee(amount: i64, bps: u32) returns Option<i64>. Reject bps above 10000. Calculate fee as amount.unsigned_abs() cast to u128 times u128::from(bps), checked for overflow, divided by 10000; add the fee to amount with the sign of amount, returning None if the signed total cannot fit i64. Zero returns Some(0) for allowed bps. For example 10000 and 250 returns Some(10250). No floats, unwrap, I/O, dependencies, or other files.: succeeded (1\u00a2)\n- Add the provider layer and router. Write only this Rust module, with no imports: public trait RateSource with exactly one required method rate_bps taking an immutable self reference and returning u32. No default body, associated type, implementation, second method, I/O, dependencies, or other files.: succeeded (1\u00a2)\nMerged branches: 4 local-only (nothing pushed). CLI spend records at session end.",
+      "stage": "code",
+      "role": "coder",
+      "created_at": "2026-11-26T02:50:37.956390030Z",
+      "updated_at": "2026-11-26T02:50:37.956391751Z",
+      "version": 1
+    },
+    "release": {
+      "name": "release",
+      "content": "# Fake Release Preparation\n\n- id: fake-release-b9760937e8b2427d\n- excerpt: every-task-is-test-covered-and-the-walk\n\n## Checklist\n- Version bumped and changelog written.\n- Migrations reversible; rollback rehearsed.\n\n## Artifacts\n- Signed draft release notes for gate D.\n",
+      "stage": "release",
+      "role": "release",
+      "created_at": "2026-11-26T02:50:38.374619704Z",
+      "updated_at": "2026-11-26T02:50:38.374621799Z",
+      "version": 1
+    },
+    "design": {
+      "name": "design",
+      "content": "# Fake Design Spec\n\n- id: fake-design-d2c1729e39cd0f38\n- excerpt: no-markdown-no-extra-commentary\n\n## Screens\n- Home: lists runs and their current stage.\n- Run detail: stages, gates, artifacts, events.\n\n## Components\n- StageBadge, GateDecision, ArtifactView.\n\n## RTL & accessibility\n- Logical properties throughout; Arabic catalog complete.\n",
+      "stage": "design",
+      "role": "designer",
+      "created_at": "2026-11-26T02:49:16.194651697Z",
+      "updated_at": "2026-11-26T02:49:16.194654880Z",
+      "version": 1
+    },
+    "brief": {
+      "name": "brief",
+      "content": "# Fake Intake Summary\n\n- id: fake-intake-d4ac85f189f3323e\n- excerpt: no-markdown-no-extra-commentary\n\n## Summary\n- The request is understood; clarifying questions are answered.\n\n## Brief\n- Goal, audience and constraints recorded for gate A.\n",
+      "stage": "idea",
+      "role": "intake",
+      "created_at": "2026-11-26T02:49:13.408238647Z",
+      "updated_at": "2026-11-26T02:49:13.408238875Z",
+      "version": 2
+    },
+    "research": {
+      "name": "research",
+      "content": "# Fake Research Report\n\n- id: fake-research-3d844662fce67dcd\n- excerpt: no-markdown-no-extra-commentary\n\n## Findings\n- Existing solutions: a stock component covers the core flow.\n- Recommended stack: the platform the brief already names.\n- Key risks: none blocking; each has a documented mitigation.\n\n## Effort\n- Per component: 1 deterministic unit.\n",
+      "stage": "research",
+      "role": "researcher",
+      "created_at": "2026-11-26T02:49:15.535231701Z",
+      "updated_at": "2026-11-26T02:49:15.535233789Z",
+      "version": 1
+    }
+  },
+  "created_at": "2026-11-26T02:49:13.037085514Z",
+  "updated_at": "2026-11-26T02:50:38.710339006Z",
+  "status": "completed",
+  "budget_cents": 50000,
+  "spent_cents": 12,
+  "worktree_path": "/home/moe/tools/f3-live-b/data/worktrees/run-01M8AW3M2D30WSNFQ94ECHM0Z4",
+  "worktree_branch": "warsha/run-01M8AW3M2D30WSNFQ94ECHM0Z4",
+  "confinement": "workspace_write",
+  "run_mode": "agent"
+}

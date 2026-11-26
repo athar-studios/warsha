@@ -1,0 +1,11 @@
+# file-writing tool calls (write/edit/patch) by lane, from private OpenCode DB session_part
+01M8AW3QPAPVEE52XCW3AGE61V write completed /home/moe/tools/f3-live-b/data/worktrees/run-01M8AW3M2D30WSNFQ94ECHM0Z4-subtask-01M8AW3QPAPVEE52XCW3AGE61V/src/provider.rs
+01M8AW3QPA9B1R63Q2E0E0G6YH write completed /home/moe/tools/f3-live-b/data/worktrees/run-01M8AW3M2D30WSNFQ94ECHM0Z4-subtask-01M8AW3QPA9B1R63Q2E0E0G6YH/src/domain.rs
+01M8AW3QPACZ6B7W2ZKC33M8PX write completed /home/moe/tools/f3-live-b/data/worktrees/run-01M8AW3M2D30WSNFQ94ECHM0Z4-subtask-01M8AW3QPACZ6B7W2ZKC33M8PX/src/engine.rs
+01M8AW3QPAARKEXJ62GHP9SZXG write completed src/scaffold.rs
+# /tmp paths named in lane shell commands
+01M8AW3QPAARKEXJ62GHP9SZXG /tmp/opencode/scaffold-tests
+01M8AW3QPACZ6B7W2ZKC33M8PX /tmp/opencode
+01M8AW3QPACZ6B7W2ZKC33M8PX /tmp/opencode/engine_check
+01M8AW3QPACZ6B7W2ZKC33M8PX /tmp/opencode/engine_check.rs
+01M8AW3QPAPVEE52XCW3AGE61V /tmp/opencode/provider.rlib

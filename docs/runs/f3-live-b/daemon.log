@@ -1,0 +1,40 @@
+[2m2026-11-26T02:48:47.450241Z[0m [32m INFO[0m [2mwarshad::startup[0m[2m:[0m JSON-RPC server listening on 127.0.0.1:19211
+[2m2026-11-26T02:48:47.507230Z[0m [32m INFO[0m [2mwarshad::startup[0m[2m:[0m HTTP server listening on http://127.0.0.1:19210
+[2m2026-11-26T02:48:47.507396Z[0m [32m INFO[0m [2mwarshad::startup[0m[2m:[0m warshad serving on http://127.0.0.1:19210 and RPC 127.0.0.1:19211
+[2m2026-11-26T02:48:47.507436Z[0m [32m INFO[0m [2mwarshad::startup[0m[2m:[0m warshad running in foreground mode
+[2m2026-11-26T02:49:12.821446Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role intake routed
+[2m2026-11-26T02:49:12.834180Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role researcher routed
+[2m2026-11-26T02:49:12.841645Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role p_m routed
+[2m2026-11-26T02:49:12.848060Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role designer routed
+[2m2026-11-26T02:49:12.854109Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role architect routed
+[2m2026-11-26T02:49:12.862076Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role coder routed
+[2m2026-11-26T02:49:12.875904Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role reviewer routed
+[2m2026-11-26T02:49:12.880984Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role q_a routed
+[2m2026-11-26T02:49:12.885866Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role security routed
+[2m2026-11-26T02:49:12.900619Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role release routed
+[2m2026-11-26T02:49:12.904914Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role marketer routed
+[2m2026-11-26T02:49:12.910228Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role feedback routed
+[2m2026-11-26T02:49:12.914004Z[0m [32m INFO[0m [2mwarshad[0m[2m:[0m role secretary routed
+[2m2026-11-26T02:49:13.129186Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Started run 01M8AW3M2D30WSNFQ94ECHM0Z4 for project 4b0fce85-7f0e-42e1-a337-d74a7fd9b740
+[2m2026-11-26T02:49:13.160055Z[0m [32m INFO[0m [2maudit[0m[2m:[0m run start audit context [3mrun_id[0m[2m=[0m01M8AW3M2D30WSNFQ94ECHM0Z4 [3mstage[0m[2m=[0mIdea [3mharness[0m[2m=[0mautonomous-factory [3mskills[0m[2m=[0m["brainstorming", "dispatching-parallel-agents", "frontend-design", "mcp-builder", "requesting-code-review", "skill-creator", "systematic-debugging", "test-driven-development", "using-git-worktrees", "verification-before-completion", "webapp-testing", "writing-plans"] [3mplugins[0m[2m=[0m[]
+[2m2026-11-26T02:49:13.565059Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from Idea to GateA
+[2m2026-11-26T02:49:15.425511Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Gate GateA approved for run 01M8AW3M2D30WSNFQ94ECHM0Z4 by device 36884eba-1c66-4148-9f65-41cc1a5c8b01
+[2m2026-11-26T02:49:15.610411Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from GateA to Research
+[2m2026-11-26T02:49:15.872684Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from Research to PrdSpec
+[2m2026-11-26T02:49:15.933759Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from PrdSpec to GateB
+[2m2026-11-26T02:49:15.939083Z[0m [32m INFO[0m [2maudit[0m[2m:[0m run advance audit context [3mrun_id[0m[2m=[0m01M8AW3M2D30WSNFQ94ECHM0Z4 [3mstage[0m[2m=[0mGateB [3mharness[0m[2m=[0mautonomous-factory [3mskills[0m[2m=[0m["brainstorming", "dispatching-parallel-agents", "frontend-design", "mcp-builder", "requesting-code-review", "skill-creator", "systematic-debugging", "test-driven-development", "using-git-worktrees", "verification-before-completion", "webapp-testing", "writing-plans"] [3mplugins[0m[2m=[0m[]
+[2m2026-11-26T02:49:16.046828Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Gate GateB approved for run 01M8AW3M2D30WSNFQ94ECHM0Z4 by device 36884eba-1c66-4148-9f65-41cc1a5c8b01
+[2m2026-11-26T02:49:16.346155Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from GateB to Design
+[2m2026-11-26T02:49:16.658446Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from Design to PlanTasks
+[2m2026-11-26T02:50:38.010859Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from PlanTasks to Code
+[2m2026-11-26T02:50:38.144344Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from Code to ReviewQaSecurity
+[2m2026-11-26T02:50:38.183159Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from ReviewQaSecurity to GateC
+[2m2026-11-26T02:50:38.186595Z[0m [32m INFO[0m [2maudit[0m[2m:[0m run advance audit context [3mrun_id[0m[2m=[0m01M8AW3M2D30WSNFQ94ECHM0Z4 [3mstage[0m[2m=[0mGateC [3mharness[0m[2m=[0mautonomous-factory [3mskills[0m[2m=[0m["brainstorming", "dispatching-parallel-agents", "frontend-design", "mcp-builder", "requesting-code-review", "skill-creator", "systematic-debugging", "test-driven-development", "using-git-worktrees", "verification-before-completion", "webapp-testing", "writing-plans"] [3mplugins[0m[2m=[0m[]
+[2m2026-11-26T02:50:38.293318Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Gate GateC approved for run 01M8AW3M2D30WSNFQ94ECHM0Z4 by device 36884eba-1c66-4148-9f65-41cc1a5c8b01
+[2m2026-11-26T02:50:38.427912Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from GateC to Release
+[2m2026-11-26T02:50:38.470274Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from Release to GateD
+[2m2026-11-26T02:50:38.472889Z[0m [32m INFO[0m [2maudit[0m[2m:[0m run advance audit context [3mrun_id[0m[2m=[0m01M8AW3M2D30WSNFQ94ECHM0Z4 [3mstage[0m[2m=[0mGateD [3mharness[0m[2m=[0mautonomous-factory [3mskills[0m[2m=[0m["brainstorming", "dispatching-parallel-agents", "frontend-design", "mcp-builder", "requesting-code-review", "skill-creator", "systematic-debugging", "test-driven-development", "using-git-worktrees", "verification-before-completion", "webapp-testing", "writing-plans"] [3mplugins[0m[2m=[0m[]
+[2m2026-11-26T02:50:38.525947Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Gate GateD approved for run 01M8AW3M2D30WSNFQ94ECHM0Z4 by device 36884eba-1c66-4148-9f65-41cc1a5c8b01
+[2m2026-11-26T02:50:38.659362Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from GateD to LaunchDrafts
+[2m2026-11-26T02:50:38.708895Z[0m [32m INFO[0m [2mwarsha_pipeline[0m[2m:[0m Run 01M8AW3M2D30WSNFQ94ECHM0Z4 advanced from LaunchDrafts to Feedback
+[2m2026-11-26T02:50:38.752753Z[0m [32m INFO[0m [2maudit[0m[2m:[0m run advance audit context [3mrun_id[0m[2m=[0m01M8AW3M2D30WSNFQ94ECHM0Z4 [3mstage[0m[2m=[0mFeedback [3mharness[0m[2m=[0mautonomous-factory [3mskills[0m[2m=[0m["brainstorming", "dispatching-parallel-agents", "frontend-design", "mcp-builder", "requesting-code-review", "skill-creator", "systematic-debugging", "test-driven-development", "using-git-worktrees", "verification-before-completion", "webapp-testing", "writing-plans"] [3mplugins[0m[2m=[0m[]
