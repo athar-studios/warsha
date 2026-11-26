@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/lib.rs (/tmp/warsha-clean1-live/target/debug/deps/warsha_providers-e4e9285dcaa2e36d)
+
+running 8 tests
+test fake::tests::streaming_is_the_same_deterministic_answer_in_one_chunk ... ok
+test fake::tests::different_prompts_produce_different_artifacts_for_one_stage ... ok
+test fake::tests::models_health_and_cost_are_the_documented_constants ... ok
+test fake::tests::every_stage_prompt_gets_a_distinct_non_empty_artifact ... ok
+test fake::tests::a_followup_prompt_answers_as_general_and_is_stable ... ok
+test fake::tests::the_same_prompt_answers_identically_twice ... ok
+test fake::tests::fake_answers_through_a_router_with_no_routing_configured ... ok
+test fake::tests::plan_tasks_carry_disjoint_proofcalc_contracts ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.00s
+
