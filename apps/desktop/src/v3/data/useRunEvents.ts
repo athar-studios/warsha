@@ -52,10 +52,18 @@ export function useRunEvents(
     setError(null);
     backoffRef.current = initialBackoff;
     eventsRef.current = [];
+    cursorRef.current = options?.sinceSeq;
 
     const pollOrSubscribe = async () => {
       try {
-        const sync: RunStreamSync = await client.subscribeRun(runId as RunId, cursorRef.current);
+        const [sync, persisted]: [RunStreamSync, WarshaEvent[]] = await Promise.all([
+          client.subscribeRun(runId as RunId, cursorRef.current),
+          // The ring may be empty after restart; persisted history also closes
+          // the snapshot/subscription race on first mount.
+          Promise.resolve()
+            .then(() => client.getRunEvents(runId as RunId))
+            .catch(() => []),
+        ]);
 
         if (!active) return;
 
@@ -69,10 +77,19 @@ export function useRunEvents(
           eventsRef.current = [...eventsRef.current, ...sync.events];
         }
 
-        const currentEvents = eventsRef.current;
+        const byId = new Map<string, WarshaEvent>();
+        for (const event of persisted) byId.set(event.id, event);
+        for (const event of eventsRef.current) byId.set(event.id, event);
+        const currentEvents = [...byId.values()];
+        eventsRef.current = currentEvents;
         setError(null);
         setData(currentEvents);
         setStatus(currentEvents.length === 0 ? 'empty' : 'ready');
+        // subscribeRun returns a snapshot, not a persistent stream. Continue from
+        // its cursor so asynchronous intake pauses and gate entry stay visible.
+        timerId = setTimeout(() => {
+          if (active) void pollOrSubscribe();
+        }, 1000);
       } catch (err) {
         if (!active) return;
         const errObj = err instanceof Error ? err : new Error(String(err));

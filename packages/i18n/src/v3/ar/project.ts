@@ -1,4 +1,6 @@
 export default {
+  'project.provider_required':
+    'يلزم تعيين مسار مزوّد. عيِّن مزوّدًا لهذا الدور من الإعدادات ← النماذج، ثم استأنف التشغيل.',
   'project.title': 'المشروع',
   'project.empty': 'المشروع غير موجود',
   'project.empty_description': 'لم نجد هذا المشروع، وربما حُذف.',

@@ -38,7 +38,7 @@ import {
   type StatusPillState,
   type StepperStage,
 } from '@warsha/ui/v3';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAction } from '../../actions';
 import { canEndRuns } from '../../actions/capabilities';
@@ -146,6 +146,8 @@ export function buildSimpleStepperStages(
 export function extractEventSummary(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return '';
   const rec = payload as Record<string, unknown>;
+  if (rec.action === 'provider_required') return 'project.provider_required';
+  if (rec.action === 'run_cancelled') return '';
   const base =
     typeof rec.summary === 'string' && rec.summary.trim()
       ? rec.summary.trim()
@@ -153,9 +155,7 @@ export function extractEventSummary(payload: unknown): string {
         ? rec.message.trim()
         : '';
   const hint =
-    typeof rec.retry_hint === 'string' && rec.retry_hint.trim()
-      ? rec.retry_hint.trim()
-      : '';
+    typeof rec.retry_hint === 'string' && rec.retry_hint.trim() ? rec.retry_hint.trim() : '';
   if (base && hint) {
     return `${base} — ${hint}`;
   }
@@ -180,7 +180,7 @@ export function extractRetryHint(payload: unknown): string {
  */
 export function findRetryHint(
   events: readonly WarshaEvent[] | null | undefined,
-  scope: 'failed' | 'paused' = 'failed',
+  scope: 'failed' | 'paused' = 'failed'
 ): string {
   if (!events || events.length === 0) return '';
   if (scope === 'paused') {
@@ -201,6 +201,16 @@ export function findRetryHint(
     at = event.createdAt;
   }
   return hint;
+}
+
+export function projectEventLabelKey(event: WarshaEvent): string {
+  const action =
+    event.payload && typeof event.payload === 'object'
+      ? (event.payload as Record<string, unknown>).action
+      : undefined;
+  if (action === 'provider_required') return 'project.status_paused';
+  if (action === 'run_cancelled') return 'project.status_cancelled';
+  return getEventKey(event.kind);
 }
 
 function isPauseCausingEvent(event: WarshaEvent): boolean {
@@ -287,6 +297,30 @@ export default function ProjectPage(): React.ReactElement {
   const artifactsResult = useArtifacts(runId);
   const eventsResult = useRunEvents(runId);
 
+  const seenStageEvents = useRef(new Set<string>());
+  const reloadRuns = runsResult.reload;
+  const reloadGates = gatesResult.reload;
+  const reloadArtifacts = artifactsResult.reload;
+  const reloadBudget = budgetResult.reload;
+  useEffect(() => {
+    let changed = false;
+    for (const event of eventsResult.data ?? []) {
+      if (event.runId !== runId || event.role !== null || event.kind !== 'StageStarted') continue;
+      if (seenStageEvents.current.has(event.id)) continue;
+      seenStageEvents.current.add(event.id);
+      changed = true;
+    }
+    // advance_stage_locked emits StageStarted {from,to}, not a pending
+    // GateDecision. Refresh both snapshots so the current-stage guard stays true.
+    if (changed) {
+      reloadRuns();
+      reloadGates();
+      reloadArtifacts();
+      reloadBudget();
+    }
+  }, [eventsResult.data, runId, reloadRuns, reloadGates, reloadArtifacts, reloadBudget]);
+
+  const gateBrief = artifactsResult.data?.find((artifact) => artifact.name === 'brief');
   const hasRunEndingCapability = canEndRuns(capabilities);
 
   // Local UI state
@@ -538,7 +572,8 @@ export default function ProjectPage(): React.ReactElement {
 
   const feedEvents = useMemo<ActivityEvent[]>(() => {
     return visibleEvents.map((ev) => {
-      const summary = extractEventSummary(ev.payload);
+      const rawSummary = extractEventSummary(ev.payload);
+      const summary = rawSummary === 'project.provider_required' ? t(rawSummary) : rawSummary;
       // A run's end says which ending it was (R-EXT-2). Every other kind keeps the
       // plain-language label the map already owns.
       const finished = decodeRunFinished(ev);
@@ -549,7 +584,9 @@ export default function ProjectPage(): React.ReactElement {
         stageLabel: t(getSimpleStageLabelKey(ev.stage)),
         message: (
           <span>
-            <span>{finished ? t(`events.run_finished.${finished}`) : t(getEventKey(ev.kind))}</span>
+            <span>
+              {finished ? t(`events.run_finished.${finished}`) : t(projectEventLabelKey(ev))}
+            </span>
             {summary ? (
               <>
                 {' — '}
@@ -581,8 +618,14 @@ export default function ProjectPage(): React.ReactElement {
 
   const retryHint = useMemo(() => {
     if (!showRetryHint) return '';
+    const pause = [...(eventsResult.data ?? [])]
+      .filter(isPauseCausingEvent)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+    if (isPaused && pause && projectEventLabelKey(pause) === 'project.status_paused') {
+      return 'project.retry_hint.provider_required';
+    }
     return retryHintText(rawRetryHint);
-  }, [showRetryHint, rawRetryHint]);
+  }, [showRetryHint, rawRetryHint, eventsResult.data, isPaused]);
 
   const statusPillState = computeRunStatusPill(currentRun, pendingGate);
   const statusLabels: Record<StatusPillState, string> = {
@@ -776,9 +819,7 @@ export default function ProjectPage(): React.ReactElement {
                   color: 'var(--w-text-muted)',
                 }}
               >
-                <bdi dir="auto">
-                  {retryHint.startsWith('project.') ? t(retryHint) : retryHint}
-                </bdi>
+                <bdi dir="auto">{retryHint.startsWith('project.') ? t(retryHint) : retryHint}</bdi>
               </div>
             ) : null}
           </div>
@@ -800,6 +841,15 @@ export default function ProjectPage(): React.ReactElement {
           <h2 className="v3-project-decision-question">
             {t(getGateQuestionKey(extractGateCode(pendingGate.stage)))}
           </h2>
+
+          {pendingGate.stage === 'gate_a' && gateBrief?.content && (
+            <pre
+              className="v3-project-gate-brief"
+              style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+            >
+              <bdi dir="auto">{gateBrief.content}</bdi>
+            </pre>
+          )}
 
           {hasRunEndingCapability && changesOpen && (
             <div className="v3-project-changes-box">
@@ -887,9 +937,15 @@ export default function ProjectPage(): React.ReactElement {
               {latestEvent ? (
                 <>
                   <span>·</span>
-                  <span>{t(getEventKey(latestEvent.kind))}</span>
+                  <span>{t(projectEventLabelKey(latestEvent))}</span>
                   {extractEventSummary(latestEvent.payload) ? (
-                    <bdi dir="auto">({extractEventSummary(latestEvent.payload)})</bdi>
+                    <bdi dir="auto">
+                      (
+                      {extractEventSummary(latestEvent.payload) === 'project.provider_required'
+                        ? t('project.provider_required')
+                        : extractEventSummary(latestEvent.payload)}
+                      )
+                    </bdi>
                   ) : null}
                 </>
               ) : null}

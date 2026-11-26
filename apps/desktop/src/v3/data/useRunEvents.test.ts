@@ -13,6 +13,44 @@ describe('useRunEvents', () => {
     vi.useRealTimers();
   });
 
+  it('merges persisted history with repeated live frames and stops polling on unmount', async () => {
+    const event: WarshaEvent = {
+      id: 'gate',
+      runId: 'run-1' as RunId,
+      stage: 'gate_a',
+      role: null,
+      kind: 'StageStarted',
+      payload: { from: 'idea', to: 'gate_a' },
+      costCents: null,
+      createdAt: '2026-11-26T00:00:00Z',
+      deviceId: null,
+    };
+    const subscribeRun = vi.fn().mockResolvedValue({
+      seq: 9,
+      gap_detected: false,
+      resync_required: false,
+      dropped_count: 0,
+      run: null,
+      events: [event],
+    });
+    const client = {
+      subscribeRun,
+      getRunEvents: vi.fn().mockResolvedValue([event]),
+    } as unknown as WarshaClient;
+    const { result, unmount } = renderHook(() => useRunEvents('run-1', {}, client));
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(subscribeRun).toHaveBeenLastCalledWith('run-1', 9);
+    expect(result.current.data).toEqual([event]);
+    unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(subscribeRun).toHaveBeenCalledTimes(2);
+  });
+
   it('handles loading state initially', () => {
     const client = {
       subscribeRun: () => new Promise<RunStreamSync>(() => {}),
@@ -221,6 +259,27 @@ describe('useRunEvents', () => {
 
     // Stale event replaced by resynced events
     expect(result.current.data).toEqual([freshEvent]);
+  });
+
+  it('continues successful snapshots from the cursor and stops on unmount', async () => {
+    vi.useFakeTimers();
+    try {
+      const subscribeRun = vi.fn().mockResolvedValue({ seq: 4, events: [] });
+      const client = { subscribeRun } as unknown as WarshaClient;
+      const { unmount } = renderHook(() => useRunEvents('run-1', {}, client));
+      await act(async () => {});
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(subscribeRun).toHaveBeenNthCalledWith(2, 'run-1', 4);
+      unmount();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(subscribeRun).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('unsubscribes on unmount', async () => {

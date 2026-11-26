@@ -4,6 +4,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   parseWarshaEvent,
+  type ProjectId,
   type ProvisioningRecord,
   type RunSubtask,
   type RunSummary,
@@ -378,7 +379,7 @@ describe('DevelopersPage (E4)', () => {
 
   it('renders a provisioning row from a non-empty record', async () => {
     const record: ProvisioningRecord = {
-      projectId: 'p1',
+      projectId: 'p1' as ProjectId,
       agentId: 'agent-pm',
       role: 'pm',
       skills: ['secretary-interview'],
