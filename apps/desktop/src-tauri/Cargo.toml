@@ -25,12 +25,13 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # `macos-private-api` is what `app.macOSPrivateApi` in tauri.conf.json compiles against.
-# No Tauri plugin crate is declared on purpose: the frontend reaches the daemon over
-# loopback HTTP/WebSocket and the shell's own commands over `invoke`, so it uses no
-# plugin permission at all. Adding one would put a capability in the ACL for nothing.
+# The frontend reaches the daemon over loopback HTTP/WebSocket and calls the shell's own
+# `get_config`, `set_config`, and `pick_folder` commands; `tauri-plugin-opener` handles
+# external links and `tauri-plugin-dialog` backs the native folder picker (`dialog:default`).
 tauri = { version = "2", features = ["macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
+tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 warshad = { path = "../../../crates/warshad" }

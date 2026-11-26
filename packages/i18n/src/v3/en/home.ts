@@ -81,4 +81,49 @@ export default {
   'home.new_project_dialog_desc': 'Start a new project with an optional Git repository.',
   'home.project_name_label': 'Project name',
   'home.project_name_placeholder': 'e.g. My Next Project',
+  'home.source.label': 'Project folder & repository',
+  'home.source.opt_new_folder': 'Create new folder',
+  'home.source.opt_existing': 'Choose folder',
+  'home.source.opt_github_link': 'Link GitHub repo',
+  'home.source.opt_github_create': 'Create GitHub repo',
+  'home.source.new_folder_hint':
+    'Leave blank to create automatically inside Warsha’s projects folder, or specify both a parent folder and a folder name.',
+  'home.source.parent_dir_label': 'Parent folder (optional)',
+  'home.source.parent_dir_placeholder': 'e.g. /home/user/projects',
+  'home.source.folder_name_label': 'Folder name (optional)',
+  'home.source.folder_name_placeholder': 'e.g. my-app',
+  'home.source.browse_folder': 'Choose folder…',
+  'home.source.existing_hint':
+    'Pick an existing project folder on your computer. Warsha initializes Git automatically if needed.',
+  'home.source.existing_label': 'Project folder path',
+  'home.source.existing_placeholder': 'e.g. /home/user/my-project',
+  'home.source.picker_unavailable':
+    'Native folder picker is available in the Warsha desktop app. Enter or paste the folder path directly below.',
+  'home.source.picker_error': 'Could not open the folder picker. Enter the folder path manually.',
+  'home.source.github_link_hint':
+    'Clone an existing GitHub repository into a local folder before starting.',
+  'home.source.repo_url_label': 'GitHub repository URL or owner/repo',
+  'home.source.repo_url_placeholder': 'e.g. https://github.com/owner/repo or owner/repo',
+  'home.source.clone_folder_name_label': 'Local folder name (optional)',
+  'home.source.clone_folder_name_placeholder': 'Defaults to repository name',
+  'home.source.github_checking': 'Checking GitHub connection…',
+  'home.source.github_connected': 'GitHub connected',
+  'home.source.github_link_unconnected_note':
+    'GitHub is not connected. Public repositories work without login; private repositories require connecting GitHub in Settings → Integrations first.',
+  'home.source.github_not_connected_title':
+    'Connect your GitHub account in Settings → Integrations first.',
+  'home.source.github_not_connected_body':
+    'Creating a new GitHub repository requires a connected GitHub token.',
+  'home.source.github_settings_cta': 'Open Integrations settings',
+  'home.source.github_create_hint':
+    'Creates a new repository under your connected GitHub account and clones it locally.',
+  'home.source.github_repo_name_label': 'GitHub repository name',
+  'home.source.github_repo_name_placeholder': 'e.g. my-next-app',
+  'home.source.err_missing_folder_name':
+    'Enter a folder name alongside the chosen parent folder, or clear the parent folder to auto-create.',
+  'home.source.err_missing_parent_dir':
+    'Choose or enter a parent folder alongside the folder name, or clear both to auto-create.',
+  'home.source.err_missing_folder': 'Choose or enter a local folder path.',
+  'home.source.err_missing_repo_url': 'Enter a GitHub repository URL or owner/repo.',
+  'home.source.err_missing_repo_name': 'Enter a repository name for the new GitHub repository.',
 };

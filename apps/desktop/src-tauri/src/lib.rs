@@ -910,6 +910,33 @@ fn set_config(key: String, value: String, state: State<'_, ShellState>) -> Resul
     state.set(&key, &value)
 }
 
+/// `pick_folder` — open a native OS directory picker dialog and return the chosen path, if any.
+#[tauri::command]
+async fn pick_folder(
+    app: tauri::AppHandle,
+    title: Option<String>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let mut builder = app.dialog().file();
+        if let Some(title) = title.filter(|t| !t.trim().is_empty()) {
+            builder = builder.set_title(title);
+        }
+        builder
+            .blocking_pick_folder()
+            .map(|fp| fp.into_path().map(|p| p.to_string_lossy().into_owned()))
+    })
+    .await
+    .map_err(|err| err.to_string())?;
+
+    match result {
+        Some(Ok(path)) => Ok(Some(path)),
+        Some(Err(err)) => Err(err.to_string()),
+        None => Ok(None),
+    }
+}
+
 /// Build and run the app: start the daemon, publish where it is, and reap it on exit.
 ///
 /// The daemon starts *before* the window is created, and synchronously. The webview's first
@@ -953,8 +980,13 @@ pub fn run() -> anyhow::Result<()> {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(shell)
-        .invoke_handler(tauri::generate_handler![get_config, set_config])
+        .invoke_handler(tauri::generate_handler![
+            get_config,
+            set_config,
+            pick_folder
+        ])
         .build(tauri::generate_context!())?;
 
     app.run(|handle, event| {

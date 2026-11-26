@@ -79,4 +79,48 @@ export default {
   'home.new_project_dialog_desc': 'ابدأ مشروعًا جديدًا مع تحديد مسار مستودع Git اختياريًا.',
   'home.project_name_label': 'اسم المشروع',
   'home.project_name_placeholder': 'مثل: مشروعي القادم',
+  'home.source.label': 'مجلد المشروع والمستودع',
+  'home.source.opt_new_folder': 'إنشاء مجلد جديد',
+  'home.source.opt_existing': 'اختيار مجلد',
+  'home.source.opt_github_link': 'ربط مستودع GitHub',
+  'home.source.opt_github_create': 'إنشاء مستودع GitHub',
+  'home.source.new_folder_hint':
+    'اترك الحقلين فارغين للإنشاء تلقائيًا داخل مجلد مشاريع ورشة، أو حدّد المجلد الأب واسم المجلد معًا.',
+  'home.source.parent_dir_label': 'المجلد الأب (اختياري)',
+  'home.source.parent_dir_placeholder': 'مسار المجلد الأب',
+  'home.source.folder_name_label': 'اسم المجلد (اختياري)',
+  'home.source.folder_name_placeholder': 'مثال: مشروع-ورشة',
+  'home.source.browse_folder': 'اختر مجلدًا…',
+  'home.source.existing_hint':
+    'اختر مجلد مشروع موجودًا على جهازك، وستُهيّئ ورشة مستودع Git تلقائيًا عند الحاجة.',
+  'home.source.existing_label': 'مسار مجلد المشروع',
+  'home.source.existing_placeholder': 'مسار المجلد المحلي',
+  'home.source.picker_unavailable':
+    'منتقي المجلدات الأصلي متاح في تطبيق ورشة لسطح المكتب. أدخل مسار المجلد أو الصقه مباشرة أدناه.',
+  'home.source.picker_error': 'تعذّر فتح منتقي المجلدات. أدخل مسار المجلد يدويًا.',
+  'home.source.github_link_hint': 'استنساخ مستودع GitHub موجود إلى مجلد محلي قبل البدء.',
+  'home.source.repo_url_label': 'رابط مستودع GitHub أو اسم المالك والمستودع',
+  'home.source.repo_url_placeholder': 'مثال: https://github.com/owner/repo',
+  'home.source.clone_folder_name_label': 'اسم المجلد المحلي (اختياري)',
+  'home.source.clone_folder_name_placeholder': 'الافتراضي هو اسم المستودع',
+  'home.source.github_checking': 'جارٍ التحقق من اتصال GitHub…',
+  'home.source.github_connected': 'GitHub متصل',
+  'home.source.github_link_unconnected_note':
+    'حساب GitHub غير متصل. المستودعات العامة تعمل دون تسجيل دخول، بينما تتطلّب المستودعات الخاصة ربط GitHub من الإعدادات ← التكاملات أولًا.',
+  'home.source.github_not_connected_title':
+    'اربط حسابك في GitHub من الإعدادات ← التكاملات أولًا.',
+  'home.source.github_not_connected_body':
+    'يتطلّب إنشاء مستودع GitHub جديد ربط رمز وصول صالح لحسابك.',
+  'home.source.github_settings_cta': 'فتح إعدادات التكاملات',
+  'home.source.github_create_hint':
+    'يُنشئ مستودعًا جديدًا تحت حسابك المتصل على GitHub ويستنسخه محليًا.',
+  'home.source.github_repo_name_label': 'اسم مستودع GitHub',
+  'home.source.github_repo_name_placeholder': 'مثال: مشروع-جديد',
+  'home.source.err_missing_folder_name':
+    'أدخل اسم المجلد مع المجلد الأب المحدّد، أو افرغ المجلد الأب للإنشاء التلقائي.',
+  'home.source.err_missing_parent_dir':
+    'اختر أو أدخل المجلد الأب مع اسم المجلد، أو افرغهما للإنشاء التلقائي.',
+  'home.source.err_missing_folder': 'اختر مسار مجلد محلي أو أدخله.',
+  'home.source.err_missing_repo_url': 'أدخل رابط مستودع GitHub أو صيغة المالك/المستودع.',
+  'home.source.err_missing_repo_name': 'أدخل اسمًا لمستودع GitHub الجديد.',
 };
