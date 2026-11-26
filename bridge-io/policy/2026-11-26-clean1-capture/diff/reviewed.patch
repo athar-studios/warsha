@@ -1,0 +1,1326 @@
+From b1ced6caa8b6781b3832c933afe5cb97a14c27b4 Mon Sep 17 00:00:00 2001
+From: Sim <sim@local>
+Date: Thu, 26 Nov 2026 04:01:03 +0400
+Subject: [PATCH] test(backends): prove capture against real unstaged OpenCode
+ output
+
+---
+ DECISIONS.md                                  |   9 +
+ PROGRESS.md                                   |   9 +
+ .../2026-11-26-clean1-capture/acceptance.json |  52 ++++
+ .../2026-11-26-clean1-capture/capture.txt     |  16 +
+ .../checkpoints/001-implement.json            |  80 +++++
+ .../checkpoints/002-verify.json               |  96 ++++++
+ .../2026-11-26-clean1-capture/gates/arch.log  |   1 +
+ .../gates/clippy.log                          | 229 ++++++++++++++
+ .../2026-11-26-clean1-capture/gates/fmt.log   |   0
+ .../2026-11-26-clean1-capture/gates/live.log  | 294 ++++++++++++++++++
+ .../gates/policy.log                          |   1 +
+ .../2026-11-26-clean1-capture/gates/skip.log  |   9 +
+ .../2026-11-26-clean1-capture/gates/test.log  | 103 ++++++
+ .../opencode-stream.log                       |  10 +
+ .../2026-11-26-clean1-capture/review.md       |   1 +
+ .../2026-11-26-clean1-capture/state.json      |  96 ++++++
+ .../2026-11-26-clean1-capture/verdict.json    |   5 +
+ .../tests/opencode_live_capture.rs            | 155 +++++++++
+ 18 files changed, 1166 insertions(+)
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/acceptance.json
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/capture.txt
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/checkpoints/001-implement.json
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/checkpoints/002-verify.json
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/gates/arch.log
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/gates/clippy.log
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/gates/fmt.log
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/gates/live.log
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/gates/policy.log
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/gates/skip.log
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/gates/test.log
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/opencode-stream.log
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/review.md
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/state.json
+ create mode 100644 bridge-io/policy/2026-11-26-clean1-capture/verdict.json
+ create mode 100644 crates/warsha-backends/tests/opencode_live_capture.rs
+
+diff --git a/DECISIONS.md b/DECISIONS.md
+index 16b50b8..811d69b 100644
+--- a/DECISIONS.md
++++ b/DECISIONS.md
+@@ -1,6 +1,15 @@
+ 
+ # DECISIONS.md — Architecture and Design Decisions
+ 
++## 2026-11-26 — D-RN-CAPTURE-LIVE-1: real OpenCode leaves unstaged output; capture needs no further filter
++
++One owner-authorized invocation used OpenCode v2.4.1, `opencode run`, `opencode/big-pickle`, through `BackendFactory::opencode()` in `/tmp/warsha-live-capture-3Uj85q/repo`. The launcher adds `--model opencode/big-pickle --standalone --auto`, clears the inherited environment with `env -i`, and redirects HOME/XDG into the scratch tree; no credential or `~/.config/opencode` was read. `opencode models` advertised that model (the initial `models opencode` form was rejected as an unexpected positional argument). One CLI invocation, not one inference turn: OpenCode used write, then shell to inspect its output, then finished, with three step-finish records reporting cost 0.
++
++- **Before listing** (excluding `.git`, octal filesystem permissions): `["664 README.md"]`; `git status --porcelain -u`: empty. HEAD `bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93`.
++- **After listing** (excluding `.git`): `["664 .warsha/cli.log", "664 README.md", "664 hello.txt", "775 .warsha/"]`; `git status --porcelain -u`: `?? hello.txt\n`. HEAD unchanged. No staged or modified-tracked files, commits, project `.opencode/`, lock files, nested output, or unusual executable modes. `hello.txt` contains `hi\n`; git diff reports new file mode `100644`. `.warsha/cli.log` is Warsha's own ignored output, not an OpenCode-created project file. OpenCode's private HOME data is outside the repo, not part of capture.
++- **Capture**: `success=true`, `files_changed=["hello.txt"]`; unified diff contains `diff --git a/hello.txt b/hello.txt`, `new file mode 100644`, and `+hi`. No `.warsha` or `.opencode` appears. Therefore no production edit and no speculative `.opencode` exclusion: the existing fake unstaged-file regression remains the default proof, supplemented by `opencode_live_capture.rs`.
++- **Safety/limits**: the live test is ignored and returns without executing when either `WARSHA_LIVE_OPENCODE=1` or `WARSHA_E2E_REAL=1` is absent, or when `opencode` is absent. A separate test binary avoids the mock PATH race. This observation is for this version, model, prompt and private HOME; it does not establish all OpenCode configurations are noise-free. The prompt explicitly prohibited staging/committing. Raw capture and live log are retained in the run evidence directory. Role merge and late initial checkpoint are disclosed in state; not independent acceptance. No push, tag, publish or merge.
++
+ ## 2026-11-26 — D-RN-SWARM-RACE-1: the two CLEAN-1 swarm walks hold one named process lock
+ 
+ `clean1_swarm_four_lanes_materialize_real_files` sets `WARSHA_CODING_BACKEND_FIXTURE=materialize`. `clean1_swarm_four_lanes_scripted_backend_derives_files` removes it. `FIXTURE_IN_FLIGHT` and `FIXTURE_PEAK` are process-global, and both walks call `reset_fixture_materialize_peak`. Beside each other, one walk restores or clears the switch while the other is inside `execute`, so the materialize path never writes and the peak stays at 2 (store 2, backend 0). One walk's reset can also zero the other's count.
+diff --git a/PROGRESS.md b/PROGRESS.md
+index 14fbc28..fd0c559 100644
+--- a/PROGRESS.md
++++ b/PROGRESS.md
+@@ -1,5 +1,14 @@
+ # PROGRESS.md — Warsha Build Log
+ 
++## Run 2026-11-26 — real OpenCode unstaged capture proof
++
++- **Worktree**: `.agents/worktrees/clean1-capture`, `r-next/clean1-capture`, base `90aad8d`; initially clean. No other sessions' changes encountered. No production edits; no push, tag, publish or merge. Decision D-RN-CAPTURE-LIVE-1.
++- **Single authorized live invocation**: `/home/moe/.opencode/bin/opencode` v2.4.1, `opencode/big-pickle` from `opencode models`, driven by `BackendFactory::opencode()` with private scratch HOME/XDG, `env -i`, `--standalone --auto`. The task asked to create `hello.txt` containing `hi`, no other changes and no staging/commit. Real CLI log shows write `hi\n`, a shell content/status check, then completion; three inference step finishes, each cost 0. One CLI invocation, not a claim of one inference turn.
++- **Exact observation**: scratch `/tmp/warsha-live-capture-3Uj85q/repo`. Before listing excluding `.git`: `["664 README.md"]`, porcelain empty. After: `["664 .warsha/cli.log", "664 README.md", "664 hello.txt", "775 .warsha/"]`; `git status --porcelain -u` = `?? hello.txt\n`. HEAD remained `bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93`. No staged, committed, modified-tracked, nested output, project `.opencode/`, lock files, or executable output. Warsha's own `.warsha/cli.log` is ignored. Captured `success=true`, `files_changed=["hello.txt"]`; diff has new mode `100644` and `+hi`, no noise. Existing capture is correct for this run; no speculative production filter added.
++- **Test**: new separate-process `opencode_live_capture.rs` is `#[ignore]` and requires both `WARSHA_LIVE_OPENCODE=1` and `WARSHA_E2E_REAL=1`, skips absent CLI, preserves scratch evidence. Default tests remain mock-only. Live command `PATH=/home/moe/.opencode/bin:$PATH WARSHA_LIVE_OPENCODE=1 WARSHA_E2E_REAL=1 CARGO_INCREMENTAL=0 cargo test -p warsha-backends --test opencode_live_capture -- --ignored --nocapture` — 1 passed in 12.71s (after compile).
++- **Requested checks**: `cargo fmt --all -- --check` exit 0; `CARGO_INCREMENTAL=0 cargo test -p warsha-backends > /tmp/capture-test.log 2>&1` exit 0 (61 unit + 5 acceptance + 2 fake proving tests passed; 1 live ignored; 0 doc tests); `CARGO_INCREMENTAL=0 cargo clippy -p warsha-backends --all-targets -- -D warnings > /tmp/capture-clippy.log 2>&1` exit 0; `node scripts/check-engineering-policy.mjs` exit 0, 8 checks/0 failures. Both redirected logs were read back.
++- **Evidence/limits**: `bridge-io/policy/2026-11-26-clean1-capture/` preserves raw capture, CLI stream, gate logs and state. No credentials read/printed and no access to `~/.config/opencode`. Private HOME data outside the repo is not capture input. Role merge and late initial checkpoint explicitly disclosed; this is self-review/check evidence, not independent verification or owner acceptance. Full workspace tests not run. Observation does not promise all OpenCode versions/configurations/prompts behave identically.
++
+ ## Run 2026-11-26 — swarm walks no longer share the fixture switch
+ 
+ - **Worktree**: `.agents/worktrees/fix-swarm-race`, branch `r-next/fix-swarm-race`, tip was `1f9b1c4`. No push, no merge. FIXES COMPLETE is not declared.
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/acceptance.json b/bridge-io/policy/2026-11-26-clean1-capture/acceptance.json
+new file mode 100644
+index 0000000..4d175d1
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/acceptance.json
+@@ -0,0 +1,52 @@
++{
++  "run_id": "2026-11-26-clean1-capture",
++  "timestamp": "2026-11-26T00:00:56.332398+00:00",
++  "checked_base_commit": "90aad8ddc73c38b9020fbadcd021d1b731b12510",
++  "subject": "worktree patch adding ignored live test (no production change)",
++  "independent": false,
++  "gates": [
++    {
++      "id": "fmt",
++      "verdict": "pass",
++      "exit_code": 0,
++      "log": "gates/fmt.log"
++    },
++    {
++      "id": "test",
++      "verdict": "pass",
++      "exit_code": 0,
++      "log": "gates/test.log"
++    },
++    {
++      "id": "clippy",
++      "verdict": "pass",
++      "exit_code": 0,
++      "log": "gates/clippy.log"
++    },
++    {
++      "id": "policy",
++      "verdict": "pass",
++      "exit_code": 0,
++      "log": "gates/policy.log"
++    },
++    {
++      "id": "live",
++      "verdict": "pass",
++      "exit_code": 0,
++      "log": "gates/live.log"
++    },
++    {
++      "id": "skip",
++      "verdict": "pass",
++      "exit_code": 0,
++      "log": "gates/skip.log"
++    },
++    {
++      "id": "arch",
++      "verdict": "pass",
++      "exit_code": 0,
++      "log": "gates/arch.log"
++    }
++  ],
++  "acceptance": "owner not requested; no merge"
++}
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/capture.txt b/bridge-io/policy/2026-11-26-clean1-capture/capture.txt
+new file mode 100644
+index 0000000..2b50682
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/capture.txt
+@@ -0,0 +1,16 @@
++before=["664 README.md"]
++status_before=
++head_before=bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93
++after=["664 .warsha/cli.log", "664 README.md", "664 hello.txt", "775 .warsha/"]
++status_after="?? hello.txt\n"
++head_after=bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93
++success=true
++files_changed=["hello.txt"]
++diff:
++diff --git a/hello.txt b/hello.txt
++new file mode 100644
++index 0000000..45b983b
++--- /dev/null
+++++ b/hello.txt
++@@ -0,0 +1 @@
+++hi
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/checkpoints/001-implement.json b/bridge-io/policy/2026-11-26-clean1-capture/checkpoints/001-implement.json
+new file mode 100644
+index 0000000..8ef31aa
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/checkpoints/001-implement.json
+@@ -0,0 +1,80 @@
++{
++  "schema": "warsha-run/v1",
++  "run_id": "2026-11-26-clean1-capture",
++  "task": "Observe one owner-authorized keyless OpenCode invocation through BackendFactory::opencode in a /tmp scratch repo, prove capture sees unstaged hello.txt and excludes noise, add an ignored opt-in test and record exact observations. Never publish or modify other worktrees.",
++  "phase": "implement",
++  "seq": 1,
++  "updated_at": "2026-11-26T04:00:00Z",
++  "roles": {
++    "planner": "owner (commands frozen in request)",
++    "implementer": "capture worker",
++    "reviewer": "capture worker (capacity merge; not independent)",
++    "verifier": "capture worker (capacity merge; not independent)"
++  },
++  "scope": {
++    "allowed_files": [
++      "crates/warsha-backends/tests/opencode_live_capture.rs",
++      "crates/warsha-backends/src/lib.rs (only if observed noise)",
++      "crates/warsha-backends/tests/opencode_harness_proving.rs (only if observed noise)",
++      "DECISIONS.md",
++      "PROGRESS.md",
++      "bridge-io/policy/2026-11-26-clean1-capture/**"
++    ],
++    "out_of_scope": [
++      "other worktrees",
++      "root checkout",
++      "credentials",
++      "~/.config/opencode",
++      "push/tag/publish/merge"
++    ]
++  },
++  "worktree": {
++    "path": "/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture",
++    "branch": "r-next/clean1-capture",
++    "base_commit": "90aad8ddc73c38b9020fbadcd021d1b731b12510",
++    "mode": "git-worktree"
++  },
++  "plan": {
++    "steps": [
++      "Add ignored test in separate process with private HOME/XDG and credential-cleared launcher",
++      "Execute exactly one tiny real model request through catalog backend and preserve scratch evidence",
++      "Only fix production capture if actual noise observed; add matching mock proof if needed",
++      "Record observations, run frozen owner commands, self-review and commit"
++    ],
++    "acceptance_gates": [
++      {
++        "id": "fmt",
++        "check": "cargo fmt --all -- --check",
++        "expect": "exit 0"
++      },
++      {
++        "id": "test",
++        "check": "CARGO_INCREMENTAL=0 cargo test -p warsha-backends > /tmp/capture-test.log 2>&1",
++        "expect": "exit 0; live check ignored"
++      },
++      {
++        "id": "clippy",
++        "check": "CARGO_INCREMENTAL=0 cargo clippy -p warsha-backends --all-targets -- -D warnings > /tmp/capture-clippy.log 2>&1",
++        "expect": "exit 0"
++      },
++      {
++        "id": "policy",
++        "check": "node scripts/check-engineering-policy.mjs",
++        "expect": "exit 0"
++      }
++    ]
++  },
++  "budget": "one live tiny model call; no retries without authorization",
++  "repair": {
++    "iteration": 0,
++    "max_repair_iterations": 3,
++    "open_findings": []
++  },
++  "blocker": null,
++  "evidence": {
++    "dir": "bridge-io/policy/2026-11-26-clean1-capture",
++    "gates": [],
++    "logs": []
++  },
++  "process_limits": "State checkpoint written after initial test draft rather than before; disclosed, no independent review/verification claimed. Owner gate commands unchanged. Explicit live exception uses both WARSHA_LIVE_OPENCODE and WARSHA_E2E_REAL."
++}
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/checkpoints/002-verify.json b/bridge-io/policy/2026-11-26-clean1-capture/checkpoints/002-verify.json
+new file mode 100644
+index 0000000..1c26d65
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/checkpoints/002-verify.json
+@@ -0,0 +1,96 @@
++{
++  "schema": "warsha-run/v1",
++  "run_id": "2026-11-26-clean1-capture",
++  "task": "Observe one owner-authorized keyless OpenCode invocation through BackendFactory::opencode in a /tmp scratch repo, prove capture sees unstaged hello.txt and excludes noise, add an ignored opt-in test and record exact observations. Never publish or modify other worktrees.",
++  "phase": "verify",
++  "seq": 2,
++  "updated_at": "2026-11-26T00:00:38.522611+00:00",
++  "roles": {
++    "planner": "owner (commands frozen in request)",
++    "implementer": "capture worker",
++    "reviewer": "capture worker (capacity merge; not independent)",
++    "verifier": "capture worker (capacity merge; not independent)"
++  },
++  "scope": {
++    "allowed_files": [
++      "crates/warsha-backends/tests/opencode_live_capture.rs",
++      "crates/warsha-backends/src/lib.rs (only if observed noise)",
++      "crates/warsha-backends/tests/opencode_harness_proving.rs (only if observed noise)",
++      "DECISIONS.md",
++      "PROGRESS.md",
++      "bridge-io/policy/2026-11-26-clean1-capture/**"
++    ],
++    "out_of_scope": [
++      "other worktrees",
++      "root checkout",
++      "credentials",
++      "~/.config/opencode",
++      "push/tag/publish/merge"
++    ]
++  },
++  "worktree": {
++    "path": "/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture",
++    "branch": "r-next/clean1-capture",
++    "base_commit": "90aad8ddc73c38b9020fbadcd021d1b731b12510",
++    "mode": "git-worktree"
++  },
++  "plan": {
++    "steps": [
++      "Add ignored test in separate process with private HOME/XDG and credential-cleared launcher",
++      "Execute exactly one tiny real model request through catalog backend and preserve scratch evidence",
++      "Only fix production capture if actual noise observed; add matching mock proof if needed",
++      "Record observations, run frozen owner commands, self-review and commit"
++    ],
++    "acceptance_gates": [
++      {
++        "id": "fmt",
++        "check": "cargo fmt --all -- --check",
++        "expect": "exit 0"
++      },
++      {
++        "id": "test",
++        "check": "CARGO_INCREMENTAL=0 cargo test -p warsha-backends > /tmp/capture-test.log 2>&1",
++        "expect": "exit 0; live check ignored"
++      },
++      {
++        "id": "clippy",
++        "check": "CARGO_INCREMENTAL=0 cargo clippy -p warsha-backends --all-targets -- -D warnings > /tmp/capture-clippy.log 2>&1",
++        "expect": "exit 0"
++      },
++      {
++        "id": "policy",
++        "check": "node scripts/check-engineering-policy.mjs",
++        "expect": "exit 0"
++      }
++    ]
++  },
++  "budget": "one live tiny model call; no retries without authorization",
++  "repair": {
++    "iteration": 0,
++    "max_repair_iterations": 3,
++    "open_findings": []
++  },
++  "blocker": null,
++  "evidence": {
++    "dir": "bridge-io/policy/2026-11-26-clean1-capture",
++    "gates": [
++      "fmt",
++      "test",
++      "clippy",
++      "policy",
++      "live",
++      "skip",
++      "arch"
++    ],
++    "logs": [
++      "gates/live.log",
++      "gates/test.log",
++      "gates/clippy.log",
++      "gates/skip.log",
++      "gates/arch.log",
++      "gates/fmt.log",
++      "gates/policy.log"
++    ]
++  },
++  "process_limits": "State checkpoint written after initial test draft rather than before; disclosed, no independent review/verification claimed. Owner gate commands unchanged. Explicit live exception uses both WARSHA_LIVE_OPENCODE and WARSHA_E2E_REAL."
++}
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/gates/arch.log b/bridge-io/policy/2026-11-26-clean1-capture/gates/arch.log
+new file mode 100644
+index 0000000..0242d72
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/gates/arch.log
+@@ -0,0 +1 @@
++arch: 5 rules, 0 violations
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/gates/clippy.log b/bridge-io/policy/2026-11-26-clean1-capture/gates/clippy.log
+new file mode 100644
+index 0000000..b43ac2e
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/gates/clippy.log
+@@ -0,0 +1,229 @@
++    Checking cfg-if v1.0.5
++    Checking pin-project-lite v0.2.17
++    Checking libc v0.2.191
++    Checking typenum v1.20.1
++    Checking futures-core v0.3.34
++    Checking smallvec v1.16.4
++    Checking scopeguard v1.2.0
++    Checking futures-sink v0.3.34
++    Checking memchr v2.8.3
++    Checking bytes v1.12.1
++    Checking zerofrom v0.1.8
++    Checking serde_core v1.0.229
++    Checking slab v0.4.12
++    Checking lock_api v0.4.14
++    Checking stable_deref_trait v1.2.1
++    Checking yoke v0.8.4
++    Checking once_cell v1.21.4
++    Checking log v0.4.34
++    Checking futures-io v0.3.34
++    Checking futures-channel v0.3.34
++    Checking itoa v1.0.18
++    Checking zerovec v0.11.9
++    Checking subtle v2.6.1
++    Checking futures-task v0.3.34
++   Compiling equivalent v1.0.3
++    Checking num-traits v0.2.19
++    Checking zeroize v1.9.1
++    Checking futures-util v0.3.34
++   Compiling hashbrown v0.17.1
++    Checking generic-array v0.14.7
++    Checking writeable v0.6.4
++    Checking tinystr v0.8.5
++    Checking litemap v0.8.3
++    Checking potential_utf v0.1.6
++    Checking zerotrie v0.2.5
++    Checking icu_locale_core v2.4.0
++   Compiling indexmap v2.14.2
++    Checking cpufeatures v0.2.17
++    Checking percent-encoding v2.3.2
++    Checking utf8_iter v1.0.4
++    Checking icu_collections v2.4.0
++    Checking rustls-pki-types v1.15.1
++    Checking getrandom v0.2.17
++    Checking parking_lot_core v0.9.12
++    Checking errno v0.3.14
++    Checking rand_core v0.6.4
++    Checking signal-hook-registry v1.4.8
++    Checking socket2 v0.6.5
++    Checking parking_lot v0.12.5
++    Checking mio v1.2.4
++    Checking crypto-common v0.1.7
++    Checking tracing-core v0.1.36
++    Checking icu_provider v2.4.0
++    Checking zerocopy v0.8.63
++    Checking tokio v1.54.1
++    Checking tracing v0.1.44
++    Checking crossbeam-utils v0.8.23
++    Checking serde v1.0.229
++    Checking icu_normalizer_data v2.4.0
++    Checking icu_properties_data v2.4.0
++    Checking parking v2.2.1
++    Checking rand_core v0.10.1
++    Checking untrusted v0.9.0
++    Checking bitflags v2.13.2
++    Checking ring v0.17.14
++    Checking icu_properties v2.4.0
++    Checking icu_normalizer v2.4.0
++    Checking http v1.5.0
++    Checking getrandom v0.4.3
++    Checking form_urlencoded v1.2.3
++    Checking cpufeatures v0.3.1
++    Checking http-body v1.1.0
++   Compiling block-buffer v0.10.4
++    Checking chacha20 v0.10.2
++    Checking futures-executor v0.3.34
++    Checking rustls-webpki v0.103.16
++    Checking webpki-roots v1.0.11
++    Checking zmij v1.0.23
++    Checking idna_adapter v1.2.2
++    Checking idna v1.1.0
++   Compiling allocator-api2 v0.2.21
++    Checking rustls v0.23.46
++   Compiling foldhash v0.1.5
++   Compiling toml_edit v0.19.15
++   Compiling hashbrown v0.15.5
++    Checking url v2.5.9
++    Checking serde_json v1.0.154
++    Checking rand v0.10.3
++    Checking ppv-lite86 v0.2.21
++    Checking getrandom v0.3.4
++   Compiling digest v0.10.7
++    Checking num-integer v0.1.47
++   Compiling crc-catalog v2.5.0
++    Checking tower-service v0.3.3
++   Compiling iana-time-zone v0.1.65
++    Checking bitflags v1.3.2
++    Checking try-lock v0.2.5
++    Checking foreign-types-shared v0.1.1
++    Checking atomic-waker v1.1.2
++    Checking opaque-debug v0.3.1
++    Checking fnv v1.0.7
++    Checking foreign-types v0.3.2
++    Checking tokio-util v0.7.20
++   Compiling crossbeam-queue v0.3.14
++    Checking want v0.3.2
++    Checking chrono v0.4.45
++   Compiling sha2 v0.10.9
++   Compiling proc-macro-crate v1.3.1
++   Compiling crc v3.4.0
++   Compiling event-listener v5.4.2
++    Checking h2 v0.4.20
++   Compiling webpki-roots v0.26.11
++    Checking rand_core v0.9.5
++    Checking uuid v1.29.0
++   Compiling futures-intrusive v0.5.0
++   Compiling hashlink v0.10.0
++    Checking io-lifetimes v1.0.11
++    Checking httparse v1.10.1
++    Checking openssl-sys v0.9.117
++   Compiling thiserror v2.0.21
++   Compiling toml v0.5.11
++   Compiling either v1.19.0
++   Compiling spin v0.9.9
++    Checking socket2 v0.4.10
++    Checking digest v0.9.0
++    Checking waker-fn v1.2.0
++    Checking fastrand v1.9.0
++    Checking ryu v1.0.23
++    Checking linux-raw-sys v0.3.8
++    Checking event-listener v2.5.3
++    Checking base64 v0.22.1
++   Compiling serde_urlencoded v0.7.1
++    Checking async-lock v2.8.0
++    Checking futures-lite v1.13.0
++    Checking openssl v0.10.81
++   Compiling flume v0.11.1
++    Checking rustix v0.37.28
++    Checking enumflags2 v0.6.4
++   Compiling proc-macro-crate v0.1.5
++    Checking rand_chacha v0.9.0
++   Compiling zvariant_derive v2.10.0
++    Checking polling v2.8.0
++    Checking memoffset v0.6.5
++    Checking num-bigint v0.4.8
++   Compiling atoi v2.0.0
++   Compiling libsqlite3-sys v0.30.1
++    Checking concurrent-queue v2.5.0
++    Checking crypto-mac v0.11.0
++    Checking cipher v0.3.0
++    Checking openssl-probe v0.2.2
++    Checking base64 v0.23.1
++    Checking static_assertions v1.1.0
++   Compiling tokio-stream v0.1.19
++    Checking byteorder v1.5.0
++    Checking ipnet v2.12.2
++    Checking zvariant v2.10.0
++    Checking hmac v0.11.0
++   Compiling zbus_macros v1.9.3
++    Checking nix v0.22.3
++    Checking rand v0.9.5
++    Checking num-rational v0.4.2
++    Checking async-io v1.13.0
++    Checking nb-connect v1.2.0
++    Checking num-iter v0.1.46
++    Checking rand_chacha v0.3.1
++    Checking futures v0.3.34
++   Compiling sqlx-core v0.8.6
++    Checking inout v0.1.4
++    Checking block-buffer v0.9.0
++    Checking num-complex v0.4.6
++    Checking hyper v1.12.0
++    Checking sync_wrapper v1.0.2
++    Checking scoped-tls v1.0.1
++    Checking block-padding v0.2.1
++    Checking tower-layer v0.3.3
++    Checking block-modes v0.8.1
++    Checking tower v0.5.3
++    Checking thiserror v1.0.69
++    Checking cipher v0.4.4
++    Checking num v0.4.3
++    Checking sha2 v0.9.9
++    Checking rand v0.8.8
++    Checking ulid v1.2.1
++    Checking hkdf v0.11.0
++    Checking aes v0.7.5
++    Checking native-tls v0.2.18
++    Checking tokio-rustls v0.26.6
++    Checking tokio-native-tls v0.3.1
++    Checking hyper-util v0.1.21
++    Checking http-body-util v0.1.5
++    Checking universal-hash v0.5.1
++    Checking core_detect v1.0.0
++    Checking lazy_static v1.5.1
++    Checking option-ext v0.2.0
++    Checking simdutf8 v0.1.5
++    Checking dirs-sys v0.4.1
++    Checking poly1305 v0.8.0
++    Checking tower-http v0.6.11
++    Checking warsha-core v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-core)
++    Checking encoding_rs v0.8.42
++    Checking chacha20 v0.9.1
++    Checking aead v0.5.2
++    Checking mime v0.3.17
++    Checking zbus v1.9.3
++    Checking chacha20poly1305 v0.10.1
++    Checking dirs v5.0.1
++    Checking anyhow v1.0.104
++    Checking linux-raw-sys v0.4.15
++    Checking linux-raw-sys v0.12.1
++    Checking home v0.5.12
++    Checking fastrand v2.5.0
++    Checking rustix v1.1.6
++    Checking rustix v0.38.44
++    Checking secret-service v2.0.2
++    Checking hyper-rustls v0.27.10
++    Checking hyper-tls v0.6.0
++    Checking reqwest v0.12.28
++    Checking keyring v1.2.1
++    Checking sqlx-sqlite v0.8.6
++    Checking tempfile v3.27.0
++    Checking warsha-providers v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-providers)
++    Checking which v6.0.3
++   Compiling sqlx-macros-core v0.8.6
++   Compiling sqlx-macros v0.8.6
++    Checking sqlx v0.8.6
++    Checking warsha-store v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-store)
++    Checking warsha-pipeline v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-pipeline)
++    Checking warsha-backends v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-backends)
++    Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.20s
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/gates/fmt.log b/bridge-io/policy/2026-11-26-clean1-capture/gates/fmt.log
+new file mode 100644
+index 0000000..e69de29
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/gates/live.log b/bridge-io/policy/2026-11-26-clean1-capture/gates/live.log
+new file mode 100644
+index 0000000..2f020fb
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/gates/live.log
+@@ -0,0 +1,294 @@
++   Compiling proc-macro2 v1.0.107
++   Compiling quote v1.0.47
++   Compiling unicode-ident v1.0.27
++   Compiling cfg-if v1.0.5
++   Compiling libc v0.2.191
++   Compiling autocfg v1.5.1
++   Compiling futures-core v0.3.34
++   Compiling pin-project-lite v0.2.17
++   Compiling version_check v0.9.5
++   Compiling typenum v1.20.1
++   Compiling find-msvc-tools v0.1.15
++   Compiling shlex v2.0.1
++   Compiling scopeguard v1.2.0
++   Compiling lock_api v0.4.14
++   Compiling parking_lot_core v0.9.12
++   Compiling cc v1.10.0
++   Compiling serde_core v1.0.229
++   Compiling stable_deref_trait v1.2.1
++   Compiling once_cell v1.21.4
++   Compiling generic-array v0.14.7
++   Compiling bytes v1.12.1
++   Compiling memchr v2.8.3
++   Compiling serde v1.0.229
++   Compiling equivalent v1.0.3
++   Compiling smallvec v1.16.4
++   Compiling futures-io v0.3.34
++   Compiling hashbrown v0.17.1
++   Compiling futures-task v0.3.34
++   Compiling log v0.4.34
++   Compiling itoa v1.0.18
++   Compiling futures-sink v0.3.34
++   Compiling writeable v0.6.4
++   Compiling subtle v2.6.1
++   Compiling syn v3.0.9
++   Compiling syn v2.0.119
++   Compiling indexmap v2.14.2
++   Compiling zeroize v1.9.1
++   Compiling litemap v0.8.3
++   Compiling utf8_iter v1.0.4
++   Compiling icu_normalizer_data v2.4.0
++   Compiling slab v0.4.12
++   Compiling pkg-config v0.3.34
++   Compiling vcpkg v0.2.15
++   Compiling icu_properties_data v2.4.0
++   Compiling rustls-pki-types v1.15.1
++   Compiling futures-channel v0.3.34
++   Compiling num-traits v0.2.19
++   Compiling cpufeatures v0.2.17
++   Compiling untrusted v0.9.0
++   Compiling percent-encoding v2.3.2
++   Compiling crossbeam-utils v0.8.23
++   Compiling getrandom v0.2.17
++   Compiling errno v0.3.14
++   Compiling ring v0.17.14
++   Compiling signal-hook-registry v1.4.8
++   Compiling rand_core v0.6.4
++   Compiling mio v1.2.4
++   Compiling parking_lot v0.12.5
++   Compiling socket2 v0.6.5
++   Compiling tracing-core v0.1.36
++   Compiling parking v2.2.1
++   Compiling rustls v0.23.46
++   Compiling form_urlencoded v1.2.3
++   Compiling zmij v1.0.23
++   Compiling crypto-common v0.1.7
++   Compiling serde_json v1.0.154
++   Compiling zerocopy v0.8.63
++   Compiling webpki-roots v1.0.11
++   Compiling block-buffer v0.10.4
++   Compiling syn v1.0.109
++   Compiling iana-time-zone v0.1.65
++   Compiling rand_core v0.10.1
++   Compiling bitflags v2.13.2
++   Compiling getrandom v0.4.3
++   Compiling openssl-sys v0.9.117
++   Compiling http v1.5.0
++   Compiling foldhash v0.1.5
++   Compiling allocator-api2 v0.2.21
++   Compiling thiserror v2.0.21
++   Compiling hashbrown v0.15.5
++   Compiling cpufeatures v0.3.1
++   Compiling crc-catalog v2.5.0
++   Compiling ryu v1.0.23
++   Compiling getrandom v0.3.4
++   Compiling http-body v1.1.0
++   Compiling crc v3.4.0
++   Compiling chacha20 v0.10.2
++   Compiling hashlink v0.10.0
++   Compiling crossbeam-queue v0.3.14
++   Compiling webpki-roots v0.26.11
++   Compiling event-listener v5.4.2
++   Compiling libsqlite3-sys v0.30.1
++   Compiling synstructure v0.14.0
++   Compiling spin v0.9.9
++   Compiling toml_datetime v0.6.11
++   Compiling winnow v0.5.40
++   Compiling httparse v1.10.1
++   Compiling io-lifetimes v1.0.11
++   Compiling futures-util v0.3.34
++   Compiling digest v0.10.7
++   Compiling tokio v1.54.1
++   Compiling tracing-attributes v0.1.31
++   Compiling zerofrom-derive v0.1.8
++   Compiling yoke-derive v0.8.4
++   Compiling zerovec-derive v0.11.7
++   Compiling displaydoc v0.2.7
++   Compiling serde_derive v1.0.229
++   Compiling tokio-macros v2.7.2
++   Compiling futures-macro v0.3.34
++   Compiling zerofrom v0.1.8
++   Compiling tracing v0.1.44
++   Compiling ppv-lite86 v0.2.21
++   Compiling yoke v0.8.4
++   Compiling zerovec v0.11.9
++   Compiling zerotrie v0.2.5
++   Compiling thiserror-impl v2.0.21
++   Compiling rustls-webpki v0.103.16
++   Compiling toml_edit v0.19.15
++   Compiling tinystr v0.8.5
++   Compiling icu_locale_core v2.4.0
++   Compiling potential_utf v0.1.6
++   Compiling icu_collections v2.4.0
++   Compiling icu_provider v2.4.0
++   Compiling rand v0.10.3
++   Compiling icu_properties v2.4.0
++   Compiling icu_normalizer v2.4.0
++   Compiling either v1.19.0
++   Compiling serde_urlencoded v0.7.1
++   Compiling num-integer v0.1.47
++   Compiling polling v2.8.0
++   Compiling memoffset v0.6.5
++   Compiling fnv v1.0.7
++   Compiling openssl v0.10.81
++   Compiling try-lock v0.2.5
++   Compiling tower-service v0.3.3
++   Compiling bitflags v1.3.2
++   Compiling opaque-debug v0.3.1
++   Compiling rustix v0.37.28
++   Compiling atomic-waker v1.1.2
++   Compiling rustversion v1.0.23
++   Compiling foreign-types-shared v0.1.1
++   Compiling futures-executor v0.3.34
++   Compiling foreign-types v0.3.2
++   Compiling want v0.3.2
++   Compiling uuid v1.29.0
++   Compiling idna_adapter v1.2.2
++   Compiling idna v1.1.0
++   Compiling toml v0.5.11
++   Compiling chrono v0.4.45
++   Compiling rand_core v0.9.5
++   Compiling tokio-stream v0.1.19
++   Compiling url v2.5.9
++   Compiling proc-macro-crate v1.3.1
++   Compiling futures-intrusive v0.5.0
++   Compiling enumflags2_derive v0.6.4
++   Compiling openssl-macros v0.1.1
++   Compiling sha2 v0.10.9
++   Compiling socket2 v0.4.10
++   Compiling digest v0.9.0
++   Compiling async-io v1.13.0
++   Compiling base64 v0.22.1
++   Compiling tokio-util v0.7.20
++   Compiling waker-fn v1.2.0
++   Compiling native-tls v0.2.18
++   Compiling fastrand v1.9.0
++   Compiling linux-raw-sys v0.3.8
++   Compiling event-listener v2.5.3
++   Compiling async-lock v2.8.0
++   Compiling futures-lite v1.13.0
++   Compiling h2 v0.4.20
++   Compiling enumflags2 v0.6.4
++   Compiling zvariant_derive v2.10.0
++   Compiling proc-macro-crate v0.1.5
++   Compiling rand_chacha v0.9.0
++   Compiling num-bigint v0.4.8
++   Compiling flume v0.11.1
++   Compiling atoi v2.0.0
++   Compiling concurrent-queue v2.5.0
++   Compiling cipher v0.3.0
++   Compiling crypto-mac v0.11.0
++   Compiling thiserror v1.0.69
++   Compiling base64 v0.23.1
++   Compiling static_assertions v1.1.0
++   Compiling openssl-probe v0.2.2
++   Compiling byteorder v1.5.0
++   Compiling ipnet v2.12.2
++   Compiling zvariant v2.10.0
++   Compiling num-rational v0.4.2
++   Compiling sqlx-core v0.8.6
++   Compiling hmac v0.11.0
++   Compiling encoding_rs v0.8.42
++   Compiling nix v0.22.3
++   Compiling rand v0.9.5
++   Compiling zbus_macros v1.9.3
++   Compiling nb-connect v1.2.0
++   Compiling futures v0.3.34
++   Compiling num-iter v0.1.46
++   Compiling derivative v2.2.0
++   Compiling rand_chacha v0.3.1
++   Compiling serde_repr v0.1.21
++   Compiling thiserror-impl v1.0.69
++   Compiling num-complex v0.4.6
++   Compiling inout v0.1.4
++   Compiling block-buffer v0.9.0
++   Compiling sync_wrapper v1.0.2
++   Compiling tower-layer v0.3.3
++   Compiling dotenvy v0.15.7
++   Compiling block-padding v0.2.1
++   Compiling scoped-tls v1.0.1
++   Compiling heck v0.5.0
++   Compiling hex v0.4.3
++   Compiling block-modes v0.8.1
++   Compiling tower v0.5.3
++   Compiling hyper v1.12.0
++   Compiling num v0.4.3
++   Compiling sha2 v0.9.9
++   Compiling cipher v0.4.4
++   Compiling tokio-native-tls v0.3.1
++   Compiling rand v0.8.8
++   Compiling ulid v1.2.1
++   Compiling sqlx-sqlite v0.8.6
++   Compiling hkdf v0.11.0
++   Compiling aes v0.7.5
++   Compiling tokio-rustls v0.26.6
++   Compiling zbus v1.9.3
++   Compiling http-body-util v0.1.5
++   Compiling universal-hash v0.5.1
++   Compiling hyper-util v0.1.21
++   Compiling anyhow v1.0.104
++   Compiling core_detect v1.0.0
++   Compiling lazy_static v1.5.1
++   Compiling option-ext v0.2.0
++   Compiling multiversion_no_op v1.0.0
++   Compiling simdutf8 v0.1.5
++   Compiling dirs-sys v0.4.1
++   Compiling poly1305 v0.8.0
++   Compiling warsha-core v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-core)
++   Compiling tower-http v0.6.11
++   Compiling chacha20 v0.9.1
++   Compiling aead v0.5.2
++   Compiling mime v0.3.17
++   Compiling rustix v0.38.44
++   Compiling chacha20poly1305 v0.10.1
++   Compiling dirs v5.0.1
++   Compiling async-trait v0.1.92
++   Compiling linux-raw-sys v0.4.15
++   Compiling secret-service v2.0.2
++   Compiling rustix v1.1.6
++   Compiling sqlx-macros-core v0.8.6
++   Compiling hyper-tls v0.6.0
++   Compiling hyper-rustls v0.27.10
++   Compiling reqwest v0.12.28
++   Compiling keyring v1.2.1
++   Compiling home v0.5.12
++   Compiling linux-raw-sys v0.12.1
++   Compiling fastrand v2.5.0
++   Compiling sqlx-macros v0.8.6
++   Compiling which v6.0.3
++   Compiling sqlx v0.8.6
++   Compiling warsha-store v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-store)
++   Compiling warsha-providers v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-providers)
++   Compiling tempfile v3.27.0
++   Compiling warsha-pipeline v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-pipeline)
++   Compiling warsha-backends v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-backends)
++    Finished `test` profile [unoptimized + debuginfo] target(s) in 52.31s
++     Running tests/opencode_live_capture.rs (target/debug/deps/opencode_live_capture-7871a4e338642bb3)
++
++running 1 test
++scratch=/tmp/warsha-live-capture-3Uj85q
++before=["664 README.md"]
++status_before=""
++head_before=bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93
++
++before=["664 README.md"]
++status_before=
++head_before=bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93
++after=["664 .warsha/cli.log", "664 README.md", "664 hello.txt", "775 .warsha/"]
++status_after="?? hello.txt\n"
++head_after=bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93
++success=true
++files_changed=["hello.txt"]
++diff:
++diff --git a/hello.txt b/hello.txt
++new file mode 100644
++index 0000000..45b983b
++--- /dev/null
+++++ b/hello.txt
++@@ -0,0 +1 @@
+++hi
++
++test real_opencode_unstaged_hello_is_captured_without_noise ... ok
++
++test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.71s
++
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/gates/policy.log b/bridge-io/policy/2026-11-26-clean1-capture/gates/policy.log
+new file mode 100644
+index 0000000..306daea
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/gates/policy.log
+@@ -0,0 +1 @@
++policy: 8 checks, 0 failures
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/gates/skip.log b/bridge-io/policy/2026-11-26-clean1-capture/gates/skip.log
+new file mode 100644
+index 0000000..475d038
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/gates/skip.log
+@@ -0,0 +1,9 @@
++    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
++     Running tests/opencode_live_capture.rs (target/debug/deps/opencode_live_capture-7871a4e338642bb3)
++
++running 1 test
++skipped: live opt-ins are not both set to 1
++test real_opencode_unstaged_hello_is_captured_without_noise ... ok
++
++test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/gates/test.log b/bridge-io/policy/2026-11-26-clean1-capture/gates/test.log
+new file mode 100644
+index 0000000..f6f565e
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/gates/test.log
+@@ -0,0 +1,103 @@
++    Blocking waiting for file lock on build directory
++   Compiling warsha-backends v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-backends)
++    Finished `test` profile [unoptimized + debuginfo] target(s) in 43.09s
++     Running unittests src/lib.rs (target/debug/deps/warsha_backends-7ce6c1dfc8507332)
++
++running 61 tests
++test catalog::tests::test_builtin_catalog_loads_and_validates ... ok
++test catalog::tests::test_cli_health_missing_executable ... ok
++test catalog::tests::test_claude_and_codex_argv_template_matches ... ok
++test catalog::tests::test_no_shipped_catalog_entry_carries_permission_skipping_flag ... ok
++test catalog::tests::test_reject_permission_skipping_flag ... ok
++test permissions::tests::codex_maps_the_sandbox_flag_and_cannot_ask ... ok
++test permissions::tests::full_access_never_ask_bypasses_permissions ... ok
++test permissions::tests::read_only_disallows_write_tools_for_claude ... ok
++test permissions::tests::matrix_covers_every_axis_pair ... ok
++test catalog::tests::test_reject_malformed_entry_missing_executable ... ok
++test catalog::tests::test_reject_malformed_entry_unknown_format ... ok
++test permissions::tests::unknown_backends_run_under_their_own_defaults ... ok
++test catalog::tests::test_reject_malformed_entry_missing_prompt ... ok
++test permissions::tests::workspace_write_ask_for_risky_uses_accept_edits_plus_bridge ... ok
++test scripted::tests::a_task_that_names_no_contract_writes_nothing ... ok
++test tests::a_named_backend_is_returned_even_when_its_cli_is_absent ... ok
++test scripted::tests::the_task_text_selects_the_contract_not_the_path ... ok
++test scripted::tests::a_wrong_task_returns_failure_and_writes_no_file ... ok
++test catalog::tests::test_cli_health_existing_command_git ... ok
++test permissions::tests::workspace_write_never_ask_uses_prompt_none ... ok
++test scripted::tests::scripted_backend_refuses_paths_outside_the_worktree ... ok
++test tests::cli_parsing::test_claude_cli_parse ... ok
++test tests::cli_parsing::test_codex_cli_parse ... ok
++test tests::e4::the_prompt_names_the_task_files_and_context ... ok
++test tests::e4::a_missing_command_is_not_installed ... ok
++test tests::e4::a_failing_cli_is_an_execution_error_with_its_stderr ... ok
++test tests::e4_coding_cli::non_writable_workdir_fails_gracefully_with_clear_error ... ok
++test tests::e4_coding_cli::test_compute_updated_exclude ... ok
++test tests::e4::a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log ... ok
++test tests::e4_coding_cli::log_open_failure_does_not_abort_cli_run ... ok
++test tests::e4::a_fake_cli_receives_the_prompt_and_its_changes_are_reported ... ok
++test tests::e4::test_opencode_cli_backend_command_args_and_sandbox_execution ... ok
++test tests::e4_coding_cli::mid_run_log_errors_do_not_abort_run ... ok
++.warsha/cli.log
++test tests::e4_coding_cli::test_is_warsha_internal_path_root_only ... ok
++test tests::e4_coding_cli::test_ensure_git_exclude_handles_unterminated_managed_entry ... ok
++test tests::e4_coding_cli::nested_docs_warsha_notes_is_reported_in_files_changed ... ok
++test tests::e4_coding_cli::cli_run_changing_nothing_reports_no_warsha_in_files_changed_and_clean_git_status ... ok
++test tests::materialize_fixture_refuses_paths_outside_the_worktree ... ok
++test tests::materialize_fixture_writes_the_proofcalc_contracts ... ok
++test tests::e4_coding_cli::test_ensure_git_exclude_atomic_and_preserves_user_lines ... ok
++test tests::streaming_acceptance::test_claude_stream_fixture_sequence ... ok
++test tests::streaming_acceptance::test_codex_stream_fixture_sequence ... ok
++test tests::streaming_acceptance::test_content_rule_canary ... ok
++test tests::streaming_acceptance::test_no_stream_telemetry_label ... ok
++test tests::e4_coding_cli::test_ensure_git_exclude_non_utf8_leaves_file_untouched ... ok
++test tests::streaming_acceptance::test_opencode_stream_fixture_sequence ... ok
++test tests::e4_coding_cli::test_ensure_git_exclude_preserves_mixed_line_endings ... ok
++test tests::test_builtin_backend ... ok
++test tests::test_cli_backend_check ... ok
++test tests::e4_coding_cli::test_ensure_git_exclude_preserves_user_warsha_immediately_after_managed_block ... ok
++test tests::the_inventory_names_every_backend_and_availability_filters_it ... ok
++test tests::streaming_acceptance::test_opencode_end_to_end_streams_events_and_flags_estimated_usage ... ok
++test tests::e4_coding_cli::warsha_config_json_is_reported_in_files_changed ... ok
++test tests::e4_coding_cli::a_cli_reported_cost_counts_toward_the_run_budget ... ok
++test catalog::tests::test_cli_health_timeout_fails_closed ... ok
++test tests::e4_coding_cli::no_selection_leaves_the_code_stage_on_the_provider ... ok
++test tests::e4_coding_cli::an_unavailable_coding_backend_fails_the_stage_cleanly ... ok
++test tests::streaming_acceptance::test_killed_cli_leaves_failed_or_stopped_session ... ok
++test tests::e4_coding_cli::the_code_stage_runs_the_selected_cli_and_reports_its_changes ... ok
++test tests::e4_coding_cli::the_environment_names_the_code_stage_backend ... ok
++test tests::streaming_acceptance::test_stalled_stream_does_not_block_run_loop ... ok
++
++test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
++
++     Running tests/n2_acceptance.rs (target/debug/deps/n2_acceptance-1ad79ab5d63e3ef3)
++
++running 5 tests
++test custom_backend_permission_skipping_warning_and_catalog_sweep ... ok
++test detection_marks_installed_and_absent_against_fixture_path ... ok
++test unknown_backend_name_fails_at_run_start_and_never_uses_routed_provider ... ok
++test unmapped_engine_refused_under_read_only_with_backstop_off_and_allowed_with_backstop_on ... ok
++test custom_backend_runs_end_to_end_on_mock_project_and_absent_twin_fails_by_name ... ok
++
++test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
++
++     Running tests/opencode_harness_proving.rs (target/debug/deps/opencode_harness_proving-431e89608f2e729c)
++
++running 2 tests
++test untracked_file_written_without_git_add_is_in_the_diff ... ok
++test opencode_backend_on_path_writes_nonempty_rs_into_git_diff ... ok
++
++test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
++
++     Running tests/opencode_live_capture.rs (target/debug/deps/opencode_live_capture-7871a4e338642bb3)
++
++running 1 test
++test real_opencode_unstaged_hello_is_captured_without_noise ... ignored, owner-authorized live model call only; requires WARSHA_LIVE_OPENCODE and WARSHA_E2E_REAL
++
++test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
++   Doc-tests warsha_backends
++
++running 0 tests
++
++test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
++
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/opencode-stream.log b/bridge-io/policy/2026-11-26-clean1-capture/opencode-stream.log
+new file mode 100644
+index 0000000..137ff00
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/opencode-stream.log
+@@ -0,0 +1,10 @@
++stdout: {"type":"step_start","timestamp":1795651121978,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"id":"prt_21525b33a001kcmR3NtHEm2YfS","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525aa93001fRoT7t09igWhif","type":"step-start","snapshot":"85124f9a9d594a6550f69a74a2f6a1b0fff33772"}}
++stdout: {"type":"text","timestamp":1795651122166,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"id":"prt_21525b33e001gxQfPlC1gz14gj","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525aa93001fRoT7t09igWhif","type":"text","text":"I'll create the file with exactly the content requested.","time":{"start":1795651121982,"end":1795651122166}}}
++stdout: {"type":"tool_use","timestamp":1795651122177,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"partID":"prt_21525b36400293avTT3GXCdV2o","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525aa93001fRoT7t09igWhif","type":"tool","id":"chatcmpl-tool-877104027cdd53de","tool":"write","state":{"status":"completed","input":{"path":"/tmp/warsha-live-capture-3Uj85q/repo/hello.txt","content":"hi\n"},"output":"Created file successfully: hello.txt","title":"write","metadata":{"metadata":{"truncated":false},"content":[{"type":"text","text":"Created file successfully: hello.txt"}],"providerCall":{"executed":false},"providerResult":{"executed":false},"rawInput":"{\"path\": \"/tmp/warsha-live-capture-3Uj85q/repo/hello.txt\", \"content\": \"hi\\n\"}"},"time":{"start":1795651122020,"end":1795651122177}}}}
++stdout: {"type":"step_finish","timestamp":1795651122219,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"id":"prt_21525b42b001qP3ixTdB3L6g0E","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525aa93001fRoT7t09igWhif","type":"step-finish","reason":"tool-calls","snapshot":"993e16dd81a30025753023b71831926f0697f908","cost":0,"tokens":{"input":349,"output":49,"reasoning":0,"cache":{"read":6912,"write":0}}}}
++stdout: {"type":"step_start","timestamp":1795651124054,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"id":"prt_21525bb56001jXa4qsM6bAPqN1","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525b43f001hkav5i4rKj94eq","type":"step-start","snapshot":"993e16dd81a30025753023b71831926f0697f908"}}
++stdout: {"type":"tool_use","timestamp":1795651124622,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"partID":"prt_21525bc96001El1BKymVT35sGU","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525b43f001hkav5i4rKj94eq","type":"tool","id":"chatcmpl-tool-8a6daa19b07a0b99","tool":"shell","state":{"status":"completed","input":{"command":"cat hello.txt && git status --short","workdir":"/tmp/warsha-live-capture-3Uj85q/repo"},"output":"hi\n?? hello.txt\n","title":"shell","metadata":{"metadata":{"status":"completed","truncated":false,"exit":0},"content":[{"type":"text","text":"hi\n?? hello.txt\n"}],"providerCall":{"executed":false},"providerResult":{"executed":false},"rawInput":"{\"command\": \"cat hello.txt && git status --short\", \"workdir\": \"/tmp/warsha-live-capture-3Uj85q/repo\"}"},"time":{"start":1795651124374,"end":1795651124622}}}}
++stdout: {"type":"step_finish","timestamp":1795651124649,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"id":"prt_21525bda9001YPhiROuL2ZLlEl","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525b43f001hkav5i4rKj94eq","type":"step-finish","reason":"tool-calls","snapshot":"993e16dd81a30025753023b71831926f0697f908","cost":0,"tokens":{"input":159,"output":42,"reasoning":88,"cache":{"read":7168,"write":0}}}}
++stdout: {"type":"step_start","timestamp":1795651127318,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"id":"prt_21525c816001yem8YbkqBPrzFu","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525bdda001YcgaPGPKqRILP2","type":"step-start","snapshot":"993e16dd81a30025753023b71831926f0697f908"}}
++stdout: {"type":"text","timestamp":1795651127505,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"id":"prt_21525c821001oILoJFmERge4gM","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525bdda001YcgaPGPKqRILP2","type":"text","text":"Created `hello.txt` containing `hi`. No other changes were made; nothing was staged or committed.","time":{"start":1795651127329,"end":1795651127505}}}
++stdout: {"type":"step_finish","timestamp":1795651127547,"sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","part":{"id":"prt_21525c8fb001lZbKE6hN6csczs","sessionID":"ses_deada61a0ffe9Ee0Fbq7nocpwq","messageID":"msg_21525bdda001YcgaPGPKqRILP2","type":"step-finish","reason":"stop","snapshot":"993e16dd81a30025753023b71831926f0697f908","cost":0,"tokens":{"input":305,"output":23,"reasoning":0,"cache":{"read":7168,"write":0}}}}
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/review.md b/bridge-io/policy/2026-11-26-clean1-capture/review.md
+new file mode 100644
+index 0000000..2a7e288
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/review.md
+@@ -0,0 +1 @@
++Self-review (capacity-merged, not independent): only ignored live test, decision/progress and evidence changed. No production edit. Private HOME and env -i isolate the model subprocess. Default test run ignores live code. Exact file list and unchanged HEAD are asserted. Limits: prompt forbids staging, no general OpenCode behavior claim. Initial checkpoint was late and is disclosed; no acceptance claimed.
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/state.json b/bridge-io/policy/2026-11-26-clean1-capture/state.json
+new file mode 100644
+index 0000000..1c26d65
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/state.json
+@@ -0,0 +1,96 @@
++{
++  "schema": "warsha-run/v1",
++  "run_id": "2026-11-26-clean1-capture",
++  "task": "Observe one owner-authorized keyless OpenCode invocation through BackendFactory::opencode in a /tmp scratch repo, prove capture sees unstaged hello.txt and excludes noise, add an ignored opt-in test and record exact observations. Never publish or modify other worktrees.",
++  "phase": "verify",
++  "seq": 2,
++  "updated_at": "2026-11-26T00:00:38.522611+00:00",
++  "roles": {
++    "planner": "owner (commands frozen in request)",
++    "implementer": "capture worker",
++    "reviewer": "capture worker (capacity merge; not independent)",
++    "verifier": "capture worker (capacity merge; not independent)"
++  },
++  "scope": {
++    "allowed_files": [
++      "crates/warsha-backends/tests/opencode_live_capture.rs",
++      "crates/warsha-backends/src/lib.rs (only if observed noise)",
++      "crates/warsha-backends/tests/opencode_harness_proving.rs (only if observed noise)",
++      "DECISIONS.md",
++      "PROGRESS.md",
++      "bridge-io/policy/2026-11-26-clean1-capture/**"
++    ],
++    "out_of_scope": [
++      "other worktrees",
++      "root checkout",
++      "credentials",
++      "~/.config/opencode",
++      "push/tag/publish/merge"
++    ]
++  },
++  "worktree": {
++    "path": "/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture",
++    "branch": "r-next/clean1-capture",
++    "base_commit": "90aad8ddc73c38b9020fbadcd021d1b731b12510",
++    "mode": "git-worktree"
++  },
++  "plan": {
++    "steps": [
++      "Add ignored test in separate process with private HOME/XDG and credential-cleared launcher",
++      "Execute exactly one tiny real model request through catalog backend and preserve scratch evidence",
++      "Only fix production capture if actual noise observed; add matching mock proof if needed",
++      "Record observations, run frozen owner commands, self-review and commit"
++    ],
++    "acceptance_gates": [
++      {
++        "id": "fmt",
++        "check": "cargo fmt --all -- --check",
++        "expect": "exit 0"
++      },
++      {
++        "id": "test",
++        "check": "CARGO_INCREMENTAL=0 cargo test -p warsha-backends > /tmp/capture-test.log 2>&1",
++        "expect": "exit 0; live check ignored"
++      },
++      {
++        "id": "clippy",
++        "check": "CARGO_INCREMENTAL=0 cargo clippy -p warsha-backends --all-targets -- -D warnings > /tmp/capture-clippy.log 2>&1",
++        "expect": "exit 0"
++      },
++      {
++        "id": "policy",
++        "check": "node scripts/check-engineering-policy.mjs",
++        "expect": "exit 0"
++      }
++    ]
++  },
++  "budget": "one live tiny model call; no retries without authorization",
++  "repair": {
++    "iteration": 0,
++    "max_repair_iterations": 3,
++    "open_findings": []
++  },
++  "blocker": null,
++  "evidence": {
++    "dir": "bridge-io/policy/2026-11-26-clean1-capture",
++    "gates": [
++      "fmt",
++      "test",
++      "clippy",
++      "policy",
++      "live",
++      "skip",
++      "arch"
++    ],
++    "logs": [
++      "gates/live.log",
++      "gates/test.log",
++      "gates/clippy.log",
++      "gates/skip.log",
++      "gates/arch.log",
++      "gates/fmt.log",
++      "gates/policy.log"
++    ]
++  },
++  "process_limits": "State checkpoint written after initial test draft rather than before; disclosed, no independent review/verification claimed. Owner gate commands unchanged. Explicit live exception uses both WARSHA_LIVE_OPENCODE and WARSHA_E2E_REAL."
++}
+diff --git a/bridge-io/policy/2026-11-26-clean1-capture/verdict.json b/bridge-io/policy/2026-11-26-clean1-capture/verdict.json
+new file mode 100644
+index 0000000..629eccb
+--- /dev/null
++++ b/bridge-io/policy/2026-11-26-clean1-capture/verdict.json
+@@ -0,0 +1,5 @@
++{
++  "verdict": "checks-pass-not-independent-acceptance",
++  "run_id": "2026-11-26-clean1-capture",
++  "limits": "State checkpoint written after initial test draft rather than before; disclosed, no independent review/verification claimed. Owner gate commands unchanged. Explicit live exception uses both WARSHA_LIVE_OPENCODE and WARSHA_E2E_REAL."
++}
+diff --git a/crates/warsha-backends/tests/opencode_live_capture.rs b/crates/warsha-backends/tests/opencode_live_capture.rs
+new file mode 100644
+index 0000000..4cea199
+--- /dev/null
++++ b/crates/warsha-backends/tests/opencode_live_capture.rs
+@@ -0,0 +1,155 @@
++#![cfg(unix)]
++#![allow(clippy::expect_used, clippy::unwrap_used, unused_crate_dependencies)]
++
++//! Explicit, single-call live proof. Default cargo test never launches OpenCode.
++//! Run with WARSHA_LIVE_OPENCODE=1 and WARSHA_E2E_REAL=1, --ignored --nocapture.
++//! This is a separate test binary: its temporary PATH cannot affect mock tests.
++
++use std::os::unix::fs::PermissionsExt;
++use std::path::Path;
++use std::process::Command;
++use warsha_backends::{BackendFactory, CodingTask, Sandbox};
++use warsha_core::RunId;
++
++fn git(repo: &Path, args: &[&str]) -> String {
++    let out = Command::new("git")
++        .current_dir(repo)
++        .args(args)
++        .output()
++        .expect("git runs");
++    assert!(out.status.success(), "git {args:?} failed");
++    String::from_utf8(out.stdout).expect("utf8 git output")
++}
++
++fn listing(root: &Path, dir: &Path, lines: &mut Vec<String>) {
++    for entry in std::fs::read_dir(dir).expect("list scratch repo") {
++        let path = entry.expect("entry").path();
++        if path == root.join(".git") {
++            continue;
++        }
++        let meta = std::fs::symlink_metadata(&path).expect("metadata");
++        lines.push(format!(
++            "{:o} {}{}",
++            meta.permissions().mode() & 0o7777,
++            path.strip_prefix(root).expect("relative").display(),
++            if meta.is_dir() { "/" } else { "" }
++        ));
++        if meta.is_dir() {
++            listing(root, &path, lines);
++        }
++    }
++}
++
++#[tokio::test]
++#[ignore = "owner-authorized live model call only; requires WARSHA_LIVE_OPENCODE and WARSHA_E2E_REAL"]
++async fn real_opencode_unstaged_hello_is_captured_without_noise() {
++    if std::env::var("WARSHA_LIVE_OPENCODE").as_deref() != Ok("1")
++        || std::env::var("WARSHA_E2E_REAL").as_deref() != Ok("1")
++    {
++        eprintln!("skipped: live opt-ins are not both set to 1");
++        return;
++    }
++    let Some(binary) = which::which("opencode").ok() else {
++        eprintln!("skipped: opencode is absent from PATH");
++        return;
++    };
++    // Preserve scratch evidence even when assertions fail. No credentials/config are read.
++    let scratch = tempfile::Builder::new()
++        .prefix("warsha-live-capture-")
++        .tempdir_in("/tmp")
++        .expect("scratch")
++        .keep();
++    let repo = scratch.join("repo");
++    let home = scratch.join("home");
++    let bin = scratch.join("bin");
++    for dir in [&repo, &home, &bin] {
++        std::fs::create_dir(dir).expect("scratch dir");
++    }
++    std::fs::write(repo.join("README.md"), "capture base\n").expect("base");
++    git(&repo, &["init", "-q"]);
++    git(&repo, &["add", "README.md"]);
++    git(
++        &repo,
++        &[
++            "-c",
++            "user.name=Capture Proof",
++            "-c",
++            "user.email=capture@example.invalid",
++            "commit",
++            "-qm",
++            "base",
++        ],
++    );
++    let head = git(&repo, &["rev-parse", "HEAD"]);
++    let mut before = Vec::new();
++    listing(&repo, &repo, &mut before);
++    before.sort();
++    println!(
++        "scratch={}\nbefore={before:?}\nstatus_before={:?}\nhead_before={head}",
++        scratch.display(),
++        git(&repo, &["status", "--porcelain", "-u"])
++    );
++
++    // A transparent launcher pins the keyless model and clears inherited credentials.
++    // HOME/XDG are private scratch paths, never ~/.config/opencode. The catalog
++    // backend still supplies `run`, streaming flags and the actual task prompt.
++    let launcher = bin.join("opencode");
++    let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
++    std::fs::write(
++        &launcher,
++        format!(
++            "#!/bin/sh\nexec env -i PATH=/usr/bin:/bin HOME={} XDG_CONFIG_HOME={} XDG_DATA_HOME={} XDG_CACHE_HOME={} {} \"$@\" --model opencode/big-pickle --standalone --auto\n",
++            quote(home.to_str().unwrap()),
++            quote(home.join("config").to_str().unwrap()),
++            quote(home.join("data").to_str().unwrap()),
++            quote(home.join("cache").to_str().unwrap()),
++            quote(binary.to_str().unwrap()),
++        ),
++    ).expect("launcher");
++    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755))
++        .expect("executable");
++    let previous = std::env::var_os("PATH").expect("PATH");
++    let mut paths = vec![bin];
++    paths.extend(std::env::split_paths(&previous));
++    std::env::set_var("PATH", std::env::join_paths(paths).expect("PATH"));
++    let backend = BackendFactory::opencode();
++    let result = backend.execute(CodingTask {
++        id: ulid::Ulid::new(),
++        run_id: RunId::new(),
++        title: "Create hello.txt".into(),
++        description: "Create a file hello.txt containing the word hi. Make no other changes. Do not stage or commit anything.".into(),
++        repo_path: repo.clone(),
++        worktree_path: Some(repo.clone()),
++        branch_name: "capture-proof".into(),
++        base_branch: "HEAD".into(),
++        files: vec![],
++        context: std::collections::HashMap::from([("coding_cli_timeout_seconds".into(), "180".into())]),
++    }, &Sandbox::new(repo.clone())).await;
++    std::env::set_var("PATH", previous);
++    let result = result.expect("live backend executes");
++    let mut after = Vec::new();
++    listing(&repo, &repo, &mut after);
++    after.sort();
++    let status = git(&repo, &["status", "--porcelain", "-u"]);
++    let head_after = git(&repo, &["rev-parse", "HEAD"]);
++    let diff = result.diff.as_deref().unwrap_or_default();
++    let evidence = format!("before={before:?}\nstatus_before=\nhead_before={head}after={after:?}\nstatus_after={status:?}\nhead_after={head_after}success={}\nfiles_changed={:?}\ndiff:\n{diff}", result.success, result.files_changed);
++    std::fs::write(scratch.join("capture.txt"), &evidence).expect("save evidence");
++    println!("{evidence}");
++    assert!(result.success, "OpenCode exit must succeed");
++    assert_eq!(
++        std::fs::read_to_string(repo.join("hello.txt"))
++            .expect("hello")
++            .trim(),
++        "hi"
++    );
++    assert_eq!(head_after, head, "OpenCode must not commit");
++    assert_eq!(
++        status, "?? hello.txt\n",
++        "only hello should be untracked, nothing staged"
++    );
++    assert_eq!(result.files_changed, vec!["hello.txt"]);
++    assert!(diff.contains("diff --git a/hello.txt b/hello.txt"));
++    assert!(diff.contains("+hi"));
++    assert!(!diff.contains(".warsha") && !diff.contains(".opencode"));
++}
+-- 
+2.53.0
+

@@ -1,0 +1,5 @@
+{
+  "verdict": "checks-pass-not-independent-acceptance",
+  "run_id": "2026-11-26-clean1-capture",
+  "limits": "State checkpoint written after initial test draft rather than before; disclosed, no independent review/verification claimed. Owner gate commands unchanged. Explicit live exception uses both WARSHA_LIVE_OPENCODE and WARSHA_E2E_REAL."
+}

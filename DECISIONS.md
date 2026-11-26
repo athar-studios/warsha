@@ -1,6 +1,15 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-CAPTURE-LIVE-1: real OpenCode leaves unstaged output; capture needs no further filter
+
+One owner-authorized invocation used OpenCode v2.4.1, `opencode run`, `opencode/big-pickle`, through `BackendFactory::opencode()` in `/tmp/warsha-live-capture-3Uj85q/repo`. The launcher adds `--model opencode/big-pickle --standalone --auto`, clears the inherited environment with `env -i`, and redirects HOME/XDG into the scratch tree; no credential or `~/.config/opencode` was read. `opencode models` advertised that model (the initial `models opencode` form was rejected as an unexpected positional argument). One CLI invocation, not one inference turn: OpenCode used write, then shell to inspect its output, then finished, with three step-finish records reporting cost 0.
+
+- **Before listing** (excluding `.git`, octal filesystem permissions): `["664 README.md"]`; `git status --porcelain -u`: empty. HEAD `bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93`.
+- **After listing** (excluding `.git`): `["664 .warsha/cli.log", "664 README.md", "664 hello.txt", "775 .warsha/"]`; `git status --porcelain -u`: `?? hello.txt\n`. HEAD unchanged. No staged or modified-tracked files, commits, project `.opencode/`, lock files, nested output, or unusual executable modes. `hello.txt` contains `hi\n`; git diff reports new file mode `100644`. `.warsha/cli.log` is Warsha's own ignored output, not an OpenCode-created project file. OpenCode's private HOME data is outside the repo, not part of capture.
+- **Capture**: `success=true`, `files_changed=["hello.txt"]`; unified diff contains `diff --git a/hello.txt b/hello.txt`, `new file mode 100644`, and `+hi`. No `.warsha` or `.opencode` appears. Therefore no production edit and no speculative `.opencode` exclusion: the existing fake unstaged-file regression remains the default proof, supplemented by `opencode_live_capture.rs`.
+- **Safety/limits**: the live test is ignored and returns without executing when either `WARSHA_LIVE_OPENCODE=1` or `WARSHA_E2E_REAL=1` is absent, or when `opencode` is absent. A separate test binary avoids the mock PATH race. This observation is for this version, model, prompt and private HOME; it does not establish all OpenCode configurations are noise-free. The prompt explicitly prohibited staging/committing. Raw capture and live log are retained in the run evidence directory. Role merge and late initial checkpoint are disclosed in state; not independent acceptance. No push, tag, publish or merge.
+
 ## 2026-11-26 — D-RN-SWARM-RACE-1: the two CLEAN-1 swarm walks hold one named process lock
 
 `clean1_swarm_four_lanes_materialize_real_files` sets `WARSHA_CODING_BACKEND_FIXTURE=materialize`. `clean1_swarm_four_lanes_scripted_backend_derives_files` removes it. `FIXTURE_IN_FLIGHT` and `FIXTURE_PEAK` are process-global, and both walks call `reset_fixture_materialize_peak`. Beside each other, one walk restores or clears the switch while the other is inside `execute`, so the materialize path never writes and the peak stays at 2 (store 2, backend 0). One walk's reset can also zero the other's count.

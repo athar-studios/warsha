@@ -1,0 +1,52 @@
+{
+  "run_id": "2026-11-26-clean1-capture",
+  "timestamp": "2026-11-26T00:00:56.332398+00:00",
+  "checked_base_commit": "90aad8ddc73c38b9020fbadcd021d1b731b12510",
+  "subject": "worktree patch adding ignored live test (no production change)",
+  "independent": false,
+  "gates": [
+    {
+      "id": "fmt",
+      "verdict": "pass",
+      "exit_code": 0,
+      "log": "gates/fmt.log"
+    },
+    {
+      "id": "test",
+      "verdict": "pass",
+      "exit_code": 0,
+      "log": "gates/test.log"
+    },
+    {
+      "id": "clippy",
+      "verdict": "pass",
+      "exit_code": 0,
+      "log": "gates/clippy.log"
+    },
+    {
+      "id": "policy",
+      "verdict": "pass",
+      "exit_code": 0,
+      "log": "gates/policy.log"
+    },
+    {
+      "id": "live",
+      "verdict": "pass",
+      "exit_code": 0,
+      "log": "gates/live.log"
+    },
+    {
+      "id": "skip",
+      "verdict": "pass",
+      "exit_code": 0,
+      "log": "gates/skip.log"
+    },
+    {
+      "id": "arch",
+      "verdict": "pass",
+      "exit_code": 0,
+      "log": "gates/arch.log"
+    }
+  ],
+  "acceptance": "owner not requested; no merge"
+}

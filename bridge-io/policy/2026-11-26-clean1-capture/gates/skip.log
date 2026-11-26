@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/opencode_live_capture.rs (target/debug/deps/opencode_live_capture-7871a4e338642bb3)
+
+running 1 test
+skipped: live opt-ins are not both set to 1
+test real_opencode_unstaged_hello_is_captured_without_noise ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
