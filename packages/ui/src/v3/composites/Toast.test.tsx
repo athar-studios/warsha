@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -407,5 +410,15 @@ describe('Toast composite', () => {
     expect(screen.getByText('إشعار 2')).toBeInTheDocument();
     expect(screen.getByText('إشعار 3')).toBeInTheDocument();
     expect(screen.getByText('إشعار 4')).toBeInTheDocument();
+  });
+
+  it('positions .w-toast-container at block-end inline-end clear of the sticky top header', () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const css = fs.readFileSync(path.join(here, 'Toast.css'), 'utf8');
+    const rule = css.slice(css.indexOf('.w-toast-container'));
+    expect(rule).toContain('inset-block-end: var(--w-space-5)');
+    expect(rule).toContain('inset-inline-end: var(--w-space-5)');
+    expect(rule).not.toContain('inset-block-start');
+    expect(rule).not.toMatch(/(?:^|\s)(?:top|right|left|bottom)\s*:/m);
   });
 });
