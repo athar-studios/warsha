@@ -23,6 +23,18 @@
 - **Verdict**: core live-generation/build proof passes; full requested acceptance remains incomplete/FAIL. Swarm discards backend `files_changed`/diff instead of storing them; durable evidence is explicitly a reconstruction from lane commits. OpenCode also wrote external scratch harness files under `/tmp/opencode`, violating a literal one-path-only reading of SPEC. No model bytes repaired by the assistant. No clean full-spec PASS claimed.
 - **Checks**: fmt, requested three-package clippy `-D warnings`, policy 8/0, exact provider contract test 1 passed, mock fake-provider suite, and both exact `tests::clean1_swarm::` walks each 1 passed. Full workspace suite not run. Capacity-merged self-review/verifier, not independent.
 - **Evidence/replay**: `docs/runs/clean1-live-opencode.md` and `docs/runs/clean1-live-opencode-evidence/`, including twelve subtask outcomes, selected CLI write/error events, commit diffs, raw git-show outputs, untracked observation, and cargo output. No credentials/config token included. Follow-up: durable backend receipts and external scratch confinement before another owner-authorized live proof.
+## Run 2026-11-26 — followup version test no longer races the intake task
+
+- **Worktree**: `.agents/worktrees/fix-followup-flake`, branch `r-next/fix-followup-flake`, base `90aad8d`. No push, no merge. FIXES COMPLETE is not declared. Review and verification were done by the implementing agent (capacity role merge, not independent review).
+- **Decision**: D-RN-FLAKE-1.
+- **Root cause**: `tests::runs_followup::stale_followup_cannot_resurrect_cancel_and_valid_followup_bumps_version` started its runs with `runs.start`, which spawns an intake task. The task commits the brief and the Idea → GateA advance, each a run-version bump, so the exact `initial + 1` / `initial + 2` assertions failed whenever it landed between the test's reads. Not a production race: all writers take `state_lock` and CAS, and cancel reloads the latest version. Reproduced at `crates/warshad/src/tests/mod.rs:5211` (`left: 6`, `right: 5`) on the 5th of a 50-run loop of `cargo test -p warshad --lib tests::runs_followup -- --test-threads=16`.
+- **What changed**: both runs in that test come from `state.pipeline.start_run`, which spawns no task. Assertions unchanged; followup and cancel still use the RPC methods. No production change.
+- **Evidence** (this worktree, `CARGO_INCREMENTAL=0`, output in `/tmp/ff-*.log`):
+  - Fixed test under load: 60 of 60 targeted loops passed (`tests::runs_followup -- --test-threads=16`) while 6 full-suite runs at 16 threads ran beside them, all 341 passed, 0 failed, 4 ignored.
+  - `cargo test -p warshad --lib` five consecutive runs: 341 passed, 0 failed, 4 ignored each (5 of 5).
+  - `cargo test -p warshad --lib tests::runs_followup` — 1 passed, 0 failed, 344 filtered out.
+  - `cargo fmt --all -- --check` — clean. `cargo clippy -p warshad --all-targets -- -D warnings` — exit 0. `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures.
+- **Not run**: full `cargo test --workspace`. The unfixed failure rate in the loop was 1 of 5 targeted runs under host load; the unfixed full suite passed 5 of 5 at 16 threads (one initial run, four of the loop before it was stopped), so the failure needs load, not only parallelism.
 
 ## Run 2026-11-26 — swarm walks no longer share the fixture switch
 

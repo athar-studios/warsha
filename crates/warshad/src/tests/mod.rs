@@ -5157,15 +5157,13 @@ mod runs_followup {
             )
             .await
             .expect("project created");
-        let run = rpc
-            .start_run(
-                &owner,
-                project.id,
-                "Initial idea".to_string(),
-                None,
-                None,
-                None,
-            )
+        // The pipeline's own start, not `runs.start`: the RPC spawns an intake task
+        // that commits the brief and the Idea -> GateA advance, each a version bump
+        // of its own. This test counts the versions that followup and cancel write,
+        // so it must be the only writer on the run row.
+        let run = state
+            .pipeline
+            .start_run(project.id, "Initial idea")
             .await
             .expect("run started");
 
@@ -5236,15 +5234,11 @@ mod runs_followup {
         assert_eq!(after_version, cancel_version);
 
         // 5. In-flight cancel signal on a live run also refuses followup before DB commit.
-        let run2 = rpc
-            .start_run(
-                &owner,
-                project.id,
-                "In-flight cancel signal test".to_string(),
-                None,
-                None,
-                None,
-            )
+        // Same reason as above: no intake task may bump the version under the
+        // "refused followup must not bump version" assertion.
+        let run2 = state
+            .pipeline
+            .start_run(project.id, "In-flight cancel signal test")
             .await
             .expect("run2 started");
         let (_, run2_initial_v) = store.get_run_versioned(run2.id).await.unwrap();
