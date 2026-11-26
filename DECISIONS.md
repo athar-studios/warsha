@@ -1,6 +1,24 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-MIRROR-PUBLIC-1: hygiene criterion amended by owner decision: public warsha-dev mirror is allowed
+
+- **Context**: external verification round 2 of tip `5183b37` (report `claude-code-verify-clean2-2026-11-26.md`, blocker R-7a) found `5183b37` pushed to `athar-studios/warsha-dev`, which is **public**, while older records (the caveat at `DECISIONS.md` lines 1750-1753 as of `5183b37`) say `athar-studios/warsha-dev` is a private repo, so the no-publish hygiene criterion was marked failed.
+- **Fact**: that push is the owner's own ordered mirror. Owner order 2026-11-26 03:11 (Asia/Dubai): «اعمل المراية وهو عام عادي» (make the mirror while it stays public, fine). Executed and verified the same night (174 branches + 9 tags). The standing `warsha-dev-mirror` job runs every 2h with the owner's approval.
+- **Decision**: the hygiene criterion is **amended by owner decision** — mirroring `r-next/integration` (and the other mirrored refs) to `athar-studios/warsha-dev` is allowed and intended, whether that repo is public or private. Reviewers must not re-raise this as a blocker. The older "private" statement is marked superseded in place (note pointing here; old text kept).
+- **Unchanged publish gate**: no pushes to origin `athar-studios/warsha` except through a release; no tags; no GitHub releases; no version publish — none of these without a CLEAR verification verdict plus the owner's own hands-on device pass.
+
+## 2026-11-26 — D-RN-SANDBOX-PENDING-1: live external coding backend needs a sandbox before unattended use (R-F3b, record only)
+
+- **Known item (not fixed this round)**: the live OpenCode backend runs with `"permission":"allow"` and no sandbox. In the F3 live proof it ran `rustup` install/default and `rm -rf` under its private HOME `~/.rustup`, wrote `/tmp/opencode` scratch, and read/executed the real `/home/moe/.rustup` and `.cargo`.
+- **Decision**: a sandbox design (filesystem confinement, scratch confinement, permission policy) is required before any unattended use of a live external coding backend.
+- **Status**: open; pre-release blocker for unattended use.
+
+## 2026-11-26 — D-RN-PROVISIONING-SCOPE-1: agent provisioning records come only from the Secretary interview (R-F4a, record only)
+
+- **Known scope note**: agent provisioning records are only written by the Secretary interview journey; projects created through the composer/pipeline show the empty provisioning message («لم يُجهَّز أي وكيل لهذا المشروع بعد.»).
+- **Decision**: accepted scope for now; extending provisioning to composer projects is future work.
+
 ## 2026-11-26 — D-RN-PIPELINE-ENVLOCK-1: shared crate-wide ENV_LOCK and RAII EnvVarGuard for warsha-pipeline unit tests
 
 - **Reproduced cause**: `run_integrity::tests::unrouted_idea_resume_pauses_again_without_fabricated_session` (`crates/warsha-pipeline/src/run_integrity.rs:658`) failed 1/5 in `warsha-pipeline --lib` with `left: Running`, `right: Paused`. `crates/warsha-pipeline/src/status_truth.rs:21` held a module-private `ENV_LOCK` and set `WARSHA_LLM_PROVIDER=fake` (`status_truth.rs:283`) with a bare post-await `remove_var` (`status_truth.rs:285`). Concurrently, `gate_evidence.rs:561` and `command_policy.rs:2579` mutated `WARSHA_LLM_API_KEY` (using no lock or a second private `ENV_TEST_LOCK`), and `lib.rs:4396` mutated `WARSHA_CODING_BACKEND` without any lock or Drop guard. Because `PipelineEngine::dispatch_chat` (`lib.rs:1804-1806`) reads `EnvLlmConfig::from_env()` and `WARSHA_LLM_PROVIDER`, an unrouted test running in the same test binary observed `WARSHA_LLM_PROVIDER=fake` (taking the `forced_fake` branch to `GateA`/`Running`) or `WARSHA_LLM_API_KEY` without `WARSHA_LLM_BASE_URL` (erroring in `EnvLlmConfig::from_env`).
@@ -1748,6 +1766,8 @@ The combined Round-21 tip returned Idea from `runs.start` and spawned intake, bu
      stay on `ubuntu-latest`. `actionlint` must stay clean and `pnpm visual` keeps writing its JSON
      report to `bridge-io/audit/visual-playwright.json` only in CI, where that file is job-local.
      Caveat recorded before betting on it: `athar-studios/warsha-dev` is a **private** repo
+     [**Superseded 2026-11-26 by D-RN-MIRROR-PUBLIC-1**: `athar-studios/warsha-dev` is public and
+     mirroring to it is allowed by owner decision; the "private" statement here is historical only.]
      (`gh api repos/athar-studios/warsha-dev → {"private": true}`, default branch `main`, remote `dev`
      already at `68dc78d`, so the next push is a fast-forward) and arm64 hosted runners are not
      guaranteed on a private plan. Settled empirically rather than by argument: the first dev push
