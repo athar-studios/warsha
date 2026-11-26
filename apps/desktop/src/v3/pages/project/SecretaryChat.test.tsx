@@ -2,6 +2,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   CostEstimate,
+  InterviewState,
   ProposalAction,
   SecretaryChatReply,
   SecretaryThread,
@@ -55,6 +56,7 @@ function mockClient(overrides: {
   startRun?: ReturnType<typeof vi.fn>;
 }): WarshaClient {
   return {
+    interviewStatus: vi.fn().mockResolvedValue(null),
     listSecretaryThreads: vi.fn().mockResolvedValue(THREads),
     getSecretaryTurns: vi.fn().mockResolvedValue(overrides.turns ?? [ownerTurn, proposalTurn('turn-1')]),
     secretaryChat: vi.fn().mockResolvedValue(
@@ -97,6 +99,54 @@ function renderPanel(client: WarshaClient, projectId: ProjectId | null): void {
 describe('SecretaryChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('answers the interview and shows persisted provisioning on completion instead of general chat', async () => {
+    const state: InterviewState = {
+      project_id: 'p1', brief: {}, covered_topics: [], open_topics: ['audience'],
+      current_topic: 'audience', next_question: 'Who is this for?', transcript: [],
+      is_done: false, updated_at: '2026-11-26T00:00:00Z',
+    };
+    const client = {
+      ...mockClient({}),
+      interviewStatus: vi.fn().mockResolvedValue(state),
+      interviewTurn: vi.fn().mockResolvedValue({ kind: 'done', state: { ...state, is_done: true, covered_topics: ['audience'], open_topics: [] }, idea_text: 'For teachers' }),
+      listProvisioning: vi.fn().mockResolvedValue([{ projectId: 'p1', agentId: 'secretary', role: 'secretary', skills: ['secretary-interview'], tools: ['read'], source: 'builtin', audited: true, createdAt: state.updated_at }]),
+    } as unknown as WarshaClient;
+    renderPanel(client, 'p1' as ProjectId);
+    expect(await screen.findByText('Who is this for?')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('secretary.interview.answer'), { target: { value: 'Teachers' } });
+    fireEvent.click(screen.getByText('secretary.interview.send'));
+    expect(await screen.findByText('secretary.interview.completed')).toBeTruthy();
+    expect(await screen.findByText('secretary-interview')).toBeTruthy();
+    expect(screen.getByText('secretary.interview.developers')).toBeTruthy();
+    expect(client.interviewTurn).toHaveBeenCalledWith('p1', 'Teachers');
+    expect(client.listProvisioning).toHaveBeenCalledWith('p1');
+    expect(client.secretaryChat).not.toHaveBeenCalled();
+    expect(client.listSecretaryThreads).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to general chat when interview status fails, and retries', async () => {
+    const client = mockClient({});
+    vi.mocked(client.interviewStatus).mockRejectedValueOnce(new Error('offline'));
+    renderPanel(client, 'p1' as ProjectId);
+    expect(await screen.findByText('secretary.error')).toBeTruthy();
+    expect(client.listSecretaryThreads).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('secretary.interview.retry'));
+    expect(await screen.findByTestId('secretary-chat')).toBeTruthy();
+    expect(client.interviewStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('resumes a completed interview and retries a failed provisioning read', async () => {
+    const client = mockClient({});
+    vi.mocked(client.interviewStatus).mockResolvedValue({ project_id: 'p1', brief: {}, covered_topics: ['audience'], open_topics: [], transcript: [], is_done: true, updated_at: '' });
+    client.listProvisioning = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue([]);
+    renderPanel(client, 'p1' as ProjectId);
+    expect(await screen.findByText('secretary.interview.completed')).toBeTruthy();
+    fireEvent.click(await screen.findByText('secretary.interview.retry'));
+    expect(await screen.findByText('secretary.interview.empty')).toBeTruthy();
+    expect(client.listProvisioning).toHaveBeenCalledTimes(2);
+    expect(client.listSecretaryThreads).not.toHaveBeenCalled();
   });
 
   it('calls mcpPermissionsSet(..., "deny") when allow: false', async () => {
