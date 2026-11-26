@@ -134,6 +134,13 @@ export interface CreatedGithubRepo {
   htmlUrl: string;
 }
 
+/** Result of `projects.repo_status`: whether a path exists and is a git repo with history. */
+export interface RepoStatus {
+  exists: boolean;
+  isRepo: boolean;
+  hasHead: boolean;
+}
+
 export interface RunSummary {
   id: RunId;
   projectId: ProjectId;
@@ -552,6 +559,15 @@ export function decodeCreatedGithubRepo(source: unknown): CreatedGithubRepo {
     throw new Error('Malformed summary: created github repo is missing required fields');
   }
   return { repoPath, repoUrl, fullName, htmlUrl };
+}
+
+export function decodeRepoStatus(source: unknown): RepoStatus {
+  const record = summaryObject(source, 'repo status');
+  return {
+    exists: !!field(record, 'exists'),
+    isRepo: !!field(record, 'is_repo', 'isRepo'),
+    hasHead: !!field(record, 'has_head', 'hasHead'),
+  };
 }
 
 /**
@@ -2803,6 +2819,24 @@ export class WarshaClient
     return decodePreparedFolder(row);
   }
 
+  async repoStatus(args: {
+    path?: string;
+    parentDir?: string;
+    name?: string;
+  }): Promise<RepoStatus> {
+    const row = await this.rpc<unknown>('projects.repo_status', {
+      path: args.path ?? null,
+      parent_dir: args.parentDir ?? null,
+      name: args.name ?? null,
+    });
+    return decodeRepoStatus(row);
+  }
+
+  async prepareExistingFolder(path: string): Promise<PreparedFolder> {
+    const row = await this.rpc<unknown>('projects.prepare_existing_folder', { path });
+    return decodePreparedFolder(row);
+  }
+
   async cloneProjectRepo(
     repoUrl: string,
     parentDir?: string,
@@ -2819,12 +2853,14 @@ export class WarshaClient
   async createGithubRepo(
     name: string,
     description?: string,
-    parentDir?: string
+    parentDir?: string,
+    privateRepo?: boolean
   ): Promise<CreatedGithubRepo> {
     const row = await this.rpc<unknown>('projects.create_github_repo', {
       name,
       description: description ?? null,
       parent_dir: parentDir ?? null,
+      private_repo: privateRepo ?? null,
     });
     return decodeCreatedGithubRepo(row);
   }

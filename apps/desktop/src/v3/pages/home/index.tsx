@@ -41,6 +41,7 @@ import { notify } from '../../app/toast';
 import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../copy/stages';
 import { useDefaultBudget, useModels, useProjects, useQuotaGauge, useRoles } from '../../data';
 import { markInterviewEntry } from '../../data/interviewEntry';
+import { describeRpcError, type DescribedRpcError } from '../../data/rpcErrors';
 import { useResource } from '../../data/useResource';
 import { useNavigate } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
@@ -51,8 +52,10 @@ import {
   INITIAL_PROJECT_SOURCE,
   ProjectSourcePicker,
   resolveProjectSource,
+  SourceConfirmPanel,
   validateProjectSource,
   type ProjectSourceValue,
+  type SourceConfirmRequest,
 } from './ProjectSourcePicker';
 import {
   ownerAlerts,
@@ -87,6 +90,9 @@ export interface NewProjectDialogProps {
   onSubmit?: (name: string, idea: string, repoPath?: string, repoUrl?: string) => Promise<void>;
 }
 
+/** Thrown when the source probe needs the git-init confirmation first. */
+class ConfirmNeeded extends Error {}
+
 export function NewProjectDialog({
   open,
   onClose,
@@ -101,10 +107,72 @@ export function NewProjectDialog({
   const [sourceValue, setSourceValue] = useState<ProjectSourceValue>(INITIAL_PROJECT_SOURCE);
   const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DescribedRpcError | string | null>(null);
+  const [confirm, setConfirm] = useState<SourceConfirmRequest | null>(null);
+  const [pendingMeta, setPendingMeta] = useState<{
+    projectName: string;
+    trimmedIdea: string;
+  } | null>(null);
 
   const githubCreateBlocked =
     sourceValue.mode === 'github_create' && !githubStatus?.configured;
+
+  const resetDialog = (): void => {
+    setName('');
+    setIdea('');
+    setSourceValue(INITIAL_PROJECT_SOURCE);
+    setConfirm(null);
+    setPendingMeta(null);
+  };
+
+  const createWithRepo = async (
+    projectName: string,
+    trimmedIdea: string,
+    repoPath?: string,
+    repoUrl?: string
+  ): Promise<void> => {
+    if (!client) return;
+    if (onSubmit) {
+      await onSubmit(projectName, trimmedIdea, repoPath, repoUrl);
+      return;
+    }
+    if (repoUrl) {
+      await client.createProject(projectName, trimmedIdea, locale, repoPath, repoUrl);
+    } else if (repoPath) {
+      await client.createProject(projectName, trimmedIdea, locale, repoPath);
+    } else {
+      await client.createProject(projectName, trimmedIdea, locale);
+    }
+  };
+
+  const handleConfirmAccept = async (): Promise<void> => {
+    if (!client || !confirm || !pendingMeta) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const prepared =
+        confirm.mode === 'new_folder'
+          ? await client.prepareProjectFolder(confirm.parentDir, confirm.folderName)
+          : await client.prepareExistingFolder(confirm.targetPath);
+      await createWithRepo(
+        pendingMeta.projectName,
+        pendingMeta.trimmedIdea,
+        prepared.repoPath,
+        undefined
+      );
+      resetDialog();
+      onClose();
+    } catch (err) {
+      setError(describeRpcError(err, t));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConfirmCancel = (): void => {
+    setConfirm(null);
+    setPendingMeta(null);
+  };
 
   const handleSubmit = async () => {
     const trimmedIdea = idea.trim();
@@ -116,15 +184,39 @@ export function NewProjectDialog({
     }
     setSubmitting(true);
     setError(null);
+    setConfirm(null);
+    setPendingMeta(null);
     try {
       const projectName = name.trim() || deriveProjectName(trimmedIdea);
       if (onSubmit) {
-        const resolved = client
-          ? await resolveProjectSource(client, sourceValue, trimmedIdea)
-          : { repoPath: sourceValue.existingPath.trim() || undefined };
-        await onSubmit(projectName, trimmedIdea, resolved.repoPath, resolved.repoUrl);
+        if (!client) {
+          await onSubmit(projectName, trimmedIdea, undefined, undefined);
+        } else {
+          const resolved = await resolveProjectSource(client, sourceValue);
+          if (resolved.kind === 'confirm-init') {
+            setConfirm({
+              targetPath: resolved.targetPath,
+              mode: sourceValue.mode,
+              parentDir: sourceValue.parentDir.trim(),
+              folderName: sourceValue.folderName.trim(),
+            });
+            setPendingMeta({ projectName, trimmedIdea });
+            return;
+          }
+          await onSubmit(projectName, trimmedIdea, resolved.repoPath, resolved.repoUrl);
+        }
       } else if (client) {
-        const resolved = await resolveProjectSource(client, sourceValue, trimmedIdea);
+        const resolved = await resolveProjectSource(client, sourceValue);
+        if (resolved.kind === 'confirm-init') {
+          setConfirm({
+            targetPath: resolved.targetPath,
+            mode: sourceValue.mode,
+            parentDir: sourceValue.parentDir.trim(),
+            folderName: sourceValue.folderName.trim(),
+          });
+          setPendingMeta({ projectName, trimmedIdea });
+          return;
+        }
         if (resolved.repoUrl) {
           await client.createProject(
             projectName,
@@ -139,12 +231,10 @@ export function NewProjectDialog({
           await client.createProject(projectName, trimmedIdea, locale);
         }
       }
-      setName('');
-      setIdea('');
-      setSourceValue(INITIAL_PROJECT_SOURCE);
+      resetDialog();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeRpcError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -161,8 +251,10 @@ export function NewProjectDialog({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
         {error && (
-          <Banner variant="danger" title={t('common.error')}>
-            {error}
+          <Banner variant="danger" title={typeof error === 'string' ? error : t(error.key)}>
+            {typeof error === 'string' ? null : error.detail ? (
+              <span dir="auto">{error.detail}</span>
+            ) : null}
           </Banner>
         )}
         <TextField
@@ -184,6 +276,8 @@ export function NewProjectDialog({
           value={sourceValue}
           onChange={(next) => {
             setError(null);
+            setConfirm(null);
+            setPendingMeta(null);
             setSourceValue(next);
           }}
           client={client}
@@ -197,6 +291,16 @@ export function NewProjectDialog({
           disabled={submitting}
           idPrefix="new-project-source"
         />
+        {confirm && (
+          <SourceConfirmPanel
+            idPrefix="new-project-source"
+            targetPath={confirm.targetPath}
+            t={t}
+            pending={submitting}
+            onAccept={() => void handleConfirmAccept()}
+            onCancel={handleConfirmCancel}
+          />
+        )}
         <div
           style={{
             display: 'flex',
@@ -501,7 +605,19 @@ export default function HomePage(): React.ReactElement {
   const [idea, setIdea] = useState('');
   const [sourceValue, setSourceValue] = useState<ProjectSourceValue>(INITIAL_PROJECT_SOURCE);
   const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null);
-  const [composerError, setComposerError] = useState<string | null>(null);
+  // Either already-localized validation copy (a plain string) or a
+  // localized daemon rejection (catalog key + raw detail, R-4).
+  const [composerError, setComposerError] = useState<DescribedRpcError | string | null>(null);
+  // B-1/R-7 pending git-init confirmation on the Simple Home composer: set when
+  // resolveProjectSource probes an existing non-git folder instead of creating.
+  const [composerConfirm, setComposerConfirm] = useState<SourceConfirmRequest | null>(null);
+  // Which flow (interview vs start) is waiting on the confirmaion above.
+  const [composerPendingFlow, setComposerPendingFlow] = useState<'interview' | 'start' | null>(
+    null
+  );
+  const [composerPendingIdea, setComposerPendingIdea] = useState<string | null>(null);
+  const [composerPendingProject, setComposerPendingProject] = useState<string | null>(null);
+  const [composerConfirmBusy, setComposerConfirmBusy] = useState(false);
   const [newProjectDialogOpen, setNewProjectDialogOpen] = useState(false);
   const [defaultsSheetOpen, setDefaultsSheetOpen] = useState(false);
   const [runsByProject, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
@@ -750,25 +866,50 @@ export default function HomePage(): React.ReactElement {
     };
   }, [client, projectsResult.data, t, runsReloadTick]);
 
+  const createProjectWithRepo = async (
+    projectName: string,
+    trimmedIdea: string,
+    repoPath?: string,
+    repoUrl?: string
+  ): Promise<ProjectSummary> => {
+    if (!client) throw new Error(t('common.error'));
+    if (repoUrl) {
+      return client.createProject(projectName, trimmedIdea, locale, repoPath, repoUrl);
+    }
+    if (repoPath) {
+      return client.createProject(projectName, trimmedIdea, locale, repoPath);
+    }
+    return client.createProject(projectName, trimmedIdea, locale);
+  };
+
+  // Throws ConfirmNeeded when the probe finds an existing non-git folder; the
+  // caller (start/interview action) catches it and shows the confirm panel
+  // instead of creating. Accept continues via the prepared repo path.
   const createConfiguredProject = async (
     projectName: string,
     trimmedIdea: string
   ): Promise<ProjectSummary> => {
     if (!client) throw new Error(t('common.error'));
-    const resolved = await resolveProjectSource(client, sourceValue, trimmedIdea);
-    if (resolved.repoUrl) {
-      return client.createProject(
-        projectName,
-        trimmedIdea,
-        locale,
-        resolved.repoPath,
-        resolved.repoUrl
-      );
+    const resolved = await resolveProjectSource(client, sourceValue);
+    if (resolved.kind === 'confirm-init') {
+      setComposerConfirm({
+        targetPath: resolved.targetPath,
+        mode: sourceValue.mode,
+        parentDir: sourceValue.parentDir.trim(),
+        folderName: sourceValue.folderName.trim(),
+      });
+      throw new ConfirmNeeded(resolved.targetPath);
     }
-    if (resolved.repoPath) {
-      return client.createProject(projectName, trimmedIdea, locale, resolved.repoPath);
-    }
-    return client.createProject(projectName, trimmedIdea, locale);
+    return createProjectWithRepo(projectName, trimmedIdea, resolved.repoPath, resolved.repoUrl);
+  };
+
+  const prepareComposerConfirmedRepo = async (): Promise<string> => {
+    if (!client || !composerConfirm) throw new Error(t('common.error'));
+    const prepared =
+      composerConfirm.mode === 'new_folder'
+        ? await client.prepareProjectFolder(composerConfirm.parentDir, composerConfirm.folderName)
+        : await client.prepareExistingFolder(composerConfirm.targetPath);
+    return prepared.repoPath;
   };
 
   // Action: home.interview.start
@@ -783,14 +924,22 @@ export default function HomePage(): React.ReactElement {
     }
     setComposerError(null);
     const projectName = deriveProjectName(trimmedIdea);
+    setComposerPendingFlow('interview');
+    setComposerPendingIdea(trimmedIdea);
+    setComposerPendingProject(projectName);
     try {
       const project = await createConfiguredProject(projectName, trimmedIdea);
+      setComposerConfirm(null);
+      setComposerPendingFlow(null);
+      setComposerPendingIdea(null);
+      setComposerPendingProject(null);
       projectsResult.reload();
       await client.interviewStart(project.id, trimmedIdea);
       markInterviewEntry(project.id);
       navigate(`/p/${project.id}`);
     } catch (err) {
-      setComposerError(err instanceof Error ? err.message : String(err));
+      if (err instanceof ConfirmNeeded) return;
+      setComposerError(describeRpcError(err, t));
       throw err;
     }
   });
@@ -812,10 +961,17 @@ export default function HomePage(): React.ReactElement {
 
     const projectName = deriveProjectName(trimmedIdea);
     const budgetCents = Math.round(Number(defaultBudget) * 100);
+    setComposerPendingFlow('start');
+    setComposerPendingIdea(trimmedIdea);
+    setComposerPendingProject(projectName);
 
     try {
       // 1. projects.create
       const project = await createConfiguredProject(projectName, trimmedIdea);
+      setComposerConfirm(null);
+      setComposerPendingFlow(null);
+      setComposerPendingIdea(null);
+      setComposerPendingProject(null);
       projectsResult.reload();
 
       // 2. runs.start — the budget the owner entered is the budget the run records.
@@ -827,10 +983,65 @@ export default function HomePage(): React.ReactElement {
       // Navigate to /p/:id
       navigate(`/p/${project.id}`);
     } catch (err) {
-      setComposerError(err instanceof Error ? err.message : String(err));
+      if (err instanceof ConfirmNeeded) return;
+      setComposerError(describeRpcError(err, t));
       throw err;
     }
   });
+
+  const clearComposerConfirm = (): void => {
+    setComposerConfirm(null);
+    setComposerPendingFlow(null);
+    setComposerPendingIdea(null);
+    setComposerPendingProject(null);
+    setComposerError(null);
+  };
+
+  const continueComposerAfterConfirm = useAction('home.confirm-accept', async () => {
+    if (!client || !composerConfirm) return;
+    const flow = composerPendingFlow;
+    const pendingIdea = composerPendingIdea ?? idea.trim();
+    const pendingProject =
+      composerPendingProject ?? (pendingIdea ? deriveProjectName(pendingIdea) : '');
+    if (!flow || !pendingIdea || !pendingProject) return;
+    setComposerConfirmBusy(true);
+    setComposerError(null);
+    try {
+      const repoPath = await prepareComposerConfirmedRepo();
+      setComposerConfirm(null);
+      setComposerPendingFlow(null);
+      setComposerPendingIdea(null);
+      setComposerPendingProject(null);
+      if (flow === 'interview') {
+        const project = await createProjectWithRepo(pendingProject, pendingIdea, repoPath);
+        projectsResult.reload();
+        await client.interviewStart(project.id, pendingIdea);
+        markInterviewEntry(project.id);
+        navigate(`/p/${project.id}`);
+        return;
+      }
+      // start flow — MUST keep create -> runs.start -> budget.set order.
+      const budgetCents = Math.round(Number(defaultBudget) * 100);
+      const project = await createProjectWithRepo(pendingProject, pendingIdea, repoPath);
+      projectsResult.reload();
+      await client.startRun(project.id, pendingIdea, undefined, undefined, budgetCents);
+      await client.setProjectBudget(project.id, budgetCents);
+      navigate(`/p/${project.id}`);
+    } catch (err) {
+      setComposerError(describeRpcError(err, t));
+      throw err;
+    } finally {
+      setComposerConfirmBusy(false);
+    }
+  });
+
+  const handleComposerConfirmAccept = (): void => {
+    void continueComposerAfterConfirm.run();
+  };
+
+  const handleComposerConfirmCancel = (): void => {
+    clearComposerConfirm();
+  };
 
   // Action: home.defaults.budget.save
   const budgetSaveAction = useAction('home.defaults.budget.save', async () => {
@@ -1164,6 +1375,7 @@ export default function HomePage(): React.ReactElement {
             value={sourceValue}
             onChange={(next) => {
               setComposerError(null);
+              clearComposerConfirm();
               setSourceValue(next);
             }}
             client={client}
@@ -1174,14 +1386,28 @@ export default function HomePage(): React.ReactElement {
             disabled={startAction.pending || startInterviewAction.pending}
             idPrefix="home-source"
           />
+          {composerConfirm ? (
+            <SourceConfirmPanel
+              idPrefix="home-source"
+              targetPath={composerConfirm.targetPath}
+              t={t}
+              pending={composerConfirmBusy || continueComposerAfterConfirm.pending}
+              onAccept={handleComposerConfirmAccept}
+              onCancel={handleComposerConfirmCancel}
+            />
+          ) : null}
           {composerError ? (
             <div style={{ marginBlockStart: 'var(--w-space-2)' }}>
               <Banner
                 variant="danger"
-                title={t('common.error')}
+                title={
+                  typeof composerError === 'string' ? composerError : t(composerError.key)
+                }
                 data-testid="home-composer-error"
               >
-                {composerError}
+                {typeof composerError === 'string' ? null : composerError.detail ? (
+                  <span dir="auto">{composerError.detail}</span>
+                ) : null}
               </Banner>
             </div>
           ) : null}

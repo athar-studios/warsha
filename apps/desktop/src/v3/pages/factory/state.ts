@@ -292,12 +292,16 @@ export function applyEvent(
 
   // A finished/cancelled run emits a role-less RunFinished. That still wins
   // over a gate wait; it must not be dropped the way other role-less events are.
+  // A done agent goes back to the stage its role owns (R-3, same as B-1): a
+  // coder cancelled at a gate belongs at the code station, never the gate it
+  // was released from. Roles without an owning stage keep their current stage.
   if (event.role === null && kind === 'run_finished') {
     for (const [agentKey, agent] of next) {
       if (agent.runId !== event.runId || agent.state === 'done') continue;
       next.set(agentKey, {
         ...agent,
         state: 'done',
+        stage: stageOfRole(agent.role) ?? agent.stage,
         lastAction: actionOf(event),
         lastUpdated: event.createdAt,
       });
@@ -325,7 +329,15 @@ export function applyEvent(
   if (kind === 'gate_decision' && payloadRecord !== null && payloadRecord['state'] === 'pending') {
     updated = { ...updated, state: 'waiting_on_owner', lastAction: actionOf(event) };
   } else if (kind === 'run_finished') {
-    updated = { ...updated, state: 'done', lastAction: actionOf(event) };
+    // A cancelled-at-gate coder finishes done at its own stage, not the gate
+    // (R-3): remap gate stages back through stageOfRole, fall back when the
+    // role maps to nothing (same rule as the role-less branch above).
+    updated = {
+      ...updated,
+      state: 'done',
+      stage: isGateStage(event.stage) ? (stageOfRole(event.role) ?? event.stage) : event.stage,
+      lastAction: actionOf(event),
+    };
   } else if (kind === 'agent_step' && isGateStage(event.stage)) {
     // The required stream shape: a role-bearing step whose stage is the gate
     // is the owner waiting, not an agent still working that stage.

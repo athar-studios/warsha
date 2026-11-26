@@ -9730,3 +9730,18 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
   - `pnpm --dir apps/desktop exec eslint src --ext .ts,.tsx`: exit 0 (0 errors, 1 pre-existing warning at `apps/desktop/src/v3/pages/developers/index.tsx:291`).
   - `pnpm --dir apps/desktop exec vite build`: exit 0 (`built in 5.46s`).
   - `node scripts/check-engineering-policy.mjs`: exit 0 (**8 checks, 0 failures**).
+
+## Run 2026-11-27 — CLEAN-5 UI round (`D-RN-CLEAN5-2`): confirm-before-git-init (Chunk A) + gate-exit remap + localized RPC errors (Chunk B)
+
+- Worktree `.agents/worktrees/clean5-ui`, branch `r-next/clean5-ui`, base `2aef9ea` (merge of `r-next/clean4-fix`; Judge r27 PASS 100/100). Local only; no push, tag, merge, publish, or real model API calls. Temporary `node_modules` symlinks (root, `apps/desktop`, `packages/{i18n,ui,client,crypto}`) used for JS checks and removed before commit.
+- **Chunk A (`bf4e8f2`)** — `feat(desktop): confirm-before-git-init for existing folders, private-by-default github creation`: `ProjectSourcePicker.tsx` gains `SourceConfirmPanel` + `resolveProjectSource` (`home.source.confirm_init_{title,body,path,accept,cancel}` en+ar) for existing non-git folders, and a `githubVisibility` private-by-default radio group; `index.tsx` holds the pending `SourceConfirmRequest` flow in both the Simple Home composer and `NewProjectDialog`; `packages/client` sends private-only-on-explicit-public `createGithubRepo`; `home.errors.*` (all 8 incl. `server_error`) added to `packages/i18n/src/v3/{en,ar}/home.ts` with picker/dialog/composer tests.
+- **Chunk B (this change, R-3)** — `apps/desktop/src/v3/pages/factory/state.ts`: the role-less `run_finished` branch sets `stage: stageOfRole(agent.role) ?? agent.stage` and the role-bearing branch remaps with `isGateStage(event.stage) ? (stageOfRole(event.role) ?? event.stage) : event.stage`, so a coder cancelled at `gate_c` finishes `done` at the `code` station, not shipping; `state.test.tsx` gains the R-3 case (role-bearing + role-less, `done` + `stage: 'code'` + `stationKey: 'code'`).
+- **Chunk B (this change, R-4)** — new `apps/desktop/src/v3/data/rpcErrors.ts` (`describeRpcError(err, t)`, lowercased-substring table → `home.errors.*`, fallback `server_error`, raw detail kept); `apps/desktop/src/v3/pages/home/index.tsx` routes all five daemon catches (dialog 165/236, composer 937/982/1026) through it and both the composer `home-composer-error` banner and the `NewProjectDialog` banner render `t(key)` with `<span dir="auto">{detail}</span>`; error states widen to `DescribedRpcError | string | null`. `ProjectSourcePicker.test.tsx` gains the R-4 pair (Arabic `not_git_repo` + unknown fallback).
+- **Checks (all measured after final code edits)**:
+  - `pnpm --dir packages/i18n exec vitest run`: **2 files, 63 passed** (exit 0).
+  - `pnpm --dir apps/desktop exec vitest run`: **93 files, 891 passed** (exit 0).
+  - `pnpm --dir apps/desktop exec tsc --noEmit`: exit 0.
+  - `pnpm --dir apps/desktop exec eslint src --ext .ts,.tsx`: exit 0 (**0 errors**, 1 pre-existing warning at `apps/desktop/src/v3/pages/developers/index.tsx:291`).
+  - `pnpm --dir apps/desktop exec vite build`: exit 0 (`built in 5.63s`).
+  - `node scripts/check-engineering-policy.mjs`: exit 0 (**8 checks, 0 failures**).
+- One feature commit on `r-next/clean5-ui` (Chunk A `bf4e8f2` + this change). No push, tag, merge, publish, or model API call.

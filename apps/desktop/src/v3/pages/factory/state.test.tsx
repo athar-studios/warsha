@@ -385,6 +385,45 @@ describe('factory floor state machine (E3)', () => {
     expect(finished.get('run-1:coder')?.state).toBe('done');
   });
 
+  it('R-3: a coder cancelled at gate_c finishes done at the code station, not shipping', () => {
+    const cancelled = reduceEvents([
+      event({ id: 'e1', kind: 'agent_step', stage: 'code', role: 'coder' }),
+      event({
+        id: 'e2',
+        kind: 'run_finished',
+        stage: 'gate_c',
+        role: 'coder',
+        payload: { status: 'cancelled' },
+        createdAt: '2026-11-18T10:00:02.000Z',
+      }),
+    ]);
+    const coder = cancelled.get('run-1:coder');
+    if (coder === undefined) throw new Error('missing coder agent');
+    expect(coder.state).toBe('done');
+    // The gate is left behind: the coder owns `code`, so the floor keeps it at
+    // the code station (a done gate-sitter would fall back to shipping).
+    expect(coder.stage).toBe('code');
+    expect(markerPosition(coder, 0, [coder]).stationKey).toBe('code');
+
+    // The role-less variant remaps the same way.
+    const roleLess = reduceEvents([
+      event({ id: 'e1', kind: 'agent_step', stage: 'code', role: 'coder' }),
+      event({
+        id: 'e2',
+        kind: 'run_finished',
+        stage: 'gate_c',
+        role: null,
+        payload: { status: 'cancelled' },
+        createdAt: '2026-11-18T10:00:02.000Z',
+      }),
+    ]);
+    const loneCoder = roleLess.get('run-1:coder');
+    if (loneCoder === undefined) throw new Error('missing role-less coder agent');
+    expect(loneCoder.state).toBe('done');
+    expect(loneCoder.stage).toBe('code');
+    expect(markerPosition(loneCoder, 0, [loneCoder]).stationKey).toBe('code');
+  });
+
   it('leaves an idle agent with no gate in the idle state', () => {
     const agents = reduceEvents([event({ kind: 'CostRecorded', stage: 'code' })]);
     expect(agents.get('run-1:coder')?.state).toBe('idle');

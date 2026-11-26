@@ -3505,7 +3505,99 @@ describe('project source options client methods', () => {
       name: 'demo',
       description: 'A test repo',
       parent_dir: '/tmp/projects',
+      private_repo: null,
     });
+  });
+
+  it('createGithubRepo sends private_repo true when private is requested', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        repo_path: '/tmp/projects/demo',
+        repo_url: 'https://github.com/octo/demo.git',
+        full_name: 'octo/demo',
+        html_url: 'https://github.com/octo/demo',
+      })
+    );
+
+    await client.createGithubRepo('demo', undefined, '/tmp/projects', true);
+
+    expect(sentParams(0)).toEqual({
+      name: 'demo',
+      description: null,
+      parent_dir: '/tmp/projects',
+      private_repo: true,
+    });
+  });
+
+  it('createGithubRepo sends private_repo false when public is requested', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        repo_path: '/tmp/projects/demo',
+        repo_url: 'https://github.com/octo/demo.git',
+        full_name: 'octo/demo',
+        html_url: 'https://github.com/octo/demo',
+      })
+    );
+
+    await client.createGithubRepo('demo', undefined, undefined, false);
+
+    expect(sentParams(0)).toEqual({
+      name: 'demo',
+      description: null,
+      parent_dir: null,
+      private_repo: false,
+    });
+  });
+
+  it('repoStatus sends path and decodes snake_case fields', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ exists: true, is_repo: false, has_head: false })
+    );
+
+    const status = await client.repoStatus({ path: '/tmp/existing' });
+
+    expect(status).toEqual({ exists: true, isRepo: false, hasHead: false });
+    expect(sentParams(0)).toEqual({
+      path: '/tmp/existing',
+      parent_dir: null,
+      name: null,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({
+        body: expect.stringContaining('"method":"projects.repo_status"'),
+      })
+    );
+  });
+
+  it('repoStatus sends parent_dir and name probes and decodes a repo with head', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ exists: true, is_repo: true, has_head: true })
+    );
+
+    const status = await client.repoStatus({ parentDir: '/tmp/projects', name: 'my-app' });
+
+    expect(status).toEqual({ exists: true, isRepo: true, hasHead: true });
+    expect(sentParams(0)).toEqual({
+      path: null,
+      parent_dir: '/tmp/projects',
+      name: 'my-app',
+    });
+  });
+
+  it('prepareExistingFolder sends path and decodes repoPath', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ repo_path: '/tmp/existing' }));
+
+    const result = await client.prepareExistingFolder('/tmp/existing');
+
+    expect(result).toEqual({ repoPath: '/tmp/existing' });
+    expect(sentParams(0)).toEqual({ path: '/tmp/existing' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({
+        body: expect.stringContaining('"method":"projects.prepare_existing_folder"'),
+      })
+    );
   });
 
   it('createProject sends repo_url when provided and decodes repoUrl', async () => {
