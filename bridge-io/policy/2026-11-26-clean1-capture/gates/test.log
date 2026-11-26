@@ -1,0 +1,103 @@
+    Blocking waiting for file lock on build directory
+   Compiling warsha-backends v0.3.1 (/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture/crates/warsha-backends)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 43.09s
+     Running unittests src/lib.rs (target/debug/deps/warsha_backends-7ce6c1dfc8507332)
+
+running 61 tests
+test catalog::tests::test_builtin_catalog_loads_and_validates ... ok
+test catalog::tests::test_cli_health_missing_executable ... ok
+test catalog::tests::test_claude_and_codex_argv_template_matches ... ok
+test catalog::tests::test_no_shipped_catalog_entry_carries_permission_skipping_flag ... ok
+test catalog::tests::test_reject_permission_skipping_flag ... ok
+test permissions::tests::codex_maps_the_sandbox_flag_and_cannot_ask ... ok
+test permissions::tests::full_access_never_ask_bypasses_permissions ... ok
+test permissions::tests::read_only_disallows_write_tools_for_claude ... ok
+test permissions::tests::matrix_covers_every_axis_pair ... ok
+test catalog::tests::test_reject_malformed_entry_missing_executable ... ok
+test catalog::tests::test_reject_malformed_entry_unknown_format ... ok
+test permissions::tests::unknown_backends_run_under_their_own_defaults ... ok
+test catalog::tests::test_reject_malformed_entry_missing_prompt ... ok
+test permissions::tests::workspace_write_ask_for_risky_uses_accept_edits_plus_bridge ... ok
+test scripted::tests::a_task_that_names_no_contract_writes_nothing ... ok
+test tests::a_named_backend_is_returned_even_when_its_cli_is_absent ... ok
+test scripted::tests::the_task_text_selects_the_contract_not_the_path ... ok
+test scripted::tests::a_wrong_task_returns_failure_and_writes_no_file ... ok
+test catalog::tests::test_cli_health_existing_command_git ... ok
+test permissions::tests::workspace_write_never_ask_uses_prompt_none ... ok
+test scripted::tests::scripted_backend_refuses_paths_outside_the_worktree ... ok
+test tests::cli_parsing::test_claude_cli_parse ... ok
+test tests::cli_parsing::test_codex_cli_parse ... ok
+test tests::e4::the_prompt_names_the_task_files_and_context ... ok
+test tests::e4::a_missing_command_is_not_installed ... ok
+test tests::e4::a_failing_cli_is_an_execution_error_with_its_stderr ... ok
+test tests::e4_coding_cli::non_writable_workdir_fails_gracefully_with_clear_error ... ok
+test tests::e4_coding_cli::test_compute_updated_exclude ... ok
+test tests::e4::a_killed_cli_keeps_lines_printed_before_the_kill_in_cli_log ... ok
+test tests::e4_coding_cli::log_open_failure_does_not_abort_cli_run ... ok
+test tests::e4::a_fake_cli_receives_the_prompt_and_its_changes_are_reported ... ok
+test tests::e4::test_opencode_cli_backend_command_args_and_sandbox_execution ... ok
+test tests::e4_coding_cli::mid_run_log_errors_do_not_abort_run ... ok
+.warsha/cli.log
+test tests::e4_coding_cli::test_is_warsha_internal_path_root_only ... ok
+test tests::e4_coding_cli::test_ensure_git_exclude_handles_unterminated_managed_entry ... ok
+test tests::e4_coding_cli::nested_docs_warsha_notes_is_reported_in_files_changed ... ok
+test tests::e4_coding_cli::cli_run_changing_nothing_reports_no_warsha_in_files_changed_and_clean_git_status ... ok
+test tests::materialize_fixture_refuses_paths_outside_the_worktree ... ok
+test tests::materialize_fixture_writes_the_proofcalc_contracts ... ok
+test tests::e4_coding_cli::test_ensure_git_exclude_atomic_and_preserves_user_lines ... ok
+test tests::streaming_acceptance::test_claude_stream_fixture_sequence ... ok
+test tests::streaming_acceptance::test_codex_stream_fixture_sequence ... ok
+test tests::streaming_acceptance::test_content_rule_canary ... ok
+test tests::streaming_acceptance::test_no_stream_telemetry_label ... ok
+test tests::e4_coding_cli::test_ensure_git_exclude_non_utf8_leaves_file_untouched ... ok
+test tests::streaming_acceptance::test_opencode_stream_fixture_sequence ... ok
+test tests::e4_coding_cli::test_ensure_git_exclude_preserves_mixed_line_endings ... ok
+test tests::test_builtin_backend ... ok
+test tests::test_cli_backend_check ... ok
+test tests::e4_coding_cli::test_ensure_git_exclude_preserves_user_warsha_immediately_after_managed_block ... ok
+test tests::the_inventory_names_every_backend_and_availability_filters_it ... ok
+test tests::streaming_acceptance::test_opencode_end_to_end_streams_events_and_flags_estimated_usage ... ok
+test tests::e4_coding_cli::warsha_config_json_is_reported_in_files_changed ... ok
+test tests::e4_coding_cli::a_cli_reported_cost_counts_toward_the_run_budget ... ok
+test catalog::tests::test_cli_health_timeout_fails_closed ... ok
+test tests::e4_coding_cli::no_selection_leaves_the_code_stage_on_the_provider ... ok
+test tests::e4_coding_cli::an_unavailable_coding_backend_fails_the_stage_cleanly ... ok
+test tests::streaming_acceptance::test_killed_cli_leaves_failed_or_stopped_session ... ok
+test tests::e4_coding_cli::the_code_stage_runs_the_selected_cli_and_reports_its_changes ... ok
+test tests::e4_coding_cli::the_environment_names_the_code_stage_backend ... ok
+test tests::streaming_acceptance::test_stalled_stream_does_not_block_run_loop ... ok
+
+test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.08s
+
+     Running tests/n2_acceptance.rs (target/debug/deps/n2_acceptance-1ad79ab5d63e3ef3)
+
+running 5 tests
+test custom_backend_permission_skipping_warning_and_catalog_sweep ... ok
+test detection_marks_installed_and_absent_against_fixture_path ... ok
+test unknown_backend_name_fails_at_run_start_and_never_uses_routed_provider ... ok
+test unmapped_engine_refused_under_read_only_with_backstop_off_and_allowed_with_backstop_on ... ok
+test custom_backend_runs_end_to_end_on_mock_project_and_absent_twin_fails_by_name ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running tests/opencode_harness_proving.rs (target/debug/deps/opencode_harness_proving-431e89608f2e729c)
+
+running 2 tests
+test untracked_file_written_without_git_add_is_in_the_diff ... ok
+test opencode_backend_on_path_writes_nonempty_rs_into_git_diff ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/opencode_live_capture.rs (target/debug/deps/opencode_live_capture-7871a4e338642bb3)
+
+running 1 test
+test real_opencode_unstaged_hello_is_captured_without_noise ... ignored, owner-authorized live model call only; requires WARSHA_LIVE_OPENCODE and WARSHA_E2E_REAL
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests warsha_backends
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

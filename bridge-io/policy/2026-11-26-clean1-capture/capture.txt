@@ -1,0 +1,16 @@
+before=["664 README.md"]
+status_before=
+head_before=bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93
+after=["664 .warsha/cli.log", "664 README.md", "664 hello.txt", "775 .warsha/"]
+status_after="?? hello.txt\n"
+head_after=bcf15eccfd9f0b70eb8e7426a82d64cfc9371a93
+success=true
+files_changed=["hello.txt"]
+diff:
+diff --git a/hello.txt b/hello.txt
+new file mode 100644
+index 0000000..45b983b
+--- /dev/null
++++ b/hello.txt
+@@ -0,0 +1 @@
++hi

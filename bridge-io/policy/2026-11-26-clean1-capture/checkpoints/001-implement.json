@@ -1,0 +1,80 @@
+{
+  "schema": "warsha-run/v1",
+  "run_id": "2026-11-26-clean1-capture",
+  "task": "Observe one owner-authorized keyless OpenCode invocation through BackendFactory::opencode in a /tmp scratch repo, prove capture sees unstaged hello.txt and excludes noise, add an ignored opt-in test and record exact observations. Never publish or modify other worktrees.",
+  "phase": "implement",
+  "seq": 1,
+  "updated_at": "2026-11-26T04:00:00Z",
+  "roles": {
+    "planner": "owner (commands frozen in request)",
+    "implementer": "capture worker",
+    "reviewer": "capture worker (capacity merge; not independent)",
+    "verifier": "capture worker (capacity merge; not independent)"
+  },
+  "scope": {
+    "allowed_files": [
+      "crates/warsha-backends/tests/opencode_live_capture.rs",
+      "crates/warsha-backends/src/lib.rs (only if observed noise)",
+      "crates/warsha-backends/tests/opencode_harness_proving.rs (only if observed noise)",
+      "DECISIONS.md",
+      "PROGRESS.md",
+      "bridge-io/policy/2026-11-26-clean1-capture/**"
+    ],
+    "out_of_scope": [
+      "other worktrees",
+      "root checkout",
+      "credentials",
+      "~/.config/opencode",
+      "push/tag/publish/merge"
+    ]
+  },
+  "worktree": {
+    "path": "/home/moe/Downloads/Warsha/.agents/worktrees/clean1-capture",
+    "branch": "r-next/clean1-capture",
+    "base_commit": "90aad8ddc73c38b9020fbadcd021d1b731b12510",
+    "mode": "git-worktree"
+  },
+  "plan": {
+    "steps": [
+      "Add ignored test in separate process with private HOME/XDG and credential-cleared launcher",
+      "Execute exactly one tiny real model request through catalog backend and preserve scratch evidence",
+      "Only fix production capture if actual noise observed; add matching mock proof if needed",
+      "Record observations, run frozen owner commands, self-review and commit"
+    ],
+    "acceptance_gates": [
+      {
+        "id": "fmt",
+        "check": "cargo fmt --all -- --check",
+        "expect": "exit 0"
+      },
+      {
+        "id": "test",
+        "check": "CARGO_INCREMENTAL=0 cargo test -p warsha-backends > /tmp/capture-test.log 2>&1",
+        "expect": "exit 0; live check ignored"
+      },
+      {
+        "id": "clippy",
+        "check": "CARGO_INCREMENTAL=0 cargo clippy -p warsha-backends --all-targets -- -D warnings > /tmp/capture-clippy.log 2>&1",
+        "expect": "exit 0"
+      },
+      {
+        "id": "policy",
+        "check": "node scripts/check-engineering-policy.mjs",
+        "expect": "exit 0"
+      }
+    ]
+  },
+  "budget": "one live tiny model call; no retries without authorization",
+  "repair": {
+    "iteration": 0,
+    "max_repair_iterations": 3,
+    "open_findings": []
+  },
+  "blocker": null,
+  "evidence": {
+    "dir": "bridge-io/policy/2026-11-26-clean1-capture",
+    "gates": [],
+    "logs": []
+  },
+  "process_limits": "State checkpoint written after initial test draft rather than before; disclosed, no independent review/verification claimed. Owner gate commands unchanged. Explicit live exception uses both WARSHA_LIVE_OPENCODE and WARSHA_E2E_REAL."
+}
