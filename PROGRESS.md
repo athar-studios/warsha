@@ -1,5 +1,18 @@
 # PROGRESS.md — Warsha Build Log
 
+## FIXES COMPLETE — SIMPLE HOME WIDTH ROUND — 2026-11-26
+
+- **Code merge tip**: `71e9c3f` (plus this `PROGRESS.md` commit) on `r-next/integration`, merging `r-next/simple-home-width` (`2573b58`) on top of `3e66070`. `main` (`rel-031`) untouched at `5f4b742`. Local only: nothing pushed, tagged, or published.
+- **Judge**: `JUDGE PASS — 100/100` (`/tmp/judge-simple-home-width.md`) recorded against exact commit `2573b58` (40 requirement, 30 proving evidence, 20 no fabricated claims, 10 AR/EN/layout safety).
+- **Coordinator gates at `71e9c3f`**:
+  - `apps/desktop` Vitest: **91 files / 857 passed**, 0 failed (`/tmp/int-shw-vitest.log`), including the new regression test in `apps/desktop/src/v3/pages/home/Home.test.tsx`.
+  - `apps/desktop` `tsc --noEmit`: exit 0 (`/tmp/int-shw-tsc.log`); `apps/desktop` ESLint: exit 0, 0 errors, 1 pre-existing warning at `apps/desktop/src/v3/pages/developers/index.tsx:291` (`/tmp/int-shw-lint.log`).
+  - `packages/ui` `tokens.test.ts`: **1 file / 17 passed**, 0 failed (`/tmp/int-shw-tokens.log`), confirming `--w-content-narrow: 720px` and `--w-content: 1120px` remain intact.
+  - Engineering policy: `node scripts/check-engineering-policy.mjs` — **8 checks, 0 failures** (`/tmp/int-shw-policy.log`).
+- **Playwright wide-screen walk at `71e9c3f`** (`/home/moe/tools/playwright-ux/runs/2026-11-26-71e9c3f/report.md`, `notes.json`, 8 PNGs in `shots/`): **PASS** in both EN (`ltr`) and AR (`rtl`) at `1680x1050` and `1920x1080` (`>=1600px` viewport). `.v3-home-narrow` measured `maxWidth: 1120px` and `width: 1120px` with 0 horizontal overflow; 6 seeded projects laid out in **3 columns × 2 rows** (`352px 352px 352px`, `gap: 12px`, 0 card/text overlaps); `/inbox` and `/onboarding` stayed `720px` (`--w-content-narrow` preserved); `tesseract` OCR confirmed legible EN/AR captures; 0 console/page errors.
+- **Known limits**: Neither worker nor coordinator can inspect PNGs directly (`Orchesterar` lacks image input), so visual checks rely on Chromium DOM/CSS geometry assertions and `tesseract` OCR; Tauri IPC was stubbed in Chromium; Rust crates were not modified in this round (last Rust workspace pass stands from `8515092`).
+- **Stop at FIXES COMPLETE** for owner hands-on testing — no push, tag, or publish.
+
 ## Run 2026-11-26 — Simple Home width round (D-RN-SIMPLE-HOME-WIDTH-1)
 
 - **Branch & worktree**: `r-next/simple-home-width` (base `3e66070`) in `.agents/worktrees/simple-home-width`. No push, merge, tag, or `main` changes.
