@@ -413,8 +413,10 @@ describe('HomePage', () => {
     expect(listCount).toBeGreaterThan(1);
   });
 
-  it('reloads project list on home.interview.start after project creation', async () => {
+  it('reloads projects and navigates only after interviewStart completes', async () => {
     let listCount = 0;
+    let finishStart: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { finishStart = resolve; });
     const client = makeMockClient({
       listProjects: vi.fn().mockImplementation(async () => {
         listCount++;
@@ -426,7 +428,7 @@ describe('HomePage', () => {
         createdAt: '2026-10-05T08:00:00.000Z',
         updatedAt: '2026-10-05T08:00:00.000Z',
       }),
-      interviewStart: vi.fn().mockResolvedValue(undefined),
+      interviewStart: vi.fn().mockReturnValue(started),
     });
 
     await renderHome({ client, locale: 'ar' });
@@ -447,6 +449,9 @@ describe('HomePage', () => {
       expect.stringContaining('فكرة تحتاج')
     );
     expect(listCount).toBeGreaterThan(1);
+    expect(screen.getByTestId('route-inspector').textContent).toBe('/');
+    await act(async () => { finishStart?.(); await started; });
+    await waitFor(() => expect(screen.getByTestId('route-inspector').textContent).toBe('/p/proj-interview'));
   });
 
   it('fills composer when clicking starter example chips (home.example.use)', async () => {

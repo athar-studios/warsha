@@ -9,6 +9,8 @@
 // before any RPC: unquoted instruction content must not move the owner's money.
 import type {
   CostEstimate,
+  InterviewState,
+  ProvisioningRecord,
   McpApproval,
   ProposalAction,
   RunId,
@@ -182,8 +184,101 @@ type ProjectId = Parameters<WarshaClient['startRun']>[0];
 
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
+/** Interview projects keep their persisted protocol; only other projects use general chat. */
+export default function SecretaryChat(props: SecretaryChatProps): React.ReactElement {
+  const client = useClient();
+  const [state, setState] = useState<InterviewState | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setLoaded(false);
+    setState(null);
+    setError(false);
+    if (!props.projectId || !client?.interviewStatus) {
+      setLoaded(true);
+      return;
+    }
+    void client.interviewStatus(props.projectId).then((value) => {
+      if (active) { setState(value); setLoaded(true); }
+    }).catch(() => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [client, props.projectId, retry]);
+  if (error) return <Banner variant="danger">{props.t('secretary.error')}<Button onClick={() => setRetry((value) => value + 1)}>{props.t('secretary.interview.retry')}</Button></Banner>;
+  if (!loaded) return <p role="status">{props.t('secretary.loading')}</p>;
+  if (state && props.projectId && client) return <SecretaryInterview key={props.projectId} client={client} initialState={state} projectId={props.projectId} t={props.t} />;
+  return <GeneralSecretaryChat {...props} />;
+}
+
+function SecretaryInterview({ client, initialState, projectId, t }: {
+  client: WarshaClient; initialState: InterviewState; projectId: ProjectId; t: SecretaryChatProps['t'];
+}): React.ReactElement {
+  const [state, setState] = useState(initialState);
+  const [answer, setAnswer] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const [capped, setCapped] = useState(false);
+  const [records, setRecords] = useState<ProvisioningRecord[] | null>(null);
+  const [recordsError, setRecordsError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if (!state.is_done) return;
+    let active = true;
+    setRecordsError(false);
+    void client.listProvisioning(projectId).then((rows) => {
+      if (active) setRecords(rows);
+    }).catch(() => { if (active) setRecordsError(true); });
+    return () => { active = false; };
+  }, [client, projectId, state.is_done, retry]);
+  const send = async (reply: string): Promise<void> => {
+    if (busy || !reply.trim()) return;
+    setBusy(true);
+    setError(false);
+    setCapped(false);
+    try {
+      const outcome = await client.interviewTurn(projectId, reply.trim());
+      setState(outcome.state);
+      if (outcome.kind === 'daily_limit_reached') setCapped(true);
+      else setAnswer('');
+    } catch { setError(true); }
+    finally { setBusy(false); }
+  };
+  return <section className="v3-secretary" data-testid="secretary-interview" aria-label={t('secretary.interview.title')}>
+    <h3>{t('secretary.interview.title')}</h3>
+    <p role="status">{t('secretary.interview.progress', { covered: state.covered_topics.length, total: state.covered_topics.length + state.open_topics.length })}</p>
+    {state.transcript.map((turn, index) => <div key={index}><p dir="auto">{turn.question}</p><p dir="auto">{turn.answer}</p></div>)}
+    {state.is_done ? <>
+      <h4>{t('secretary.interview.completed')}</h4>
+      <p>{t('secretary.interview.developers')}</p>
+      {recordsError ? <Banner variant="danger">{t('secretary.error')}<Button onClick={() => setRetry((value) => value + 1)}>{t('secretary.interview.retry')}</Button></Banner> : records === null ? <p role="status">{t('secretary.loading')}</p> : <>
+        <h4>{t('secretary.interview.provisioning')}</h4>
+        {records.length === 0 && <p>{t('secretary.interview.empty')}</p>}
+        <ul>{records.map((record) => <li key={record.agentId}>
+          <b dir="auto">{record.agentId}</b>
+          <dl>
+            <dt>{t('secretary.interview.role')}</dt><dd dir="auto">{t(`settings.role.${record.role}`)}</dd>
+            <dt>{t('secretary.interview.skills')}</dt><dd dir="auto">{record.skills.join(', ') || t('secretary.interview.none')}</dd>
+            <dt>{t('secretary.interview.tools')}</dt><dd dir="auto">{record.tools.join(', ') || t('secretary.interview.none')}</dd>
+            <dt>{t('secretary.interview.source')}</dt><dd dir="auto">{record.source}</dd>
+            <dt>{t('secretary.interview.audit')}</dt><dd>{t(record.audited ? 'secretary.interview.audited' : 'secretary.interview.unaudited')}</dd>
+          </dl>
+        </li>)}</ul>
+      </>}
+    </> : <form onSubmit={(event) => { event.preventDefault(); void send(answer); }}>
+      <p dir="auto">{state.next_question}</p>
+      <label htmlFor="secretary-interview-answer">{t('secretary.interview.answer')}</label>
+      <textarea id="secretary-interview-answer" dir="auto" value={answer} disabled={busy} onChange={(event) => setAnswer(event.target.value)} />
+      {error && <Banner variant="danger">{t('secretary.error')}</Banner>}
+      {capped && <Banner variant="danger">{t('secretary.cap')}</Banner>}
+      <Button type="submit" disabled={busy || !answer.trim()}>{t('secretary.interview.send')}</Button>
+      <Button type="button" disabled={busy} onClick={() => { void send('enough'); }}>{t('secretary.interview.finish')}</Button>
+    </form>}
+  </section>;
+}
+
 /** The chat body: thread switcher (global / this project), turns, input, proposal card. */
-export default function SecretaryChat({
+function GeneralSecretaryChat({
   projectId,
   t,
   onConfirmed,

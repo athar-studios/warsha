@@ -719,6 +719,7 @@ export default function HomePage(): React.ReactElement {
       : await client.createProject(projectName, idea.trim(), locale);
     projectsResult.reload();
     await client.interviewStart(project.id, idea.trim());
+    navigate(`/p/${project.id}`);
   });
   // Action: home.start
   // MUST call projects.create -> runs.start -> budget.set IN THAT ORDER

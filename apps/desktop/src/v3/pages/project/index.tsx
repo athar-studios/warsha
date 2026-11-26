@@ -331,6 +331,16 @@ export default function ProjectPage(): React.ReactElement {
   const [budgetDraft, setBudgetDraft] = useState<number | string>(10);
   const [permissionsSheetOpen, setPermissionsSheetOpen] = useState(false);
   const [secretarySheetOpen, setSecretarySheetOpen] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setSecretarySheetOpen(false);
+    if (client?.interviewStatus && projectId) {
+      void client.interviewStatus(projectId as ProjectId).then((state) => {
+        if (active && state) setSecretarySheetOpen(true);
+      }).catch(() => { /* The secretary entry still permits an explicit retry. */ });
+    }
+    return () => { active = false; };
+  }, [client, projectId]);
   const [permissionsDraft, setPermissionsDraft] = useState<ProjectPermissions | null>(null);
 
   // Capability-gated run-ending dialog/form states
