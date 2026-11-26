@@ -120,34 +120,17 @@ const DevelopersPage: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const load = async (): Promise<void> => {
+    const loadRuns = async (): Promise<void> => {
       if (!client || !projectId) return;
       try {
-        const [runList, budgetStatus, assigned] = await Promise.all([
-          client.listRuns(projectId),
-          client.getProjectBudget(projectId).catch(() => null),
-          // A missing method throws before .catch can attach. Resolve first so
-          // an older client, or a test double, still loads the run list.
-          Promise.resolve()
-            .then(() => client.listProvisioning(projectId))
-            .catch(() => null),
-        ]);
+        const runList = await client.listRuns(projectId);
         if (cancelled) return;
         setRuns(runList);
         setWaitingRunIds(new Set());
-        setProvisioning(assigned);
-        setBudget(
-          budgetStatus === null
-            ? null
-            : {
-                spentCents: Math.round(budgetStatus.spentUsd * 100),
-                capCents:
-                  budgetStatus.totalBudgetUsd > 0 ? Math.round(budgetStatus.totalBudgetUsd * 100) : null,
-              }
-        );
         setRunId((current) => current ?? runList[0]?.id ?? null);
         // D-RN-UI-R5: the daemon keeps a run `running` while it waits at a gate; the same
         // pending-gate-at-current-stage rule as the frame chips decides which are waiting.
+        // Refine gate-waiting badges independently so rows render as soon as the run list loads.
         const waiting = new Set<string>();
         await Promise.all(
           runList.map(async (item) => {
@@ -165,7 +148,32 @@ const DevelopersPage: React.FC = () => {
         if (!cancelled) setError(t('developers.error'));
       }
     };
-    void load();
+    const loadBudget = async (): Promise<void> => {
+      if (!client || !projectId) return;
+      const budgetStatus = await client.getProjectBudget(projectId).catch(() => null);
+      if (cancelled) return;
+      setBudget(
+        budgetStatus === null
+          ? null
+          : {
+              spentCents: Math.round(budgetStatus.spentUsd * 100),
+              capCents:
+                budgetStatus.totalBudgetUsd > 0 ? Math.round(budgetStatus.totalBudgetUsd * 100) : null,
+            }
+      );
+    };
+    const loadProvisioning = async (): Promise<void> => {
+      if (!client || !projectId) return;
+      // A missing method throws before .catch can attach. Resolve first so
+      // an older client, or a test double, still loads the run list.
+      const assigned = await Promise.resolve()
+        .then(() => client.listProvisioning(projectId))
+        .catch(() => null);
+      if (!cancelled) setProvisioning(assigned);
+    };
+    void loadRuns();
+    void loadBudget();
+    void loadProvisioning();
     return () => {
       cancelled = true;
     };

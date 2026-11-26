@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   BudgetStatus,
   GateSummary,
@@ -13,7 +13,7 @@ import type {
 } from '@warsha/client';
 import { I18nProvider, enCatalog } from '@warsha/i18n/v3';
 import React from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { CapabilitiesProvider } from '../../app/CapabilitiesContext';
 import { ClientProvider } from '../../app/ClientContext';
@@ -36,6 +36,17 @@ import ProjectPage, {
   retryHintKey,
   retryHintText,
 } from './index';
+
+// ProjectPage resolves project/runs first, then triggers a second useEffect hop for
+// useGates(runId) and useArtifacts(runId). Under heavy parallel worker CPU load, two
+// React commit+effect hops can exceed Testing Library's 1000 ms default asyncUtilTimeout;
+// raise this file's ceiling without weakening assertions or touching fake-timer tests.
+beforeAll(() => {
+  configure({ asyncUtilTimeout: 5000 });
+});
+afterAll(() => {
+  configure({ asyncUtilTimeout: 1000 });
+});
 
 describe('structured provider-required activity', () => {
   it('uses the action code even when daemon prose changes', () => {
