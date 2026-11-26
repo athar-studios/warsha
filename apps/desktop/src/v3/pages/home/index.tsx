@@ -41,6 +41,7 @@ import { notify } from '../../app/toast';
 import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../copy/stages';
 import { useDefaultBudget, useModels, useProjects, useQuotaGauge, useRoles } from '../../data';
 import { markInterviewEntry } from '../../data/interviewEntry';
+import { describeRpcError, type DescribedRpcError } from '../../data/rpcErrors';
 import { useResource } from '../../data/useResource';
 import { useNavigate } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
@@ -106,7 +107,7 @@ export function NewProjectDialog({
   const [sourceValue, setSourceValue] = useState<ProjectSourceValue>(INITIAL_PROJECT_SOURCE);
   const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<DescribedRpcError | string | null>(null);
   const [confirm, setConfirm] = useState<SourceConfirmRequest | null>(null);
   const [pendingMeta, setPendingMeta] = useState<{
     projectName: string;
@@ -162,7 +163,7 @@ export function NewProjectDialog({
       resetDialog();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeRpcError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -233,7 +234,7 @@ export function NewProjectDialog({
       resetDialog();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeRpcError(err, t));
     } finally {
       setSubmitting(false);
     }
@@ -250,8 +251,10 @@ export function NewProjectDialog({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-3)' }}>
         {error && (
-          <Banner variant="danger" title={t('common.error')}>
-            {error}
+          <Banner variant="danger" title={typeof error === 'string' ? error : t(error.key)}>
+            {typeof error === 'string' ? null : error.detail ? (
+              <span dir="auto">{error.detail}</span>
+            ) : null}
           </Banner>
         )}
         <TextField
@@ -602,7 +605,9 @@ export default function HomePage(): React.ReactElement {
   const [idea, setIdea] = useState('');
   const [sourceValue, setSourceValue] = useState<ProjectSourceValue>(INITIAL_PROJECT_SOURCE);
   const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null);
-  const [composerError, setComposerError] = useState<string | null>(null);
+  // Either already-localized validation copy (a plain string) or a
+  // localized daemon rejection (catalog key + raw detail, R-4).
+  const [composerError, setComposerError] = useState<DescribedRpcError | string | null>(null);
   // B-1/R-7 pending git-init confirmation on the Simple Home composer: set when
   // resolveProjectSource probes an existing non-git folder instead of creating.
   const [composerConfirm, setComposerConfirm] = useState<SourceConfirmRequest | null>(null);
@@ -934,7 +939,7 @@ export default function HomePage(): React.ReactElement {
       navigate(`/p/${project.id}`);
     } catch (err) {
       if (err instanceof ConfirmNeeded) return;
-      setComposerError(err instanceof Error ? err.message : String(err));
+      setComposerError(describeRpcError(err, t));
       throw err;
     }
   });
@@ -979,7 +984,7 @@ export default function HomePage(): React.ReactElement {
       navigate(`/p/${project.id}`);
     } catch (err) {
       if (err instanceof ConfirmNeeded) return;
-      setComposerError(err instanceof Error ? err.message : String(err));
+      setComposerError(describeRpcError(err, t));
       throw err;
     }
   });
@@ -1023,7 +1028,7 @@ export default function HomePage(): React.ReactElement {
       await client.setProjectBudget(project.id, budgetCents);
       navigate(`/p/${project.id}`);
     } catch (err) {
-      setComposerError(err instanceof Error ? err.message : String(err));
+      setComposerError(describeRpcError(err, t));
       throw err;
     } finally {
       setComposerConfirmBusy(false);
@@ -1395,10 +1400,14 @@ export default function HomePage(): React.ReactElement {
             <div style={{ marginBlockStart: 'var(--w-space-2)' }}>
               <Banner
                 variant="danger"
-                title={t('common.error')}
+                title={
+                  typeof composerError === 'string' ? composerError : t(composerError.key)
+                }
                 data-testid="home-composer-error"
               >
-                {composerError}
+                {typeof composerError === 'string' ? null : composerError.detail ? (
+                  <span dir="auto">{composerError.detail}</span>
+                ) : null}
               </Banner>
             </div>
           ) : null}

@@ -227,7 +227,7 @@ describe('ProjectSourcePicker + HomePage integration', () => {
     const client = makeMockClient({
       repoStatus: vi.fn().mockResolvedValue({ exists: true, isRepo: true, hasHead: true }),
     });
-    const { client: renderedClient } = await renderHomeWithSource({ client, locale: 'en' });
+    await renderHomeWithSource({ client, locale: 'en' });
 
     fireEvent.click(screen.getByRole('radio', { name: /Choose folder/i }));
     expect(screen.queryByTestId('home-source-picker-unavailable')).toBeNull();
@@ -820,6 +820,52 @@ describe('ProjectSourcePicker + HomePage integration', () => {
       );
       expect(onClose).toHaveBeenCalled();
     });
+  });
+
+  it('R-4: a rejected createProject shows the translated Arabic not_git_repo copy with the raw detail under it', async () => {
+    const rawMessage = 'rpc error: `/tmp/plain` is not a git repository';
+    const client = makeMockClient({
+      createProject: vi.fn().mockRejectedValue(new Error(rawMessage)),
+    });
+    await renderHomeWithSource({ client, locale: 'ar' });
+
+    fireEvent.change(screen.getByLabelText(translate('ar', 'home.idea_label')), {
+      target: { value: 'Add dark mode toggle' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-start-button'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-composer-error')).toBeTruthy();
+    });
+    const banner = screen.getByTestId('home-composer-error');
+    // Title carries the localized copy; the raw daemon message is isolated
+    // in the dir="auto" detail span underneath it.
+    expect(banner.textContent).toContain(translate('ar', 'home.errors.not_git_repo'));
+    expect(banner.querySelector('span[dir="auto"]')?.textContent).toBe(rawMessage);
+  });
+
+  it('R-4: an unknown daemon message falls back to server_error with the raw detail kept', async () => {
+    const rawMessage = 'rpc error: something exploded upstream';
+    const client = makeMockClient({
+      createProject: vi.fn().mockRejectedValue(new Error(rawMessage)),
+    });
+    await renderHomeWithSource({ client, locale: 'ar' });
+
+    fireEvent.change(screen.getByLabelText(translate('ar', 'home.idea_label')), {
+      target: { value: 'Add dark mode toggle' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-start-button'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-composer-error')).toBeTruthy();
+    });
+    const banner = screen.getByTestId('home-composer-error');
+    expect(banner.textContent).toContain(translate('ar', 'home.errors.server_error'));
+    expect(banner.querySelector('span[dir="auto"]')?.textContent).toBe(rawMessage);
   });
 
   it('NewProjectDialog confirm-init variant: cancel closes the panel without prepare or create', async () => {
