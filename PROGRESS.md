@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-27 — CLEAN-5 FIX ROUND merge record (round CLEAN-5; merge freeze lifted for this round only)
+
+- **Lanes judged at their exact SHAs, then merged into `r-next/integration`:**
+  - Backend `r-next/clean5-backend` @ `97a5f1a` — **Judge r31 PASS 94/100** (`/tmp/judge-clean5-backend.md` names SHA `97a5f1a`, round r31): B-2 private-by-default, B-1 `prepare_existing_folder` + `repo_status` probe, R-1 clone token off argv. Merged as **`d9c8fbe`**.
+  - UI `r-next/clean5-ui` @ `dd85e30` (Chunk A `bf4e8f2` + Chunk B `dd85e30`) — **Judge r32 PASS 100/100** (`/tmp/judge-clean5-ui.md` names SHA `dd85e30`, round r32): B-1/R-7 confirm-before-git-init in both composers, B-2 visibility radios private-default with no idea-as-description, R-3 gate-exit remap, R-4 localized RPC errors, R-5/R-6/R-8 i18n cleanups. Merged as **`c01d2e3`**.
+- **Union-resolved**: `DECISIONS.md` kept both `D-RN-CLEAN5-1` and `D-RN-CLEAN5-2`; lane entries above/below untouched. No other conflicts.
+- **Freeze state**: `main` untouched (`5f4b742`); nothing pushed, tagged, or published. Post-merge walk + gates recorded below under the FIXES COMPLETE heading once run.
+
 ## Run 2026-11-26 — CLEAN-5 backend: private-by-default GitHub creation, existing-folder probe+prepare, clone token off argv (D-RN-CLEAN5-1)
 
 - **Branch & worktree**: `r-next/clean5-backend` (base `2aef9ea`) in `.agents/worktrees/clean5-backend`. Local commit only; no push, merge, tag, or `main` changes. UI lanes (`packages/client`, `apps/desktop`, `packages/i18n`) untouched.
