@@ -1,5 +1,20 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — CLEAN-5 backend: private-by-default GitHub creation, existing-folder probe+prepare, clone token off argv (D-RN-CLEAN5-1)
+
+- **Branch & worktree**: `r-next/clean5-backend` (base `2aef9ea`) in `.agents/worktrees/clean5-backend`. Local commit only; no push, merge, tag, or `main` changes. UI lanes (`packages/client`, `apps/desktop`, `packages/i18n`) untouched.
+- **Fixes** (external review `claude-code-verify-clean4-2026-11-26.md`, B-1/B-2/R-1):
+  - B-2: `CreateRepoBody` gains always-serialized `private: bool`; `GitHubClient::create_repo` takes `private: bool`; RPC `projects.create_github_repo` gains `private_repo: Option<bool>` with null/absent → PRIVATE (`unwrap_or(true)`). Mock echoes the request body; tests assert `"private": true` by default and `"private": false` for explicit `Some(false)`.
+  - B-1: new `prepare_existing_folder` (non-git dir → `git init -q` + initial commit of existing files, never deletes/overwrites; repo with HEAD → untouched; headless repo → initial commit; missing path / regular file → error) plus read-only probe `projects.repo_status` → `RepoStatus {exists, is_repo, has_head}` (`path` XOR `parent_dir`+`name`, `-32602` otherwise, `../evil` refused). Both RPCs `Policy::Owner`. B-1 acceptance test: probe → prepare → `projects.create` succeeds on a plain folder.
+  - R-1: clone HTTPS Basic header moved from git argv (`-c http.extraHeader`) to `GIT_CONFIG_COUNT/KEY_0/VALUE_0` env via `github_clone_auth_env`; unit test asserts the raw token never appears except base64-encoded. `GIT_TERMINAL_PROMPT=0` kept.
+- **Verification** (with `CARGO_TARGET_DIR=/home/moe/tools/target-clean5-backend`):
+  - `cargo fmt --all -- --check`: exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0.
+  - `cargo test -p warsha-git`: **17 passed** (14 unit + 3 integration), 0 failed.
+  - `cargo test -p warsha-pipeline worktree`: **26 passed** (23 lib + 3 integration), 0 failed.
+  - `cargo test -p warshad project_source`: **7 passed**, 0 failed.
+  - `node scripts/check-engineering-policy.mjs`: **8 checks, 0 failures**.
+
 ## Run 2026-11-26 — Project Source Options UI + Tauri folder picker (D-RN-PROJECT-SOURCE-2)
 
 - **Branch & worktree**: `r-next/pso-ui` (base `5857f62`) in `.agents/worktrees/pso-ui`. Local commit only; no push, merge, tag, or `main` changes.

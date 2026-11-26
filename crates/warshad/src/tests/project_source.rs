@@ -3,7 +3,7 @@ use axum::extract::State as AxumState;
 use axum::http::HeaderMap;
 use axum::routing::post;
 use axum::{Json, Router};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use warsha_core::IntegrationConfig;
@@ -208,7 +208,7 @@ async fn create_github_repo_rpc_uses_integration_token_and_mock_server() {
                         "name": name,
                         "full_name": format!("octo/{name}"),
                         "description": body.get("description").cloned().unwrap_or(serde_json::Value::Null),
-                        "private": false,
+                        "private": body.get("private").cloned().unwrap_or(serde_json::Value::Bool(false)),
                         "html_url": format!("https://github.com/octo/{name}"),
                         "clone_url": st.clone_url,
                         "default_branch": "main"
@@ -262,6 +262,7 @@ async fn create_github_repo_rpc_uses_integration_token_and_mock_server() {
             "warsha-demo".to_string(),
             Some("Created via mock GitHub".to_string()),
             Some(parent_dir.to_string_lossy().to_string()),
+            None,
         )
         .await
         .expect("create_github_repo succeeds");
@@ -279,16 +280,43 @@ async fn create_github_repo_rpc_uses_integration_token_and_mock_server() {
         .expect("rev-parse HEAD");
     assert!(head.status.success(), "cloned empty repo must have HEAD");
 
+    {
+        let reqs = captured.lock().expect("lock");
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].0, "Bearer ghp_test_integration_secret");
+        assert_eq!(
+            reqs[0].1.get("name").and_then(|v| v.as_str()),
+            Some("warsha-demo")
+        );
+        assert_eq!(
+            reqs[0].1.get("description").and_then(|v| v.as_str()),
+            Some("Created via mock GitHub")
+        );
+        // Null/absent `private_repo` means PRIVATE: the request body always
+        // carries `"private": true` by default.
+        assert_eq!(
+            reqs[0].1.get("private").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    // An explicit `private_repo: false` opts into a public repository.
+    let created_public = rpc
+        .create_github_repo(
+            &owner,
+            "warsha-public".to_string(),
+            None,
+            Some(parent_dir.to_string_lossy().to_string()),
+            Some(false),
+        )
+        .await
+        .expect("public create_github_repo succeeds");
+    assert_eq!(created_public.full_name, "octo/warsha-public");
     let reqs = captured.lock().expect("lock");
-    assert_eq!(reqs.len(), 1);
-    assert_eq!(reqs[0].0, "Bearer ghp_test_integration_secret");
+    assert_eq!(reqs.len(), 2);
     assert_eq!(
-        reqs[0].1.get("name").and_then(|v| v.as_str()),
-        Some("warsha-demo")
-    );
-    assert_eq!(
-        reqs[0].1.get("description").and_then(|v| v.as_str()),
-        Some("Created via mock GitHub")
+        reqs[1].1.get("private").and_then(|v| v.as_bool()),
+        Some(false)
     );
 
     server.abort();
@@ -309,7 +337,7 @@ async fn github_status_unconfigured_and_create_github_repo_refuses() {
     assert_eq!(status.source, None);
 
     let err = rpc
-        .create_github_repo(&owner, "blocked-repo".to_string(), None, None)
+        .create_github_repo(&owner, "blocked-repo".to_string(), None, None, None)
         .await
         .expect_err("create_github_repo must refuse without token");
     assert!(
@@ -318,4 +346,205 @@ async fn github_status_unconfigured_and_create_github_repo_refuses() {
         "unexpected refusal message: {}",
         err.message()
     );
+}
+
+fn head_sha_sync(dir: &Path) -> String {
+    let out = Command::new("git")
+        .args(["-C", &dir.to_string_lossy(), "rev-parse", "HEAD"])
+        .output()
+        .expect("rev-parse HEAD");
+    assert!(out.status.success());
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// B-1 acceptance: a plain non-git folder goes probe -> prepare -> create.
+///
+/// `projects.repo_status` reports `{exists: true, is_repo: false,
+/// has_head: false}`; `projects.prepare_existing_folder` returns the path
+/// unchanged; `projects.create` with that `repo_path` then succeeds (today it
+/// fails with "not a git repository").
+#[tokio::test]
+async fn existing_folder_probe_prepare_then_create_succeeds() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+
+    let plain = temp.path().join("my-existing-app");
+    std::fs::create_dir_all(&plain).expect("plain dir");
+    std::fs::write(plain.join("main.py"), "print('hello')\n").expect("write main");
+
+    let status = rpc
+        .project_repo_status(
+            &owner,
+            Some(plain.to_string_lossy().to_string()),
+            None,
+            None,
+        )
+        .await
+        .expect("repo_status succeeds");
+    assert!(status.exists);
+    assert!(!status.is_repo);
+    assert!(!status.has_head);
+
+    let prepared = rpc
+        .prepare_existing_folder(&owner, plain.to_string_lossy().to_string())
+        .await
+        .expect("prepare_existing_folder succeeds");
+    assert_eq!(PathBuf::from(&prepared.repo_path), plain);
+    assert!(plain.join(".git").exists());
+    assert_eq!(
+        std::fs::read_to_string(plain.join("main.py")).expect("read main"),
+        "print('hello')\n"
+    );
+
+    let project = rpc
+        .create_project(
+            &owner,
+            "Existing App".to_string(),
+            "Imported from an existing folder".to_string(),
+            "en".to_string(),
+            None,
+            None,
+            Some(prepared.repo_path.clone()),
+            None,
+        )
+        .await
+        .expect("create_project with a prepared existing folder succeeds");
+    assert_eq!(
+        project.repo_path.as_deref(),
+        Some(prepared.repo_path.as_str())
+    );
+}
+
+/// `projects.repo_status` on a git repo with HEAD, a missing path, and the
+/// parent_dir+name form (including the `../evil` refusal).
+#[tokio::test]
+async fn repo_status_probe_forms() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+
+    // A git repo with HEAD: true/true/true.
+    let ready = temp.path().join("ready-probe");
+    std::fs::create_dir_all(&ready).expect("ready dir");
+    run_git_sync(&["init", "-q", &ready.to_string_lossy()]);
+    run_git_sync(&[
+        "-C",
+        &ready.to_string_lossy(),
+        "config",
+        "user.email",
+        "t@t",
+    ]);
+    run_git_sync(&["-C", &ready.to_string_lossy(), "config", "user.name", "T"]);
+    std::fs::write(ready.join("a.txt"), "a").expect("write a");
+    run_git_sync(&["-C", &ready.to_string_lossy(), "add", "a.txt"]);
+    run_git_sync(&["-C", &ready.to_string_lossy(), "commit", "-qm", "seed"]);
+
+    let status = rpc
+        .project_repo_status(
+            &owner,
+            Some(ready.to_string_lossy().to_string()),
+            None,
+            None,
+        )
+        .await
+        .expect("repo_status on ready repo succeeds");
+    assert!(status.exists);
+    assert!(status.is_repo);
+    assert!(status.has_head);
+
+    // A missing path: exists=false.
+    let missing = rpc
+        .project_repo_status(
+            &owner,
+            Some(
+                temp.path()
+                    .join("no-such-dir")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            None,
+            None,
+        )
+        .await
+        .expect("repo_status on missing path succeeds");
+    assert!(!missing.exists);
+    assert!(!missing.is_repo);
+    assert!(!missing.has_head);
+
+    // parent_dir+name with an existing prepared folder: true/true/true.
+    let parent = temp.path().join("probe-parent");
+    std::fs::create_dir_all(&parent).expect("probe parent");
+    let prepared = rpc
+        .prepare_project_folder(
+            &owner,
+            parent.to_string_lossy().to_string(),
+            "probed-app".to_string(),
+        )
+        .await
+        .expect("prepare_folder succeeds");
+    let via_parent = rpc
+        .project_repo_status(
+            &owner,
+            None,
+            Some(parent.to_string_lossy().to_string()),
+            Some("probed-app".to_string()),
+        )
+        .await
+        .expect("repo_status parent_dir+name succeeds");
+    assert!(via_parent.exists);
+    assert!(via_parent.is_repo);
+    assert!(via_parent.has_head);
+    assert_eq!(
+        PathBuf::from(&prepared.repo_path),
+        parent.join("probed-app")
+    );
+
+    // `../evil` as a name is refused with -32602.
+    let evil = rpc
+        .project_repo_status(
+            &owner,
+            None,
+            Some(parent.to_string_lossy().to_string()),
+            Some("../evil".to_string()),
+        )
+        .await
+        .expect_err("evil name must be refused");
+    assert_eq!(super::rpc_error_code(&evil), -32602);
+}
+
+/// `prepare_existing_folder` on an already-initialized repo returns the path
+/// with the HEAD commit unchanged.
+#[tokio::test]
+async fn prepare_existing_folder_rpc_leaves_initialized_repo_untouched() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state);
+    let owner = owner_ext();
+
+    let ready = temp.path().join("untouched-app");
+    std::fs::create_dir_all(&ready).expect("ready dir");
+    run_git_sync(&["init", "-q", &ready.to_string_lossy()]);
+    run_git_sync(&[
+        "-C",
+        &ready.to_string_lossy(),
+        "config",
+        "user.email",
+        "t@t",
+    ]);
+    run_git_sync(&["-C", &ready.to_string_lossy(), "config", "user.name", "T"]);
+    std::fs::write(ready.join("b.txt"), "b").expect("write b");
+    run_git_sync(&["-C", &ready.to_string_lossy(), "add", "b.txt"]);
+    run_git_sync(&["-C", &ready.to_string_lossy(), "commit", "-qm", "seed"]);
+    let sha_before = head_sha_sync(&ready);
+
+    let prepared = rpc
+        .prepare_existing_folder(&owner, ready.to_string_lossy().to_string())
+        .await
+        .expect("prepare_existing_folder on ready repo succeeds");
+    assert_eq!(PathBuf::from(&prepared.repo_path), ready);
+    assert_eq!(head_sha_sync(&ready), sha_before);
+    assert!(!ready.join("README.md").exists());
 }

@@ -300,6 +300,16 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         tier: Standard,
     },
     M {
+        method: "projects.prepare_existing_folder",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "projects.repo_status",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
         method: "projects.clone_repo",
         policy: Owner,
         tier: Standard,
