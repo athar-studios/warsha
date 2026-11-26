@@ -51,6 +51,9 @@ path = "src/main.rs"
 # which is the only way to build the pre-K2 schema in-process — a test-only need.
 sqlx = { workspace = true }
 tempfile = { workspace = true }
+# R-F3e: `tests::clean1_swarm` drives `ScriptedBackend` and the builtin materialize fixture.
+# Dev-only, so resolver 2 keeps the feature out of a normal `cargo build -p warshad`.
+warsha-backends = { path = "../warsha-backends", features = ["test-fixtures"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.59", features = ["Win32_Security_Credentials", "Win32_Foundation", "Win32_System_Threading", "Win32_Security_Authorization"] }
