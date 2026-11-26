@@ -9476,3 +9476,11 @@ Merged P9-redo (d53f8bd: S-M5 release.yml hashes from checksums + skip-if-missin
 - Gates at this tip: `cargo test --workspace` 1460 passed, 0 failed; fmt clean; clippy clean; policy 8 checks, 0 failures. Desktop vitest 89 files, 809 passed, from the Judge's own run at `/tmp/judge-r6-vitest.log`.
 - Judge passes recorded for every merge in this round: rounds 5, 6 and 7.
 - This line does not say CLEAR. External verification follows.
+
+## Run 2026-11-26 — Secretary interview UI investigation (D-RN-INTERVIEW-1), BLOCKED
+
+- Worktree `.agents/worktrees/fix-interview-ui`, branch `r-next/fix-interview-ui`, base `b5d52da`; initial working tree clean. Local only; no model API calls, pushes, tags, merges, dependency symlinks, or source edits.
+- Home discards `interviewStart`'s question outcome and does not navigate. Project's secretary sheet uses general chat threads rather than `interview.status` / `interview.turn`. Existing interview RPCs support persisted questions, answers, daily-limit reporting, and completion (seven topics or explicit stop signal).
+- Exact blocking gap: completion writes staffing provisioning automatically in `crates/warshad/src/secretary.rs:830-852`; there is no owner-confirm RPC, and the done outcome does not include the staffing proposal. `secretary.provisioning.list` is read-only. A UI confirm button alone would falsely imply it caused provisioning persistence.
+- Stopped under ENGINEERING_POLICY §5 scope boundary: the smallest honest correction requires the excluded daemon API/handler, interview engine and client files. See D-RN-INTERVIEW-1 for exact paths and additive follow-up. Only DECISIONS.md and PROGRESS.md touched; no unfamiliar changes were found or discarded.
+- Verification limits: no UI/Rust regression test or red-first evidence produced because implementation stopped before source changes. Desktop vitest, desktop tsc, i18n vitest, Rust fmt/clippy/secretary/interview tests were not run; baseline counts supplied by the owner are not claimed as measured results. No independent reviewer/verifier or acceptance claimed. `node scripts/check-engineering-policy.mjs` passed: 8 checks, 0 failures (`/tmp/fix-interview-ui-policy.log`); `git diff --check` passed (`/tmp/fix-interview-ui-diff-check.log`).
