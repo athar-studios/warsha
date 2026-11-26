@@ -1,5 +1,15 @@
 # PROGRESS.md — Warsha Build Log
 
+## FIXES COMPLETE — CLEAN-2 remainder round — 2026-11-26
+
+- Tip: `cda87e2` on `r-next/integration`. main (`rel-031`) still `5f4b742`. Local only: nothing pushed, tagged or published.
+- F3 LIVE: a real OpenCode install (`/home/moe/.opencode/bin/opencode` v2.4.1, keyless free model `flint-40b-free`) wrote the four proofcalc modules inside Warsha run `01M8AJSFN4QXGAVSRTPZXCDY4A`. The assembled crate passed `cargo test --offline`. Evidence: `docs/runs/clean1-live-opencode.md` and `docs/runs/clean1-live-opencode-evidence/`. A separate check proved `capture_changes` sees unstaged real-OpenCode output (`crates/warsha-backends/tests/opencode_live_capture.rs`, `#[ignore]`, live only). Swarm subtasks now persist `files_changed` and the diff as `swarm_coding_result` events. The scripted backend stays unregistered in production; the assessment is at `/tmp/scripted-backend-registration-assessment.md`. Limits: model identity is not reported by OpenCode, and OpenCode also wrote scratch files under `/tmp/opencode`.
+- Judge PASS for every merge this round: r8 clean1-capture 100, r9 ui-combo 96, r10 clean1-live 93, r11 fix-swarm-persist 96, r12 fix-followup-flake 95, r13 fix-hung-cancel-flake 95, r14 fix-interview-ui 100, r15 fix-ui-r4 96, r16 fix-unrouted-cas 100, r17 fix-ui-r5 100. Verdicts are at `/tmp/judge-clean1-round{8..17}.md`.
+- Coordinator's own gates. Crates are unchanged since `b96e746`, so the Rust gates there stand: `CARGO_INCREMENTAL=0 cargo test --workspace` 70 targets, 1463 passed, 0 failed, 13 ignored (`/tmp/ws-final.log`); fmt clean; `clippy --workspace --all-targets -D warnings` clean. At `cda87e2`: desktop vitest 90 files, 844 passed (`/tmp/final-vitest.log`); `tsc --noEmit` exit 0; policy 8 checks, 0 failures.
+- UX: the last full walk at `b96e746` (`/home/moe/tools/playwright-ux/runs/2026-11-26-b96e746/report.md`) scored 14 PASS and 2 FAIL across 8 journeys in English and Arabic, including the Arabic factory floor. Both failures were the ~40 ms Waiting flash after cancel. `fix-ui-r5` then fixed that flash, the raw `settings.role.p_m` key, the literal `enough`, the Developers selector at a gate, and the interview sheet opening. Those five fixes are proven by unit tests only. No browser walk has run since.
+- Known limits: the walk worker cannot view images, so verdicts come from DOM text and OCR. Tauri was stubbed, so there are no native checks. The mock answers in English, so Arabic generated content was not assessed. The Developers provisioning panel was empty for the walked run.
+- This line does not say CLEAR. External Claude verification round 2 follows.
+
 ## Run 2026-11-26 — UI R5 residual defects (D-RN-UI-R5)
 
 - Worktree `.agents/worktrees/fix-ui-r5`, branch `r-next/fix-ui-r5`, base `b96e746`, initially clean. UI-only; no crates edits, real model API, push, tag or merge.
