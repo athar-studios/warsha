@@ -107,8 +107,11 @@ impl CodingBackend for SwarmProbe {
                 return Ok(CodingResult {
                     task_id: task.id,
                     success: false,
-                    diff: None,
-                    files_changed: vec![],
+                    diff: Some(format!(
+                        "+ sk-swarmPersistCanary123456\n{}",
+                        "+é\n".repeat(32 * 1024)
+                    )),
+                    files_changed: vec![file],
                     usage: None,
                     error: Some("HTTP 429: rate limit exceeded".to_string()),
                     duration_ms: 1,
@@ -467,6 +470,53 @@ async fn swarm_dispatches_children_merges_locally() {
         "the summary names the subtask count, got: {}",
         artifact.content
     );
+}
+
+/// Results survive a store reopen and are attributable to each lane, including
+/// a backend that returns partial edits with success=false.
+#[tokio::test]
+async fn swarm_coding_results_are_durable_and_bounded() {
+    for fail_on in [None, Some("task one")] {
+        let fx = fixture("- task one files: src/a.txt\n", fail_on, None).await;
+        enable_swarm(&fx, 1).await;
+        let run = swarm_run_to_code(&fx, None).await;
+        let reopened = Store::open_at(fx.dir.path().join("d5.db"))
+            .await
+            .expect("store reopens");
+        let subtasks = reopened.list_run_subtasks(run.id).await.expect("subtasks");
+        assert_eq!(subtasks.len(), 1);
+        let events = reopened.get_events(run.id).await.expect("events");
+        let results: Vec<_> = events
+            .iter()
+            .filter(|event| event.payload["type"] == "swarm_coding_result")
+            .collect();
+        assert_eq!(results.len(), 1, "one durable result per execution");
+        let event = results[0];
+        assert_eq!(event.kind, warsha_core::EventKind::AgentStep);
+        assert_eq!(event.stage, Stage::Code);
+        assert_eq!(event.role, Some(Role::Coder));
+        assert_eq!(event.payload["subtask_id"], subtasks[0].id.to_string());
+        assert_eq!(
+            event.payload["session_id"],
+            subtasks[0].session_id.expect("child session").0.to_string()
+        );
+        assert_eq!(event.payload["success"], fail_on.is_none());
+        assert_eq!(
+            event.payload["files_changed"],
+            serde_json::json!(["src/task-one.txt"])
+        );
+        let diff = event.payload["diff"].as_str().expect("diff persisted");
+        if fail_on.is_none() {
+            assert_eq!(diff, "diff --git a/x b/x");
+            assert_eq!(event.payload["diff_truncated"], false);
+        } else {
+            assert!(diff.len() <= 64 * 1024);
+            assert!(diff.ends_with("\n…[truncated]"));
+            assert_eq!(event.payload["diff_truncated"], true);
+            assert!(!diff.contains("sk-swarmPersistCanary123456"));
+            assert!(diff.contains("[redacted]"));
+        }
+    }
 }
 
 /// Two subtasks declaring a shared file never run concurrently; a subtask that
