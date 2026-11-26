@@ -1,5 +1,23 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — Project Source Options Round backend (D-RN-PROJECT-SOURCE-1)
+
+- **Branch & worktree**: `r-next/pso-backend` (base `d8a91a1`) in `.agents/worktrees/pso-backend`. Local commit only; no push, merge, tag, or `main` changes.
+- **Changes**:
+  - `crates/warsha-git/src/lib.rs`: added `#[serde(default)] pub clone_url: String` to `Repository`, `Clone` + `token(&self)` on `GitHubClient`, and unit test `repository_deserializes_clone_url_and_defaults_when_absent`.
+  - `crates/warsha-pipeline/src/worktree.rs`: implemented `prepare_new_folder` and `clone_repository` (+ source normalization, credential stripping, transient HTTPS Basic auth header, empty-repo initial commit) and 4 unit tests.
+  - `crates/warshad`: added `DaemonConfig.github_api_base` (`state.rs`, `startup.rs`, plus `warsha-cli` test struct literals), `projects.github_status`, `projects.prepare_folder`, `projects.clone_repo`, `projects.create_github_repo`, trailing `repo_url` on `projects.create`, `METHOD_POLICIES` (`auth.rs`), unified GitHub token resolution (`rpc/mod.rs`), and 4 proving tests in `crates/warshad/src/tests/project_source.rs`.
+  - `packages/client/src/index.ts`, `packages/client/src/index.test.ts`, and `apps/desktop/e2e/harness.ts`: added `GithubStatus`, `PreparedFolder`, `ClonedRepo`, `CreatedGithubRepo`, `ProjectSummary.repoUrl`, 4 new client methods, `createProject` `repoUrl` support, 5 unit tests, and e2e harness RPC stubs.
+  - Recorded `D-RN-PROJECT-SOURCE-1` in `DECISIONS.md`.
+- **Verification**:
+  - `cargo fmt --all -- --check`: exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: exit 0.
+  - `CARGO_INCREMENTAL=0 cargo test -p warsha-git -p warsha-pipeline -p warshad`: exit 0 (**1129 passed, 0 failed, 12 ignored** — `warsha-git` 17 passed, `warsha-pipeline` 673 passed / 7 ignored, `warshad` 439 passed / 5 ignored).
+  - `pnpm --filter @warsha/client test`: exit 0 (**2 files / 208 passed**, 0 failed).
+  - `pnpm --filter @warsha/client exec tsc --noEmit`: exit 0.
+  - `node scripts/check-engineering-policy.mjs`: exit 0 (**8 checks, 0 failures**).
+  - `node scripts/check-wire-contract.mjs`: 0 violations on new/edited methods; 1 pre-existing unrelated W9 violation on `secretary.provisioning.list` from base `d8a91a1`.
+
 ## FIXES COMPLETE — SIMPLE HOME WIDTH ROUND — 2026-11-26
 
 - **Code merge tip**: `71e9c3f` (plus this `PROGRESS.md` commit) on `r-next/integration`, merging `r-next/simple-home-width` (`2573b58`) on top of `3e66070`. `main` (`rel-031`) untouched at `5f4b742`. Local only: nothing pushed, tagged, or published.

@@ -3431,3 +3431,111 @@ describe('R-EXT-2 run_finished and MCP call decoders', () => {
     expect(Object.keys(call ?? {}).sort()).toEqual(['phase', 'questionId', 'server', 'tool']);
   });
 });
+
+describe('project source options client methods', () => {
+  it('getGithubStatus calls projects.github_status and decodes response', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ configured: true, source: 'integrations' }));
+
+    const status = await client.getGithubStatus();
+
+    expect(status).toEqual({ configured: true, source: 'integrations' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({
+        body: expect.stringContaining('"method":"projects.github_status"'),
+      })
+    );
+  });
+
+  it('prepareProjectFolder sends parent_dir and name and decodes repoPath', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ repo_path: '/tmp/projects/my-app' }));
+
+    const result = await client.prepareProjectFolder('/tmp/projects', 'my-app');
+
+    expect(result).toEqual({ repoPath: '/tmp/projects/my-app' });
+    expect(sentParams(0)).toEqual({ parent_dir: '/tmp/projects', name: 'my-app' });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/rpc',
+      expect.objectContaining({
+        body: expect.stringContaining('"method":"projects.prepare_folder"'),
+      })
+    );
+  });
+
+  it('cloneProjectRepo sends repo_url, parent_dir, folder_name and decodes result', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        repo_path: '/tmp/projects/custom-dir',
+        repo_url: 'https://github.com/octo/demo.git',
+      })
+    );
+
+    const cloned = await client.cloneProjectRepo('octo/demo', '/tmp/projects', 'custom-dir');
+
+    expect(cloned).toEqual({
+      repoPath: '/tmp/projects/custom-dir',
+      repoUrl: 'https://github.com/octo/demo.git',
+    });
+    expect(sentParams(0)).toEqual({
+      repo_url: 'octo/demo',
+      parent_dir: '/tmp/projects',
+      folder_name: 'custom-dir',
+    });
+  });
+
+  it('createGithubRepo sends name, description, parent_dir and decodes camelCase fields', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        repo_path: '/tmp/projects/demo',
+        repo_url: 'https://github.com/octo/demo.git',
+        full_name: 'octo/demo',
+        html_url: 'https://github.com/octo/demo',
+      })
+    );
+
+    const created = await client.createGithubRepo('demo', 'A test repo', '/tmp/projects');
+
+    expect(created).toEqual({
+      repoPath: '/tmp/projects/demo',
+      repoUrl: 'https://github.com/octo/demo.git',
+      fullName: 'octo/demo',
+      htmlUrl: 'https://github.com/octo/demo',
+    });
+    expect(sentParams(0)).toEqual({
+      name: 'demo',
+      description: 'A test repo',
+      parent_dir: '/tmp/projects',
+    });
+  });
+
+  it('createProject sends repo_url when provided and decodes repoUrl', async () => {
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        id: 'proj-gh',
+        name: 'Demo',
+        created_at: '2026-11-26T00:00:00Z',
+        updated_at: '2026-11-26T00:00:00Z',
+        repo_path: '/tmp/projects/demo',
+        repo_url: 'https://github.com/octo/demo.git',
+      })
+    );
+
+    const project = await client.createProject(
+      'Demo',
+      'Cloned repo',
+      'en',
+      '/tmp/projects/demo',
+      'https://github.com/octo/demo.git'
+    );
+
+    expect(sentParams(0)).toEqual({
+      name: 'Demo',
+      description: 'Cloned repo',
+      language: 'en',
+      repo_path: '/tmp/projects/demo',
+      repo_url: 'https://github.com/octo/demo.git',
+    });
+    expect(project.repoPath).toBe('/tmp/projects/demo');
+    expect(project.repoUrl).toBe('https://github.com/octo/demo.git');
+  });
+});

@@ -47,7 +47,34 @@ pub trait WarshaApi {
         confinement: Option<Confinement>,
         approval_mode: Option<ApprovalMode>,
         repo_path: Option<String>,
+        repo_url: Option<String>,
     ) -> RpcResult<Project>;
+
+    #[method(name = "projects.github_status", with_extensions)]
+    async fn project_github_status(&self) -> RpcResult<GithubStatus>;
+
+    #[method(name = "projects.prepare_folder", with_extensions)]
+    async fn prepare_project_folder(
+        &self,
+        parent_dir: String,
+        name: String,
+    ) -> RpcResult<PreparedFolder>;
+
+    #[method(name = "projects.clone_repo", with_extensions)]
+    async fn clone_project_repo(
+        &self,
+        repo_url: String,
+        parent_dir: Option<String>,
+        folder_name: Option<String>,
+    ) -> RpcResult<ClonedRepo>;
+
+    #[method(name = "projects.create_github_repo", with_extensions)]
+    async fn create_github_repo(
+        &self,
+        name: String,
+        description: Option<String>,
+        parent_dir: Option<String>,
+    ) -> RpcResult<CreatedGithubRepo>;
 
     #[method(name = "permissions.defaults.get", with_extensions)]
     async fn get_default_permissions(&self) -> RpcResult<ProjectPermissions>;
@@ -1211,4 +1238,35 @@ pub struct CodingBackendDiagnostics {
     pub version: Option<String>,
     pub status: String,
     pub auth_required: bool,
+}
+
+/// Whether a GitHub token is configured for project creation/cloning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubStatus {
+    pub configured: bool,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// Result of `projects.prepare_folder`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreparedFolder {
+    pub repo_path: String,
+}
+
+/// Result of `projects.clone_repo`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClonedRepo {
+    pub repo_path: String,
+    #[serde(default)]
+    pub repo_url: Option<String>,
+}
+
+/// Result of `projects.create_github_repo`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreatedGithubRepo {
+    pub repo_path: String,
+    pub repo_url: String,
+    pub full_name: String,
+    pub html_url: String,
 }

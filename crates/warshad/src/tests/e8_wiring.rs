@@ -157,6 +157,7 @@ async fn pilot_attaches_a_repository_runs_decides_gate_c_and_collects_evidence()
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("the project is created");

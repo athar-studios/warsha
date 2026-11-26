@@ -68,6 +68,7 @@ async fn start_test_daemon(data_dir: &std::path::Path) -> DaemonHandle {
         rate_limits: RateLimitConfig::default(),
         remote_assets_dir: None,
         remote_bind: warshad::RemoteBind::Default,
+        github_api_base: None,
     };
     start_daemon(config)
         .await

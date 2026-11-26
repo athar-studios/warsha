@@ -407,7 +407,10 @@ pub(crate) async fn start_daemon_with_interfaces(
     // Initialize GitHub client if token available (bounded timeout so locked keyring does not hang startup)
     let github = match get_github_token().await {
         Some(token) => match GitHubClient::new(&token) {
-            Ok(client) => Some(client),
+            Ok(client) => Some(match config.github_api_base.as_deref() {
+                Some(base) if !base.trim().is_empty() => client.with_api_base(base.trim()),
+                _ => client,
+            }),
             Err(e) => {
                 warn!("failed to initialize GitHub client with stored token: {e}");
                 None

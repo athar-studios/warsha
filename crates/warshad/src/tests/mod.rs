@@ -3,6 +3,7 @@ use warsha_providers::{InMemorySecretStore, OneClickProvider};
 
 #[cfg(unix)]
 mod clean1_swarm;
+mod project_source;
 
 #[test]
 fn the_default_backend_kit_comes_from_the_run_project() {
@@ -3941,6 +3942,7 @@ mod runs_resume {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -3991,6 +3993,7 @@ mod runs_resume {
                 "Change Request Loop Project".to_string(),
                 "Test change-request resume".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
                 None,
@@ -4076,6 +4079,7 @@ mod runs_resume {
                 "Gate C Resume Project".to_string(),
                 "Test Gate C change-request resume".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
                 None,
@@ -4209,6 +4213,7 @@ mod runs_resume {
                 "Budget Resume Project".to_string(),
                 "Test budget pause & resume".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
                 None,
@@ -4350,6 +4355,7 @@ mod runs_start_budget {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -4438,6 +4444,7 @@ mod runs_start_budget {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -4488,6 +4495,7 @@ mod runs_start_budget {
                 "Runless Budget Project".to_string(),
                 "A project that has no runs yet".to_string(),
                 "ar".to_string(),
+                None,
                 None,
                 None,
                 None,
@@ -4616,6 +4624,7 @@ mod runs_start_budget {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -4692,6 +4701,7 @@ mod runs_start_budget {
                 None,
                 None,
                 Some(repo_dir.path().to_str().expect("utf8 path").to_string()),
+                None,
             )
             .await
             .expect("project created");
@@ -4780,6 +4790,7 @@ mod runs_start_budget {
                 None,
                 None,
                 Some(repo_dir.path().to_str().expect("utf8 path").to_string()),
+                None,
             )
             .await
             .expect("project created");
@@ -4910,6 +4921,7 @@ mod runs_start_budget {
                 None,
                 None,
                 Some(repo_dir.path().to_str().expect("utf8 path").to_string()),
+                None,
             )
             .await
             .expect("project created");
@@ -5005,6 +5017,7 @@ mod runs_start_budget {
                 None,
                 None,
                 Some(repo_dir.path().to_str().expect("utf8 path").to_string()),
+                None,
             )
             .await
             .expect("project created");
@@ -5080,6 +5093,7 @@ mod runs_start_budget {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -5151,6 +5165,7 @@ mod runs_followup {
                 "Followup Integrity Project".to_string(),
                 "Test followup CAS and cancel refusal".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
                 None,
@@ -5292,6 +5307,7 @@ mod provider_truth {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -5365,6 +5381,7 @@ mod provider_truth {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -5430,6 +5447,7 @@ mod provider_truth {
                 None,
                 None,
                 None,
+                None,
             )
             .await
             .expect("project created");
@@ -5474,6 +5492,7 @@ mod provider_truth {
                 "Resume After Routing Project".to_string(),
                 "Test resuming after adding provider".to_string(),
                 "en".to_string(),
+                None,
                 None,
                 None,
                 None,
@@ -8500,6 +8519,7 @@ async fn start_run_in_agent_mode_executes_intake_and_advances_to_gate_a() {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("project created");
@@ -8605,6 +8625,7 @@ async fn unrouted_agent_run_start_pauses_immediately_with_provider_required() {
             None,
             None,
             None,
+            None,
         )
         .await
         .expect("project created");
@@ -8668,6 +8689,7 @@ async fn unrouted_agent_run_start_rebases_pause_after_concurrent_budget_write() 
             "CAS pause".into(),
             "".into(),
             "en".into(),
+            None,
             None,
             None,
             None,
@@ -8954,6 +8976,7 @@ async fn secretary_interview_completion_writes_one_provisioning_row_per_rostered
             "Payments bakery".to_string(),
             "A checkout for a bakery".to_string(),
             "en".to_string(),
+            None,
             None,
             None,
             None,

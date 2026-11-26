@@ -527,6 +527,531 @@ pub async fn init_repository_with_meta(
     Ok(())
 }
 
+fn validate_folder_name(name: &str) -> Result<&str> {
+    if name.contains('\0') {
+        return Err(WorktreeError::InvalidName {
+            field: "folder name",
+            value: name.to_string(),
+        });
+    }
+    let trimmed = name.trim();
+    if trimmed.is_empty()
+        || trimmed == "."
+        || trimmed == ".."
+        || trimmed.starts_with('-')
+        || trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed.chars().any(char::is_control)
+    {
+        return Err(WorktreeError::InvalidName {
+            field: "folder name",
+            value: name.to_string(),
+        });
+    }
+    Ok(trimmed)
+}
+
+async fn has_head_commit(repo: &Path) -> Result<bool> {
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["rev-parse", "--verify", "HEAD"])
+        .output()
+        .await?;
+    Ok(output.status.success())
+}
+
+async fn ensure_local_git_identity(repo: &Path) -> Result<bool> {
+    let name_check = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["config", "user.name"])
+        .output()
+        .await?;
+    let email_check = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["config", "user.email"])
+        .output()
+        .await?;
+    let has_name = name_check.status.success()
+        && !String::from_utf8_lossy(&name_check.stdout)
+            .trim()
+            .is_empty();
+    let has_email = email_check.status.success()
+        && !String::from_utf8_lossy(&email_check.stdout)
+            .trim()
+            .is_empty();
+
+    if !has_name {
+        let out = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["config", "user.name", "Warsha"])
+            .output()
+            .await?;
+        if !out.status.success() {
+            return Err(WorktreeError::Git(format!(
+                "git config user.name failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+    }
+    if !has_email {
+        let out = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["config", "user.email", "warsha@local"])
+            .output()
+            .await?;
+        if !out.status.success() {
+            return Err(WorktreeError::Git(format!(
+                "git config user.email failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+    }
+    Ok(has_name && has_email)
+}
+
+async fn ensure_initial_commit_without_clobber(repo: &Path, title: &str) -> Result<()> {
+    let had_identity = ensure_local_git_identity(repo).await?;
+
+    let gitignore_path = repo.join(".gitignore");
+    if !gitignore_path.exists() {
+        tokio::fs::write(&gitignore_path, "target/\nnode_modules/\n.DS_Store\n").await?;
+    }
+
+    let readme_path = repo.join("README.md");
+    if !readme_path.exists() {
+        let clean_title = title.trim();
+        let heading = if clean_title.is_empty() {
+            "Warsha Project"
+        } else {
+            clean_title
+        };
+        tokio::fs::write(&readme_path, format!("# {heading}\n")).await?;
+    }
+
+    let add_output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["add", "-A"])
+        .output()
+        .await?;
+    if !add_output.status.success() {
+        return Err(WorktreeError::Git(format!(
+            "git add failed: {}",
+            String::from_utf8_lossy(&add_output.stderr).trim()
+        )));
+    }
+
+    let cached_diff = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["diff", "--cached", "--quiet"])
+        .output()
+        .await?;
+    let has_staged = !cached_diff.status.success();
+
+    let mut commit_cmd = tokio::process::Command::new("git");
+    commit_cmd.arg("-C").arg(repo);
+    if !had_identity {
+        commit_cmd.args(["-c", "user.name=Warsha", "-c", "user.email=warsha@local"]);
+    }
+    if has_staged {
+        commit_cmd.args(["commit", "-qm", "initial commit"]);
+    } else {
+        commit_cmd.args(["commit", "--allow-empty", "-qm", "initial commit"]);
+    }
+    let commit_output = commit_cmd.output().await?;
+    if !commit_output.status.success() {
+        return Err(WorktreeError::Git(format!(
+            "git commit failed: {}",
+            String::from_utf8_lossy(&commit_output.stderr).trim()
+        )));
+    }
+    Ok(())
+}
+
+/// Prepare a folder under `parent` as an initialized git repository with a `HEAD` commit.
+pub async fn prepare_new_folder(parent: &Path, name: &str) -> Result<PathBuf> {
+    if !parent.is_dir() {
+        return Err(WorktreeError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "parent directory `{}` does not exist or is not a directory",
+                parent.display()
+            ),
+        )));
+    }
+    let folder = validate_folder_name(name)?;
+    let target = parent.join(folder);
+    if target.exists() && !target.is_dir() {
+        return Err(WorktreeError::Io(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("`{}` exists and is not a directory", target.display()),
+        )));
+    }
+
+    if target.join(".git").exists()
+        && validate_repository(&target).await.is_ok()
+        && has_head_commit(&target).await?
+    {
+        return Ok(target);
+    }
+
+    tokio::fs::create_dir_all(&target).await?;
+    if !target.join(".git").exists() {
+        let init_output = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(&target)
+            .args(["init", "-q"])
+            .output()
+            .await?;
+        if !init_output.status.success() {
+            return Err(WorktreeError::Git(format!(
+                "git init failed: {}",
+                String::from_utf8_lossy(&init_output.stderr).trim()
+            )));
+        }
+    }
+
+    if !has_head_commit(&target).await? {
+        ensure_initial_commit_without_clobber(&target, folder).await?;
+    }
+
+    validate_repository(&target).await?;
+    Ok(target)
+}
+
+fn is_github_shorthand_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment != "."
+        && segment != ".."
+        && segment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+}
+
+fn parse_github_shorthand(source: &str) -> Option<(String, String)> {
+    if source.contains("://")
+        || source.starts_with('/')
+        || source.starts_with('.')
+        || source.starts_with('~')
+    {
+        return None;
+    }
+    let bytes = source.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return None;
+    }
+    let (owner, repo_raw) = source.split_once('/')?;
+    if repo_raw.contains('/') {
+        return None;
+    }
+    if !is_github_shorthand_segment(owner) || !is_github_shorthand_segment(repo_raw) {
+        return None;
+    }
+    let repo = repo_raw.strip_suffix(".git").unwrap_or(repo_raw);
+    if !is_github_shorthand_segment(repo) {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
+}
+
+fn strip_url_credentials(url: &str, strip_username: bool) -> Result<String> {
+    let (scheme, rest) = url
+        .split_once("://")
+        .ok_or_else(|| WorktreeError::InvalidName {
+            field: "repository source",
+            value: url.to_string(),
+        })?;
+    let (authority, suffix) = match rest.find(['/', '?', '#']) {
+        Some(idx) => (&rest[..idx], &rest[idx..]),
+        None => (rest, ""),
+    };
+    if authority.is_empty() {
+        return Err(WorktreeError::InvalidName {
+            field: "repository source",
+            value: url.to_string(),
+        });
+    }
+    let clean_authority = match authority.rsplit_once('@') {
+        Some((userinfo, host)) => {
+            if host.is_empty() {
+                return Err(WorktreeError::InvalidName {
+                    field: "repository source",
+                    value: url.to_string(),
+                });
+            }
+            if strip_username {
+                host.to_string()
+            } else if let Some((user, _pass)) = userinfo.split_once(':') {
+                if user.is_empty() {
+                    host.to_string()
+                } else {
+                    format!("{user}@{host}")
+                }
+            } else {
+                format!("{userinfo}@{host}")
+            }
+        }
+        None => authority.to_string(),
+    };
+    Ok(format!("{scheme}://{clean_authority}{suffix}"))
+}
+
+enum CloneSource {
+    Remote {
+        clone_arg: String,
+        clean_repo_url: String,
+        is_https: bool,
+    },
+    LocalPath {
+        clone_arg: String,
+    },
+}
+
+fn normalize_clone_source(source: &str) -> Result<CloneSource> {
+    if source.contains('\0') || source.chars().any(char::is_control) {
+        return Err(WorktreeError::InvalidName {
+            field: "repository source",
+            value: source.to_string(),
+        });
+    }
+    let trimmed = source.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with('-')
+        || trimmed.to_ascii_lowercase().starts_with("ext::")
+    {
+        return Err(WorktreeError::InvalidName {
+            field: "repository source",
+            value: source.to_string(),
+        });
+    }
+
+    if let Some((owner, repo)) = parse_github_shorthand(trimmed) {
+        let normalized = format!("https://github.com/{owner}/{repo}.git");
+        return Ok(CloneSource::Remote {
+            clone_arg: normalized.clone(),
+            clean_repo_url: normalized,
+            is_https: true,
+        });
+    }
+
+    if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+        if trimmed.chars().any(char::is_whitespace) {
+            return Err(WorktreeError::InvalidName {
+                field: "repository source",
+                value: source.to_string(),
+            });
+        }
+        let clean = strip_url_credentials(trimmed, true)?;
+        let is_https = clean.starts_with("https://");
+        return Ok(CloneSource::Remote {
+            clone_arg: clean.clone(),
+            clean_repo_url: clean,
+            is_https,
+        });
+    }
+
+    if trimmed.starts_with("ssh://") {
+        if trimmed.chars().any(char::is_whitespace) {
+            return Err(WorktreeError::InvalidName {
+                field: "repository source",
+                value: source.to_string(),
+            });
+        }
+        let clean = strip_url_credentials(trimmed, false)?;
+        return Ok(CloneSource::Remote {
+            clone_arg: clean.clone(),
+            clean_repo_url: clean,
+            is_https: false,
+        });
+    }
+
+    if trimmed.starts_with("git@") {
+        if trimmed.chars().any(char::is_whitespace) {
+            return Err(WorktreeError::InvalidName {
+                field: "repository source",
+                value: source.to_string(),
+            });
+        }
+        let Some((host, path)) = trimmed.split_once(':') else {
+            return Err(WorktreeError::InvalidName {
+                field: "repository source",
+                value: source.to_string(),
+            });
+        };
+        if host.len() <= "git@".len() || path.trim().is_empty() {
+            return Err(WorktreeError::InvalidName {
+                field: "repository source",
+                value: source.to_string(),
+            });
+        }
+        return Ok(CloneSource::Remote {
+            clone_arg: trimmed.to_string(),
+            clean_repo_url: trimmed.to_string(),
+            is_https: false,
+        });
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("file://") {
+        if rest.trim().is_empty() {
+            return Err(WorktreeError::InvalidName {
+                field: "repository source",
+                value: source.to_string(),
+            });
+        }
+        return Ok(CloneSource::Remote {
+            clone_arg: trimmed.to_string(),
+            clean_repo_url: trimmed.to_string(),
+            is_https: false,
+        });
+    }
+
+    if Path::new(trimmed).is_dir() {
+        return Ok(CloneSource::LocalPath {
+            clone_arg: trimmed.to_string(),
+        });
+    }
+
+    Err(WorktreeError::InvalidName {
+        field: "repository source",
+        value: source.to_string(),
+    })
+}
+
+fn derive_clone_folder_name(source: &str, folder_name: Option<&str>) -> Result<String> {
+    if let Some(explicit) = folder_name.map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(validate_folder_name(explicit)?.to_string());
+    }
+    let trimmed = source.trim().trim_end_matches(['/', '\\']);
+    let after_colon = if trimmed.starts_with("git@") && !trimmed.contains("://") {
+        trimmed.rsplit_once(':').map_or(trimmed, |(_, rhs)| rhs)
+    } else {
+        trimmed
+    };
+    let last_segment = after_colon
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(after_colon);
+    let stripped = last_segment.strip_suffix(".git").unwrap_or(last_segment);
+    Ok(validate_folder_name(stripped)?.to_string())
+}
+
+fn base64_encode(input: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
+        out.push(TABLE[((n >> 18) & 0x3f) as usize] as char);
+        out.push(TABLE[((n >> 12) & 0x3f) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[((n >> 6) & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(n & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// Clone a git repository into `dest_parent/<folder_name>` and ensure a `HEAD` commit exists.
+pub async fn clone_repository(
+    source: &str,
+    dest_parent: &Path,
+    folder_name: Option<&str>,
+    github_token: Option<&str>,
+) -> Result<(PathBuf, Option<String>)> {
+    if !dest_parent.is_dir() {
+        return Err(WorktreeError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "destination parent directory `{}` does not exist or is not a directory",
+                dest_parent.display()
+            ),
+        )));
+    }
+
+    let parsed = normalize_clone_source(source)?;
+    let (clone_arg, clean_repo_url, is_https) = match parsed {
+        CloneSource::Remote {
+            clone_arg,
+            clean_repo_url,
+            is_https,
+        } => (clone_arg, Some(clean_repo_url), is_https),
+        CloneSource::LocalPath { clone_arg } => (clone_arg, None, false),
+    };
+
+    let safe_folder = derive_clone_folder_name(&clone_arg, folder_name)?;
+    let target = dest_parent.join(&safe_folder);
+    if target.exists() {
+        if !target.is_dir() {
+            return Err(WorktreeError::Io(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!(
+                    "`{}` already exists and is not a directory",
+                    target.display()
+                ),
+            )));
+        }
+        let mut entries = tokio::fs::read_dir(&target).await?;
+        if entries.next_entry().await?.is_some() {
+            return Err(WorktreeError::Io(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!(
+                    "target directory `{}` already exists and is not empty",
+                    target.display()
+                ),
+            )));
+        }
+    }
+
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    let token_clean = github_token.map(str::trim).filter(|t| !t.is_empty());
+    if is_https {
+        if let Some(token) = token_clean {
+            let encoded = base64_encode(format!("x-access-token:{token}").as_bytes());
+            cmd.args([
+                "-c",
+                &format!("http.extraHeader=Authorization: Basic {encoded}"),
+            ]);
+        }
+    }
+    cmd.args(["clone", "--quiet", "--", &clone_arg])
+        .arg(&target);
+
+    let output = cmd.output().await?;
+    if !output.status.success() {
+        let mut stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if let Some(token) = token_clean {
+            stderr = stderr.replace(token, "[REDACTED]");
+        }
+        return Err(WorktreeError::Git(format!("git clone failed: {stderr}")));
+    }
+
+    if !target.join(".git").exists() {
+        return Err(WorktreeError::NotARepository(target.display().to_string()));
+    }
+    validate_repository(&target).await?;
+
+    if !has_head_commit(&target).await? {
+        ensure_initial_commit_without_clobber(&target, &safe_folder).await?;
+    }
+
+    Ok((target, clean_repo_url))
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod e3 {
@@ -1024,5 +1549,159 @@ mod e3 {
         assert!(!is_warsha_internal_path("./docs/.warsha/notes.md"));
         assert!(!is_warsha_internal_path("sub/.warsha"));
         assert!(!is_warsha_internal_path(""));
+    }
+
+    #[tokio::test]
+    async fn prepare_new_folder_creates_repo_with_head_and_supports_worktree() {
+        let parent = tempfile::tempdir().expect("parent dir");
+        let repo_path = prepare_new_folder(parent.path(), "my-app")
+            .await
+            .expect("prepare_new_folder");
+        assert_eq!(repo_path, parent.path().join("my-app"));
+        assert!(repo_path.join(".git").exists());
+        assert!(repo_path.join("README.md").exists());
+        assert!(has_head_commit(&repo_path).await.expect("head check"));
+
+        let wt_root = parent.path().join("worktrees");
+        let wt = create_run_worktree(&repo_path, &wt_root, "run-1", "HEAD")
+            .await
+            .expect("create_run_worktree on prepared folder");
+        assert!(wt.path.exists());
+    }
+
+    #[tokio::test]
+    async fn prepare_new_folder_preserves_existing_files_and_rejects_bad_names() {
+        let parent = tempfile::tempdir().expect("parent dir");
+        let existing = parent.path().join("existing-app");
+        std::fs::create_dir_all(&existing).expect("mkdir");
+        std::fs::write(existing.join("README.md"), "# Custom\n").expect("write readme");
+        std::fs::write(existing.join("notes.txt"), "keep me\n").expect("write notes");
+
+        let prepared = prepare_new_folder(parent.path(), "existing-app")
+            .await
+            .expect("prepare existing dir");
+        assert_eq!(
+            std::fs::read_to_string(prepared.join("README.md")).expect("read readme"),
+            "# Custom\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(prepared.join("notes.txt")).expect("read notes"),
+            "keep me\n"
+        );
+        assert!(has_head_commit(&prepared).await.expect("head exists"));
+
+        for bad in ["", "   ", ".", "..", "-evil", "a/b", "a\\b"] {
+            assert!(
+                prepare_new_folder(parent.path(), bad).await.is_err(),
+                "expected error for folder name `{bad}`"
+            );
+        }
+        assert!(
+            prepare_new_folder(&parent.path().join("missing-parent"), "ok")
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn clone_repository_clones_local_bare_and_empty_bare_repos() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let seed = tmp.path().join("seed");
+        std::fs::create_dir_all(&seed).expect("seed dir");
+        std::fs::write(seed.join("hello.txt"), "world\n").expect("write seed");
+        git_repo(&seed);
+
+        let bare = tmp.path().join("sample-app.git");
+        let out = Command::new("git")
+            .args(["clone", "--bare", "--quiet"])
+            .arg(&seed)
+            .arg(&bare)
+            .output()
+            .expect("bare clone");
+        assert!(out.status.success());
+
+        let dest_parent = tmp.path().join("projects");
+        std::fs::create_dir_all(&dest_parent).expect("dest parent");
+
+        let (cloned, repo_url) =
+            clone_repository(bare.to_str().expect("utf8 path"), &dest_parent, None, None)
+                .await
+                .expect("clone local bare repo");
+        assert_eq!(cloned, dest_parent.join("sample-app"));
+        assert!(repo_url.is_none());
+        assert_eq!(
+            std::fs::read_to_string(cloned.join("hello.txt")).expect("cloned file"),
+            "world\n"
+        );
+
+        let empty_bare = tmp.path().join("empty-repo.git");
+        let empty_out = Command::new("git")
+            .args(["init", "--bare", "--quiet"])
+            .arg(&empty_bare)
+            .output()
+            .expect("init empty bare");
+        assert!(empty_out.status.success());
+
+        let file_url = format!("file://{}", empty_bare.display());
+        let (cloned_empty, empty_url) =
+            clone_repository(&file_url, &dest_parent, Some("custom-empty"), None)
+                .await
+                .expect("clone empty bare repo");
+        assert_eq!(cloned_empty, dest_parent.join("custom-empty"));
+        assert_eq!(empty_url.as_deref(), Some(file_url.as_str()));
+        assert!(has_head_commit(&cloned_empty)
+            .await
+            .expect("head commit created"));
+
+        let remote = Command::new("git")
+            .current_dir(&cloned_empty)
+            .args(["remote", "get-url", "origin"])
+            .output()
+            .expect("get origin");
+        assert_eq!(String::from_utf8_lossy(&remote.stdout).trim(), file_url);
+    }
+
+    #[test]
+    fn normalize_clone_source_handles_shorthand_and_strips_credentials() {
+        match normalize_clone_source("octocat/hello-world").expect("shorthand") {
+            CloneSource::Remote {
+                clone_arg,
+                clean_repo_url,
+                is_https,
+            } => {
+                assert_eq!(clone_arg, "https://github.com/octocat/hello-world.git");
+                assert_eq!(clean_repo_url, "https://github.com/octocat/hello-world.git");
+                assert!(is_https);
+            }
+            _ => panic!("expected remote"),
+        }
+
+        match normalize_clone_source("https://x-access-token:secret123@github.com/org/repo.git")
+            .expect("strip https credentials")
+        {
+            CloneSource::Remote {
+                clone_arg,
+                clean_repo_url,
+                is_https,
+            } => {
+                assert_eq!(clone_arg, "https://github.com/org/repo.git");
+                assert_eq!(clean_repo_url, "https://github.com/org/repo.git");
+                assert!(is_https);
+            }
+            _ => panic!("expected remote"),
+        }
+
+        for bad in [
+            "",
+            "   ",
+            "-u./evil",
+            "ext::sh -c id",
+            "https://bad url/repo.git",
+        ] {
+            assert!(
+                normalize_clone_source(bad).is_err(),
+                "expected error for `{bad}`"
+            );
+        }
     }
 }

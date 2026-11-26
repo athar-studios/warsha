@@ -110,6 +110,7 @@ async fn test_create_project_with_repo_path_then_start_run_yields_worktree() {
             None,
             None,
             Some(repo_path.clone()),
+            None,
         )
         .await
         .expect("project created with repo_path");
@@ -154,6 +155,7 @@ async fn test_unknown_backend_routing_errors_fail_loud() {
             "Fail Loud Project".to_string(),
             "Testing fail-loud on unknown backend".to_string(),
             "en".to_string(),
+            None,
             None,
             None,
             None,

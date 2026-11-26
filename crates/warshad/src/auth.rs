@@ -290,6 +290,26 @@ pub const METHOD_POLICIES: &[MethodPolicy] = &[
         tier: Standard,
     },
     M {
+        method: "projects.github_status",
+        policy: Session,
+        tier: Standard,
+    },
+    M {
+        method: "projects.prepare_folder",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "projects.clone_repo",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
+        method: "projects.create_github_repo",
+        policy: Owner,
+        tier: Standard,
+    },
+    M {
         method: "projects.get",
         policy: Session,
         tier: Standard,

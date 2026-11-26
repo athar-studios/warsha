@@ -100,6 +100,7 @@ impl Daemon {
             rate_limits: RateLimitConfig::default(),
             remote_assets_dir: None,
             remote_bind: warshad::RemoteBind::Default,
+            github_api_base: None,
         };
         Daemon {
             handle: start_daemon_with_secrets(config, Arc::new(InMemorySecretStore::new()))

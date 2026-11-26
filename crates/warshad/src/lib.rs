@@ -114,11 +114,11 @@ mod api_estimate;
 pub(crate) use api::provider_model;
 pub(crate) use api::{default_base_url_for_kind, non_empty, provider_endpoint};
 pub use api::{
-    AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus,
-    CodingBackendDiagnostics, CodingBackendSummary, CostEstimate, GateSummary, GateSummaryState,
-    HealthCapabilities, HealthResponse, ProviderQuotaStatus, ProviderRecord, QuotaState,
-    RoleRoutingConfig, RoutingTargetConfig, SubscriptionWindow, ToolRulesReply, UsageRow,
-    UsageTimeRow, WarshaApiServer, WindowUsage,
+    AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, ClonedRepo,
+    CodingBackendDiagnostics, CodingBackendSummary, CostEstimate, CreatedGithubRepo, GateSummary,
+    GateSummaryState, GithubStatus, HealthCapabilities, HealthResponse, PreparedFolder,
+    ProviderQuotaStatus, ProviderRecord, QuotaState, RoleRoutingConfig, RoutingTargetConfig,
+    SubscriptionWindow, ToolRulesReply, UsageRow, UsageTimeRow, WarshaApiServer, WindowUsage,
 };
 // --- end P-H1 A1 ---
 
@@ -387,6 +387,7 @@ impl WarshaApiServer for WarshaRpc {
         confinement: Option<Confinement>,
         approval_mode: Option<ApprovalMode>,
         repo_path: Option<String>,
+        repo_url: Option<String>,
     ) -> RpcResult<Project> {
         self.authorize(ext, "projects.create").await?;
         let id = ProjectId::new();
@@ -430,6 +431,11 @@ impl WarshaApiServer for WarshaRpc {
                 auto_repo.to_string_lossy().into_owned()
             }
         };
+        let normalized_repo_url = repo_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .map(str::to_string);
         let project = Project {
             id,
             name,
@@ -438,7 +444,7 @@ impl WarshaApiServer for WarshaRpc {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             repo_path: Some(validated_repo_path),
-            repo_url: None,
+            repo_url: normalized_repo_url,
             confinement,
             approval_mode,
             permissions: ProjectPermissions {
@@ -453,6 +459,146 @@ impl WarshaApiServer for WarshaRpc {
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
         Ok(project)
+    }
+
+    async fn project_github_status(&self, ext: &RpcExtensions) -> RpcResult<GithubStatus> {
+        self.authorize(ext, "projects.github_status").await?;
+        match self.resolve_github_token().await {
+            Some((_token, source)) => Ok(GithubStatus {
+                configured: true,
+                source: Some(source.to_string()),
+            }),
+            None => Ok(GithubStatus {
+                configured: false,
+                source: None,
+            }),
+        }
+    }
+
+    async fn prepare_project_folder(
+        &self,
+        ext: &RpcExtensions,
+        parent_dir: String,
+        name: String,
+    ) -> RpcResult<PreparedFolder> {
+        self.authorize(ext, "projects.prepare_folder").await?;
+        let trimmed_parent = parent_dir.trim();
+        if trimmed_parent.is_empty() {
+            return Err(rpc_invalid_params("parent_dir must not be empty"));
+        }
+        let prepared = warsha_pipeline::worktree::prepare_new_folder(
+            std::path::Path::new(trimmed_parent),
+            &name,
+        )
+        .await
+        .map_err(|err| match err {
+            warsha_pipeline::worktree::WorktreeError::InvalidName { .. } => {
+                rpc_invalid_params(err.to_string())
+            }
+            other => rpc_error(other),
+        })?;
+        Ok(PreparedFolder {
+            repo_path: prepared.to_string_lossy().into_owned(),
+        })
+    }
+
+    async fn clone_project_repo(
+        &self,
+        ext: &RpcExtensions,
+        repo_url: String,
+        parent_dir: Option<String>,
+        folder_name: Option<String>,
+    ) -> RpcResult<ClonedRepo> {
+        self.authorize(ext, "projects.clone_repo").await?;
+        let dest_parent = self.resolve_projects_parent_dir(parent_dir).await?;
+        let token = self.resolve_github_token().await.map(|(t, _)| t);
+        let (cloned_path, clean_repo_url) = warsha_pipeline::worktree::clone_repository(
+            &repo_url,
+            &dest_parent,
+            folder_name.as_deref(),
+            token.as_deref(),
+        )
+        .await
+        .map_err(|err| {
+            let mut msg = err.to_string();
+            if let Some(tok) = token.as_deref() {
+                msg = msg.replace(tok, "[REDACTED]");
+            }
+            match err {
+                warsha_pipeline::worktree::WorktreeError::InvalidName { .. } => {
+                    rpc_invalid_params(msg)
+                }
+                _ => rpc_error(msg),
+            }
+        })?;
+        Ok(ClonedRepo {
+            repo_path: cloned_path.to_string_lossy().into_owned(),
+            repo_url: clean_repo_url,
+        })
+    }
+
+    async fn create_github_repo(
+        &self,
+        ext: &RpcExtensions,
+        name: String,
+        description: Option<String>,
+        parent_dir: Option<String>,
+    ) -> RpcResult<CreatedGithubRepo> {
+        self.authorize(ext, "projects.create_github_repo").await?;
+        let trimmed_name = name.trim();
+        if trimmed_name.is_empty() {
+            return Err(rpc_invalid_params("repository name must not be empty"));
+        }
+        let Some((token, _source)) = self.resolve_github_token().await else {
+            return Err(ErrorObject::owned(
+                -32000,
+                "GitHub token is not configured. Configure one in Settings -> Integrations.",
+                None::<()>,
+            ));
+        };
+        let mut client = warsha_git::GitHubClient::new(&token)
+            .map_err(|err| rpc_error(err.to_string().replace(&token, "[REDACTED]")))?;
+        if let Some(base) = self
+            .state
+            .config
+            .github_api_base
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            client = client.with_api_base(base);
+        }
+        let repo = client
+            .create_repo(trimmed_name, description.as_deref().unwrap_or(""), None)
+            .await
+            .map_err(|err| rpc_error(err.to_string().replace(&token, "[REDACTED]")))?;
+
+        let clone_url = if !repo.clone_url.trim().is_empty() {
+            repo.clone_url.trim().to_string()
+        } else if !repo.html_url.trim().is_empty() {
+            format!("{}.git", repo.html_url.trim().trim_end_matches('/'))
+        } else {
+            return Err(rpc_error(
+                "GitHub create_repo response did not include clone_url or html_url",
+            ));
+        };
+
+        let dest_parent = self.resolve_projects_parent_dir(parent_dir).await?;
+        let (cloned_path, clean_repo_url) = warsha_pipeline::worktree::clone_repository(
+            &clone_url,
+            &dest_parent,
+            Some(repo.name.as_str()),
+            Some(&token),
+        )
+        .await
+        .map_err(|err| rpc_error(err.to_string().replace(&token, "[REDACTED]")))?;
+
+        Ok(CreatedGithubRepo {
+            repo_path: cloned_path.to_string_lossy().into_owned(),
+            repo_url: clean_repo_url.unwrap_or(clone_url),
+            full_name: repo.full_name,
+            html_url: repo.html_url,
+        })
     }
 
     async fn get_default_permissions(&self, ext: &RpcExtensions) -> RpcResult<ProjectPermissions> {
