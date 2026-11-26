@@ -149,8 +149,11 @@ export function applyEvent(
   // A role-less StageStarted is how the pipeline announces a stage change
   // (advance_stage_locked writes role: None). A gate stage means the run is
   // sitting at an undecided gate — every live agent of that run waits. A
-  // non-gate announcement means the run left the gate, so a prior wait ends.
-  // It never creates an agent and never knocks a working agent to idle.
+  // non-gate announcement means the run left the gate (a prior wait ends) and
+  // is the station the run just entered: a working crew follows it too, since
+  // the stage's first role-bearing event only lands after that agent's model
+  // call returns. It never creates an agent, never knocks an idle agent to
+  // working, and never moves a done one.
   if (event.role === null && kind === 'stage_started') {
     const announced = announcedStage(event);
     if (announced === null) return next;
@@ -165,10 +168,10 @@ export function applyEvent(
           lastAction: actionOf(event),
           lastUpdated: event.createdAt,
         });
-      } else if (agent.state === 'waiting_on_owner') {
+      } else {
         next.set(agentKey, {
           ...agent,
-          state: 'working',
+          state: agent.state === 'waiting_on_owner' ? 'working' : agent.state,
           stage: announced,
           lastAction: actionOf(event),
           lastUpdated: event.createdAt,

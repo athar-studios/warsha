@@ -26,7 +26,7 @@ export interface FloorProps {
   dir?: 'ltr' | 'rtl';
 }
 
-interface Station {
+export interface Station {
   key: string;
   labelKey: string;
   x: number;
@@ -41,7 +41,7 @@ const STATION_HEIGHT = 110;
 const STATION_LABEL_Y = 52;
 const WORK_ROW_Y = 120;
 
-const STATIONS: Station[] = [
+export const STATIONS: Station[] = [
   {
     key: 'planning',
     labelKey: 'factory.stations.planning',
@@ -73,8 +73,12 @@ const STATIONS: Station[] = [
   {
     key: 'shipping',
     labelKey: 'factory.stations.shipping',
-    x: 840,
-    width: 130,
+    // 152 wide, not 130: six markers of diameter 22 need a slot pitch of at
+    // least 24 across the 16-unit insets, and (130 - 32) / 5 = 19.6 overlapped
+    // five pairs on a release crew. The extra width comes out of the gutter to
+    // Your decisions, so the floor keeps its 30-unit outer margins.
+    x: 818,
+    width: 152,
     stages: ['release', 'launch_drafts'],
   },
 ];
@@ -89,7 +93,7 @@ const BREAK_AREA = { x: 30, width: 160, y: 258 };
 const BREAK_BOX_TOP = BREAK_AREA.y - 36;
 const BREAK_BOX_HEIGHT = 82;
 const BREAK_LABEL_Y = BREAK_AREA.y - 46;
-const AGENT_RADIUS = 11;
+export const AGENT_RADIUS = 11;
 const PER_ROW = 6;
 /** Inset so a marker circle stays inside its station box. */
 const SLOT_INSET = 16;
@@ -97,12 +101,29 @@ const SLOT_INSET = 16;
 const ROW_GAP = 36;
 
 /**
+ * A marker is 2 * AGENT_RADIUS across; two units of air keep neighbours from
+ * touching even at the narrowest station. No station may undercut this pitch.
+ */
+const MIN_SLOT_PITCH = AGENT_RADIUS * 2 + 2;
+
+/**
  * Gap between co-stationed markers. Sized from the station so a full row
- * stays inside the box. The "Needs you" caption is painted once per station
- * group, not once per marker, so this gap does not have to clear that string.
+ * stays inside the box, but never below one marker diameter plus air — a
+ * narrow station spills its row rather than overlapping it. The "Needs you"
+ * caption is painted once per station group, not once per marker, so this gap
+ * does not have to clear that string.
  */
 function slotGap(stationWidth: number): number {
-  return (stationWidth - SLOT_INSET * 2) / (PER_ROW - 1);
+  return Math.max(MIN_SLOT_PITCH, (stationWidth - SLOT_INSET * 2) / (PER_ROW - 1));
+}
+
+/**
+ * First slot of a row: the inset, or the centred start of a floored row that
+ * overflows it.
+ */
+function slotStart(station: Station, gap: number): number {
+  const span = (PER_ROW - 1) * gap;
+  return station.x + Math.max(SLOT_INSET, (station.width - span) / 2);
 }
 
 function stationCenter(stationKey: string): number {
@@ -160,8 +181,9 @@ export function markerPosition(
   const slotIndex = here.length - 1;
   const slot = slotIndex % PER_ROW;
   const row = Math.floor(slotIndex / PER_ROW);
+  const gap = slotGap(station.width);
   return {
-    x: station.x + SLOT_INSET + slot * slotGap(station.width),
+    x: slotStart(station, gap) + slot * gap,
     y: WORK_ROW_Y + row * ROW_GAP,
     stationKey: station.key,
   };
