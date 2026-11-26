@@ -258,7 +258,7 @@ function SecretaryInterview({ client, initialState, projectId, t }: {
   };
   return <section className="v3-secretary" data-testid="secretary-interview" aria-label={t('secretary.interview.title')}>
     <h3>{t('secretary.interview.title')}</h3>
-    <p role="status">{t('secretary.interview.progress', { covered: state.covered_topics.length, total: state.covered_topics.length + state.open_topics.length })}</p>
+    <p role="status">{t(state.is_done ? 'secretary.interview.progress_done' : 'secretary.interview.progress', { covered: state.covered_topics.length, total: state.covered_topics.length + state.open_topics.length })}</p>
     {state.transcript.map((turn, index) => <div key={index}><p dir="auto">{turn.question}</p><p dir="auto">{isStopAnswer(turn.answer) ? t('secretary.interview.enough_answer') : turn.answer}</p></div>)}
     {state.is_done ? <>
       <h4>{t('secretary.interview.completed')}</h4>

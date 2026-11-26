@@ -32,7 +32,6 @@ export default {
   'bench.action.harness_select': 'Select workflow',
   'bench.action.runmode_set': 'Set run mode',
   'bench.action.stream_reconnect': 'Reconnect stream',
-  'bench.title': 'Advanced workbench',
   'bench.empty': 'No run data available',
   'bench.loading': 'Loading workbench',
   'bench.error': 'Could not load run data',

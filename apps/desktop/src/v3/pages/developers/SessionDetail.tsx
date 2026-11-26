@@ -10,6 +10,8 @@ import React, { useState } from 'react';
 
 import { useAction } from '../../actions';
 import { useClient } from '../../app/ClientContext';
+import { centsLabel, eventKindLabel, sessionStatusLabel } from '../../copy/developers';
+import { roleLabel } from '../../copy/roles';
 
 import { formatMs } from './format';
 import {
@@ -66,12 +68,12 @@ const SessionDetail: React.FC<Props> = ({ session, events, projectId, runId }) =
       <header className="developers-detail-header">
         <h2>{t('developers.detail')}</h2>
         <p className="developers-detail-sub">
-          {session.role} · {session.model === '' || session.model === 'default' ? t('developers.not_routed_yet') : session.model} · {session.provider === '' || session.provider === 'routed' ? t('developers.not_routed_yet') : session.provider} · {session.backend}
+          {roleLabel(session.role, t)} · {session.model === '' || session.model === 'default' ? t('developers.not_routed_yet') : session.model} · {session.provider === '' || session.provider === 'routed' ? t('developers.not_routed_yet') : session.provider} · {session.backend}
         </p>
         <p className="developers-detail-now">
           {t('developers.detail.now', {
             elapsed: formatMs(elapsedMs(session)),
-            status: session.status,
+            status: sessionStatusLabel(session.status, t),
           })}
         </p>
       </header>
@@ -84,7 +86,7 @@ const SessionDetail: React.FC<Props> = ({ session, events, projectId, runId }) =
               ? t('developers.not_routed_yet')
               : metrics.costCents === null
                 ? t('developers.unknown')
-                : `${metrics.costCents} ¢`}
+                : centsLabel(metrics.costCents, t)}
           </dd>
         </div>
         <div>
@@ -129,7 +131,7 @@ const SessionDetail: React.FC<Props> = ({ session, events, projectId, runId }) =
         <ol className="developers-detail-timeline" data-testid="developers-detail-timeline">
           {timeline.map(({ event, durationMs }) => (
             <li key={event.id}>
-              <span className="developers-detail-step-kind">{event.kind}</span>
+              <span className="developers-detail-step-kind" title={event.kind}>{eventKindLabel(event.kind, t)}</span>
               {durationMs !== null && (
                 <span className="developers-detail-step-duration">
                   {t('developers.detail.step_duration', { duration: formatMs(durationMs) })}

@@ -8,6 +8,7 @@ export default {
   'secretary.interview.finish': 'Finish with what we have',
   'secretary.interview.enough_answer': 'That’s enough',
   'secretary.interview.progress': '{covered} of {total} topics covered',
+  'secretary.interview.progress_done': 'Interview finished — we covered {covered} of {total} topics',
   'secretary.interview.completed': 'Interview completed',
   'secretary.interview.developers': 'The saved agent provisioning records are also visible in Developers.',
   'secretary.interview.provisioning': 'Saved agent provisioning',

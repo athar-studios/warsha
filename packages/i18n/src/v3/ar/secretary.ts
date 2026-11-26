@@ -6,6 +6,7 @@ export default {
   'secretary.interview.finish': 'أنهِ المقابلة بما لدينا',
   'secretary.interview.enough_answer': 'هذا يكفي',
   'secretary.interview.progress': 'اكتمل {covered} من {total} محاور',
+  'secretary.interview.progress_done': 'انتهت المقابلة — غطّينا {covered} من {total} محاور',
   'secretary.interview.completed': 'اكتملت المقابلة',
   'secretary.interview.developers': 'تجد سجلات تجهيز الوكلاء المحفوظة أيضًا في وضع المطوّرين.',
   'secretary.interview.provisioning': 'تجهيز الوكلاء المحفوظ',

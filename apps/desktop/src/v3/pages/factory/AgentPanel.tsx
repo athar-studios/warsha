@@ -82,14 +82,15 @@ export const AgentPanel: React.FC<AgentPanelProps> = ({ agent, lastFile, codeHre
     <dl>
       <dt>{t('factory.panel.state')}</dt>
       <dd data-testid="factory-panel-state">{t(`factory.state.${agent.state}`)}</dd>
-      <dt>{t('factory.panel.currentAction')}</dt>
+      {/* State-neutral label: the action may be finished while the agent waits on the owner (D-RN-CLEAN3-COPY-1). */}
+      <dt>{t('factory.panel.lastAction')}</dt>
       <dd data-testid="factory-panel-action">{actionLabel(agent.lastAction, t)}</dd>
       <dt>{t('factory.panel.run')}</dt>
       <dd>{agent.runId}</dd>
       <dt>{t('factory.panel.role')}</dt>
       <dd data-testid="factory-panel-role">{roleLabel(agent.role, t)}</dd>
       <dt>{t('factory.panel.model')}</dt>
-      <dd data-testid="factory-panel-model">{agent.model ?? t('factory.panel.unknown')}</dd>
+      <dd data-testid="factory-panel-model">{agent.model ?? t('factory.panel.model_unrecorded')}</dd>
       <dt>{t('factory.panel.cost')}</dt>
       <dd data-testid="factory-panel-cost">{t('factory.cost_cents', { cents: agent.costCents })}</dd>
       <dt>{t('factory.panel.lastFile')}</dt>

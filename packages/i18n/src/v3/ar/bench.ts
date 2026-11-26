@@ -32,7 +32,6 @@ export default {
   'bench.action.harness_select': 'تحديد سير العمل',
   'bench.action.runmode_set': 'تحديد وضع التشغيل',
   'bench.action.stream_reconnect': 'إعادة الاتصال بالبث',
-  'bench.title': 'منصة العمل المتقدمة',
   'bench.empty': 'لا توجد بيانات تشغيل',
   'bench.loading': 'جارٍ تحميل منصة العمل',
   'bench.error': 'تعذر تحميل بيانات التشغيل',

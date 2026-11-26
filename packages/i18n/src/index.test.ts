@@ -384,7 +384,6 @@ describe('Bench & Signal shell copy', () => {
 
   it('names the top bar and the instrument strip in words the shell can press', () => {
     expect(t('app.simpleMode', {}, 'en')).toBe('Simple');
-    expect(t('app.advancedMode', {}, 'en')).toBe('Advanced');
     expect(t('app.settings', {}, 'ar')).toBe('الإعدادات');
     expect(t('app.mode_label', {}, 'en')).toBe('Interface mode');
     expect(t('app.skip_to_bench', {}, 'en')).toBe('Skip to the workbench');

@@ -172,6 +172,40 @@ describe('DevelopersPage (E4)', () => {
       expect(busyOption).toHaveTextContent(running);
     }
   );
+  it.each([
+    ['ar', { role: 'الباحث', status: 'انتهت', stage: 'بوابة ب', kind: 'خطوة الوكيل', cost: '7 سنت', perHour: 'سنت في الساعة' }],
+    ['en', { role: 'Researcher', status: 'Done', stage: 'Gate B', kind: 'Agent step', cost: '7 ¢', perHour: '¢/h' }],
+  ] as const)('renders statuses, roles, stages, event kinds and cost units through the catalog in %s (D-RN-CLEAN3-COPY-1)', async (locale, copy) => {
+    const client = createClient();
+    const done = { ...PARENT, role: 'researcher', status: 'done' } as Session;
+    vi.mocked(client.listRunSessions).mockResolvedValue([done, { ...CHILD, role: 'researcher', status: 'done' } as Session]);
+    vi.mocked(client.listRuns).mockResolvedValue([{ ...RUN, stage: 'gate_b' } as RunSummary]);
+    vi.mocked(client.getRunEvents).mockResolvedValue(EVENTS.map((event) => ({ ...event, role: 'researcher' }) as WarshaEvent));
+    renderPage(locale, client);
+    await ready();
+    const row = screen.getAllByTestId('developers-row')[0];
+    expect(within(row).getByTestId('developers-cell-role')).toHaveTextContent(copy.role);
+    expect(within(row).getByTestId('developers-cell-status')).toHaveTextContent(copy.status);
+    expect(within(row).getByTestId('developers-cell-action')).toHaveTextContent(copy.status);
+    await waitFor(() => expect(within(row).getByTestId('developers-cell-cost')).toHaveTextContent(copy.cost));
+    const option = screen.getAllByRole('option').find((item) => item.textContent?.includes('run-1'));
+    expect(option).toHaveTextContent(copy.stage);
+    expect(option).not.toHaveTextContent('gate_b');
+    const burn = screen.getByTestId('developers-burn').textContent ?? '';
+    if (/\d/.test(burn)) expect(burn).toContain(copy.perHour);
+    if (locale === 'ar') {
+      expect(burn).not.toContain('¢');
+      expect(screen.getByTestId('developers-cost-packet')).not.toHaveTextContent('¢');
+    }
+    fireEvent.click(row);
+    const detail = await screen.findByTestId('developers-detail');
+    const text = detail.textContent ?? '';
+    for (const raw of ['researcher', 'done', 'agent_step']) expect(text).not.toContain(raw);
+    expect(text).toContain(copy.role);
+    expect(text).toContain(copy.status);
+    expect(within(detail).getAllByText(copy.kind).length).toBeGreaterThan(0);
+    expect(within(detail).getByTestId('developers-detail-cost')).toHaveTextContent(copy.cost);
+  });
   it('renders both fixture sessions grouped under the parent', async () => {
     renderPage();
     await ready();
