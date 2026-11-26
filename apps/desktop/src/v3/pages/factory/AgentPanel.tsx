@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { getEventKey } from '../../copy/events';
+import { roleLabel } from '../../copy/roles';
 
 import type { AgentStatus } from './state';
 
@@ -38,16 +39,7 @@ export function actionLabel(lastAction: string, t: (key: string) => string): str
 }
 
 /** Panel role: the catalog name when one exists, the role id otherwise. */
-export function roleLabel(role: string | null, t: (key: string) => string): string {
-  if (role === null || role.length === 0) return '—';
-  const key = `settings.role.${role}`;
-  const label = t(key);
-  // A missing catalog entry comes back as the key. A stub that echoes its
-  // argument comes back as the role id. Either way the panel must not invent
-  // a name, and a real catalog never returns the bare id for a known role.
-  if (label === key || label === role) return role;
-  return label;
-}
+export { roleLabel };
 
 export function lastFileOf(events: { payload: unknown }[]): string | null {
   for (let index = events.length - 1; index >= 0; index -= 1) {

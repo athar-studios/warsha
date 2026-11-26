@@ -64,7 +64,8 @@ import {
   useRunEvents,
   useRuns,
 } from '../../data';
-import { applyCancelledRun } from '../../data/runUpdates';
+import { clearInterviewEntry, hasInterviewEntry } from '../../data/interviewEntry';
+import { applyCancelledRun, applyOptimisticCancel } from '../../data/runUpdates';
 import { useRoute } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 import { extractGateCode, findPendingGateAtCurrentStage, formatTime24 } from '../inbox/gateHelpers';
@@ -87,6 +88,9 @@ export function pickCurrentRun(runs: readonly RunSummary[] | null | undefined): 
   if (!runs || runs.length === 0) return null;
   return runs[0];
 }
+
+/** Delay before the single retry of a failed `interview.status` read on project entry. */
+const INTERVIEW_STATUS_RETRY_MS = 600;
 
 export function computeRunStatusPill(
   run: RunSummary | null,
@@ -348,13 +352,27 @@ export default function ProjectPage(): React.ReactElement {
   const [secretarySheetOpen, setSecretarySheetOpen] = useState(false);
   useEffect(() => {
     let active = true;
-    setSecretarySheetOpen(false);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    // D-RN-UI-R5: Home recorded that it just started an interview here, so the sheet opens
+    // at once; `interview.status` can be refused (rate limit) or fail transiently.
+    const entered = projectId ? hasInterviewEntry(projectId) : false;
+    setSecretarySheetOpen(entered);
     if (client?.interviewStatus && projectId) {
-      void client.interviewStatus(projectId as ProjectId).then((state) => {
-        if (active && state) setSecretarySheetOpen(true);
-      }).catch(() => { /* The secretary entry still permits an explicit retry. */ });
+      const read = (attempt: number): void => {
+        void client.interviewStatus(projectId as ProjectId).then((state) => {
+          if (active && state) setSecretarySheetOpen(true);
+        }).catch(() => {
+          // One quiet retry: a first refusal must not leave the owner without the sheet.
+          // The secretary entry still permits an explicit retry after that.
+          if (active && attempt === 0) retryTimer = setTimeout(() => read(1), INTERVIEW_STATUS_RETRY_MS);
+        });
+      };
+      read(0);
     }
-    return () => { active = false; };
+    return () => {
+      active = false;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+    };
   }, [client, projectId]);
   const [permissionsDraft, setPermissionsDraft] = useState<ProjectPermissions | null>(null);
 
@@ -560,8 +578,17 @@ export default function ProjectPage(): React.ReactElement {
 
   const runCancelConfirmAction = useAction('project.run.cancel.confirm', async () => {
     if (!client || !currentRun) return;
-    const cancelled = await client.cancelRun(currentRun.id as RunId);
-    applyCancelledRun(client, cancelled);
+    // D-RN-UI-R5: the owner confirmed, so show Cancelled now; roll back if the daemon refuses.
+    const rollback = applyOptimisticCancel(client, currentRun);
+    let cancelled: RunSummary;
+    try {
+      cancelled = await client.cancelRun(currentRun.id as RunId);
+    } catch (error) {
+      rollback();
+      throw error;
+    }
+    if (cancelled.status === 'cancelled') applyCancelledRun(client, cancelled);
+    else rollback();
     setCancelDialogOpen(false);
     reloadAll();
   });
@@ -1153,7 +1180,10 @@ export default function ProjectPage(): React.ReactElement {
       {/* E2: the secretary chat sheet — proposals confirm through the owner's own RPCs. */}
       <Sheet
         open={secretarySheetOpen}
-        onClose={() => setSecretarySheetOpen(false)}
+        onClose={() => {
+          if (projectId) clearInterviewEntry(projectId);
+          setSecretarySheetOpen(false);
+        }}
         title={t('secretary.title')}
         closeLabel={t('common.close')}
         data-testid="project-secretary-sheet"

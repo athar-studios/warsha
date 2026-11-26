@@ -9,7 +9,8 @@ import type {
   SecretaryTurn,
   WarshaClient,
 } from '@warsha/client';
-import { I18nProvider } from '@warsha/i18n/v3';
+import { I18nProvider, translate } from '@warsha/i18n/v3';
+import type { Locale } from '@warsha/i18n/v3';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -125,6 +126,40 @@ describe('SecretaryChat', () => {
     expect(client.secretaryChat).not.toHaveBeenCalled();
     expect(client.listSecretaryThreads).not.toHaveBeenCalled();
   });
+
+  it.each(['en', 'ar'] as const)(
+    'renders every provisioning role localized and the early-finish answer as a label in %s',
+    async (locale: Locale) => {
+      const t = (key: string, vars?: Record<string, string | number>): string => translate(locale, key, vars);
+      const roles = ['intake', 'researcher', 'p_m', 'designer', 'architect', 'coder', 'reviewer', 'q_a', 'security', 'release', 'marketer', 'feedback', 'secretary'];
+      const state: InterviewState = {
+        project_id: 'p1', brief: {}, covered_topics: ['audience'], open_topics: [],
+        transcript: [{ question: 'Who is this for?', answer: 'Teachers' }, { question: 'Anything else?', answer: 'enough' }],
+        is_done: true, updated_at: '2026-11-26T00:00:00Z',
+      } as unknown as InterviewState;
+      const client = {
+        ...mockClient({}),
+        interviewStatus: vi.fn().mockResolvedValue(state),
+        listProvisioning: vi.fn().mockResolvedValue(roles.map((role) => ({ projectId: 'p1', agentId: `agent-${role}`, role, skills: [], tools: [], source: 'builtin', audited: true, createdAt: state.updated_at }))),
+      } as unknown as WarshaClient;
+      render(
+        <I18nProvider initialLocale={locale}>
+          <ClientProvider client={client}>
+            <SecretaryChat projectId={'p1' as ProjectId} t={t} />
+          </ClientProvider>
+        </I18nProvider>
+      );
+      expect(await screen.findByText('agent-p_m')).toBeTruthy();
+      const text = screen.getByTestId('secretary-interview').textContent ?? '';
+      expect(text).not.toContain('settings.role.');
+      expect(text).toContain(t('settings.role.pm'));
+      expect(text).toContain(t('settings.role.qa'));
+      // The early-finish answer is the daemon's stop word; the transcript localizes it.
+      expect(screen.queryByText('enough')).toBeNull();
+      expect(screen.getByText(t('secretary.interview.enough_answer'))).toBeTruthy();
+      expect(screen.getByText('Teachers')).toBeTruthy();
+    }
+  );
 
   it('does not fall back to general chat when interview status fails, and retries', async () => {
     const client = mockClient({});

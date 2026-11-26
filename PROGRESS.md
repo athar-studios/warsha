@@ -1,5 +1,10 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — UI R5 residual defects (D-RN-UI-R5)
+
+- Worktree `.agents/worktrees/fix-ui-r5`, branch `r-next/fix-ui-r5`, base `b96e746`, initially clean. UI-only; no crates edits, real model API, push, tag or merge.
+- Fixed: raw `settings.role.p_m` in the interview provisioning list (shared `copy/roles.ts`), literal `enough` in the transcript, Developers run options showing Running at a gate, interview sheet not opening after a refused `interview.status`, and the Waiting flash after confirming cancel (optimistic overlay with rollback). Root causes and the unchanged rate limiter in D-RN-UI-R5.
+- Each fix has a test that failed before the change (red logs `/tmp/r5-red*.log`, green `/tmp/r5-green*.log`). Full desktop `pnpm exec vitest run` 90 files / 844 tests passed (baseline 89 / 832); `tsc --noEmit` exit 0; i18n 2 files / 61 tests; policy 8 checks / 0 failures. Self-review only; no browser/Playwright rerun.
 ## Run 2026-11-26 — hung-stage cancel intake flake (D-RN-FLAKE-2)
 
 - Worktree `.agents/worktrees/fix-hung-cancel-flake`, branch `r-next/fix-hung-cancel-flake`, base `ea9b6a7`; initially clean, no unfamiliar changes encountered. Local only; no push/tag/publish/merge, no real model API.
