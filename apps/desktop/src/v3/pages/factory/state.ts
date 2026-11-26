@@ -57,6 +57,44 @@ export function isGateStage(stage: string | null | undefined): boolean {
 }
 
 /**
+ * Roles that work each non-gate pipeline stage. Mirrors `role_for_stage` in
+ * `crates/warsha-pipeline/src/prompts.rs`, with role ids as the client decodes
+ * them (`canonicalRoleKey`: `p_m` → `pm`). `review_qa_security` is shared by
+ * reviewer, QA and security, so it has no single owner and seeds no marker.
+ */
+const STAGE_ROLES: Readonly<Record<string, readonly string[]>> = {
+  idea: ['intake'],
+  research: ['researcher'],
+  prd_spec: ['pm'],
+  design: ['designer'],
+  plan_tasks: ['architect'],
+  code: ['coder'],
+  review_qa_security: ['reviewer', 'qa', 'security'],
+  release: ['release'],
+  launch_drafts: ['marketer'],
+  feedback: ['feedback'],
+};
+
+/** The roles working `stage` (empty for gates and unknown stages). */
+export function rolesForStage(stage: string): readonly string[] {
+  return STAGE_ROLES[stage] ?? [];
+}
+
+/**
+ * True once RunFinished closed this run: some agent of the run is done and its
+ * last action is that event (`actionOf` always starts with the event kind). A
+ * late announcement must not re-staff a finished run.
+ */
+function runFinished(agents: Map<string, AgentStatus>, runId: string): boolean {
+  for (const agent of agents.values()) {
+    if (agent.runId !== runId || agent.state !== 'done') continue;
+    const closingKind = agent.lastAction.split(':')[0] ?? '';
+    if (normalizeEventKind(closingKind.trim()) === 'run_finished') return true;
+  }
+  return false;
+}
+
+/**
  * The stage a role-less `StageStarted` is announcing.
  *
  * `advance_stage_locked` writes `{from, to}` with `stage` already equal to `to`.
@@ -148,19 +186,22 @@ export function applyEvent(
 
   // A role-less StageStarted is how the pipeline announces a stage change
   // (advance_stage_locked writes role: None). A gate stage means the run is
-  // sitting at an undecided gate — every live agent of that run waits. A
-  // non-gate announcement means the run left the gate (a prior wait ends) and
-  // is the station the run just entered: a working crew follows it too, since
-  // the stage's first role-bearing event only lands after that agent's model
-  // call returns. It never creates an agent, never knocks an idle agent to
-  // working, and never moves a done one.
+  // sitting at an undecided gate — every live agent of that run waits.
+  //
+  // A non-gate announcement means the run left its previous stage (or gate) for
+  // this one (D-RN-FLOOR-R5A-1). Only the announced stage's own role(s) work it:
+  // their live agents move onto the stage as working, and when the stage has a
+  // single owner that has no marker yet one is seeded, because the owner's
+  // first role-bearing event only lands after its model call returns. Every
+  // other live agent of the run belonged to a stage the run has left, so it is
+  // done — it stays on the station it finished. Done agents are never
+  // resurrected, and a finished run is never re-seeded.
   if (event.role === null && kind === 'stage_started') {
     const announced = announcedStage(event);
     if (announced === null) return next;
-    const waiting = isGateStage(announced);
-    for (const [agentKey, agent] of next) {
-      if (agent.runId !== event.runId || agent.state === 'done') continue;
-      if (waiting) {
+    if (isGateStage(announced)) {
+      for (const [agentKey, agent] of next) {
+        if (agent.runId !== event.runId || agent.state === 'done') continue;
         next.set(agentKey, {
           ...agent,
           state: 'waiting_on_owner',
@@ -168,15 +209,44 @@ export function applyEvent(
           lastAction: actionOf(event),
           lastUpdated: event.createdAt,
         });
-      } else {
-        next.set(agentKey, {
-          ...agent,
-          state: agent.state === 'waiting_on_owner' ? 'working' : agent.state,
-          stage: announced,
-          lastAction: actionOf(event),
-          lastUpdated: event.createdAt,
-        });
       }
+      return next;
+    }
+    const owners = rolesForStage(announced);
+    let ownerMarked = false;
+    for (const [agentKey, agent] of next) {
+      if (agent.runId !== event.runId) continue;
+      const owns = agent.role !== null && owners.includes(agent.role);
+      if (owns) ownerMarked = true;
+      if (agent.state === 'done') continue;
+      next.set(
+        agentKey,
+        owns
+          ? {
+              ...agent,
+              state: 'working',
+              stage: announced,
+              lastAction: actionOf(event),
+              lastUpdated: event.createdAt,
+            }
+          : { ...agent, state: 'done', lastAction: actionOf(event), lastUpdated: event.createdAt }
+      );
+    }
+    const owner = owners.length === 1 ? owners[0] : undefined;
+    if (owner !== undefined && !ownerMarked && !runFinished(agents, event.runId)) {
+      const key = `${event.runId}:${owner}`;
+      next.set(key, {
+        key,
+        runId: event.runId,
+        role: owner,
+        state: 'working',
+        stage: announced,
+        lastAction: actionOf(event),
+        lastUpdated: event.createdAt,
+        costCents: 0,
+        model: null,
+        handoffFrom: null,
+      });
     }
     return next;
   }
@@ -213,11 +283,7 @@ export function applyEvent(
     updated = { ...updated, model: payloadRecord['model'] as string };
   }
 
-  if (
-    kind === 'gate_decision' &&
-    payloadRecord !== null &&
-    payloadRecord['state'] === 'pending'
-  ) {
+  if (kind === 'gate_decision' && payloadRecord !== null && payloadRecord['state'] === 'pending') {
     updated = { ...updated, state: 'waiting_on_owner', lastAction: actionOf(event) };
   } else if (kind === 'run_finished') {
     updated = { ...updated, state: 'done', lastAction: actionOf(event) };
