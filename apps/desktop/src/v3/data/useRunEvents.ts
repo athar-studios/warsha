@@ -73,6 +73,11 @@ export function useRunEvents(
         setError(null);
         setData(currentEvents);
         setStatus(currentEvents.length === 0 ? 'empty' : 'ready');
+        // subscribeRun returns a snapshot, not a persistent stream. Continue from
+        // its cursor so asynchronous intake pauses are visible after runs.start.
+        timerId = setTimeout(() => {
+          if (active) void pollOrSubscribe();
+        }, 1000);
       } catch (err) {
         if (!active) return;
         const errObj = err instanceof Error ? err : new Error(String(err));

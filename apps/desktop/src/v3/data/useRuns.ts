@@ -18,6 +18,7 @@ export function useRuns(
       return client.listRuns(projectId as ProjectId);
     },
     (runs) => !runs || runs.length === 0,
-    [client, projectId]
+    [client, projectId],
+    client && projectId ? 1000 : undefined
   );
 }

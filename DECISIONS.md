@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-FRAME-1: refresh run rows and localize structured pause actions
+
+The frame's status mapper already supports cancelled and paused with native ar/en catalog strings; the defect was its one-shot private run map, not missing status labels. Run start dispatches intake asynchronously. Both run rows and successful event snapshots therefore need refresh, independent of project action reloads. Use sequential one-second snapshot reads with cleanup rather than infer lifecycle state from error events or add another transport. The optional `useResource` refresh applies only to `useRuns`; other resource hooks retain their existing behavior.
+
+Map `provider_required` from the event action, never parse its English message. A new ar/en `project.provider_required` sentence describes routing and resuming; the pause banner uses the existing localized routing hint. The raw diagnostic remains stored in the daemon. `run_cancelled` activity uses the existing Cancelled catalog label rather than the generic error label. Frame status strings and Cancelled labeling elsewhere remain intact; no layout, Rust, or project gate-loading change. Capacity merges planner/implementer/reviewer/verifier roles explicitly in evidence; self-review and local gates are not independent acceptance. No push, tag, merge or publish.
+
 ## 2026-11-26 — D-RN-SWARM-RACE-1: the two CLEAN-1 swarm walks hold one named process lock
 
 `clean1_swarm_four_lanes_materialize_real_files` sets `WARSHA_CODING_BACKEND_FIXTURE=materialize`. `clean1_swarm_four_lanes_scripted_backend_derives_files` removes it. `FIXTURE_IN_FLIGHT` and `FIXTURE_PEAK` are process-global, and both walks call `reset_fixture_materialize_peak`. Beside each other, one walk restores or clears the switch while the other is inside `execute`, so the materialize path never writes and the peak stays at 2 (store 2, backend 0). One walk's reset can also zero the other's count.

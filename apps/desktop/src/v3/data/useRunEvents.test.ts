@@ -223,6 +223,27 @@ describe('useRunEvents', () => {
     expect(result.current.data).toEqual([freshEvent]);
   });
 
+  it('continues successful snapshots from the cursor and stops on unmount', async () => {
+    vi.useFakeTimers();
+    try {
+      const subscribeRun = vi.fn().mockResolvedValue({ seq: 4, events: [] });
+      const client = { subscribeRun } as unknown as WarshaClient;
+      const { unmount } = renderHook(() => useRunEvents('run-1', {}, client));
+      await act(async () => {});
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(subscribeRun).toHaveBeenNthCalledWith(2, 'run-1', 4);
+      unmount();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(subscribeRun).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('unsubscribes on unmount', async () => {
     const unsubscribeRun = vi.fn();
     const client = {

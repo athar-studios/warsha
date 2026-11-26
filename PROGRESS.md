@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — frame run status and provider-required localization
+
+- **Worktree**: `.agents/worktrees/fix-frame-status`, branch `r-next/fix-frame-status`, base `90aad8d`. No push, tag, merge or publish. Decision D-RN-FRAME-1. No unfamiliar changes were present at intake.
+- **Diagnosis**: Frame's private `listRuns` map loaded only when projects changed. Project actions reloaded a different `useRuns` instance. `runs.start` returns before spawned intake pauses; `useRuns` and successful `useRunEvents` snapshots did not refresh. The daemon correctly writes Paused and `action: provider_required`; activity concatenated raw English message/hint and mapped all error-kind events (including `run_cancelled`) to the generic error label.
+- **Changes**: sequential one-second authoritative run refreshes with timer cleanup; cursor-based event refresh after success; structured provider-required activity and pause hint localized in ar/en; cancellation activity uses existing Cancelled labels. Layout and project gate-loading logic unchanged. No Rust edits.
+- **Red proof**: `/tmp/frame-status-before.log`: 5 failed, 41 passed. Four frame regressions expected Cancelled / ملغاة / Paused / متوقّف but received Test Running / Test يعمل; structured action test received `arbitrary daemon prose — arbitrary hint` instead of `project.provider_required`.
+- **Verification**: full desktop `pnpm vitest run` — 89 files, 818 passed (baseline 809); i18n v3 parity — 9 passed with explicit package root/config (desktop config excludes package tests). Final targeted run after an additional cancellation assertion also passed. `cargo fmt --all -- --check` exit 0; policy 8 checks/0 failures; architecture 5 rules/0 violations. Logs in `/tmp/frame-status-*.log` and `bridge-io/policy/2026-11-26-frame-status/`. Dependency symlinks removed before commit. Roles merged for capacity, explicitly not independent review or acceptance. Browser UX walk not repeated; no real provider calls.
+
 ## Run 2026-11-26 — swarm walks no longer share the fixture switch
 
 - **Worktree**: `.agents/worktrees/fix-swarm-race`, branch `r-next/fix-swarm-race`, tip was `1f9b1c4`. No push, no merge. FIXES COMPLETE is not declared.
