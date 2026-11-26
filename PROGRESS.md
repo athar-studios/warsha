@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — swarm result persistence (D-RN-PERSIST-1)
+
+- **Worktree**: `.agents/worktrees/fix-swarm-persist`, branch `r-next/fix-swarm-persist`, base `90aad8ddc73c38b9020fbadcd021d1b731b12510`. Local only: no push/tag/publish/merge.
+- **Change**: synchronously persist returned swarm `CodingResult` edits as `AgentStep` / `swarm_coding_result` events, keyed by subtask, child session and task IDs. Includes unsuccessful returned results, actual files, a redacted UTF-8 diff capped at 64 KiB including the existing truncation marker, and truncation metadata. No model field exists on CodingResult; no placeholder identity is invented. Existing store and runs.events suffice; no migration, RPC or non-swarm behavior changes.
+- **TDD**: `CARGO_INCREMENTAL=0 cargo test -p warsha-pipeline --test d5_swarm_engine swarm_coding_results_are_durable_and_bounded` red: 0 passed, 1 failed, 8 filtered (expected one durable event, got zero). Green: 1 passed, 0 failed, 8 filtered. Reopens SQLite for success and returned failure; checks lane association, actual files, diff, multibyte truncation and secret-shaped canary redaction.
+- **Evidence** (all with `CARGO_INCREMENTAL=0` where cargo, output redirected to `/tmp/swarm-persist-G*.log`; gate files also under ignored `bridge-io/policy/2026-11-26-swarm-persist/`): G1 `cargo fmt --all -- --check` exit 0. G2 `cargo clippy -p warsha-pipeline -p warsha-store -p warshad --all-targets -- -D warnings` exit 0. G3 `cargo test -p warsha-pipeline --tests` exit 0: 668 passed, 0 failed, 7 ignored (pre-existing, in the lib unit target), including `d5_swarm_engine` 9 passed. G4 `cargo test -p warshad --lib tests::clean1_swarm` exit 0: 2 passed, 0 failed, 343 filtered out. G5 `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures. Also `node scripts/check-arch.mjs`: 5 rules, 0 violations; `git diff --check` clean.
+- **Process limits**: roles capacity-merged and recorded, not independent review/verification. No real model API used. Full workspace suite is not a requested gate and has not run. The commit hash is reported in the handoff, not self-embedded.
+
 ## Run 2026-11-26 — swarm walks no longer share the fixture switch
 
 - **Worktree**: `.agents/worktrees/fix-swarm-race`, branch `r-next/fix-swarm-race`, tip was `1f9b1c4`. No push, no merge. FIXES COMPLETE is not declared.

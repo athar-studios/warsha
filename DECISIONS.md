@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-PERSIST-1: swarm coding results use the durable run event log
+
+- **Gap**: swarm consumed `CodingResult` without retaining its actual `files_changed` or `diff`; declared subtask files are not execution evidence.
+- **Storage**: synchronously append an `AgentStep` event with payload `type: swarm_coding_result`, `subtask_id`, `session_id`, `task_id`, `backend`, `success`, `files_changed`, `diff`, and `diff_truncated`. Existing `get_events` / runs.events expose it without a migration or a new RPC. Append errors propagate rather than reporting an unpersisted result as successful.
+- **Coverage**: persist every returned result, including `success: false`, before the read-only backstop or status handling. An execute error carries no CodingResult and creates no fabricated edits. Re-dispatches remain distinguishable by child session and task IDs. `CodingResult` currently carries no model identity; do not invent one from the session's `default` placeholder.
+- **Bounds/security**: mask file paths and diff through the existing guardrail redactor; cap the stored UTF-8 diff at 64 KiB including `\n…[truncated]`, after masking and without splitting a character. Do not record raw backend errors, prompts, credentials or tracing output in the new event. Existing heuristic redaction is reused, not claimed as arbitrary secret detection.
+- **Scope**: swarm runtime and mock regression only; non-swarm behavior is unchanged. Local commit only, no push/tag/publish/merge. Roles are capacity-merged and acceptance commands are frozen from the owner request; review/verification are not independent.
+
 ## 2026-11-26 — D-RN-SWARM-RACE-1: the two CLEAN-1 swarm walks hold one named process lock
 
 `clean1_swarm_four_lanes_materialize_real_files` sets `WARSHA_CODING_BACKEND_FIXTURE=materialize`. `clean1_swarm_four_lanes_scripted_backend_derives_files` removes it. `FIXTURE_IN_FLIGHT` and `FIXTURE_PEAK` are process-global, and both walks call `reset_fixture_materialize_peak`. Beside each other, one walk restores or clears the switch while the other is inside `execute`, so the materialize path never writes and the peak stays at 2 (store 2, backend 0). One walk's reset can also zero the other's count.

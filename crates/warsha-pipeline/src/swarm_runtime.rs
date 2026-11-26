@@ -27,6 +27,9 @@ use warsha_store::StoredProjectSwarmSettings;
 /// reported unmerged (never force-merged).
 const MAX_MERGE_ATTEMPTS: u32 = 2;
 
+/// Maximum persisted result diff, including the truncation marker (UTF-8 bytes).
+const MAX_RESULT_DIFF_BYTES: usize = 64 * 1024;
+
 /// The outcome of one dispatched subtask.
 #[derive(Debug)]
 pub enum SubtaskOutcome {
@@ -657,6 +660,59 @@ async fn run_subtask_agent(
     let result = backend.execute(task, &sandbox).await;
     drop(pump);
     drop(sandbox);
+
+    // Persist returned edits before status/backstop handling, including partial
+    // edits from an unsuccessful result. Await the durable write directly: the
+    // backend's best-effort event pump is not a completion barrier.
+    if let Ok(result) = &result {
+        let (diff, diff_truncated) = match result.diff.as_deref() {
+            Some(diff) => {
+                let mut diff = crate::guardrails::mask_secrets(diff);
+                let truncated = diff.len() > MAX_RESULT_DIFF_BYTES;
+                if truncated {
+                    let mut end =
+                        MAX_RESULT_DIFF_BYTES - crate::gate_evidence::TRUNCATION_MARKER.len();
+                    while !diff.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    diff.truncate(end);
+                    diff.push_str(crate::gate_evidence::TRUNCATION_MARKER);
+                }
+                (Some(diff), truncated)
+            }
+            None => (None, false),
+        };
+        let files_changed: Vec<_> = result
+            .files_changed
+            .iter()
+            .map(|path| crate::guardrails::mask_secrets(path))
+            .collect();
+        store
+            .append_event(&warsha_core::Event {
+                id: Ulid::new(),
+                run_id,
+                stage: Stage::Code,
+                role: Some(Role::Coder),
+                kind: warsha_core::EventKind::AgentStep,
+                payload: serde_json::json!({
+                    "type": "swarm_coding_result",
+                    "subtask_id": subtask.id.to_string(),
+                    "session_id": child_session.id.0.to_string(),
+                    "task_id": result.task_id.to_string(),
+                    "backend": crate::guardrails::mask_secrets(backend_name),
+                    "success": result.success,
+                    "files_changed": files_changed,
+                    "diff": diff,
+                    "diff_truncated": diff_truncated,
+                }),
+                cost_cents: None,
+                tokens: result.usage.clone(),
+                created_at: chrono::Utc::now(),
+                device_id: None,
+            })
+            .await
+            .map_err(store_err)?;
+    }
 
     if let Some(before) = tree_before {
         let after = dirty_set(&worktree.path).await.map_err(|e| {
