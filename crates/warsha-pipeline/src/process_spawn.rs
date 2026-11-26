@@ -2837,15 +2837,8 @@ mod spawn_hardening {
     /// caller-supplied one (the accepted K4 policy; KEEL K5 review finding 5).
     #[tokio::test]
     async fn a_child_starts_from_a_cleared_environment_and_the_minimal_floor() {
-        std::env::set_var(PARENT_MARKER, "leaked");
-
-        struct Guard;
-        impl Drop for Guard {
-            fn drop(&mut self) {
-                std::env::remove_var(PARENT_MARKER);
-            }
-        }
-        let _guard = Guard;
+        let _env_lock = crate::test_util::ENV_LOCK.lock().await;
+        let _guard = crate::test_util::EnvVarGuard::set(PARENT_MARKER, "leaked");
 
         let manager = InMemoryProcessManager::new();
         let (command, args) =

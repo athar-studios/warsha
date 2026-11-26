@@ -2324,8 +2324,9 @@ mod tests {
 
         #[tokio::test]
         async fn a_launch_hands_the_child_only_the_manifest_environment() {
+            let _env_lock = crate::test_util::ENV_LOCK.lock().await;
+            let _daemon_only = crate::test_util::EnvVarGuard::set(DAEMON_ONLY, "leak");
             let (_processes, mcp) = manager();
-            std::env::set_var(DAEMON_ONLY, "leak");
 
             let mut env = HashMap::new();
             env.insert(ENV_MARKER.to_string(), "1".to_string());
@@ -2345,7 +2346,7 @@ mod tests {
 
             let connection = &mcp.list().await[0];
             let description = &connection.tool_definitions[0].description;
-            std::env::remove_var(DAEMON_ONLY);
+            drop(_daemon_only);
 
             assert!(
                 description.contains("WARSHA_K5_MANIFEST_KEY=manifest-value"),

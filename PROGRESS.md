@@ -1,5 +1,17 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — shared pipeline ENV_LOCK & RAII env guard (D-RN-PIPELINE-ENVLOCK-1)
+
+- **Worktree/branch**: `.agents/worktrees/fix-pipeline-envlock`, branch `r-next/fix-pipeline-envlock` (base `6ca306e`, initially clean). No production edits, no push/tag/merge/real model API calls.
+- **Root cause**: `status_truth.rs:21` and `command_policy.rs:2181` used separate module-private env locks while `gate_evidence.rs:561` and `lib.rs:4396` mutated `WARSHA_LLM_API_KEY` / `WARSHA_CODING_BACKEND` without any lock, and `status_truth.rs:283-285` used a bare `set_var`/`remove_var` pair for `WARSHA_LLM_PROVIDER=fake`. Unrouted tests in `run_integrity.rs` (`unrouted_idea_resume_pauses_again_without_fabricated_session`) and `lib.rs` ran concurrently without `ENV_LOCK` and hit `forced_fake` (`GateA`/`Running` instead of `Paused`).
+- **Fix**: moved `pub(crate) static ENV_LOCK: tokio::sync::Mutex<()>`, `EnvVarGuard`, `CleanEnvGuard`, and `lock_clean_llm_env()` into `crates/warsha-pipeline/src/test_util.rs`; migrated `status_truth.rs`, `gate_evidence.rs`, `command_policy.rs`, `run_integrity.rs`, `lib.rs`, `code_stage_tests.rs`, `mcp_transport.rs`, and `process_spawn.rs` env-mutating and unrouted/env-sensitive tests to share `ENV_LOCK` + RAII guards; added `run_integrity::tests::env_lock_and_guard_prevent_fake_provider_leakage_across_awaits_and_panics`.
+- **Verification**:
+  - `cargo fmt --all -- --check`: exit 0.
+  - `CARGO_INCREMENTAL=0 cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: exit 0.
+  - Proving test `CARGO_INCREMENTAL=0 cargo test -p warsha-pipeline --lib env_lock_and_guard_prevent_fake_provider_leakage_across_awaits_and_panics`: exit 0 (`1 passed; 0 failed`).
+  - 10-run soak (`CARGO_INCREMENTAL=0 cargo test -p warsha-pipeline --lib -- --test-threads=16`): 10/10 runs exited 0 (`604 passed; 0 failed; 7 ignored` on every run). Logs and summary at `/home/moe/tools/fix-pipeline-envlock/`.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+
 ## FIXES COMPLETE — CLEAN-2 remainder round — 2026-11-26
 
 - Tip: `cda87e2` on `r-next/integration`. main (`rel-031`) still `5f4b742`. Local only: nothing pushed, tagged or published.

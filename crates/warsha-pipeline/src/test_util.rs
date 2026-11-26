@@ -2,8 +2,72 @@
 
 #![allow(clippy::panic, clippy::expect_used, clippy::unwrap_used)]
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use tempfile::TempDir;
+
+/// Process-wide async mutex serializing every unit test that mutates or depends
+/// on process-global environment variables (`WARSHA_LLM_PROVIDER`,
+/// `WARSHA_LLM_API_KEY`, `WARSHA_CODING_BACKEND`, etc.).
+pub(crate) static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// RAII guard that captures the prior value of an environment variable and
+/// restores (or removes) it when dropped — including across `.await` points and
+/// test panics.
+pub(crate) struct EnvVarGuard {
+    key: &'static str,
+    previous: Option<OsString>,
+}
+
+impl EnvVarGuard {
+    pub(crate) fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var_os(key);
+        std::env::set_var(key, value);
+        Self { key, previous }
+    }
+
+    pub(crate) fn remove(key: &'static str) -> Self {
+        let previous = std::env::var_os(key);
+        std::env::remove_var(key);
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        match &self.previous {
+            Some(prev) => std::env::set_var(self.key, prev),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
+/// Composite guard holding `ENV_LOCK` while clearing pipeline LLM/backend
+/// environment variables for the duration of a test.
+///
+/// Field declaration order guarantees every `EnvVarGuard` restores its
+/// variable BEFORE `_lock` releases `ENV_LOCK`.
+pub(crate) struct CleanEnvGuard {
+    _vars: Vec<EnvVarGuard>,
+    _lock: tokio::sync::MutexGuard<'static, ()>,
+}
+
+/// Acquire `ENV_LOCK` and clear `WARSHA_LLM_*` and `WARSHA_CODING_BACKEND`
+/// until the returned guard is dropped.
+pub(crate) async fn lock_clean_llm_env() -> CleanEnvGuard {
+    let lock = ENV_LOCK.lock().await;
+    let vars = vec![
+        EnvVarGuard::remove("WARSHA_LLM_PROVIDER"),
+        EnvVarGuard::remove("WARSHA_LLM_API_KEY"),
+        EnvVarGuard::remove("WARSHA_LLM_BASE_URL"),
+        EnvVarGuard::remove("WARSHA_LLM_MODEL"),
+        EnvVarGuard::remove("WARSHA_CODING_BACKEND"),
+    ];
+    CleanEnvGuard {
+        _vars: vars,
+        _lock: lock,
+    }
+}
 
 /// A fresh temp directory for one test's workspace.
 ///

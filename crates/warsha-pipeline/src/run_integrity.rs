@@ -640,6 +640,7 @@ mod tests {
     /// walk to GateA on a fabricated Done session.
     #[tokio::test]
     async fn unrouted_idea_resume_pauses_again_without_fabricated_session() {
+        let _env = crate::test_util::lock_clean_llm_env().await;
         let (store, engine, project_id, _router) = test_fixture().await;
         let run = engine
             .start_run(project_id, "Unrouted idea resume")
@@ -676,6 +677,83 @@ mod tests {
             }),
             "the re-dispatch must pause with provider_required: {events:?}"
         );
+    }
+
+    /// Proves that `ENV_LOCK` and `EnvVarGuard` prevent `WARSHA_LLM_PROVIDER=fake`
+    /// from leaking into unrouted `resume_run` tests — both across concurrent
+    /// async tasks and when a task panics while holding the env override.
+    #[tokio::test]
+    async fn env_lock_and_guard_prevent_fake_provider_leakage_across_awaits_and_panics() {
+        use std::sync::Arc;
+        use tokio::sync::Notify;
+
+        // Part 1: EnvVarGuard restores WARSHA_LLM_PROVIDER when a task panics across .await.
+        {
+            let _lock = crate::test_util::ENV_LOCK.lock().await;
+            let _baseline = crate::test_util::EnvVarGuard::remove("WARSHA_LLM_PROVIDER");
+            let panic_task = tokio::spawn(async {
+                let _fake = crate::test_util::EnvVarGuard::set("WARSHA_LLM_PROVIDER", "fake");
+                tokio::task::yield_now().await;
+                panic!("simulated failure while WARSHA_LLM_PROVIDER=fake is active");
+            });
+            let join_err = panic_task.await.expect_err("spawned task must panic");
+            assert!(join_err.is_panic(), "expected panic unwind: {join_err:?}");
+            assert!(
+                std::env::var_os("WARSHA_LLM_PROVIDER").is_none(),
+                "EnvVarGuard must remove WARSHA_LLM_PROVIDER on panic unwind"
+            );
+        }
+
+        // Part 2: Concurrent unrouted resume waits on ENV_LOCK until fake holder drops (even on panic)
+        // and still pauses at Stage::Idea with provider_required instead of advancing to GateA.
+        let acquired = Arc::new(Notify::new());
+        let proceed_to_panic = Arc::new(Notify::new());
+
+        let holder_acquired = acquired.clone();
+        let holder_proceed = proceed_to_panic.clone();
+        let fake_holder = tokio::spawn(async move {
+            let _lock = crate::test_util::ENV_LOCK.lock().await;
+            let _fake = crate::test_util::EnvVarGuard::set("WARSHA_LLM_PROVIDER", "fake");
+            holder_acquired.notify_one();
+            holder_proceed.notified().await;
+            panic!("simulated fake-provider test panic");
+        });
+
+        acquired.notified().await;
+
+        let unrouted_resume = tokio::spawn(async {
+            let _env = crate::test_util::lock_clean_llm_env().await;
+            assert!(
+                std::env::var_os("WARSHA_LLM_PROVIDER").is_none(),
+                "lock_clean_llm_env must observe clean WARSHA_LLM_PROVIDER"
+            );
+            let (store, engine, project_id, _router) = test_fixture().await;
+            let run = engine
+                .start_run(project_id, "Concurrent env lock proof")
+                .await
+                .unwrap();
+            let (mut paused, version) = store.get_run_versioned(run.id).await.unwrap();
+            paused.status = RunStatus::Paused;
+            store.update_run_cas(&paused, version).await.unwrap();
+
+            let resumed = engine.resume_run(run.id).await.unwrap();
+            assert_eq!(resumed.status, RunStatus::Paused);
+            assert_eq!(resumed.current_stage, Stage::Idea);
+            let events = store.get_events(run.id).await.unwrap();
+            assert!(events.iter().any(|e| {
+                e.payload.get("action").and_then(|a| a.as_str()) == Some("provider_required")
+            }));
+        });
+
+        // Give the unrouted task a chance to contend on ENV_LOCK before fake_holder panics.
+        tokio::task::yield_now().await;
+        proceed_to_panic.notify_one();
+
+        let holder_err = fake_holder.await.expect_err("fake_holder must panic");
+        assert!(holder_err.is_panic());
+        unrouted_resume
+            .await
+            .expect("unrouted resume must succeed without seeing WARSHA_LLM_PROVIDER=fake");
     }
 
     /// R21-REVIEW3 MEDIUM: a SpecFile Idea resume must not dispatch Intake or

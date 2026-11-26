@@ -550,22 +550,17 @@ mod e5 {
     #[cfg(unix)]
     #[tokio::test]
     async fn the_evidence_child_sees_none_of_the_daemons_variables() {
-        struct EnvGuard(&'static str);
-        impl Drop for EnvGuard {
-            fn drop(&mut self) {
-                std::env::remove_var(self.0);
-            }
-        }
-
+        let _env_lock = crate::test_util::ENV_LOCK.lock().await;
         let repo = temp_repo();
-        std::env::set_var("WARSHA_LLM_API_KEY", "sk-secret-llm-key-value");
-        let _g1 = EnvGuard("WARSHA_LLM_API_KEY");
-        std::env::set_var("WARSHA_AUTH_TOKEN", "daemon-secret-auth-token");
-        let _g2 = EnvGuard("WARSHA_AUTH_TOKEN");
-        std::env::set_var("OPENAI_API_KEY", "sk-openai-daemon-secret");
-        let _g3 = EnvGuard("OPENAI_API_KEY");
-        std::env::set_var("WARSHA_DAEMON_SECRET_CANARY", "canary-secret-12345");
-        let _g4 = EnvGuard("WARSHA_DAEMON_SECRET_CANARY");
+        let _g1 =
+            crate::test_util::EnvVarGuard::set("WARSHA_LLM_API_KEY", "sk-secret-llm-key-value");
+        let _g2 =
+            crate::test_util::EnvVarGuard::set("WARSHA_AUTH_TOKEN", "daemon-secret-auth-token");
+        let _g3 = crate::test_util::EnvVarGuard::set("OPENAI_API_KEY", "sk-openai-daemon-secret");
+        let _g4 = crate::test_util::EnvVarGuard::set(
+            "WARSHA_DAEMON_SECRET_CANARY",
+            "canary-secret-12345",
+        );
 
         let (program, args) = sh("env");
         let policy = CommandPolicy::from_config(std::slice::from_ref(&program));
