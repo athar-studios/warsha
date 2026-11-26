@@ -1,7 +1,7 @@
 // apps/desktop/src/v3/pages/developers/index.test.tsx
 // E4: the page's figures equal the fixture derivations; swarm children group under
 // the parent; the receipt export carries the trail; the table virtualises.
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   parseWarshaEvent,
   type ProjectId,
@@ -14,7 +14,7 @@ import {
 } from '@warsha/client';
 import { I18nProvider, type Locale } from '@warsha/i18n/v3';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ClientProvider } from '../../app/ClientContext';
 import { DataReadyProvider } from '../../app/DataReadyContext';
@@ -129,6 +129,17 @@ async function ready(): Promise<void> {
 }
 
 describe('DevelopersPage (E4)', () => {
+  // DevelopersPage runs a 3-hop useEffect cascade (listProjects -> listRuns ->
+  // listRunSessions/getRunEvents/listRunSubtasks). Under heavy parallel worker CPU
+  // load (load avg ~50), 3 React commit+effect hops exceed Testing Library's 1000 ms
+  // default asyncUtilTimeout; raise this file's ceiling without weakening assertions.
+  beforeAll(() => {
+    configure({ asyncUtilTimeout: 5000 });
+  });
+  afterAll(() => {
+    configure({ asyncUtilTimeout: 1000 });
+  });
+
   it.each([['en', 'Cancelled'], ['ar', 'ملغاة']] as const)('localizes cancelled run options in %s', async (locale, label) => {
     const client = createClient();
     vi.mocked(client.listRuns).mockResolvedValue([{ ...RUN, status: 'cancelled' }]);
@@ -176,7 +187,30 @@ describe('DevelopersPage (E4)', () => {
     // packets: 7 ÷ 1 succeeded subtask = 7.0 ¢
     expect(screen.getByTestId('developers-cost-packet')).toHaveTextContent('7.0 ¢');
     // budget: $0.07 spent of $2.00 cap (cents divided by 100 with 2-decimal formatting)
-    expect(screen.getByTestId('developers-budget')).toHaveTextContent('$0.07 of $2.00');
+    await waitFor(() => expect(screen.getByTestId('developers-budget')).toHaveTextContent('$0.07 of $2.00'));
+  });
+
+  it('renders rows from the run list while getGates is still pending and refines waiting status afterwards', async () => {
+    const client = createClient();
+    let resolveGates!: (gates: Array<{ stage: string; state: { state: string } }>) => void;
+    const atGate = { ...RUN, id: 'run-gate', stage: 'gate_b', status: 'running' } as RunSummary;
+    vi.mocked(client.listRuns).mockResolvedValue([atGate]);
+    (client as unknown as Record<string, unknown>).getGates = vi.fn(
+      () =>
+        new Promise<Array<{ stage: string; state: { state: string } }>>((resolve) => {
+          resolveGates = resolve;
+        })
+    );
+    renderPage('en', client);
+    await ready();
+    expect(screen.getAllByTestId('developers-row')).toHaveLength(2);
+    const initialOption = screen.getAllByRole('option').find((item) => item.textContent?.includes('run-gate'));
+    expect(initialOption).toHaveTextContent('Running');
+    resolveGates([{ stage: 'gate_b', state: { state: 'pending' } }]);
+    await waitFor(() => {
+      const updatedOption = screen.getAllByRole('option').find((item) => item.textContent?.includes('run-gate'));
+      expect(updatedOption).toHaveTextContent('Waiting');
+    });
   });
 
   describe('formatCentsAsDollars', () => {

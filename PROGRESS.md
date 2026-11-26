@@ -1,5 +1,16 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — desktop Vitest load timeouts (D-RN-VITEST-LOAD-1)
+
+- **Worktree/scope**: `.agents/worktrees/fix-vitest-load`, branch `r-next/fix-vitest-load`, base `6ca306e`. Local only; no push/merge, no crates edits.
+- **Root cause & fix**: Multi-hop `useEffect` waterfalls in `DevelopersPage` (3 hops) and `ProjectPage` (2 hops) exceed Testing Library's 1000 ms default `asyncUtilTimeout` under heavy parallel CPU load (load avg ~50–63). Decoupled `loadRuns` from `loadBudget`/`loadProvisioning` (while keeping per-run `getGates` refinement non-blocking) in `apps/desktop/src/v3/pages/developers/index.tsx`, added a pending-`getGates` regression test and awaited `developers-budget` in `apps/desktop/src/v3/pages/developers/index.test.tsx`, and raised file-scoped `asyncUtilTimeout` to 5000 ms (`beforeAll`/`afterAll` restore 1000 ms) in `developers/index.test.tsx` and `apps/desktop/src/v3/pages/project/Project.test.tsx`.
+- **Red/green & checks** (logs under `/home/moe/tools/fix-vitest-load/`):
+  - Red targeted under 60 `yes` CPU burners (`red-targeted.log`): 2 failed / 49 passed in `developers/index.test.tsx` (`localizes cancelled run options in en` 2283ms, `labels a run waiting at a gate` 1313ms).
+  - Green targeted under 60 `yes` burners (`green-targeted.log`): 2 files / 52 passed (`developers/index.test.tsx` 18/18, `Project.test.tsx` 34/34).
+  - Full desktop `pnpm exec vitest run` under 60 `yes` burners × 2: `green-load-1.log` (90 files / 845 passed, 0 failed, 217.40s, load avg ~47) and `green-load-2.log` (90 files / 845 passed, 0 failed, 206.48s, load avg ~57).
+  - Full desktop `pnpm exec vitest run` quiet (`green-quiet.log`): 90 files / 845 passed, 0 failed, 39.18s.
+  - `apps/desktop` `pnpm exec tsc --noEmit` exit 0 (`desktop-tsc.log`); `apps/desktop` `pnpm run lint` exit 0 (`desktop-lint.log`, 0 errors, 1 pre-existing warning); root `pnpm run lint` exit 0 (`lint.log`, 0 errors, 11 pre-existing warnings). Root `tsc --noEmit` (`tsc.log`, exit 2) fails only on pre-existing `apps/remote`, `playwright.config.ts`, and sibling `../fix-vitest` references.
+
 ## FIXES COMPLETE — CLEAN-2 remainder round — 2026-11-26
 
 - Tip: `cda87e2` on `r-next/integration`. main (`rel-031`) still `5f4b742`. Local only: nothing pushed, tagged or published.
