@@ -492,6 +492,7 @@ async fn code_stage_receives_plan_in_prompt_and_context() {
 /// receives the plan content in its prompt.
 #[tokio::test]
 async fn code_stage_env_provider_receives_plan_in_prompt() {
+    let _env = crate::test_util::lock_clean_llm_env().await;
     let captured_prompts = Arc::new(Mutex::new(Vec::new()));
     let provider = CapturingProvider::new(captured_prompts.clone());
 
@@ -840,6 +841,7 @@ async fn code_stage_success_records_completion() {
 
 #[tokio::test]
 async fn code_stage_rejects_empty_output() {
+    let _env = crate::test_util::lock_clean_llm_env().await;
     let dir = tempfile::tempdir().expect("tempdir");
     let store = Arc::new(
         Store::open_at(dir.path().join("pipeline.db"))
@@ -941,6 +943,7 @@ async fn code_stage_rejects_empty_output() {
 
 #[tokio::test]
 async fn code_stage_rejects_dsml_leak() {
+    let _env = crate::test_util::lock_clean_llm_env().await;
     let dir = tempfile::tempdir().expect("tempdir");
     let store = Arc::new(
         Store::open_at(dir.path().join("pipeline.db"))
@@ -1045,6 +1048,7 @@ async fn code_stage_rejects_dsml_leak() {
 
 #[tokio::test]
 async fn gate_c_changes_requested_reruns_coder() {
+    let _env = crate::test_util::lock_clean_llm_env().await;
     let dir = tempfile::tempdir().expect("tempdir");
     let store = Arc::new(
         Store::open_at(dir.path().join("pipeline.db"))

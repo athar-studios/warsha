@@ -4192,6 +4192,7 @@ mod tests {
         /// harness template is never answered by a built-in stub.
         #[tokio::test]
         async fn an_unroutable_role_fails_closed_in_discovery_with_no_provider_routed() {
+            let _env = crate::test_util::lock_clean_llm_env().await;
             let store = temp_store().await;
             let project = project_in(&store, "en").await;
             let harness = harness_row(
@@ -4391,13 +4392,18 @@ mod tests {
                 "error must name unknown backend and refuse fallback: {err_msg}"
             );
 
-            // 2. Clear default routing, set WARSHA_CODING_BACKEND env var
+            // 2. Clear default routing, set WARSHA_CODING_BACKEND env var under ENV_LOCK
             engine.backend_registry().set_default_backend(None);
-            std::env::set_var("WARSHA_CODING_BACKEND", "env-unknown-backend-123");
-            let res_env = engine
-                .code_stage_completion(&run, Stage::Code, "prompt", "en")
-                .await;
-            std::env::remove_var("WARSHA_CODING_BACKEND");
+            let res_env = {
+                let _env_lock = crate::test_util::ENV_LOCK.lock().await;
+                let _backend_guard = crate::test_util::EnvVarGuard::set(
+                    "WARSHA_CODING_BACKEND",
+                    "env-unknown-backend-123",
+                );
+                engine
+                    .code_stage_completion(&run, Stage::Code, "prompt", "en")
+                    .await
+            };
             assert!(
                 res_env.is_err(),
                 "code_stage_completion must error fail-loud with WARSHA_CODING_BACKEND unknown"
@@ -4587,6 +4593,7 @@ mod tests {
         /// placeholder pair.
         #[tokio::test]
         async fn unrouted_session_row_stores_no_provider_or_model() {
+            let _env = crate::test_util::lock_clean_llm_env().await;
             let store = temp_store().await;
             let providers = Arc::new(RwLock::new(ProviderRouter::new()));
             let settings = setup_settings();

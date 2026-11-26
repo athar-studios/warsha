@@ -2178,34 +2178,6 @@ fn cap_combined(mut stdout: Vec<u8>, mut stderr: Vec<u8>, cap: usize) -> (Vec<u8
 }
 
 #[cfg(test)]
-static ENV_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-#[cfg(test)]
-struct EnvVarGuard {
-    key: &'static str,
-    previous: Option<std::ffi::OsString>,
-}
-
-#[cfg(test)]
-impl EnvVarGuard {
-    fn set(key: &'static str, value: &str) -> Self {
-        let previous = std::env::var_os(key);
-        std::env::set_var(key, value);
-        Self { key, previous }
-    }
-}
-
-#[cfg(test)]
-impl Drop for EnvVarGuard {
-    fn drop(&mut self) {
-        match &self.previous {
-            Some(prev) => std::env::set_var(self.key, prev),
-            None => std::env::remove_var(self.key),
-        }
-    }
-}
-
-#[cfg(test)]
 #[cfg(windows)]
 async fn pid_is_alive(pid: u32) -> bool {
     let output = Command::new("tasklist")
@@ -2575,12 +2547,13 @@ fn is_path_line(line: &str) -> bool {
 #[cfg(test)]
 #[tokio::test]
 async fn a_child_that_prints_its_environment_sees_none_of_the_daemons_variables() {
-    let _lock = ENV_TEST_LOCK.lock().await;
-    let _g1 = EnvVarGuard::set("WARSHA_LLM_API_KEY", "sk-secret-llm-key-value");
-    let _g2 = EnvVarGuard::set("WARSHA_AUTH_TOKEN", "daemon-secret-auth-token");
-    let _g3 = EnvVarGuard::set("OPENAI_API_KEY", "sk-openai-daemon-secret");
-    let _g4 = EnvVarGuard::set("ANTHROPIC_API_KEY", "sk-anthropic-daemon-secret");
-    let _g5 = EnvVarGuard::set("WARSHA_DAEMON_SECRET_CANARY", "canary-secret-12345");
+    let _lock = crate::test_util::ENV_LOCK.lock().await;
+    let _g1 = crate::test_util::EnvVarGuard::set("WARSHA_LLM_API_KEY", "sk-secret-llm-key-value");
+    let _g2 = crate::test_util::EnvVarGuard::set("WARSHA_AUTH_TOKEN", "daemon-secret-auth-token");
+    let _g3 = crate::test_util::EnvVarGuard::set("OPENAI_API_KEY", "sk-openai-daemon-secret");
+    let _g4 = crate::test_util::EnvVarGuard::set("ANTHROPIC_API_KEY", "sk-anthropic-daemon-secret");
+    let _g5 =
+        crate::test_util::EnvVarGuard::set("WARSHA_DAEMON_SECRET_CANARY", "canary-secret-12345");
 
     let temp = crate::test_util::fresh_tempdir();
 
@@ -2643,8 +2616,9 @@ async fn a_child_that_prints_its_environment_sees_none_of_the_daemons_variables(
 #[allow(clippy::panic)]
 #[tokio::test]
 async fn the_child_inherits_the_daemons_path_but_no_secret() {
-    let _lock = ENV_TEST_LOCK.lock().await;
-    let _canary = EnvVarGuard::set("WARSHA_DAEMON_SECRET_CANARY", "canary-secret-12345");
+    let _lock = crate::test_util::ENV_LOCK.lock().await;
+    let _canary =
+        crate::test_util::EnvVarGuard::set("WARSHA_DAEMON_SECRET_CANARY", "canary-secret-12345");
     let parent_path = std::env::var("PATH").expect("the test process has a PATH");
 
     let temp = crate::test_util::fresh_tempdir();

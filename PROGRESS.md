@@ -1,5 +1,17 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — shared pipeline ENV_LOCK & RAII env guard (D-RN-PIPELINE-ENVLOCK-1)
+
+- **Worktree/branch**: `.agents/worktrees/fix-pipeline-envlock`, branch `r-next/fix-pipeline-envlock` (base `6ca306e`, initially clean). No production edits, no push/tag/merge/real model API calls.
+- **Root cause**: `status_truth.rs:21` and `command_policy.rs:2181` used separate module-private env locks while `gate_evidence.rs:561` and `lib.rs:4396` mutated `WARSHA_LLM_API_KEY` / `WARSHA_CODING_BACKEND` without any lock, and `status_truth.rs:283-285` used a bare `set_var`/`remove_var` pair for `WARSHA_LLM_PROVIDER=fake`. Unrouted tests in `run_integrity.rs` (`unrouted_idea_resume_pauses_again_without_fabricated_session`) and `lib.rs` ran concurrently without `ENV_LOCK` and hit `forced_fake` (`GateA`/`Running` instead of `Paused`).
+- **Fix**: moved `pub(crate) static ENV_LOCK: tokio::sync::Mutex<()>`, `EnvVarGuard`, `CleanEnvGuard`, and `lock_clean_llm_env()` into `crates/warsha-pipeline/src/test_util.rs`; migrated `status_truth.rs`, `gate_evidence.rs`, `command_policy.rs`, `run_integrity.rs`, `lib.rs`, `code_stage_tests.rs`, `mcp_transport.rs`, and `process_spawn.rs` env-mutating and unrouted/env-sensitive tests to share `ENV_LOCK` + RAII guards; added `run_integrity::tests::env_lock_and_guard_prevent_fake_provider_leakage_across_awaits_and_panics`. Judge r21 follow-up: added `crate::test_util::lock_clean_llm_env().await` to `code_stage_tests::code_stage_env_provider_receives_plan_in_prompt` so it serializes on `ENV_LOCK` against `test_code_stage_completion_unknown_backend_errors_fail_loud`.
+- **Verification**:
+  - `cargo fmt --all -- --check`: exit 0.
+  - `CARGO_INCREMENTAL=0 cargo clippy -p warsha-pipeline --all-targets -- -D warnings`: exit 0.
+  - Proving test `CARGO_INCREMENTAL=0 cargo test -p warsha-pipeline --lib env_lock_and_guard_prevent_fake_provider_leakage_across_awaits_and_panics`: exit 0 (`1 passed; 0 failed`).
+  - 10-run soak (`a316344`) + Judge r22 3× soak (`bdf59a2`, `CARGO_INCREMENTAL=0 cargo test -p warsha-pipeline --lib -- --test-threads=16`): every run exited 0 (`604 passed; 0 failed; 7 ignored`). Logs at `/home/moe/tools/fix-pipeline-envlock/` and `/tmp/judge-r22-soak-{1,2,3}.log`.
+  - `node scripts/check-engineering-policy.mjs`: 8 checks, 0 failures.
+
 ## Run 2026-11-26 — Arabic Factory Floor UX fixes (D-RN-FLOOR-AR-1)
 
 - **Worktree/scope**: `.agents/worktrees/fix-floor-ar`, branch `r-next/fix-floor-ar`, base `6ca306e`. UI/i18n/factory/project/toast fixes only (`F1`–`F5` from `/home/moe/tools/playwright-ux/runs/2026-11-26-6ca306e-floor-ar/report.md`). No crates edits, no `main` or `r-next/integration` edits, no push/tag/publish.

@@ -3,7 +3,7 @@
 #![cfg_attr(test, allow(clippy::panic, clippy::expect_used, clippy::unwrap_used))]
 
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use warsha_core::*;
 use warsha_providers::{
     ChatChoice, ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatStreamChunk, HealthCheck,
@@ -17,8 +17,6 @@ use crate::routines::{
 use crate::scout::{Scout, ScoutConfig, ScoutError};
 use crate::settings::SettingsStore;
 use crate::{PipelineEngine, PipelineError};
-
-static ENV_LOCK: Mutex<()> = Mutex::const_new(());
 
 /// Tracking provider for explicit routing tests.
 struct TestTruthProvider {
@@ -150,8 +148,7 @@ async fn setup_fixture() -> (
 
 #[tokio::test]
 async fn unrouted_role_returns_typed_error_and_does_not_silently_fallback() {
-    let _env_guard = ENV_LOCK.lock().await;
-    std::env::remove_var("WARSHA_LLM_PROVIDER");
+    let _env_guard = crate::test_util::lock_clean_llm_env().await;
     let (store, engine, project_id, router) = setup_fixture().await;
 
     // Only route Role::Intake so start_run/idea can initialize.
@@ -208,8 +205,7 @@ async fn unrouted_role_returns_typed_error_and_does_not_silently_fallback() {
 
 #[tokio::test]
 async fn unrouted_stage_pauses_run_and_emits_provider_required_event() {
-    let _env_guard = ENV_LOCK.lock().await;
-    std::env::remove_var("WARSHA_LLM_PROVIDER");
+    let _env_guard = crate::test_util::lock_clean_llm_env().await;
     let (store, engine, project_id, router) = setup_fixture().await;
 
     // Route Intake.
@@ -260,8 +256,7 @@ async fn unrouted_stage_pauses_run_and_emits_provider_required_event() {
 
 #[tokio::test]
 async fn forced_fake_environment_only_answers_when_explicitly_configured() {
-    let _env_guard = ENV_LOCK.lock().await;
-    std::env::remove_var("WARSHA_LLM_PROVIDER");
+    let _env_guard = crate::test_util::lock_clean_llm_env().await;
     let (_store, engine, project_id, _router) = setup_fixture().await;
 
     let run = engine
@@ -279,10 +274,12 @@ async fn forced_fake_environment_only_answers_when_explicitly_configured() {
         "unexpected error: {err:?}"
     );
 
-    // With explicit WARSHA_LLM_PROVIDER=fake, FakeProvider answers.
-    std::env::set_var("WARSHA_LLM_PROVIDER", "fake");
-    let result = engine.followup_run(run.id, "Followup question").await;
-    std::env::remove_var("WARSHA_LLM_PROVIDER");
+    // With explicit WARSHA_LLM_PROVIDER=fake, FakeProvider answers; the guard
+    // guarantees removal even if followup_run panics or returns early.
+    let result = {
+        let _fake_provider = crate::test_util::EnvVarGuard::set("WARSHA_LLM_PROVIDER", "fake");
+        engine.followup_run(run.id, "Followup question").await
+    };
 
     assert!(
         result.is_ok(),
@@ -292,8 +289,7 @@ async fn forced_fake_environment_only_answers_when_explicitly_configured() {
 
 #[tokio::test]
 async fn unrouted_followup_fails_honestly_without_creating_fake_artifact() {
-    let _env_guard = ENV_LOCK.lock().await;
-    std::env::remove_var("WARSHA_LLM_PROVIDER");
+    let _env_guard = crate::test_util::lock_clean_llm_env().await;
     let (store, engine, project_id, _router) = setup_fixture().await;
 
     let run = engine
