@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   CustomModelRecord,
@@ -631,6 +635,27 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('home-projects-grid')).toBeDefined();
     });
+  });
+
+  it('uses standard 1120px --w-content width for .v3-home-narrow while preserving --w-content-narrow at 720px', async () => {
+    await renderHome({ locale: 'en' });
+
+    expect(document.querySelector('.v3-home-narrow')).not.toBeNull();
+
+    const here = dirname(fileURLToPath(import.meta.url));
+    const homeCss = readFileSync(resolve(here, 'home.css'), 'utf8');
+    const ruleMatch = homeCss.match(/\.v3-home-narrow\s*\{([^}]*)\}/);
+    expect(ruleMatch, '.v3-home-narrow rule exists in home.css').not.toBeNull();
+    const ruleBody = ruleMatch![1];
+    expect(ruleBody).toMatch(/max-width:\s*var\(--w-content\)\s*;/);
+    expect(ruleBody).not.toContain('var(--w-content-narrow)');
+
+    const tokensCss = readFileSync(
+      resolve(here, '../../../../../../packages/ui/src/v3/tokens/tokens.css'),
+      'utf8'
+    );
+    expect(tokensCss).toContain('--w-content-narrow: 720px;');
+    expect(tokensCss).toContain('--w-content: 1120px;');
   });
 
   it('renders recent projects as a DataTable in advanced mode', async () => {

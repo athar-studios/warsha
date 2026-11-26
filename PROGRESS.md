@@ -1,5 +1,18 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — Simple Home width round (D-RN-SIMPLE-HOME-WIDTH-1)
+
+- **Branch & worktree**: `r-next/simple-home-width` (base `3e66070`) in `.agents/worktrees/simple-home-width`. No push, merge, tag, or `main` changes.
+- **Change**: Updated `.v3-home-narrow` in `apps/desktop/src/v3/pages/home/home.css:65` from `max-width: var(--w-content-narrow);` to `max-width: var(--w-content);` (720px -> 1120px, matching Settings, Factory, and Projects), keeping the selector name `.v3-home-narrow` minimal and leaving `packages/ui/src/v3/tokens/tokens.css` (`--w-content-narrow: 720px`) unchanged.
+- **Inner-element review at 1120px**: Reviewed `.v3-home-grid` / `.v3-home-skeleton-cards` (`recentProjects.slice(0, 6)` -> 3 cards/row at ~352px, 2 balanced rows; 3 skeleton cards in 1 row), `.v3-home-chips`, `.v3-home-composer-card` / `<TextArea>` / `<TextField>` / `.v3-home-composer-footer`, and `.v3-home-needsyou-row`. Confirmed all inner elements behave cleanly at 1120px (1080px inner width) with no extra CSS or TSX adjustments needed (logged in `DECISIONS.md` as `D-RN-SIMPLE-HOME-WIDTH-1`).
+- **Tests & gates**:
+  - Added regression test `'uses standard 1120px --w-content width for .v3-home-narrow while preserving --w-content-narrow at 720px'` in `apps/desktop/src/v3/pages/home/Home.test.tsx`.
+  - `packages/ui`: `pnpm exec vitest run src/v3/tokens/tokens.test.ts` — **1 file / 17 passed**, 0 failed.
+  - `apps/desktop`: `pnpm exec vitest run` — **91 files / 857 passed**, 0 failed.
+  - `apps/desktop`: `pnpm exec tsc --noEmit` — exit 0.
+  - `apps/desktop`: `pnpm run lint` — exit 0 (0 errors, 1 pre-existing warning at `apps/desktop/src/v3/pages/developers/index.tsx:291`).
+  - Root: `node scripts/check-engineering-policy.mjs` — **8 checks, 0 failures**.
+
 ## FIXES COMPLETE — CLEAN-3 — 2026-11-26
 
 - **Tip**: `8515092` (plus this `PROGRESS.md` commit) on `r-next/integration`. `main` (`rel-031`) untouched at `5f4b742`. Local only: nothing pushed, tagged, or published.
