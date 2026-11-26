@@ -114,6 +114,45 @@ describe('factory floor state machine (E3)', () => {
     expect(agent?.stage).toBe('gate_a');
   });
 
+  it('moves a working crew to the announced non-gate stage without knocking done agents', () => {
+    // The coder's AgentStep only lands after the model call returns, so while a
+    // run sits in `code` the only stage signal is the role-less StageStarted the
+    // pipeline wrote on advance. A working crew must follow it onto `code`, or
+    // the floor keeps rendering the whole crew on the previous station.
+    const agents = reduceEvents([
+      event({ id: 'e1', kind: 'AgentStep', stage: 'plan_tasks', role: 'pm' }),
+      event({ id: 'e2', kind: 'AgentStep', stage: 'plan_tasks', role: 'coder' }),
+      event({
+        id: 'e3',
+        kind: 'stage_started',
+        role: null,
+        stage: 'code',
+        payload: { from: 'plan_tasks', to: 'code' },
+        createdAt: '2026-11-18T10:00:02.000Z',
+      }),
+    ]);
+    for (const key of ['run-1:pm', 'run-1:coder']) {
+      expect(agents.get(key)?.state).toBe('working');
+      expect(agents.get(key)?.stage).toBe('code');
+    }
+
+    // Done agents are history, not a live station: a later announcement leaves them alone.
+    const finished = reduceEvents([
+      event({ id: 'e1', kind: 'AgentStep', stage: 'code', role: 'coder' }),
+      event({ id: 'e2', kind: 'RunFinished', role: null, createdAt: '2026-11-18T10:00:01.000Z' }),
+      event({
+        id: 'e3',
+        kind: 'stage_started',
+        role: null,
+        stage: 'release',
+        payload: { from: 'code', to: 'release' },
+        createdAt: '2026-11-18T10:00:02.000Z',
+      }),
+    ]);
+    expect(finished.get('run-1:coder')?.state).toBe('done');
+    expect(finished.get('run-1:coder')?.stage).toBe('code');
+  });
+
   it('does not treat a finished or cancelled run as waiting', () => {
     const finished = reduceEvents([
       event({ kind: 'AgentStep', stage: 'gate_a' }),

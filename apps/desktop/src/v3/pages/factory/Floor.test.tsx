@@ -5,7 +5,14 @@ import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { Floor, markerPosition, markerRoleKey, showsNeedsYou } from './Floor';
+import {
+  AGENT_RADIUS,
+  Floor,
+  markerPosition,
+  markerRoleKey,
+  showsNeedsYou,
+  STATIONS,
+} from './Floor';
 import type { AgentStatus } from './state';
 
 const t = (key: string): string => key;
@@ -124,6 +131,43 @@ describe('Factory floor geometry', () => {
     // Six circles stay inside the station box and the floor (view width 1000).
     expect(Math.min(...xs)).toBeGreaterThanOrEqual(650 + 11);
     expect(Math.max(...xs)).toBeLessThanOrEqual(800 - 11);
+  });
+
+  it('keeps six markers per station apart and inside every station box', () => {
+    // Floor re-audit at 1a6711d: `التسليم` was the narrowest station (130 units),
+    // so a slot gap of (130 - 32) / 5 = 19.6 put its circles 19.6 apart while a
+    // marker is 22 across — five circle-on-circle overlaps on a release crew.
+    const svg = draw('ltr');
+    const stationRects = Array.from(svg.querySelectorAll('rect')).filter(
+      (rect) => !rect.hasAttribute('stroke-dasharray')
+    );
+    expect(stationRects).toHaveLength(STATIONS.length);
+
+    for (const [stationIndex, station] of STATIONS.entries()) {
+      const crew = Array.from({ length: 6 }, (_, index) =>
+        agent({
+          key: `run-${index}:crew`,
+          runId: `run-${index}`,
+          role: 'coder',
+          state: station.key === 'gates' ? 'waiting_on_owner' : 'working',
+          stage: station.stages[0],
+        })
+      );
+      const positions = crew.map((status, index) => markerPosition(status, index, crew));
+      expect(positions.every((position) => position.stationKey === station.key)).toBe(true);
+      const xs = positions.map((position) => position.x);
+      expect(positions.every((position) => position.y === positions[0].y)).toBe(true);
+      for (let index = 1; index < xs.length; index += 1) {
+        expect(xs[index] - xs[index - 1]).toBeGreaterThanOrEqual(AGENT_RADIUS * 2);
+      }
+      // Every drawn circle keeps its whole radius inside its station box.
+      const rect = stationRects[stationIndex];
+      const left = num(rect, 'x');
+      const right = left + num(rect, 'width');
+      expect(num(rect, 'width')).toBe(station.width);
+      expect(Math.min(...xs) - AGENT_RADIUS).toBeGreaterThanOrEqual(left);
+      expect(Math.max(...xs) + AGENT_RADIUS).toBeLessThanOrEqual(right);
+    }
   });
 
   it('paints Needs you once for six waiting agents at one station', () => {
