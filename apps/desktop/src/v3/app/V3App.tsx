@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { WarshaClient } from '@warsha/client';
-import { I18nProvider } from '@warsha/i18n/v3';
+import { I18nProvider, useT } from '@warsha/i18n/v3';
 import '@warsha/ui/v3/fonts.css';
 import React, { useEffect, useState } from 'react';
 
@@ -13,17 +13,23 @@ import { ClientProvider, useClient } from './ClientContext';
 import { DataReadyProvider } from './DataReadyContext';
 import { DensityProvider } from './DensityContext';
 import { ThemeProvider } from './ThemeContext';
-import { decideStartupRoute } from './startup';
+import { decideStartupRoute, type StartupErrorKey } from './startup';
 
 export interface V3AppProps {
   client?: WarshaClient;
   initialRoute?: string;
 }
 
+interface StartupFailure {
+  key: StartupErrorKey;
+  detail: string | null;
+}
+
 function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactElement {
   const client = useClient();
+  const t = useT();
   const [startupRoute, setStartupRoute] = useState<string | null>(initialRoute ?? null);
-  const [startupError, setStartupError] = useState<string | null>(null);
+  const [startupError, setStartupError] = useState<StartupFailure | null>(null);
 
   useEffect(() => {
     if (initialRoute) {
@@ -42,15 +48,18 @@ function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactEle
     decideStartupRoute({ readConfig, client: client ?? undefined })
       .then((decision) => {
         setStartupRoute(decision.route);
-        if (decision.error) {
-          setStartupError(decision.error);
-        } else {
-          setStartupError(null);
-        }
+        setStartupError(
+          decision.error === undefined
+            ? null
+            : { key: decision.error, detail: decision.errorDetail ?? null }
+        );
       })
       .catch((err) => {
         setStartupRoute('/');
-        setStartupError(err instanceof Error ? err.message : 'Startup failure');
+        setStartupError({
+          key: 'startup.errors.unexpected',
+          detail: err instanceof Error ? err.message : String(err),
+        });
       });
   }, [initialRoute, client]);
 
@@ -58,9 +67,15 @@ function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactEle
     <RouterProvider initialPath={startupRoute ?? '/'}>
       <WebMcpBridge />
       <Frame>
-        {startupError && (
+        {startupError !== null && (
           <div className="v3-danger-banner" role="alert">
-            {startupError}
+            {t(startupError.key)}
+            {startupError.detail !== null && (
+              <span className="v3-danger-detail" dir="auto">
+                {' '}
+                {startupError.detail}
+              </span>
+            )}
           </div>
         )}
         <RouteOutlet />

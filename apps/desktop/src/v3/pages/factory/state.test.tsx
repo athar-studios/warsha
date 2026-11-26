@@ -1,6 +1,7 @@
 import type { Role, RunSummary, Stage, WarshaEvent } from '@warsha/client';
 import { describe, expect, it } from 'vitest';
 
+import { markerPosition } from './Floor';
 import { idleMsOf, placeWaitingAgents, reduceEvents } from './state';
 
 function event(overrides: Partial<WarshaEvent> = {}): WarshaEvent {
@@ -134,7 +135,9 @@ describe('factory floor state machine (E3)', () => {
     expect(agents.get('run-1:coder')?.state).toBe('working');
     expect(agents.get('run-1:coder')?.stage).toBe('code');
     expect(agents.get('run-1:pm')?.state).toBe('done');
-    expect(agents.get('run-1:pm')?.stage).toBe('plan_tasks');
+    // Done agents go back to the stage their role owns, not the one they were
+    // last seen on, so the floor keeps them at their own station (B-1).
+    expect(agents.get('run-1:pm')?.stage).toBe('prd_spec');
     expect(agents.size).toBe(2);
 
     // Done agents are history, not a live station: a later announcement leaves them alone.
@@ -275,6 +278,97 @@ describe('factory floor state machine (E3)', () => {
     ]);
     expect(backToDesign.get('run-1:designer')?.state).toBe('working');
     expect(backToDesign.size).toBe(1);
+  });
+
+  it('B-1: an agent released from a gate done sits at its own station, not the gates', () => {
+    const agents = reduceEvents([
+      event({ id: 'e1', kind: 'agent_step', stage: 'idea', role: 'intake' }),
+      event({
+        id: 'e2',
+        kind: 'stage_started',
+        role: null,
+        stage: 'gate_a',
+        payload: { from: 'idea', to: 'gate_a' },
+        createdAt: '2026-11-18T10:00:01.000Z',
+      }),
+      event({
+        id: 'e3',
+        kind: 'stage_started',
+        role: null,
+        stage: 'research',
+        payload: { from: 'gate_a', to: 'research' },
+        createdAt: '2026-11-18T10:00:02.000Z',
+      }),
+    ]);
+    const intake = agents.get('run-1:intake');
+    if (intake === undefined) throw new Error('missing intake agent');
+    expect(intake.state).toBe('done');
+    // The gate it was waiting at is left behind: a done agent carries the stage
+    // its role owns, so the floor draws it at planning, never at the gates.
+    expect(intake.stage).toBe('idea');
+    const all = [...agents.values()];
+    expect(markerPosition(intake, all.indexOf(intake), all).stationKey).toBe('planning');
+
+    const researcher = agents.get('run-1:researcher');
+    if (researcher === undefined) throw new Error('missing researcher agent');
+    expect(researcher.state).toBe('working');
+    expect(researcher.stage).toBe('research');
+    expect(markerPosition(researcher, all.indexOf(researcher), all).stationKey).toBe('planning');
+  });
+
+  it('R5A-r1: entering review_qa_security seeds the lead reviewer before its first event', () => {
+    const agents = reduceEvents([
+      event({
+        id: 'e1',
+        kind: 'stage_started',
+        role: null,
+        stage: 'review_qa_security',
+        payload: { from: 'code', to: 'review_qa_security' },
+      }),
+    ]);
+    const reviewer = agents.get('run-1:reviewer');
+    if (reviewer === undefined) throw new Error('missing seeded reviewer');
+    expect(reviewer.state).toBe('working');
+    expect(reviewer.stage).toBe('review_qa_security');
+    expect(agents.size).toBe(1);
+
+    // A repeated announcement does not seed twice, and the reviewer's own first
+    // event lands on the seeded marker instead of creating a second one.
+    const withStep = reduceEvents([
+      event({
+        id: 'e1',
+        kind: 'stage_started',
+        role: null,
+        stage: 'review_qa_security',
+        payload: { from: 'code', to: 'review_qa_security' },
+      }),
+      event({
+        id: 'e2',
+        kind: 'stage_started',
+        role: null,
+        stage: 'review_qa_security',
+        payload: { from: 'code', to: 'review_qa_security' },
+      }),
+      event({ id: 'e3', kind: 'agent_step', stage: 'review_qa_security', role: 'reviewer', costCents: 4 }),
+    ]);
+    expect(withStep.size).toBe(1);
+    expect(withStep.get('run-1:reviewer')?.costCents).toBe(4);
+    expect(withStep.get('run-1:qa')).toBeUndefined();
+
+    // A shared stage that already has one of its owners on the floor seeds nobody.
+    const withQa = reduceEvents([
+      event({ id: 'e1', kind: 'agent_step', stage: 'review_qa_security', role: 'qa' }),
+      event({
+        id: 'e2',
+        kind: 'stage_started',
+        role: null,
+        stage: 'review_qa_security',
+        payload: { from: 'code', to: 'review_qa_security' },
+      }),
+    ]);
+    expect(withQa.get('run-1:qa')?.state).toBe('working');
+    expect(withQa.get('run-1:reviewer')).toBeUndefined();
+    expect(withQa.size).toBe(1);
   });
 
   it('does not treat a finished or cancelled run as waiting', () => {

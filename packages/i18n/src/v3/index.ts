@@ -13,6 +13,7 @@ import arProject from './ar/project';
 import arProjects from './ar/projects';
 import arSecretary from './ar/secretary';
 import arSettings from './ar/settings';
+import arStartup from './ar/startup';
 import enBench from './en/bench';
 import enCode from './en/code';
 import enCommon from './en/common';
@@ -26,6 +27,7 @@ import enProject from './en/project';
 import enProjects from './en/projects';
 import enSecretary from './en/secretary';
 import enSettings from './en/settings';
+import enStartup from './en/startup';
 
 export type Locale = 'ar' | 'en';
 export type Direction = 'rtl' | 'ltr';
@@ -46,6 +48,7 @@ export const arCatalog: Record<string, string> = {
   ...arBench,
   ...arSecretary,
   ...arSettings,
+  ...arStartup,
 };
 
 export const enCatalog: Record<string, string> = {
@@ -62,6 +65,7 @@ export const enCatalog: Record<string, string> = {
   ...enBench,
   ...enSecretary,
   ...enSettings,
+  ...enStartup,
 };
 
 export const catalogs: Record<Locale, Record<string, string>> = {

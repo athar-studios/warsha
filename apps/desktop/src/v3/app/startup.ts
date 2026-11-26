@@ -10,9 +10,30 @@ export interface StartupOptions {
   lastProjectId?: string | null;
 }
 
+/**
+ * Catalog keys for the startup danger bar (`startup.errors.*`). The decision
+ * carries keys, never copy: the bar renders them through `t` so Arabic stays
+ * Arabic (U-2).
+ */
+export type StartupErrorKey =
+  | 'startup.errors.daemon_unreachable'
+  | 'startup.errors.daemon_status'
+  | 'startup.errors.config_read'
+  | 'startup.errors.project_list'
+  | 'startup.errors.unexpected';
+
 export interface StartupDecision {
   route: string;
-  error?: string;
+  /** Localized message key for the danger bar. */
+  error?: StartupErrorKey;
+  /** Raw technical detail (daemon status or exception text) shown beside the message. */
+  errorDetail?: string;
+}
+
+/** The message of a thrown value, or undefined when it carries none. */
+function detailOf(err: unknown): string | undefined {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.length > 0 ? message : undefined;
 }
 
 export async function decideStartupRoute(options: StartupOptions): Promise<StartupDecision> {
@@ -20,7 +41,7 @@ export async function decideStartupRoute(options: StartupOptions): Promise<Start
   if (options.client === null) {
     return {
       route: '/',
-      error: 'Cannot reach Warsha daemon',
+      error: 'startup.errors.daemon_unreachable',
     };
   }
 
@@ -29,16 +50,19 @@ export async function decideStartupRoute(options: StartupOptions): Promise<Start
     try {
       const health = await options.client.health();
       if (!health || !health.status || !isDaemonHealthy(health.status)) {
-        return {
-          route: '/',
-          error: health?.status ? `Daemon status: ${health.status}` : 'Cannot reach Warsha daemon',
-        };
+        return health?.status
+          ? {
+              route: '/',
+              error: 'startup.errors.daemon_status',
+              errorDetail: health.status,
+            }
+          : { route: '/', error: 'startup.errors.daemon_unreachable' };
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       return {
         route: '/',
-        error: message || 'Cannot reach Warsha daemon',
+        error: 'startup.errors.daemon_unreachable',
+        errorDetail: detailOf(err),
       };
     }
   }
@@ -48,10 +72,10 @@ export async function decideStartupRoute(options: StartupOptions): Promise<Start
   try {
     onboarding = await options.readConfig('onboarding_complete');
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     return {
       route: '/',
-      error: message || 'Failed to read configuration',
+      error: 'startup.errors.config_read',
+      errorDetail: detailOf(err),
     };
   }
 
@@ -70,10 +94,10 @@ export async function decideStartupRoute(options: StartupOptions): Promise<Start
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       return {
         route: '/',
-        error: message || 'Failed to list projects',
+        error: 'startup.errors.project_list',
+        errorDetail: detailOf(err),
       };
     }
   }

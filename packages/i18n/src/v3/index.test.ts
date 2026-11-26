@@ -85,6 +85,17 @@ describe('i18n v3', () => {
     }
   });
 
+  // CLEAN-4: the past-tense "done" agrees with its own noun — an agent is
+  // masculine (انتهى), a session and a run are treated as the same feminine/
+  // masculine pair the existing copy already used. English is untouched.
+  it('keeps done-copy agreeing with the noun it describes', () => {
+    expect(translate('ar', 'factory.state.done')).toBe('انتهى');
+    expect(translate('en', 'factory.state.done')).toBe('Done');
+    expect(translate('ar', 'developers.status.done')).toBe('انتهت');
+    expect(translate('en', 'developers.status.done')).toBe('Done');
+    expect(translate('ar', 'events.run_finished')).toBe('انتهى التشغيل');
+  });
+
   it('translates home.source.* keys cleanly in Arabic and English', () => {
     const sourceKeys = Object.keys(catalogs.en).filter((k) => k.startsWith('home.source.'));
     expect(sourceKeys.length).toBeGreaterThanOrEqual(20);

@@ -246,7 +246,7 @@ const DevelopersPage: React.FC = () => {
       const notRouted = session.provider === '' || session.provider === 'routed';
       map[session.id] = {
         action: sessionStatusLabel(session.status, t),
-        elapsed: formatMs(metrics.elapsedMs),
+        elapsed: formatMs(metrics.elapsedMs, t),
         // No provider was chosen yet: say so instead of the "unknown" fallback.
         cost: notRouted ? t('developers.not_routed_yet') : metrics.costCents === null ? t('developers.unknown') : centsLabel(metrics.costCents, t),
         provider: notRouted ? t('developers.not_routed_yet') : session.provider,
