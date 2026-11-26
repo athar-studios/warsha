@@ -32,10 +32,10 @@ describe('useRuns', () => {
         id: 'r1' as RunId,
         projectId: 'p1' as ProjectId,
         stage: 'code',
-        status: 'running', runMode: 'agent',
+        status: 'running',
+        runMode: 'agent',
         startedAt: '2026-11-09T00:00:00Z',
         updatedAt: '2026-11-09T00:00:00Z',
-
       },
     ];
     const client = {
@@ -47,6 +47,30 @@ describe('useRuns', () => {
 
     expect(result.current.status).toBe('ready');
     expect(result.current.data).toEqual(runs);
+  });
+
+  it('refreshes asynchronous run transitions without entering loading again', async () => {
+    vi.useFakeTimers();
+    try {
+      const listRuns = vi.fn().mockResolvedValue([]);
+      const client = { listRuns } as unknown as WarshaClient;
+      const { result, unmount } = renderHook(() => useRuns('p1', client));
+      await act(async () => {});
+      const paused = { id: 'r1', status: 'paused' };
+      listRuns.mockResolvedValue([paused]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(result.current.status).toBe('ready');
+      expect(result.current.data).toEqual([paused]);
+      unmount();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(listRuns).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('handles error state and reloads', async () => {

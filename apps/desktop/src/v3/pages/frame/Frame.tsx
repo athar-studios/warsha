@@ -41,9 +41,7 @@ export function countPendingGatesAtCurrentStage(
   gates: readonly GateSummary[],
   runStage: Stage
 ): number {
-  return gates.filter(
-    (gate) => gate.state.state === 'pending' && gate.stage === runStage
-  ).length;
+  return gates.filter((gate) => gate.state.state === 'pending' && gate.stage === runStage).length;
 }
 
 function ToastBridge(): null {
@@ -128,6 +126,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
     }
 
     let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const projectList = projectsResult.data;
 
     const loadData = async (): Promise<void> => {
@@ -167,6 +166,10 @@ export function Frame({ children }: FrameProps): React.ReactElement {
       if (active) {
         setRunsByProject(runsMap);
         setInboxCount(totalWaiting);
+        // runs.start returns before intake finishes; project actions also update the
+        // daemon independently of this frame. Read authoritative rows, never infer
+        // status from an error event (provider_required is a pause, not a failure).
+        timer = setTimeout(() => void loadData(), 1000);
       }
     };
 
@@ -174,6 +177,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
 
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [client, projectsResult.data]);
 
@@ -183,7 +187,8 @@ export function Frame({ children }: FrameProps): React.ReactElement {
   useSoundCues({ inboxCount, runsByProject });
 
   const isOnline = isDaemonHealthy(healthResult.data?.status) && healthResult.status === 'ready';
-  const daemonOffline = healthResult.status === 'error' || (!isOnline && healthResult.status !== 'loading');
+  const daemonOffline =
+    healthResult.status === 'error' || (!isOnline && healthResult.status !== 'loading');
 
   const retryAction = useAction('frame.daemon.retry', async () => {
     let activeClient = client;
@@ -285,22 +290,13 @@ export function Frame({ children }: FrameProps): React.ReactElement {
   };
 
   const inboxAriaLabel =
-    inboxCount > 0
-      ? t('frame.inbox_pending', { count: inboxCount })
-      : t('frame.inbox_label');
+    inboxCount > 0 ? t('frame.inbox_pending', { count: inboxCount }) : t('frame.inbox_label');
 
   const brandElement = useMemo(
     () => (
       <div className="v3-frame-brand">
-        <svg
-          viewBox="0 0 24 24"
-          className="v3-frame-brand-hex"
-          aria-hidden="true"
-        >
-          <path
-            d="M12 2l8.66 5v10L12 22l-8.66-5V7z"
-            fill="var(--w-primary)"
-          />
+        <svg viewBox="0 0 24 24" className="v3-frame-brand-hex" aria-hidden="true">
+          <path d="M12 2l8.66 5v10L12 22l-8.66-5V7z" fill="var(--w-primary)" />
           <circle cx="12" cy="12" r="3.5" fill="var(--w-on-primary)" />
         </svg>
         <span>{t('common.app_name')}</span>
@@ -346,9 +342,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
             fontSize: 'var(--w-font-size-sm)',
             lineHeight: 'var(--w-line-height-sm)',
             fontWeight:
-              mode === 'simple'
-                ? 'var(--w-font-weight-medium)'
-                : 'var(--w-font-weight-regular)',
+              mode === 'simple' ? 'var(--w-font-weight-medium)' : 'var(--w-font-weight-regular)',
             backgroundColor: mode === 'simple' ? 'var(--w-surface)' : 'transparent',
             color: mode === 'simple' ? 'var(--w-text)' : 'var(--w-text-muted)',
             boxShadow: mode === 'simple' ? 'var(--w-shadow-1)' : 'none',
@@ -380,9 +374,7 @@ export function Frame({ children }: FrameProps): React.ReactElement {
             fontSize: 'var(--w-font-size-sm)',
             lineHeight: 'var(--w-line-height-sm)',
             fontWeight:
-              mode === 'factory'
-                ? 'var(--w-font-weight-medium)'
-                : 'var(--w-font-weight-regular)',
+              mode === 'factory' ? 'var(--w-font-weight-medium)' : 'var(--w-font-weight-regular)',
             backgroundColor: mode === 'factory' ? 'var(--w-surface)' : 'transparent',
             color: mode === 'factory' ? 'var(--w-text)' : 'var(--w-text-muted)',
             boxShadow: mode === 'factory' ? 'var(--w-shadow-1)' : 'none',

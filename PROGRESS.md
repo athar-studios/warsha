@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — combined desktop UI fixes
+
+- **Worktree/scope**: `.agents/worktrees/ui-combo`, `r-next/ui-combo`; local no-ff merge of `91f0f04` into `959b23e`. D-RN-UI-COMBO-1; D-RN-GATE-1 and D-RN-FRAME-1 both preserved. No crates edits, push, tag or publish; no unfamiliar concurrent changes observed.
+- **Resolution**: one successful-snapshot polling timer, cursor reuse/reset and persisted/live merge-by-id; project stage refresh and readable Gate A brief retained alongside frame/run refresh, localized provider-required pause and Cancelled labeling. Both regression sets retained.
+- **Pre-existing type error**: `git blame 90aad8d -L 370,385 -- apps/desktop/src/v3/pages/developers/index.test.tsx` attributes the unbranded provisioning fixture to `1cc7031a`. Minimal `ProjectId` type import/cast, no `any`.
+- **Checks** (bundled Node/pnpm, temporary dependency symlinks): full desktop `pnpm exec node node_modules/vitest/vitest.mjs run` from `apps/desktop` — exit 0, **89 files / 822 tests passed**; same command from `packages/i18n` — exit 0, **2 files / 61 tests passed**. `pnpm --dir apps/desktop typecheck` — exit 0, both TypeScript configurations, zero errors. Scoped ESLint on all 12 changed TS/TSX files — exit 0. `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures; `node scripts/check-arch.mjs` — 5 rules, 0 violations; `cargo fmt --all -- --check` — exit 0.
+- **Evidence/limits**: `/tmp/ui-combo-*.log`, copied to `bridge-io/policy/2026-11-26-ui-combo/gates/`. Initial `pnpm --dir <package> vitest run` attempts exited 254 before test execution; corrected to package-directory `pnpm exec` without narrowing tests. Existing React act/style shorthand warnings and Vite CJS deprecation remain. No browser/native walk, clippy or real-provider calls. Roles merged for capacity, explicitly not independent acceptance. Temporary node_modules symlinks removed before commit.
+
 ## Run 2026-11-26 — live Gate A and readable intake brief
 
 - **Worktree**: `.agents/worktrees/fix-live-gate`, branch `r-next/fix-live-gate`, base `90aad8d`. D-RN-GATE-1. No Rust/frame/catalog changes; no push, tag, merge, publish or main changes. Initial tree clean; no unrelated concurrent changes observed.
@@ -8,6 +16,14 @@
 - **Checks**: `cd apps/desktop && pnpm vitest run > /tmp/live-gate-vitest.log 2>&1` — exit 0, 89 files / 813 passed (baseline 809). React act warnings remain in the suite. `cargo fmt --all -- --check` — exit 0. `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures. `node scripts/check-arch.mjs` — 5 rules, 0 violations. Scoped ESLint on the four changed TS files — exit 0. Logs copied into `bridge-io/policy/2026-11-26-live-gate/gates/`.
 - **Limit**: `pnpm typecheck` — exit 2: untouched `apps/desktop/src/v3/pages/developers/index.test.tsx(381,7): error TS2322: Type 'string' is not assignable to type 'ProjectId'`. Left alone. Its second e2e tsc command did not run. No clippy (no Rust edit), browser/Playwright rerun, native verification or independent reviewer/verifier; role merge explicit in state. No acceptance / FIXES COMPLETE claim.
 - **Dependencies**: temporary root/desktop/client/crypto/i18n/ui node_modules symlinks removed before commit; no dependencies committed. Evidence preserves red/green logs and checkpoints.
+
+## Run 2026-11-26 — frame run status and provider-required localization
+
+- **Worktree**: `.agents/worktrees/fix-frame-status`, branch `r-next/fix-frame-status`, base `90aad8d`. No push, tag, merge or publish. Decision D-RN-FRAME-1. No unfamiliar changes were present at intake.
+- **Diagnosis**: Frame's private `listRuns` map loaded only when projects changed. Project actions reloaded a different `useRuns` instance. `runs.start` returns before spawned intake pauses; `useRuns` and successful `useRunEvents` snapshots did not refresh. The daemon correctly writes Paused and `action: provider_required`; activity concatenated raw English message/hint and mapped all error-kind events (including `run_cancelled`) to the generic error label.
+- **Changes**: sequential one-second authoritative run refreshes with timer cleanup; cursor-based event refresh after success; structured provider-required activity and pause hint localized in ar/en; cancellation activity uses existing Cancelled labels. Layout and project gate-loading logic unchanged. No Rust edits.
+- **Red proof**: `/tmp/frame-status-before.log`: 5 failed, 41 passed. Four frame regressions expected Cancelled / ملغاة / Paused / متوقّف but received Test Running / Test يعمل; structured action test received `arbitrary daemon prose — arbitrary hint` instead of `project.provider_required`.
+- **Verification**: full desktop `pnpm vitest run` — 89 files, 818 passed (baseline 809); i18n v3 parity — 9 passed with explicit package root/config (desktop config excludes package tests). Final targeted run after an additional cancellation assertion also passed. `cargo fmt --all -- --check` exit 0; policy 8 checks/0 failures; architecture 5 rules/0 violations. Logs in `/tmp/frame-status-*.log` and `bridge-io/policy/2026-11-26-frame-status/`. Dependency symlinks removed before commit. Roles merged for capacity, explicitly not independent review or acceptance. Browser UX walk not repeated; no real provider calls.
 
 ## Run 2026-11-26 — swarm walks no longer share the fixture switch
 

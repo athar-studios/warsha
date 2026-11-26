@@ -1,6 +1,12 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-UI-COMBO-1: retain both reviewed snapshot refresh fixes
+
+Merge `r-next/fix-frame-status` (`91f0f04`) into `r-next/ui-combo` (`959b23e`) locally. Both hook diffs against `90aad8d` add the same one-second successful-snapshot timer; keep one timer plus the live-gate cursor reset and persisted/live merge-by-id. Preserve stage-triggered project resource refresh, intake brief rendering, frame/run polling, localized structured provider pause and cancellation labeling, and both regression sets. D-RN-GATE-1 and D-RN-FRAME-1 remain intact.
+
+Blame at `90aad8d` proves the Developers provisioning fixture's unbranded `projectId: 'p1'` was introduced by `1cc7031a`, before either UI fix. Add only a type import and `as ProjectId`, matching existing tests; no `any`. Owner supplied the gates; capacity merges implementation/self-review/check-runner roles explicitly in state, not independent review or product acceptance. No crates changes, push, tag or publish.
+
 ## 2026-11-26 — D-RN-GATE-1: refresh live gate snapshots from the actual stage event
 
 - **Diagnosis**: ProjectPage uses mount-time `useRuns`/`useGates` snapshots, while `useRunEvents` called the snapshot RPC `runs.subscribe` only once on success. `advance_stage_locked` persists role-less `StageStarted {from,to}` on gate entry, not a pending `GateDecision`. `getGates` returns only stage/state; the readable body is the `brief` artifact (the intake result is saved under that name).
@@ -8,6 +14,12 @@
 - **Brief**: Gate A renders the existing `brief.content` with the project's existing escaped `pre`/`bdi dir="auto"` text pattern, wrapped for readability. No fabricated fallback, new UI strings, catalog changes or raw HTML rendering.
 - **Proof**: before implementation, both mock-client regressions failed: `expected null not to be null`; `expected 'Decision waitingDo we approve the ide…' to contain '# Fake Intake Summary\\n\\n## Brief\\n- …'`. Added coverage separates live-only and persisted-only entry, deduplication, cursor reuse, and timer cleanup. See the live-gate evidence bundle and PROGRESS for final commands/results.
 - **Scope/roles**: only the dedicated fix-live-gate worktree; frame lane untouched. Owner supplied acceptance commands. Capacity merges implementer/self-review/check-runner roles explicitly; no independent review/verification or owner acceptance claimed. No push, tag, merge, publish or real model API.
+
+## 2026-11-26 — D-RN-FRAME-1: refresh run rows and localize structured pause actions
+
+The frame's status mapper already supports cancelled and paused with native ar/en catalog strings; the defect was its one-shot private run map, not missing status labels. Run start dispatches intake asynchronously. Both run rows and successful event snapshots therefore need refresh, independent of project action reloads. Use sequential one-second snapshot reads with cleanup rather than infer lifecycle state from error events or add another transport. The optional `useResource` refresh applies only to `useRuns`; other resource hooks retain their existing behavior.
+
+Map `provider_required` from the event action, never parse its English message. A new ar/en `project.provider_required` sentence describes routing and resuming; the pause banner uses the existing localized routing hint. The raw diagnostic remains stored in the daemon. `run_cancelled` activity uses the existing Cancelled catalog label rather than the generic error label. Frame status strings and Cancelled labeling elsewhere remain intact; no layout, Rust, or project gate-loading change. Capacity merges planner/implementer/reviewer/verifier roles explicitly in evidence; self-review and local gates are not independent acceptance. No push, tag, merge or publish.
 
 ## 2026-11-26 — D-RN-SWARM-RACE-1: the two CLEAN-1 swarm walks hold one named process lock
 

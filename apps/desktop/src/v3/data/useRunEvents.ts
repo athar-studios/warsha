@@ -85,7 +85,8 @@ export function useRunEvents(
         setError(null);
         setData(currentEvents);
         setStatus(currentEvents.length === 0 ? 'empty' : 'ready');
-        // runs.subscribe is a snapshot RPC, not a long-lived subscription.
+        // subscribeRun returns a snapshot, not a persistent stream. Continue from
+        // its cursor so asynchronous intake pauses and gate entry stay visible.
         timerId = setTimeout(() => {
           if (active) void pollOrSubscribe();
         }, 1000);

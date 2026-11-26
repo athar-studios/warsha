@@ -166,6 +166,37 @@ describe('resolveProjectStatus', () => {
   });
 });
 
+describe('frame live run status', () => {
+  it.each([
+    ['en', 'cancelled', 'Cancelled'],
+    ['ar', 'cancelled', 'ملغاة'],
+    ['en', 'paused', 'Paused'],
+    ['ar', 'paused', 'متوقّف'],
+  ] as const)('refreshes %s %s without remounting', async (locale, status, label) => {
+    vi.useFakeTimers();
+    try {
+      const listRuns = vi.fn().mockResolvedValue([makeRun('r1', 'p1', 'idea', 'running')]);
+      const { container } = await renderFrame({
+        locale,
+        initialPath: '/p/p1',
+        client: makeMockClient({
+          listProjects: vi.fn().mockResolvedValue([makeProject('p1', 'Test')]),
+          listRuns,
+        }),
+      });
+      listRuns.mockResolvedValue([makeRun('r1', 'p1', 'idea', status)]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1100);
+      });
+      expect(container.querySelector('[data-action="frame.project.open"]')).toHaveTextContent(
+        label
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('Frame component', () => {
   beforeEach(() => {
     clearToastListeners();

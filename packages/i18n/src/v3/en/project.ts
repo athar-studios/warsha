@@ -1,5 +1,7 @@
 export default {
   'project.title': 'Project',
+  'project.provider_required':
+    'A provider route is required. Configure a provider for this role in Settings → Models, then resume the run.',
   'project.empty': 'Project not found',
   'project.empty_description': "We couldn't find this project. It may have been deleted.",
   'project.loading': 'Loading project details…',
@@ -57,7 +59,8 @@ export default {
   'project.run_failed_banner': 'This run failed before completion. You can start over.',
   'project.run_cancelled_banner': 'This run was cancelled. You can start over whenever you wish.',
   'project.retry_hint.stage_failed': 'Check model provider configuration and retry stage',
-  'project.retry_hint.provider_required': 'Configure a provider route for this role in Settings → Models',
+  'project.retry_hint.provider_required':
+    'Configure a provider route for this role in Settings → Models',
   'project.run_cancel_open': 'Cancel run',
   'project.run_cancel_confirm': 'Yes, cancel the run',
   'project.run_cancel_dialog_title': 'Cancel current run',

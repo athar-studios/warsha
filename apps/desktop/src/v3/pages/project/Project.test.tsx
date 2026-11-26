@@ -25,6 +25,8 @@ import ProjectPage, {
   buildSimpleStepperStages,
   computeRunStatusPill,
   extractCodeUrl,
+  extractEventSummary,
+  projectEventLabelKey,
   extractRetryHint,
   extractTestArtifacts,
   findPendingGateAtCurrentStage,
@@ -32,6 +34,23 @@ import ProjectPage, {
   retryHintKey,
   retryHintText,
 } from './index';
+
+describe('structured provider-required activity', () => {
+  it('uses the action code even when daemon prose changes', () => {
+    expect(
+      projectEventLabelKey({ kind: 'error', payload: { action: 'run_cancelled' } } as Parameters<
+        typeof projectEventLabelKey
+      >[0])
+    ).toBe('project.status_cancelled');
+    expect(
+      extractEventSummary({
+        action: 'provider_required',
+        message: 'arbitrary daemon prose',
+        retry_hint: 'arbitrary hint',
+      })
+    ).toBe('project.provider_required');
+  });
+});
 
 function ReadyInspector(): React.ReactElement {
   const { isReady } = useDataReady();
@@ -270,6 +289,47 @@ describe('live gate regressions', () => {
     const card = await screen.findByTestId('project-decision-card');
     await waitFor(() => expect(card.textContent).toContain(brief.content));
   });
+});
+
+describe('localized provider pause', () => {
+  it.each([
+    ['en', 'A provider route is required.', 'Paused'],
+    ['ar', 'يلزم تعيين مسار مزوّد.', 'متوقّف'],
+  ] as const)(
+    'renders %s structured activity without daemon prose',
+    async (locale, message, label) => {
+      renderProject(
+        createMockClient({
+          listRuns: vi.fn().mockResolvedValue([PAUSED_RUN]),
+          subscribeRun: vi.fn().mockResolvedValue({
+            seq: 1,
+            events: [
+              {
+                id: 'provider-event',
+                runId: PAUSED_RUN.id,
+                stage: 'idea',
+                kind: 'error',
+                payload: {
+                  action: 'provider_required',
+                  message: 'RAW DAEMON MESSAGE',
+                  retry_hint: 'RAW DAEMON HINT',
+                },
+                createdAt: '2026-10-02T09:05:00.000Z',
+              },
+            ],
+          }),
+        }),
+        '/p/proj-1',
+        locale
+      );
+      await waitFor(() =>
+        expect(screen.getAllByText(new RegExp(message)).length).toBeGreaterThan(0)
+      );
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/RAW DAEMON/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/An error occurred|حدث خطأ/)).not.toBeInTheDocument();
+    }
+  );
 });
 
 describe('ProjectPage helpers', () => {
