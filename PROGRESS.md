@@ -2,6 +2,9 @@
 
 ## Run 2026-11-26 — Factory Floor re-audit fixes r2 (D-RN-FLOOR-R4)
 
+- **Browser re-walk at `8e6c117`** (`/home/moe/tools/playwright-ux/runs/2026-11-26-8e6c117-floor-r2/`, report + notes.json + 12 shots, observe-only lane, worktree left clean at `8e6c117`): **F1 PASS and F2 PASS in all four configs** (ar/en × 1280x800/1920x1080). F1: code-stage run with only a role-less `stage_started {from: plan_tasks, to: code}` and zero role-bearing `stage=code` events rendered all 5 markers on البرمجة/Coding, all يعمل/Working, 0 on planning. F2: `circleOverlaps` 0 at every station; التسليم holds 7 markers (6 in row 0 at pitch 24, min pairwise circle gap 2.0 units ≈ 2.09 px), all boxes inside their station rect. OCR limitation: at ar 1920x1080 tesseract missed التخطيط, which the DOM shows with 0 markers. Row-2 spill (>12 roles) not exercisable with the 7-role catalogue.
+
+
 - **Worktree/branch**: `/home/moe/Downloads/Warsha/.agents/worktrees/fix-floor-r4`, local branch `fix-floor-r4`, base `9916b74` (`r-next/integration` tip). Merged as `8e6c117` after Judge r23. No push/tag/publish. Findings from `/home/moe/tools/playwright-ux/runs/2026-11-26-1a6711d-floor-ar/report.md`.
 - **F1 (functional)**: `applyEvent` in `apps/desktop/src/v3/pages/factory/state.ts:157-181` now moves every non-`done` agent of the run onto a role-less non-gate `stage_started`; only `waiting_on_owner` becomes `working`, `idle` stays `idle`, `done` skipped, no agent created. A run in `code` no longer leaves its crew on التخطيط for the model call.
 - **F2 (geometry)**: التسليم widened 130→152 (x 840→818); `MIN_SLOT_PITCH = AGENT_RADIUS * 2 + 2 = 24` floor on `slotGap`; `slotStart` centres floored rows. Six 22px markers cannot fit 130 at any inset, so the 22 units came from the قراراتك gutter, keeping 30-unit outer margins.
