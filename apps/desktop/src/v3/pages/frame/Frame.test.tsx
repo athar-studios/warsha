@@ -166,6 +166,27 @@ describe('resolveProjectStatus', () => {
   });
 });
 
+describe('frame pending gate status', () => {
+  it.each([['en', 'Waiting'], ['ar', 'ينتظرك']] as const)('uses the current pending gate for %s frame and menu chips', async (locale, label) => {
+    const { container } = await renderFrame({
+      locale,
+      initialPath: '/p/p1',
+      client: makeMockClient({
+        listProjects: vi.fn().mockResolvedValue([makeProject('p1', 'Test')]),
+        listRuns: vi.fn().mockResolvedValue([makeRun('r1', 'p1', 'gate_a', 'running')]),
+        getGates: vi.fn().mockResolvedValue([
+          { stage: 'gate_a', state: { state: 'pending' } },
+          { stage: 'gate_b', state: { state: 'pending' } },
+        ]),
+      }),
+    });
+    const trigger = container.querySelector('[data-action="frame.project.open"]') as HTMLElement;
+    await waitFor(() => expect(trigger).toHaveTextContent(label));
+    fireEvent.click(trigger);
+    expect(screen.getByRole('option')).toHaveTextContent(label);
+  });
+});
+
 describe('frame live run status', () => {
   it.each([
     ['en', 'cancelled', 'Cancelled'],

@@ -20,6 +20,7 @@ import { ClientProvider } from '../../app/ClientContext';
 import { DataReadyProvider, useDataReady } from '../../app/DataReadyContext';
 import { DensityProvider } from '../../app/DensityContext';
 import { RouterProvider } from '../../router';
+import { Frame } from '../frame/Frame';
 
 import ProjectPage, {
   buildSimpleStepperStages,
@@ -270,7 +271,7 @@ describe('live gate regressions', () => {
           await vi.advanceTimersByTimeAsync(3000);
         });
         expect(screen.queryByTestId('project-decision-card')).not.toBeNull();
-        expect(screen.getByTestId('project-decision-card').textContent).toContain(brief.content);
+        expect(screen.getByTestId('project-decision-card').textContent).toContain('Fake Intake Summary\n\nBrief\nGoal, audience and constraints recorded for gate A.');
         expect(client.getGates).toHaveBeenCalledTimes(2);
       } finally {
         view.unmount();
@@ -287,7 +288,58 @@ describe('live gate regressions', () => {
       })
     );
     const card = await screen.findByTestId('project-decision-card');
-    await waitFor(() => expect(card.textContent).toContain(brief.content));
+    await waitFor(() => expect(card.textContent).toContain('Fake Intake Summary\n\nBrief\nGoal, audience and constraints recorded for gate A.'));
+  });
+});
+
+describe('UI R4 regressions', () => {
+  it.each(['en', 'ar'] as const)('applies the cancel RPC row immediately to frame and project in %s', async (locale) => {
+    const atGate = { ...AWAITING_GATE_RUN, status: 'running' };
+    const cancelled = { ...atGate, status: 'cancelled' };
+    const client = createRunEndingClient({
+      listProjects: vi.fn().mockResolvedValue([SAMPLE_PROJECT]),
+      // Hold all subsequent snapshots stale: the RPC response is the authoritative update.
+      listRuns: vi.fn().mockResolvedValue([atGate]),
+      cancelRun: vi.fn().mockResolvedValue(cancelled),
+    });
+    render(
+      <ClientProvider client={client}>
+        <CapabilitiesProvider client={client}>
+          <I18nProvider initialLocale={locale}>
+            <DensityProvider initialMode="simple">
+              <DataReadyProvider>
+                <RouterProvider initialPath="/p/proj-1">
+                  <Frame><ProjectPage /></Frame>
+                </RouterProvider>
+              </DataReadyProvider>
+            </DensityProvider>
+          </I18nProvider>
+        </CapabilitiesProvider>
+      </ClientProvider>
+    );
+    await waitFor(() => expect(document.querySelector('[data-action="project.run.cancel.open"]')).not.toBeNull());
+    fireEvent.click(document.querySelector('[data-action="project.run.cancel.open"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-action="project.run.cancel.confirm"]')).not.toBeNull());
+    await act(async () => {
+      fireEvent.click(document.querySelector('[data-action="project.run.cancel.confirm"]') as HTMLElement);
+    });
+    const label = locale === 'ar' ? 'ملغاة' : 'Cancelled';
+    expect(document.querySelector('[data-action="frame.project.open"]')).toHaveTextContent(label);
+    expect(screen.getByTestId('project-status-pill')).toHaveTextContent(label);
+  });
+
+  it('renders an Arabic Gate A brief without markdown syntax or technical metadata, still escaped', async () => {
+    const content = '# Project Brief\n\n**Project ID:** secret-project-id\n**Run ID:** secret-run-id\n**Version:** 9\n**Created:** 2026-11-26T00:00:00Z\n**Updated:** 2026-11-26T00:00:01Z\n**Gate A Signed Off:** ❌ No\n\n---\n\n## Audience\n**Who is it for?**\n> الجميع\n- Keep <script>alert(1)</script> as text';
+    renderProject(createMockClient({
+      listRuns: vi.fn().mockResolvedValue([AWAITING_GATE_RUN]),
+      getRunArtifacts: vi.fn().mockResolvedValue([{ name: 'brief', content }]),
+    }), '/p/proj-1', 'ar');
+    await waitFor(() => expect(document.querySelector('.v3-project-gate-brief')).toHaveTextContent('الجميع'));
+    const brief = document.querySelector('.v3-project-gate-brief') as HTMLElement;
+    expect(brief.textContent).toContain('Audience\nWho is it for?\nالجميع\nKeep <script>alert(1)</script> as text');
+    expect(brief.textContent).not.toMatch(/secret-|2026-11|Version:|Signed Off|#|\*\*|---/);
+    expect(brief.querySelector('script')).toBeNull();
+    expect(brief.querySelector('bdi')?.getAttribute('dir')).toBe('auto');
   });
 });
 

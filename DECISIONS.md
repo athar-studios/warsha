@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-UI-R4: apply cancellation receipts immediately and share gate-waiting truth
+
+- The successful cancel RPC row is authoritative immediately. Publish only returned `cancelled` rows in a client-scoped WeakMap/external-store overlay consumed by `useRuns` and Frame, so an already-in-flight list snapshot cannot briefly resurrect Running. Cancellation is terminal; other status transitions and provider-required/CAS behavior remain unchanged. The cache dies with its client connection and affects only matching run ids.
+- Frame reuses its existing gates query and current-stage pending guard for both trigger and project-menu waiting chips. Only running/in-progress rows receive this presentation override; paused/terminal rows are never relabeled waiting. No extra RPC, inferred provider pause, or daemon edit.
+- Developers run options reuse `getStatusLabelKey` and existing ar/en status catalogs. No new user-facing copy or CSS is required.
+- Gate A brief stays escaped `pre` / `bdi dir="auto"` text. Remove known generated technical header lines (project/run ids, version, created/updated timestamps, sign-off flag), heading/quote/list/emphasis/code markers and separator lines; preserve authored heading/question/answer content, including literal HTML-shaped text. This is readable text presentation, not generated-content translation or a general Markdown renderer.
+- Owner commands are frozen acceptance gates. Capacity merges implementer/self-review/check-runner roles explicitly in ignored run state; no independent review or acceptance claimed. Local-only worktree `fix-ui-r4` at base `b5d52da`; no push/tag/merge, crates edits or real model API calls.
+
 ## 2026-11-26 — D-RN-CAPTURE-LIVE-1: real OpenCode leaves unstaged output; capture needs no further filter
 
 One owner-authorized invocation used OpenCode v2.4.1, `opencode run`, `opencode/big-pickle`, through `BackendFactory::opencode()` in `/tmp/warsha-live-capture-3Uj85q/repo`. The launcher adds `--model opencode/big-pickle --standalone --auto`, clears the inherited environment with `env -i`, and redirects HOME/XDG into the scratch tree; no credential or `~/.config/opencode` was read. `opencode models` advertised that model (the initial `models opencode` form was rejected as an unexpected positional argument). One CLI invocation, not one inference turn: OpenCode used write, then shell to inspect its output, then finished, with three step-finish records reporting cost 0.
