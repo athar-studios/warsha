@@ -1,5 +1,12 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — CLEAN-3 cleanup round (records)
+
+- **Scope**: docs-only records correction in `.agents/worktrees/clean3-records`, branch `r-next/clean3-records`, base `5183b37`. Only `DECISIONS.md` and `PROGRESS.md` edited; no code changed in this lane. No push/tag/merge.
+- **R-7a closed by D-RN-MIRROR-PUBLIC-1**: the `5183b37` push to public `athar-studios/warsha-dev` is the owner's own ordered mirror (owner order 2026-11-26 03:11 Asia/Dubai: «اعمل المراية وهو عام عادي»). The hygiene criterion is amended by owner decision; the older "private" caveat in `DECISIONS.md` is marked superseded in place. The origin/tag/release/publish gate is unchanged.
+- **R-F3b recorded as D-RN-SANDBOX-PENDING-1**: live OpenCode backend runs `"permission":"allow"` without a sandbox; sandbox design required before unattended use. Open pre-release blocker for unattended use.
+- **R-F4a recorded as D-RN-PROVISIONING-SCOPE-1**: provisioning records only come from the Secretary interview; composer/pipeline projects show the empty provisioning message. Accepted scope; future work.
+
 ## Run 2026-11-26 — Factory Floor re-audit fixes r2 (D-RN-FLOOR-R4)
 
 - **Browser re-walk at `8e6c117`** (`/home/moe/tools/playwright-ux/runs/2026-11-26-8e6c117-floor-r2/`, report + notes.json + 12 shots, observe-only lane, worktree left clean at `8e6c117`): **F1 PASS and F2 PASS in all four configs** (ar/en × 1280x800/1920x1080). F1: code-stage run with only a role-less `stage_started {from: plan_tasks, to: code}` and zero role-bearing `stage=code` events rendered all 5 markers on البرمجة/Coding, all يعمل/Working, 0 on planning. F2: `circleOverlaps` 0 at every station; التسليم holds 7 markers (6 in row 0 at pitch 24, min pairwise circle gap 2.0 units ≈ 2.09 px), all boxes inside their station rect. OCR limitation: at ar 1920x1080 tesseract missed التخطيط, which the DOM shows with 0 markers. Row-2 spill (>12 roles) not exercisable with the 7-role catalogue.
