@@ -2,6 +2,7 @@ import {
   canonicalRoleKey,
   type CostEstimate,
   type GateSummary,
+  type GithubStatus,
   type ProjectId,
   type ProjectSummary,
   type RoleRouting,
@@ -47,6 +48,13 @@ import { countPendingGatesAtCurrentStage } from '../frame/Frame';
 import SecretaryChat from '../project/SecretaryChat';
 
 import {
+  INITIAL_PROJECT_SOURCE,
+  ProjectSourcePicker,
+  resolveProjectSource,
+  validateProjectSource,
+  type ProjectSourceValue,
+} from './ProjectSourcePicker';
+import {
   ownerAlerts,
   raisedKeysAfter,
   type OwnerAlert,
@@ -76,7 +84,7 @@ export function deriveProjectName(idea: string): string {
 export interface NewProjectDialogProps {
   open: boolean;
   onClose: () => void;
-  onSubmit?: (name: string, idea: string, repoPath?: string) => Promise<void>;
+  onSubmit?: (name: string, idea: string, repoPath?: string, repoUrl?: string) => Promise<void>;
 }
 
 export function NewProjectDialog({
@@ -86,33 +94,54 @@ export function NewProjectDialog({
 }: NewProjectDialogProps): React.ReactElement {
   const t = useT();
   const { locale } = useLocale();
+  const navigate = useNavigate();
   const client = useClient();
   const [name, setName] = useState('');
   const [idea, setIdea] = useState('');
-  const [repoPath, setRepoPath] = useState('');
+  const [sourceValue, setSourceValue] = useState<ProjectSourceValue>(INITIAL_PROJECT_SOURCE);
+  const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const githubCreateBlocked =
+    sourceValue.mode === 'github_create' && !githubStatus?.configured;
 
   const handleSubmit = async () => {
     const trimmedIdea = idea.trim();
     if (!trimmedIdea) return;
+    const validationError = validateProjectSource(sourceValue, githubStatus, t);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       const projectName = name.trim() || deriveProjectName(trimmedIdea);
-      const cleanRepo = repoPath.trim();
       if (onSubmit) {
-        await onSubmit(projectName, trimmedIdea, cleanRepo || undefined);
+        const resolved = client
+          ? await resolveProjectSource(client, sourceValue, trimmedIdea)
+          : { repoPath: sourceValue.existingPath.trim() || undefined };
+        await onSubmit(projectName, trimmedIdea, resolved.repoPath, resolved.repoUrl);
       } else if (client) {
-        if (cleanRepo) {
-          await client.createProject(projectName, trimmedIdea, locale, cleanRepo);
+        const resolved = await resolveProjectSource(client, sourceValue, trimmedIdea);
+        if (resolved.repoUrl) {
+          await client.createProject(
+            projectName,
+            trimmedIdea,
+            locale,
+            resolved.repoPath,
+            resolved.repoUrl
+          );
+        } else if (resolved.repoPath) {
+          await client.createProject(projectName, trimmedIdea, locale, resolved.repoPath);
         } else {
           await client.createProject(projectName, trimmedIdea, locale);
         }
       }
       setName('');
       setIdea('');
-      setRepoPath('');
+      setSourceValue(INITIAL_PROJECT_SOURCE);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -151,13 +180,22 @@ export function NewProjectDialog({
           rows={3}
           data-testid="new-project-idea-input"
         />
-        <TextField
-          label={t('home.repo_path_label')}
-          placeholder={t('home.repo_path_placeholder')}
-          hint={t('home.repo_path_hint')}
-          value={repoPath}
-          onChange={(e) => setRepoPath(e.target.value)}
-          data-testid="new-project-repo-path-input"
+        <ProjectSourcePicker
+          value={sourceValue}
+          onChange={(next) => {
+            setError(null);
+            setSourceValue(next);
+          }}
+          client={client}
+          t={t}
+          githubStatus={githubStatus}
+          onGithubStatusChange={setGithubStatus}
+          onOpenIntegrations={() => {
+            onClose();
+            navigate('/settings/integrations');
+          }}
+          disabled={submitting}
+          idPrefix="new-project-source"
         />
         <div
           style={{
@@ -179,7 +217,7 @@ export function NewProjectDialog({
             variant="primary"
             data-action="home.new-project.submit"
             onClick={() => void handleSubmit()}
-            disabled={!idea.trim() || submitting}
+            disabled={!idea.trim() || submitting || githubCreateBlocked}
             loading={submitting}
             data-testid="new-project-submit-btn"
           >
@@ -461,7 +499,9 @@ export default function HomePage(): React.ReactElement {
   const capabilities = useCapabilities();
 
   const [idea, setIdea] = useState('');
-  const [repoPath, setRepoPath] = useState('');
+  const [sourceValue, setSourceValue] = useState<ProjectSourceValue>(INITIAL_PROJECT_SOURCE);
+  const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [newProjectDialogOpen, setNewProjectDialogOpen] = useState(false);
   const [defaultsSheetOpen, setDefaultsSheetOpen] = useState(false);
   const [runsByProject, setRunsByProject] = useState<Record<string, RunSummary[]>>({});
@@ -710,18 +750,49 @@ export default function HomePage(): React.ReactElement {
     };
   }, [client, projectsResult.data, t, runsReloadTick]);
 
+  const createConfiguredProject = async (
+    projectName: string,
+    trimmedIdea: string
+  ): Promise<ProjectSummary> => {
+    if (!client) throw new Error(t('common.error'));
+    const resolved = await resolveProjectSource(client, sourceValue, trimmedIdea);
+    if (resolved.repoUrl) {
+      return client.createProject(
+        projectName,
+        trimmedIdea,
+        locale,
+        resolved.repoPath,
+        resolved.repoUrl
+      );
+    }
+    if (resolved.repoPath) {
+      return client.createProject(projectName, trimmedIdea, locale, resolved.repoPath);
+    }
+    return client.createProject(projectName, trimmedIdea, locale);
+  };
+
   // Action: home.interview.start
   const startInterviewAction = useAction('home.interview.start', async () => {
     if (!client) throw new Error(t('common.error'));
-    const projectName = deriveProjectName(idea.trim());
-    const cleanRepo = repoPath.trim();
-    const project = cleanRepo
-      ? await client.createProject(projectName, idea.trim(), locale, cleanRepo)
-      : await client.createProject(projectName, idea.trim(), locale);
-    projectsResult.reload();
-    await client.interviewStart(project.id, idea.trim());
-    markInterviewEntry(project.id);
-    navigate(`/p/${project.id}`);
+    const trimmedIdea = idea.trim();
+    if (!trimmedIdea) return;
+    const validationError = validateProjectSource(sourceValue, githubStatus, t);
+    if (validationError) {
+      setComposerError(validationError);
+      return;
+    }
+    setComposerError(null);
+    const projectName = deriveProjectName(trimmedIdea);
+    try {
+      const project = await createConfiguredProject(projectName, trimmedIdea);
+      projectsResult.reload();
+      await client.interviewStart(project.id, trimmedIdea);
+      markInterviewEntry(project.id);
+      navigate(`/p/${project.id}`);
+    } catch (err) {
+      setComposerError(err instanceof Error ? err.message : String(err));
+      throw err;
+    }
   });
   // Action: home.start
   // MUST call projects.create -> runs.start -> budget.set IN THAT ORDER
@@ -732,25 +803,33 @@ export default function HomePage(): React.ReactElement {
 
     const trimmedIdea = idea.trim();
     if (!trimmedIdea) return;
+    const validationError = validateProjectSource(sourceValue, githubStatus, t);
+    if (validationError) {
+      setComposerError(validationError);
+      return;
+    }
+    setComposerError(null);
 
     const projectName = deriveProjectName(trimmedIdea);
     const budgetCents = Math.round(Number(defaultBudget) * 100);
 
-    // 1. projects.create
-    const cleanRepo = repoPath.trim();
-    const project = cleanRepo
-      ? await client.createProject(projectName, trimmedIdea, locale, cleanRepo)
-      : await client.createProject(projectName, trimmedIdea, locale);
-    projectsResult.reload();
+    try {
+      // 1. projects.create
+      const project = await createConfiguredProject(projectName, trimmedIdea);
+      projectsResult.reload();
 
-    // 2. runs.start — the budget the owner entered is the budget the run records.
-    await client.startRun(project.id, trimmedIdea, undefined, undefined, budgetCents);
+      // 2. runs.start — the budget the owner entered is the budget the run records.
+      await client.startRun(project.id, trimmedIdea, undefined, undefined, budgetCents);
 
-    // 3. budget.set
-    await client.setProjectBudget(project.id, budgetCents);
+      // 3. budget.set
+      await client.setProjectBudget(project.id, budgetCents);
 
-    // Navigate to /p/:id
-    navigate(`/p/${project.id}`);
+      // Navigate to /p/:id
+      navigate(`/p/${project.id}`);
+    } catch (err) {
+      setComposerError(err instanceof Error ? err.message : String(err));
+      throw err;
+    }
   });
 
   // Action: home.defaults.budget.save
@@ -794,8 +873,28 @@ export default function HomePage(): React.ReactElement {
     setRunsReloadTick((tick) => tick + 1);
   });
 
+  const githubCreateBlocked =
+    sourceValue.mode === 'github_create' && !githubStatus?.configured;
+
+  const handleInterviewSubmit = (): void => {
+    if (!idea.trim() || startInterviewAction.pending || !capabilities.provider) return;
+    const validationError = validateProjectSource(sourceValue, githubStatus, t);
+    if (validationError) {
+      setComposerError(validationError);
+      return;
+    }
+    setComposerError(null);
+    void startInterviewAction.run();
+  };
+
   const handleStartSubmit = (): void => {
     if (!idea.trim() || startAction.pending || !capabilities.provider) return;
+    const validationError = validateProjectSource(sourceValue, githubStatus, t);
+    if (validationError) {
+      setComposerError(validationError);
+      return;
+    }
+    setComposerError(null);
     void startAction.run();
   };
 
@@ -1052,22 +1151,40 @@ export default function HomePage(): React.ReactElement {
           <TextArea
             id="home-idea-input"
             value={idea}
-            onChange={(e) => setIdea(e.target.value)}
+            onChange={(e) => {
+              setComposerError(null);
+              setIdea(e.target.value);
+            }}
             onEnter={handleStartSubmit}
             placeholder={t('home.idea_placeholder')}
             rows={4}
             data-testid="home-idea-input"
           />
-          <div style={{ marginBlockStart: 'var(--w-space-2)' }}>
-            <TextField
-              label={t('home.repo_path_label')}
-              placeholder={t('home.repo_path_placeholder')}
-              hint={t('home.repo_path_hint')}
-              value={repoPath}
-              onChange={(e) => setRepoPath(e.target.value)}
-              data-testid="home-repo-path-input"
-            />
-          </div>
+          <ProjectSourcePicker
+            value={sourceValue}
+            onChange={(next) => {
+              setComposerError(null);
+              setSourceValue(next);
+            }}
+            client={client}
+            t={t}
+            githubStatus={githubStatus}
+            onGithubStatusChange={setGithubStatus}
+            onOpenIntegrations={() => navigate('/settings/integrations')}
+            disabled={startAction.pending || startInterviewAction.pending}
+            idPrefix="home-source"
+          />
+          {composerError ? (
+            <div style={{ marginBlockStart: 'var(--w-space-2)' }}>
+              <Banner
+                variant="danger"
+                title={t('common.error')}
+                data-testid="home-composer-error"
+              >
+                {composerError}
+              </Banner>
+            </div>
+          ) : null}
 
           <div className="v3-home-composer-footer">
             <span className="v3-home-defaults-line">
@@ -1096,9 +1213,9 @@ export default function HomePage(): React.ReactElement {
                 <Button
                   variant="secondary"
                   size="lg"
-                  disabled={!idea.trim() || startInterviewAction.pending}
+                  disabled={!idea.trim() || startInterviewAction.pending || githubCreateBlocked}
                   loading={startInterviewAction.pending}
-                  onClick={() => startInterviewAction.run()}
+                  onClick={handleInterviewSubmit}
                   data-action="home.interview.start"
                   data-testid="home-interview-button"
                 >
@@ -1108,7 +1225,7 @@ export default function HomePage(): React.ReactElement {
                   variant="primary"
                   size="lg"
                   iconEnd={<IconSend size={18} />}
-                  disabled={!idea.trim() || startAction.pending}
+                  disabled={!idea.trim() || startAction.pending || githubCreateBlocked}
                   loading={startAction.pending}
                   onClick={handleStartSubmit}
                   data-action="home.start"

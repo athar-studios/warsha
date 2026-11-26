@@ -1,5 +1,15 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — Project Source Options UI + Tauri folder picker (D-RN-PROJECT-SOURCE-2)
+
+- **Branch & worktree**: `r-next/pso-ui` (base `5857f62`) in `.agents/worktrees/pso-ui`. Local commit only; no push, merge, tag, or `main` changes.
+- **Changes**:
+  - `apps/desktop/src-tauri`: added `tauri-plugin-dialog = "2"` (`Cargo.toml`, `Cargo.lock`), `"dialog:default"` (`capabilities/default.json`), `.plugin(tauri_plugin_dialog::init())` + `pick_folder` command (`src/lib.rs`).
+  - `apps/desktop/src/v3/pages/home/folderPicker.ts`: added `isTauriRuntime` + `pickProjectFolder` calling `invoke('pick_folder', { title })`.
+  - `apps/desktop/src/v3/pages/home/ProjectSourcePicker.tsx`, `home.css`, `index.tsx`: added 4-option `<ProjectSourcePicker />` (`new_folder`, `existing`, `github_link`, `github_create`), wired into both Simple Home composer and `NewProjectDialog`, with lazy `getGithubStatus()`, auth-honest `/settings/integrations` CTA, RTL-safe logical CSS, and zero `any`.
+  - `packages/i18n/src/v3/en/home.ts`, `packages/i18n/src/v3/ar/home.ts`, `packages/i18n/src/v3/index.test.ts`: added 28 paired `home.source.*` AR+EN strings and parity tests.
+  - `apps/desktop/src/v3/pages/home/ProjectSourcePicker.test.tsx` and `DECISIONS.md` (`D-RN-PROJECT-SOURCE-2`): added unit & integration tests and decision entry.
+
 ## Run 2026-11-26 — Project Source Options Round backend (D-RN-PROJECT-SOURCE-1)
 
 - **Branch & worktree**: `r-next/pso-backend` (base `d8a91a1`) in `.agents/worktrees/pso-backend`. Local commit only; no push, merge, tag, or `main` changes.

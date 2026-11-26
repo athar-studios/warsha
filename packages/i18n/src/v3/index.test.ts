@@ -84,4 +84,14 @@ describe('i18n v3', () => {
       expect(catalogs.en[key]).not.toBe(key);
     }
   });
+
+  it('translates home.source.* keys cleanly in Arabic and English', () => {
+    const sourceKeys = Object.keys(catalogs.en).filter((k) => k.startsWith('home.source.'));
+    expect(sourceKeys.length).toBeGreaterThanOrEqual(20);
+    for (const key of sourceKeys) {
+      expect(translate('en', key)).toBe(catalogs.en[key]);
+      expect(translate('ar', key)).toBe(catalogs.ar[key]);
+      expect(translate('ar', key)).not.toBe(translate('en', key));
+    }
+  });
 });
