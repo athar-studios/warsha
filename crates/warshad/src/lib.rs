@@ -117,8 +117,9 @@ pub use api::{
     AgentState, AuthCompleteResponse, AuthStartResponse, AuthStatus, BudgetStatus, ClonedRepo,
     CodingBackendDiagnostics, CodingBackendSummary, CostEstimate, CreatedGithubRepo, GateSummary,
     GateSummaryState, GithubStatus, HealthCapabilities, HealthResponse, PreparedFolder,
-    ProviderQuotaStatus, ProviderRecord, QuotaState, RoleRoutingConfig, RoutingTargetConfig,
-    SubscriptionWindow, ToolRulesReply, UsageRow, UsageTimeRow, WarshaApiServer, WindowUsage,
+    ProviderQuotaStatus, ProviderRecord, QuotaState, RepoStatus, RoleRoutingConfig,
+    RoutingTargetConfig, SubscriptionWindow, ToolRulesReply, UsageRow, UsageTimeRow,
+    WarshaApiServer, WindowUsage,
 };
 // --- end P-H1 A1 ---
 
@@ -502,6 +503,78 @@ impl WarshaApiServer for WarshaRpc {
         })
     }
 
+    async fn prepare_existing_folder(
+        &self,
+        ext: &RpcExtensions,
+        path: String,
+    ) -> RpcResult<PreparedFolder> {
+        self.authorize(ext, "projects.prepare_existing_folder")
+            .await?;
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            return Err(rpc_invalid_params("path must not be empty"));
+        }
+        let prepared =
+            warsha_pipeline::worktree::prepare_existing_folder(std::path::Path::new(trimmed))
+                .await
+                .map_err(|err| match err {
+                    warsha_pipeline::worktree::WorktreeError::InvalidName { .. } => {
+                        rpc_invalid_params(err.to_string())
+                    }
+                    other => rpc_error(other),
+                })?;
+        Ok(PreparedFolder {
+            repo_path: prepared.to_string_lossy().into_owned(),
+        })
+    }
+
+    async fn project_repo_status(
+        &self,
+        ext: &RpcExtensions,
+        path: Option<String>,
+        parent_dir: Option<String>,
+        name: Option<String>,
+    ) -> RpcResult<RepoStatus> {
+        self.authorize(ext, "projects.repo_status").await?;
+        // Exactly one form: either `path`, or `parent_dir` + `name` — both
+        // set or both absent is a caller mistake (-32602), never a guess.
+        let target = match (
+            path.as_deref().map(str::trim).filter(|s| !s.is_empty()),
+            parent_dir
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+            name.as_deref(),
+        ) {
+            (Some(p), None, None) => std::path::PathBuf::from(p),
+            (None, Some(parent), Some(raw_name)) => {
+                match warsha_pipeline::worktree::join_folder_name(
+                    std::path::Path::new(parent),
+                    raw_name,
+                ) {
+                    Ok(target) => target,
+                    Err(warsha_pipeline::worktree::WorktreeError::InvalidName { .. }) => {
+                        return Err(rpc_invalid_params(format!(
+                            "invalid folder name `{raw_name}`"
+                        )));
+                    }
+                    Err(other) => return Err(rpc_error(other)),
+                }
+            }
+            _ => {
+                return Err(rpc_invalid_params(
+                    "provide either `path` or both `parent_dir` and `name`",
+                ));
+            }
+        };
+        let probed = warsha_pipeline::worktree::repo_status(&target).await;
+        Ok(RepoStatus {
+            exists: probed.exists,
+            is_repo: probed.is_repo,
+            has_head: probed.has_head,
+        })
+    }
+
     async fn clone_project_repo(
         &self,
         ext: &RpcExtensions,
@@ -543,12 +616,16 @@ impl WarshaApiServer for WarshaRpc {
         name: String,
         description: Option<String>,
         parent_dir: Option<String>,
+        private_repo: Option<bool>,
     ) -> RpcResult<CreatedGithubRepo> {
         self.authorize(ext, "projects.create_github_repo").await?;
         let trimmed_name = name.trim();
         if trimmed_name.is_empty() {
             return Err(rpc_invalid_params("repository name must not be empty"));
         }
+        // Absent means private: a new GitHub repo must never go public by
+        // accident. Only an explicit `private_repo: false` makes it public.
+        let private = private_repo.unwrap_or(true);
         let Some((token, _source)) = self.resolve_github_token().await else {
             return Err(ErrorObject::owned(
                 -32000,
@@ -569,7 +646,12 @@ impl WarshaApiServer for WarshaRpc {
             client = client.with_api_base(base);
         }
         let repo = client
-            .create_repo(trimmed_name, description.as_deref().unwrap_or(""), None)
+            .create_repo(
+                trimmed_name,
+                description.as_deref().unwrap_or(""),
+                None,
+                private,
+            )
             .await
             .map_err(|err| rpc_error(err.to_string().replace(&token, "[REDACTED]")))?;
 

@@ -1,5 +1,5 @@
 #![allow(clippy::too_many_arguments)]
-//! Wire-contract surface for the daemon: the `WarshaApi` JSON-RPC trait (98 methods)
+//! Wire-contract surface for the daemon: the `WarshaApi` JSON-RPC trait (100 methods)
 //! and the 15 DTOs it carries. Split out of `lib.rs` (P-H1 step A1, pure move).
 
 use chrono::Utc;
@@ -60,6 +60,17 @@ pub trait WarshaApi {
         name: String,
     ) -> RpcResult<PreparedFolder>;
 
+    #[method(name = "projects.prepare_existing_folder", with_extensions)]
+    async fn prepare_existing_folder(&self, path: String) -> RpcResult<PreparedFolder>;
+
+    #[method(name = "projects.repo_status", with_extensions)]
+    async fn project_repo_status(
+        &self,
+        path: Option<String>,
+        parent_dir: Option<String>,
+        name: Option<String>,
+    ) -> RpcResult<RepoStatus>;
+
     #[method(name = "projects.clone_repo", with_extensions)]
     async fn clone_project_repo(
         &self,
@@ -74,6 +85,7 @@ pub trait WarshaApi {
         name: String,
         description: Option<String>,
         parent_dir: Option<String>,
+        private_repo: Option<bool>,
     ) -> RpcResult<CreatedGithubRepo>;
 
     #[method(name = "permissions.defaults.get", with_extensions)]
@@ -1248,10 +1260,18 @@ pub struct GithubStatus {
     pub source: Option<String>,
 }
 
-/// Result of `projects.prepare_folder`.
+/// Result of `projects.prepare_folder` (also `projects.prepare_existing_folder`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreparedFolder {
     pub repo_path: String,
+}
+
+/// Repository state reported by `projects.repo_status` (read-only probe).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepoStatus {
+    pub exists: bool,
+    pub is_repo: bool,
+    pub has_head: bool,
 }
 
 /// Result of `projects.clone_repo`.

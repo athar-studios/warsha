@@ -674,6 +674,113 @@ async fn ensure_initial_commit_without_clobber(repo: &Path, title: &str) -> Resu
     Ok(())
 }
 
+/// Prepare an EXISTING folder as a git repository with a `HEAD` commit.
+///
+/// Unlike [`prepare_new_folder`], the target is never created: it must already
+/// exist as a directory. If `.git` exists AND `validate_repository` passes AND a
+/// `HEAD` commit exists, the path returns untouched — no writes, no new commit.
+/// Otherwise `git init -q` runs (only when `.git` is absent) and
+/// `ensure_initial_commit_without_clobber` stages + commits the existing files
+/// without deleting or overwriting anything. Ends with `validate_repository`.
+pub async fn prepare_existing_folder(repo: &Path) -> Result<PathBuf> {
+    if !repo.exists() {
+        return Err(WorktreeError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "path `{}` does not exist or is not a directory",
+                repo.display()
+            ),
+        )));
+    }
+    if !repo.is_dir() {
+        return Err(WorktreeError::Io(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("`{}` exists and is not a directory", repo.display()),
+        )));
+    }
+
+    if repo.join(".git").exists()
+        && validate_repository(repo).await.is_ok()
+        && has_head_commit(repo).await?
+    {
+        return Ok(repo.to_path_buf());
+    }
+
+    if !repo.join(".git").exists() {
+        let init_output = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["init", "-q"])
+            .output()
+            .await?;
+        if !init_output.status.success() {
+            return Err(WorktreeError::Git(format!(
+                "git init failed: {}",
+                String::from_utf8_lossy(&init_output.stderr).trim()
+            )));
+        }
+    }
+
+    if !has_head_commit(repo).await? {
+        let title = repo
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        ensure_initial_commit_without_clobber(repo, &title).await?;
+    }
+
+    validate_repository(repo).await?;
+    Ok(repo.to_path_buf())
+}
+
+/// Read-only probe of a path's repository state.
+///
+/// Never writes anything: `is_repo` is `.git` present AND `validate_repository`
+/// passing, and `has_head` is only checked when `is_repo` holds.
+pub async fn repo_status(path: &Path) -> RepoStatus {
+    let exists = path.is_dir();
+    if !exists {
+        return RepoStatus {
+            exists: false,
+            is_repo: false,
+            has_head: false,
+        };
+    }
+    let is_repo = path.join(".git").exists() && validate_repository(path).await.is_ok();
+    let has_head = if is_repo {
+        has_head_commit(path).await.unwrap_or(false)
+    } else {
+        false
+    };
+    RepoStatus {
+        exists,
+        is_repo,
+        has_head,
+    }
+}
+
+/// Repository state reported by [`repo_status`] (serde snake_case).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RepoStatus {
+    /// The path exists and is a directory.
+    pub exists: bool,
+    /// `.git` is present and `validate_repository` passes.
+    pub is_repo: bool,
+    /// A `HEAD` commit resolves (only meaningful when `is_repo`).
+    pub has_head: bool,
+}
+
+/// Validate `name` with the same single-segment rule [`prepare_new_folder`]
+/// uses and join it onto `parent`.
+///
+/// The target may or may not exist — this is the join half of the read-only
+/// [`repo_status`] probe, so it never touches the filesystem.
+pub fn join_folder_name(parent: &Path, name: &str) -> Result<PathBuf> {
+    let folder = validate_folder_name(name)?;
+    Ok(parent.join(folder))
+}
+
 /// Prepare a folder under `parent` as an initialized git repository with a `HEAD` commit.
 pub async fn prepare_new_folder(parent: &Path, name: &str) -> Result<PathBuf> {
     if !parent.is_dir() {
@@ -965,6 +1072,27 @@ fn base64_encode(input: &[u8]) -> String {
     out
 }
 
+/// Environment carrying the GitHub clone credential.
+///
+/// Returns the three `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0`
+/// pairs git reads as `-c http.extraHeader=...` without the secret ever
+/// appearing in the child process argv (visible to other local users via
+/// `/proc/<pid>/cmdline` while the clone runs).
+fn github_clone_auth_env(token: &str) -> Vec<(String, String)> {
+    let encoded = base64_encode(format!("x-access-token:{token}").as_bytes());
+    vec![
+        ("GIT_CONFIG_COUNT".to_string(), "1".to_string()),
+        (
+            "GIT_CONFIG_KEY_0".to_string(),
+            "http.extraHeader".to_string(),
+        ),
+        (
+            "GIT_CONFIG_VALUE_0".to_string(),
+            format!("Authorization: Basic {encoded}"),
+        ),
+    ]
+}
+
 /// Clone a git repository into `dest_parent/<folder_name>` and ensure a `HEAD` commit exists.
 pub async fn clone_repository(
     source: &str,
@@ -1021,11 +1149,9 @@ pub async fn clone_repository(
     let token_clean = github_token.map(str::trim).filter(|t| !t.is_empty());
     if is_https {
         if let Some(token) = token_clean {
-            let encoded = base64_encode(format!("x-access-token:{token}").as_bytes());
-            cmd.args([
-                "-c",
-                &format!("http.extraHeader=Authorization: Basic {encoded}"),
-            ]);
+            for (key, value) in github_clone_auth_env(token) {
+                cmd.env(key, value);
+            }
         }
     }
     cmd.args(["clone", "--quiet", "--", &clone_arg])
@@ -1600,6 +1726,170 @@ mod e3 {
             prepare_new_folder(&parent.path().join("missing-parent"), "ok")
                 .await
                 .is_err()
+        );
+    }
+
+    fn head_sha(dir: &Path) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .expect("rev-parse HEAD");
+        assert!(out.status.success());
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    fn porcelain_clean(dir: &Path) {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["status", "--porcelain"])
+            .output()
+            .expect("git status");
+        assert!(out.status.success());
+        assert!(
+            String::from_utf8_lossy(&out.stdout).trim().is_empty(),
+            "expected a clean tree, got: {}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_existing_folder_inits_non_git_dir_without_clobber() {
+        let parent = tempfile::tempdir().expect("parent dir");
+        let target = parent.path().join("plain-app");
+        std::fs::create_dir_all(&target).expect("mkdir");
+        std::fs::write(target.join("main.py"), "print('hi')\n").expect("write main");
+
+        let status_before = repo_status(&target).await;
+        assert_eq!(
+            status_before,
+            RepoStatus {
+                exists: true,
+                is_repo: false,
+                has_head: false,
+            }
+        );
+
+        let prepared = prepare_existing_folder(&target)
+            .await
+            .expect("prepare existing folder");
+        assert_eq!(prepared, target);
+        assert!(target.join(".git").exists());
+        assert!(has_head_commit(&target).await.expect("head check"));
+        assert_eq!(
+            std::fs::read_to_string(target.join("main.py")).expect("read main"),
+            "print('hi')\n"
+        );
+        assert!(target.join(".gitignore").exists());
+        assert!(target.join("README.md").exists());
+        porcelain_clean(&target);
+
+        assert_eq!(
+            repo_status(&target).await,
+            RepoStatus {
+                exists: true,
+                is_repo: true,
+                has_head: true,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_existing_folder_leaves_repo_with_head_untouched() {
+        let parent = tempfile::tempdir().expect("parent dir");
+        let target = parent.path().join("ready-app");
+        std::fs::create_dir_all(&target).expect("mkdir");
+        std::fs::write(target.join("app.py"), "x = 1\n").expect("write app");
+        git_repo(&target);
+        let sha_before = head_sha(&target);
+
+        let prepared = prepare_existing_folder(&target)
+            .await
+            .expect("prepare initialized repo");
+        assert_eq!(prepared, target);
+        assert_eq!(head_sha(&target), sha_before);
+        assert!(!target.join("README.md").exists());
+        porcelain_clean(&target);
+    }
+
+    #[tokio::test]
+    async fn prepare_existing_folder_commits_headless_repo() {
+        let parent = tempfile::tempdir().expect("parent dir");
+        let target = parent.path().join("headless-app");
+        std::fs::create_dir_all(&target).expect("mkdir");
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&target)
+            .args(["init", "-q"])
+            .output()
+            .expect("git init");
+        assert!(out.status.success());
+        std::fs::write(target.join("notes.txt"), "keep\n").expect("write notes");
+        assert!(!has_head_commit(&target).await.expect("head check"));
+
+        prepare_existing_folder(&target)
+            .await
+            .expect("prepare headless repo");
+        assert!(has_head_commit(&target).await.expect("head now exists"));
+        porcelain_clean(&target);
+    }
+
+    #[tokio::test]
+    async fn prepare_existing_folder_refuses_missing_path() {
+        let parent = tempfile::tempdir().expect("parent dir");
+        let missing = parent.path().join("no-such-dir");
+        assert!(prepare_existing_folder(&missing).await.is_err());
+        assert!(!missing.exists(), "a refused path must stay absent");
+    }
+
+    #[tokio::test]
+    async fn prepare_existing_folder_refuses_regular_file() {
+        let parent = tempfile::tempdir().expect("parent dir");
+        let file = parent.path().join("just-a-file");
+        std::fs::write(&file, "data").expect("write file");
+        assert!(prepare_existing_folder(&file).await.is_err());
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("read file"),
+            "data",
+            "a refused file must keep its content"
+        );
+        assert!(
+            !file.join(".git").exists(),
+            "a refused file must not gain a .git entry"
+        );
+    }
+
+    #[test]
+    fn github_clone_auth_env_carries_basic_header_without_raw_token() {
+        let token = "ghp_test_secret_token_xyz";
+        let pairs = github_clone_auth_env(token);
+        assert_eq!(pairs.len(), 3);
+        assert_eq!(pairs[0], ("GIT_CONFIG_COUNT".to_string(), "1".to_string()));
+        assert_eq!(
+            pairs[1],
+            (
+                "GIT_CONFIG_KEY_0".to_string(),
+                "http.extraHeader".to_string()
+            )
+        );
+        let value = &pairs[2].1;
+        assert_eq!(pairs[2].0, "GIT_CONFIG_VALUE_0".to_string());
+        assert!(
+            value.starts_with("Authorization: Basic "),
+            "unexpected value prefix: {value}"
+        );
+        assert!(
+            !pairs.iter().any(|(_, v)| v.contains(token)),
+            "raw token must not appear in any env value"
+        );
+        assert_eq!(
+            value,
+            &format!(
+                "Authorization: Basic {}",
+                base64_encode(format!("x-access-token:{token}").as_bytes())
+            )
         );
     }
 

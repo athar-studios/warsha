@@ -405,10 +405,15 @@ struct MergeOutcome {
 }
 
 /// Body of a `POST /user/repos` request.
+///
+/// `private` is always serialized: the caller must make an explicit
+/// visibility choice — GitHub defaults an absent field to `false`
+/// (public), which must never happen by accident.
 #[derive(Debug, Serialize)]
 struct CreateRepoBody<'a> {
     name: &'a str,
     description: &'a str,
+    private: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     template_owner: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -479,17 +484,20 @@ impl GitHubClient {
     /// Create a repository owned by the authenticated account.
     ///
     /// `template` is an `owner/repo` reference; when it is given the repository
-    /// is generated from that template.
+    /// is generated from that template. `private` chooses visibility explicitly:
+    /// callers must pass `true` unless the owner asked for a public repository.
     pub async fn create_repo(
         &self,
         name: &str,
         description: &str,
         template: Option<&str>,
+        private: bool,
     ) -> Result<Repository> {
         let (template_owner, template_repo) = split_template(template);
         let payload = CreateRepoBody {
             name,
             description,
+            private,
             template_owner,
             template_repo,
         };

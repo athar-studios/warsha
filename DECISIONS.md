@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-CLEAN5-1: private-by-default GitHub creation, existing-folder probe+prepare, clone token off argv
+
+- **Context**: external review of `2aef9ea` (`claude-code-verify-clean4-2026-11-26.md`) raised two release blockers and one residual: B-2 `projects.create_github_repo` created **public** repos by default (no `private` field in `CreateRepoBody`, GitHub defaults to public); B-1 the CLEAN-4 "existing folder" promise was unusable — `projects.create` rejects non-git folders via `validate_repository` with no prepare path; R-1 the HTTPS clone token traveled on the git **argv** (`-c http.extraHeader=...`, visible in process listings).
+- **Decisions**:
+  1. **Private-by-default (`crates/warsha-git/src/lib.rs`, `crates/warshad/src/lib.rs`)**: `CreateRepoBody` gains `private: bool`, always serialized (like `draft` in `CreatePrBody`); `GitHubClient::create_repo` takes `private: bool`; RPC `projects.create_github_repo` gains `private_repo: Option<bool>` with `private_repo.unwrap_or(true)` — null/absent means PRIVATE. The owner explicitly passing `Some(false)` is the only public path.
+  2. **Probe-then-confirm contract (`crates/warsha-pipeline/src/worktree.rs`, `crates/warshad/src/{api,lib,auth}.rs`)**: new read-only probe `projects.repo_status` (`{path?} | {parent_dir+name?}`, exactly one form, `-32602` otherwise) returns `RepoStatus {exists, is_repo, has_head}` without writing anything. The UI calls it first; only after the owner confirms does `projects.prepare_existing_folder` run `prepare_existing_folder`: non-git dir → `git init -q` + initial commit of existing files (never deletes/overwrites, content verified unchanged); repo with HEAD → returned untouched (SHA verified); headless repo → initial commit; missing path / regular file → error. Both RPCs are `Policy::Owner`. `projects.create` itself is unchanged — it still only accepts valid repos, and the B-1 acceptance is probe → prepare → create succeeding on a plain folder.
+  3. **Token off argv (`crates/warsha-pipeline/src/worktree.rs`)**: `clone_repository` passes the HTTPS Basic header via `GIT_CONFIG_COUNT=1` / `GIT_CONFIG_KEY_0=http.extraHeader` / `GIT_CONFIG_VALUE_0=Authorization: Basic ...` env (helper `github_clone_auth_env`), never via `-c` argv. `GIT_TERMINAL_PROMPT=0` kept. The raw token never appears except base64-encoded inside the header value.
+
 ## 2026-11-26 — D-RN-PROJECT-SOURCE-1: backend, git/worktree, daemon RPC, and client support for Project Source Options Round
 
 - **Context**: Project creation previously only supported creating a fresh repo under `<data_dir>/projects/<id>/repo` or passing an already-existing `repo_path` without recording `repo_url` or supporting folder preparation, repository cloning, or GitHub repo creation.
