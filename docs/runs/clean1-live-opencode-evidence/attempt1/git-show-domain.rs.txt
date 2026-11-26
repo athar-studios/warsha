@@ -1,0 +1,1 @@
+fatal: path 'src/domain.rs' does not exist in 'warsha/run-01M8AJPJJ6X62J0YRDM05APS8R'

@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-CLEAN1-LIVE-1: real CLI proof is not a full receipt/confinement pass
+
+Owner explicitly authorized this isolated live proof outside cargo tests, superseding the proof SPEC's historical no-execution hold. Route planning to local fake and coding through supported `WARSHA_CODING_BACKEND=opencode`; never substitute scripted/materialize output for live code. Enrich only the four fake task descriptions (test-covered) because the original generic tasks did not carry implementable proofcalc contracts. Keep titles/markers unchanged. Build beside shared artifacts under `/tmp`, with private HOME/XDG/data/socket/ports and no host config/credential access.
+
+Two free-limit 429 attempts were followed by a third successful real CLI wave, run `01M8AJSFN4QXGAVSRTPZXCDY4A`. Preserve exactly the OpenCode module bytes; assistant creates only SPEC-allowed sequential manifest/lib/integration test. Offline cargo executed one passing integration test. No model network call enters the automated suite.
+
+Do **not** certify full acceptance: swarm drops `CodingResult.diff`/`files_changed`, so lane-commit reconstruction cannot be called a stored backend capture. OpenCode's external `/tmp/opencode` scratch writes also fail a literal one-path lane constraint even though project diffs are disjoint. Record both gaps instead of staging a pass or broadening production scope mid-proof. Requested model identity comes from private config/reload; OpenCode persisted null model fields. Three attempts exhausted; no additional call. Follow-up needs persisted backend receipts and scratch confinement assessment under separate authorization. Evidence and replay: `docs/runs/clean1-live-opencode.md`. Reviewer/verifier capacity-merged, not independent. No push/merge/publish/tag.
+
 ## 2026-11-26 — D-RN-SWARM-RACE-1: the two CLEAN-1 swarm walks hold one named process lock
 
 `clean1_swarm_four_lanes_materialize_real_files` sets `WARSHA_CODING_BACKEND_FIXTURE=materialize`. `clean1_swarm_four_lanes_scripted_backend_derives_files` removes it. `FIXTURE_IN_FLIGHT` and `FIXTURE_PEAK` are process-global, and both walks call `reset_fixture_materialize_peak`. Beside each other, one walk restores or clears the switch while the other is inside `execute`, so the materialize path never writes and the peak stays at 2 (store 2, backend 0). One walk's reset can also zero the other's count.

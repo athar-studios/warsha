@@ -1,5 +1,14 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — CLEAN-1 real OpenCode proof, qualified outcome
+
+- **Worktree**: `.agents/worktrees/clean1-live`, branch `r-next/clean1-live`, base `90aad8d`. No push, merge, tag, or publish. Decision D-RN-CLEAN1-LIVE-1.
+- **Changed**: four fake-provider planning descriptions now specify proofcalc contracts in plain words, with the original title words and disjoint markers. Added one mock-only contract test. No live model call added to tests.
+- **Live evidence**: real OpenCode v2.4.1; isolated daemon/HOME/data/socket/ports under `/tmp/warsha-clean1-live`; fake planning, supported `WARSHA_CODING_BACKEND=opencode` coding, swarm max 4. Deepseek and Nemotron attempts hit free-limit HTTP 429. Third requested model `opencode/flint-40b-free`, run `01M8AJSFN4QXGAVSRTPZXCDY4A`, wrote and merged four real modules (35 added lines). Exact branch bytes plus assistant-owned sequential manifest/lib/proof test passed `cargo test --offline`: 1 integration test passed.
+- **Verdict**: core live-generation/build proof passes; full requested acceptance remains incomplete/FAIL. Swarm discards backend `files_changed`/diff instead of storing them; durable evidence is explicitly a reconstruction from lane commits. OpenCode also wrote external scratch harness files under `/tmp/opencode`, violating a literal one-path-only reading of SPEC. No model bytes repaired by the assistant. No clean full-spec PASS claimed.
+- **Checks**: fmt, requested three-package clippy `-D warnings`, policy 8/0, exact provider contract test 1 passed, mock fake-provider suite, and both exact `tests::clean1_swarm::` walks each 1 passed. Full workspace suite not run. Capacity-merged self-review/verifier, not independent.
+- **Evidence/replay**: `docs/runs/clean1-live-opencode.md` and `docs/runs/clean1-live-opencode-evidence/`, including twelve subtask outcomes, selected CLI write/error events, commit diffs, raw git-show outputs, untracked observation, and cargo output. No credentials/config token included. Follow-up: durable backend receipts and external scratch confinement before another owner-authorized live proof.
+
 ## Run 2026-11-26 — swarm walks no longer share the fixture switch
 
 - **Worktree**: `.agents/worktrees/fix-swarm-race`, branch `r-next/fix-swarm-race`, tip was `1f9b1c4`. No push, no merge. FIXES COMPLETE is not declared.

@@ -1,0 +1,38 @@
+[
+  {
+    "subtask_id": "01M8AJPKMKQ0YG379220T01QC3",
+    "status": "failed",
+    "declared_files": [
+      "src/scaffold.rs"
+    ],
+    "backend_result_persisted": false,
+    "note": "Swarm runtime discards CodingResult.diff and files_changed; git commit evidence is a reconstruction, not stored backend output."
+  },
+  {
+    "subtask_id": "01M8AJPKMKDHN5NGFDQTKG83KG",
+    "status": "failed",
+    "declared_files": [
+      "src/domain.rs"
+    ],
+    "backend_result_persisted": false,
+    "note": "Swarm runtime discards CodingResult.diff and files_changed; git commit evidence is a reconstruction, not stored backend output."
+  },
+  {
+    "subtask_id": "01M8AJPKMKRYE2XADXVWKHRV8J",
+    "status": "failed",
+    "declared_files": [
+      "src/engine.rs"
+    ],
+    "backend_result_persisted": false,
+    "note": "Swarm runtime discards CodingResult.diff and files_changed; git commit evidence is a reconstruction, not stored backend output."
+  },
+  {
+    "subtask_id": "01M8AJPKMKFPWKS2GMA60J2WJ7",
+    "status": "failed",
+    "declared_files": [
+      "src/provider.rs"
+    ],
+    "backend_result_persisted": false,
+    "note": "Swarm runtime discards CodingResult.diff and files_changed; git commit evidence is a reconstruction, not stored backend output."
+  }
+]

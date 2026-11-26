@@ -1,0 +1,13 @@
+diff --git a/src/scaffold.rs b/src/scaffold.rs
+new file mode 100644
+index 0000000..d6faecf
+--- /dev/null
++++ b/src/scaffold.rs
+@@ -0,0 +1,7 @@
++pub fn add(a: i64, b: i64) -> i64 {
++    match a.checked_add(b) {
++        Some(sum) => sum,
++        None if b > 0 => i64::MAX,
++        None => i64::MIN,
++    }
++}
