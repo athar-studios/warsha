@@ -24,6 +24,7 @@ import { Banner, Button, Skeleton } from '@warsha/ui/v3';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useClient } from '../../app/ClientContext';
+import { roleLabel } from '../../copy/roles';
 
 /** The stages a gate proposal may name (the client `Stage` union, exhaustively). */
 const KNOWN_STAGES: readonly Stage[] = [
@@ -211,6 +212,17 @@ export default function SecretaryChat(props: SecretaryChatProps): React.ReactEle
   return <GeneralSecretaryChat {...props} />;
 }
 
+/**
+ * Stop words the daemon treats as "finish the interview"
+ * (`is_stop_signal`, crates/warshad/src/secretary.rs). The finish button sends `enough`,
+ * so the stored transcript answer is that literal word; it is shown as a localized label.
+ */
+const STOP_ANSWERS: ReadonlySet<string> = new Set(['enough', 'يكفي', 'كفاية', 'خلاص']);
+
+function isStopAnswer(answer: string): boolean {
+  return STOP_ANSWERS.has(answer.trim().replace(/[.!?؟]+$/u, '').toLowerCase());
+}
+
 function SecretaryInterview({ client, initialState, projectId, t }: {
   client: WarshaClient; initialState: InterviewState; projectId: ProjectId; t: SecretaryChatProps['t'];
 }): React.ReactElement {
@@ -247,7 +259,7 @@ function SecretaryInterview({ client, initialState, projectId, t }: {
   return <section className="v3-secretary" data-testid="secretary-interview" aria-label={t('secretary.interview.title')}>
     <h3>{t('secretary.interview.title')}</h3>
     <p role="status">{t('secretary.interview.progress', { covered: state.covered_topics.length, total: state.covered_topics.length + state.open_topics.length })}</p>
-    {state.transcript.map((turn, index) => <div key={index}><p dir="auto">{turn.question}</p><p dir="auto">{turn.answer}</p></div>)}
+    {state.transcript.map((turn, index) => <div key={index}><p dir="auto">{turn.question}</p><p dir="auto">{isStopAnswer(turn.answer) ? t('secretary.interview.enough_answer') : turn.answer}</p></div>)}
     {state.is_done ? <>
       <h4>{t('secretary.interview.completed')}</h4>
       <p>{t('secretary.interview.developers')}</p>
@@ -257,7 +269,7 @@ function SecretaryInterview({ client, initialState, projectId, t }: {
         <ul>{records.map((record) => <li key={record.agentId}>
           <b dir="auto">{record.agentId}</b>
           <dl>
-            <dt>{t('secretary.interview.role')}</dt><dd dir="auto">{t(`settings.role.${record.role}`)}</dd>
+            <dt>{t('secretary.interview.role')}</dt><dd dir="auto">{roleLabel(record.role, t)}</dd>
             <dt>{t('secretary.interview.skills')}</dt><dd dir="auto">{record.skills.join(', ') || t('secretary.interview.none')}</dd>
             <dt>{t('secretary.interview.tools')}</dt><dd dir="auto">{record.tools.join(', ') || t('secretary.interview.none')}</dd>
             <dt>{t('secretary.interview.source')}</dt><dd dir="auto">{record.source}</dd>

@@ -138,6 +138,29 @@ describe('DevelopersPage (E4)', () => {
     expect(option).toHaveTextContent(label);
     expect(option).not.toHaveTextContent('cancelled');
   });
+  it.each([['en', 'Waiting', 'Running'], ['ar', 'ينتظرك', 'يعمل']] as const)(
+    'labels a run waiting at a gate as waiting, not running, in %s (D-RN-UI-R5)',
+    async (locale, waiting, running) => {
+      const client = createClient();
+      const atGate = { ...RUN, id: 'run-gate', stage: 'gate_b', status: 'running' } as RunSummary;
+      const busy = { ...RUN, id: 'run-busy', stage: 'code', status: 'running' } as RunSummary;
+      vi.mocked(client.listRuns).mockResolvedValue([atGate, busy]);
+      (client as unknown as Record<string, unknown>).getGates = vi.fn(async () => [
+        { stage: 'gate_b', state: { state: 'pending' } },
+      ]);
+      renderPage(locale, client);
+      await ready();
+      await waitFor(() => {
+        const option = screen.getAllByRole('option').find((item) => item.textContent?.includes('run-gate'));
+        expect(option).toHaveTextContent(waiting);
+      });
+      const gateOption = screen.getAllByRole('option').find((item) => item.textContent?.includes('run-gate'));
+      expect(gateOption).not.toHaveTextContent(running);
+      // A pending gate for a stage the run has not reached is not waiting for the owner.
+      const busyOption = screen.getAllByRole('option').find((item) => item.textContent?.includes('run-busy'));
+      expect(busyOption).toHaveTextContent(running);
+    }
+  );
   it('renders both fixture sessions grouped under the parent', async () => {
     renderPage();
     await ready();

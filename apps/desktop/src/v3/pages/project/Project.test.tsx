@@ -19,6 +19,7 @@ import { CapabilitiesProvider } from '../../app/CapabilitiesContext';
 import { ClientProvider } from '../../app/ClientContext';
 import { DataReadyProvider, useDataReady } from '../../app/DataReadyContext';
 import { DensityProvider } from '../../app/DensityContext';
+import { clearInterviewEntry, markInterviewEntry } from '../../data/interviewEntry';
 import { RouterProvider } from '../../router';
 import { Frame } from '../frame/Frame';
 
@@ -340,6 +341,98 @@ describe('UI R4 regressions', () => {
     expect(brief.textContent).not.toMatch(/secret-|2026-11|Version:|Signed Off|#|\*\*|---/);
     expect(brief.querySelector('script')).toBeNull();
     expect(brief.querySelector('bdi')?.getAttribute('dir')).toBe('auto');
+  });
+});
+
+describe('UI R5 optimistic cancel', () => {
+  function renderFramed(client: WarshaClient, locale: 'en' | 'ar'): void {
+    render(
+      <ClientProvider client={client}>
+        <CapabilitiesProvider client={client}>
+          <I18nProvider initialLocale={locale}>
+            <DensityProvider initialMode="simple">
+              <DataReadyProvider>
+                <RouterProvider initialPath="/p/proj-1">
+                  <Frame><ProjectPage /></Frame>
+                </RouterProvider>
+              </DataReadyProvider>
+            </DensityProvider>
+          </I18nProvider>
+        </CapabilitiesProvider>
+      </ClientProvider>
+    );
+  }
+  async function confirmCancel(): Promise<void> {
+    await waitFor(() => expect(document.querySelector('[data-action="project.run.cancel.open"]')).not.toBeNull());
+    fireEvent.click(document.querySelector('[data-action="project.run.cancel.open"]') as HTMLElement);
+    await waitFor(() => expect(document.querySelector('[data-action="project.run.cancel.confirm"]')).not.toBeNull());
+    await act(async () => {
+      fireEvent.click(document.querySelector('[data-action="project.run.cancel.confirm"]') as HTMLElement);
+    });
+  }
+
+  it.each([['en', 'Cancelled', 'Waiting'], ['ar', 'ملغاة', 'ينتظرك']] as const)(
+    'shows cancelled while the cancel RPC is still in flight in %s',
+    async (locale, cancelledLabel, waitingLabel) => {
+      const atGate = { ...AWAITING_GATE_RUN, status: 'running' };
+      let finish: ((run: RunSummary) => void) | undefined;
+      const client = createRunEndingClient({
+        listProjects: vi.fn().mockResolvedValue([SAMPLE_PROJECT]),
+        listRuns: vi.fn().mockResolvedValue([atGate]),
+        cancelRun: vi.fn().mockReturnValue(new Promise<RunSummary>((resolve) => { finish = resolve; })),
+      });
+      renderFramed(client, locale);
+      await waitFor(() => expect(screen.getByTestId('project-status-pill')).toHaveTextContent(waitingLabel));
+      await confirmCancel();
+      // The RPC has not answered yet: the owner already confirmed, so no Waiting flash.
+      expect(client.cancelRun).toHaveBeenCalled();
+      expect(screen.getByTestId('project-status-pill')).toHaveTextContent(cancelledLabel);
+      expect(document.querySelector('[data-action="frame.project.open"]')).toHaveTextContent(cancelledLabel);
+      await act(async () => { finish?.({ ...atGate, status: 'cancelled' }); });
+      expect(screen.getByTestId('project-status-pill')).toHaveTextContent(cancelledLabel);
+    }
+  );
+
+  it('rolls the optimistic cancelled state back when the cancel RPC fails', async () => {
+    const atGate = { ...AWAITING_GATE_RUN, status: 'running' };
+    const client = createRunEndingClient({
+      listProjects: vi.fn().mockResolvedValue([SAMPLE_PROJECT]),
+      listRuns: vi.fn().mockResolvedValue([atGate]),
+      cancelRun: vi.fn().mockRejectedValue(new Error('daemon refused')),
+    });
+    renderFramed(client, 'en');
+    await waitFor(() => expect(screen.getByTestId('project-status-pill')).toHaveTextContent('Waiting'));
+    await confirmCancel();
+    await waitFor(() => expect(screen.getByTestId('project-status-pill')).toHaveTextContent('Waiting'));
+    expect(screen.getByTestId('project-status-pill')).not.toHaveTextContent('Cancelled');
+  });
+});
+
+describe('UI R5 interview sheet', () => {
+  const INTERVIEW_STATE = {
+    project_id: 'proj-1', brief: {}, covered_topics: [], open_topics: ['audience'],
+    current_topic: 'audience', next_question: 'Who is this for?', transcript: [],
+    is_done: false, updated_at: '2026-11-26T00:00:00Z',
+  };
+
+  it('retries a first interview.status rejection (rate limit) and still opens the sheet', async () => {
+    const interviewStatus = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('rate limited: retry after 1s'))
+      .mockResolvedValue(INTERVIEW_STATE);
+    const client = createMockClient({ interviewStatus });
+    renderProject(client);
+    await waitFor(() => expect(screen.getByTestId('project-secretary-sheet')).toBeTruthy(), { timeout: 4000 });
+    expect(interviewStatus.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('opens the sheet on entry from the interview start even if interview.status keeps failing', async () => {
+    markInterviewEntry('proj-1');
+    const interviewStatus = vi.fn().mockRejectedValue(new Error('rate limited: retry after 30s'));
+    const client = createMockClient({ interviewStatus });
+    renderProject(client);
+    await waitFor(() => expect(screen.getByTestId('project-secretary-sheet')).toBeTruthy());
+    clearInterviewEntry('proj-1');
   });
 });
 

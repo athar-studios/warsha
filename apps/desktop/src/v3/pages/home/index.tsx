@@ -39,6 +39,7 @@ import {
 import { notify } from '../../app/toast';
 import { getSimpleStageLabelKey, toSimpleStage, type SimpleStage } from '../../copy/stages';
 import { useDefaultBudget, useModels, useProjects, useQuotaGauge, useRoles } from '../../data';
+import { markInterviewEntry } from '../../data/interviewEntry';
 import { useResource } from '../../data/useResource';
 import { useNavigate } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
@@ -719,6 +720,7 @@ export default function HomePage(): React.ReactElement {
       : await client.createProject(projectName, idea.trim(), locale);
     projectsResult.reload();
     await client.interviewStart(project.id, idea.trim());
+    markInterviewEntry(project.id);
     navigate(`/p/${project.id}`);
   });
   // Action: home.start

@@ -20,6 +20,7 @@ import { ClientProvider } from '../../app/ClientContext';
 import { DataReadyProvider, useDataReady } from '../../app/DataReadyContext';
 import { DensityProvider } from '../../app/DensityContext';
 import { clearToastListeners } from '../../app/toast';
+import { clearInterviewEntry, hasInterviewEntry } from '../../data/interviewEntry';
 import { RouterProvider, useRoute } from '../../router';
 
 import HomePage, {
@@ -452,6 +453,9 @@ describe('HomePage', () => {
     expect(screen.getByTestId('route-inspector').textContent).toBe('/');
     await act(async () => { finishStart?.(); await started; });
     await waitFor(() => expect(screen.getByTestId('route-inspector').textContent).toBe('/p/proj-interview'));
+    // D-RN-UI-R5: the project page opens the secretary sheet on this hint.
+    expect(hasInterviewEntry('proj-interview')).toBe(true);
+    clearInterviewEntry('proj-interview');
   });
 
   it('fills composer when clicking starter example chips (home.example.use)', async () => {

@@ -29,7 +29,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAction } from '../../actions';
 import { useClient } from '../../app/ClientContext';
 import DevelopersList from '../../components/developers/DevelopersList';
+import { roleLabel } from '../../copy/roles';
 import { getStatusLabelKey } from '../bench/helpers';
+import { findPendingGateAtCurrentStage } from '../inbox/gateHelpers';
 
 import SessionDetail from './SessionDetail';
 import './developers.css';
@@ -43,17 +45,14 @@ export function formatCentsAsDollars(cents: number | null | undefined): string {
 
 const DevelopersPage: React.FC = () => {
   const t = useT();
-  /** Role filter label: the plain role name where the catalog has one, the role id otherwise. */
-  const roleLabel = (role: string): string => {
-    const key = `settings.role.${role}`;
-    const label = t(key);
-    return label === key ? role : label;
-  };
+  /** Role label: the catalog name (wire ids `p_m`/`q_a` folded), the role id otherwise. */
+  const roleName = (role: string): string => roleLabel(role, t);
   const client = useClient();
 
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [projectId, setProjectId] = useState<ProjectId | null>(null);
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
+  const [waitingRunIds, setWaitingRunIds] = useState<ReadonlySet<string>>(new Set());
   const [runId, setRunId] = useState<RunId | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [events, setEvents] = useState<WarshaEvent[] | null>(null);
@@ -135,6 +134,7 @@ const DevelopersPage: React.FC = () => {
         ]);
         if (cancelled) return;
         setRuns(runList);
+        setWaitingRunIds(new Set());
         setProvisioning(assigned);
         setBudget(
           budgetStatus === null
@@ -146,6 +146,21 @@ const DevelopersPage: React.FC = () => {
               }
         );
         setRunId((current) => current ?? runList[0]?.id ?? null);
+        // D-RN-UI-R5: the daemon keeps a run `running` while it waits at a gate; the same
+        // pending-gate-at-current-stage rule as the frame chips decides which are waiting.
+        const waiting = new Set<string>();
+        await Promise.all(
+          runList.map(async (item) => {
+            if (item.status !== 'running' && item.status !== 'in_progress') return;
+            try {
+              const gates = await Promise.resolve().then(() => client.getGates(item.id));
+              if (findPendingGateAtCurrentStage(gates, item) !== null) waiting.add(item.id);
+            } catch {
+              // A failed gate read leaves the run's own status label in place.
+            }
+          })
+        );
+        if (!cancelled) setWaitingRunIds(waiting);
       } catch {
         if (!cancelled) setError(t('developers.error'));
       }
@@ -319,7 +334,9 @@ const DevelopersPage: React.FC = () => {
           }}
           options={(runs ?? []).map((item) => ({
             value: item.id,
-            label: `${item.id} · ${item.stage} · ${t(getStatusLabelKey(item.status))}`,
+            label: `${item.id} · ${item.stage} · ${t(
+              getStatusLabelKey(waitingRunIds.has(item.id) ? 'awaiting_gate' : item.status)
+            )}`,
           }))}
         />
         <Select
@@ -329,7 +346,7 @@ const DevelopersPage: React.FC = () => {
           onChange={(event) => setRoleFilter(event.target.value)}
           options={[
             { value: 'all', label: t('developers.filter.all') },
-            ...ALL_ROLES.map((role) => ({ value: role, label: roleLabel(role) })),
+            ...ALL_ROLES.map((role) => ({ value: role, label: roleName(role) })),
           ]}
         />
         <Select
@@ -386,7 +403,7 @@ const DevelopersPage: React.FC = () => {
               {provisioning.map((record) => (
                 <tr key={record.agentId} data-testid="developers-provisioning-row">
                   <td>{record.agentId}</td>
-                  <td>{roleLabel(record.role)}</td>
+                  <td>{roleName(record.role)}</td>
                   <td>
                     {record.skills.length === 0
                       ? t('developers.provisioning.none')
