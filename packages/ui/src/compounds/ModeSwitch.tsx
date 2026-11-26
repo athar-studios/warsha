@@ -77,7 +77,7 @@ export interface ModeSwitchProps {
   simpleLabel: React.ReactNode;
   /** The Factory rung's label — `t('app.factoryMode')`. */
   factoryLabel: React.ReactNode;
-  /** The Advanced rung's label — `t('app.advancedMode')`. */
+  /** The Advanced (Developers) rung's label, from the caller's catalog. */
   advancedLabel: React.ReactNode;
   /** The group's accessible name: "نمط الواجهة" / "interface mode". */
   label: string;

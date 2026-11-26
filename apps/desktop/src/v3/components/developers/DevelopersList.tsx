@@ -7,6 +7,9 @@ import type { Session } from '@warsha/client';
 import { useT } from '@warsha/i18n/v3';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { sessionStatusLabel } from '../../copy/developers';
+import { roleLabel } from '../../copy/roles';
+
 export const ROW_HEIGHT = 40;
 export const OVERSCAN = 5;
 
@@ -77,7 +80,7 @@ const DevelopersList: React.FC<Props> = ({ sessions, depth = 0, onSelect, figure
               cursor: 'pointer',
             }}
           >
-            <span className="developers-cell" data-testid="developers-cell-role">{session.role}</span>
+            <span className="developers-cell" data-testid="developers-cell-role">{roleLabel(session.role, t)}</span>
             <span className="developers-cell" data-testid="developers-cell-model">
               {figures?.[session.id]?.model ?? session.model}
             </span>
@@ -85,7 +88,7 @@ const DevelopersList: React.FC<Props> = ({ sessions, depth = 0, onSelect, figure
               {figures?.[session.id]?.provider ?? session.provider}
             </span>
             <span className="developers-cell" data-testid="developers-cell-backend">{session.backend}</span>
-            <span className="developers-cell" data-testid="developers-cell-status">{session.status}</span>
+            <span className="developers-cell" data-testid="developers-cell-status">{sessionStatusLabel(session.status, t)}</span>
             <span className="developers-cell developers-cell-action" data-testid="developers-cell-action">
               {figures?.[session.id]?.action ?? t('developers.table.idle')}
             </span>

@@ -158,6 +158,9 @@ describe('SecretaryChat', () => {
       expect(screen.queryByText('enough')).toBeNull();
       expect(screen.getByText(t('secretary.interview.enough_answer'))).toBeTruthy();
       expect(screen.getByText('Teachers')).toBeTruthy();
+      // A finished interview reads as finished, not as partial progress (D-RN-CLEAN3-COPY-1).
+      expect(screen.getByText(locale === 'ar' ? 'انتهت المقابلة — غطّينا 1 من 1 محاور' : 'Interview finished — we covered 1 of 1 topics')).toBeTruthy();
+      expect(screen.queryByText(t('secretary.interview.progress', { covered: 1, total: 1 }))).toBeNull();
     }
   );
 

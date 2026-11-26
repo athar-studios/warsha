@@ -29,6 +29,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAction } from '../../actions';
 import { useClient } from '../../app/ClientContext';
 import DevelopersList from '../../components/developers/DevelopersList';
+import { centsLabel, centsPerHourLabel, sessionStatusLabel, stageLabel } from '../../copy/developers';
 import { roleLabel } from '../../copy/roles';
 import { getStatusLabelKey } from '../bench/helpers';
 import { findPendingGateAtCurrentStage } from '../inbox/gateHelpers';
@@ -244,10 +245,10 @@ const DevelopersPage: React.FC = () => {
       const metrics = sessionMetrics(session, events ?? []);
       const notRouted = session.provider === '' || session.provider === 'routed';
       map[session.id] = {
-        action: `${session.status}`,
+        action: sessionStatusLabel(session.status, t),
         elapsed: formatMs(metrics.elapsedMs),
         // No provider was chosen yet: say so instead of the "unknown" fallback.
-        cost: notRouted ? t('developers.not_routed_yet') : metrics.costCents === null ? t('developers.unknown') : `${metrics.costCents} ¢`,
+        cost: notRouted ? t('developers.not_routed_yet') : metrics.costCents === null ? t('developers.unknown') : centsLabel(metrics.costCents, t),
         provider: notRouted ? t('developers.not_routed_yet') : session.provider,
         model: session.model === '' || session.model === 'default' ? t('developers.not_routed_yet') : session.model,
       };
@@ -342,7 +343,7 @@ const DevelopersPage: React.FC = () => {
           }}
           options={(runs ?? []).map((item) => ({
             value: item.id,
-            label: `${item.id} · ${item.stage} · ${t(
+            label: `${item.id} · ${stageLabel(item.stage, t)} · ${t(
               getStatusLabelKey(waitingRunIds.has(item.id) ? 'awaiting_gate' : item.status)
             )}`,
           }))}
@@ -450,7 +451,7 @@ const DevelopersPage: React.FC = () => {
         )}
         <span className="developers-burn" data-testid="developers-burn">
           {t('developers.burn', {
-            rate: burn === null ? t('developers.unknown') : `${Math.round(burn)} ¢/h`,
+            rate: burn === null ? t('developers.unknown') : centsPerHourLabel(Math.round(burn), t),
           })}
         </span>
         <span
@@ -459,7 +460,7 @@ const DevelopersPage: React.FC = () => {
           title={t('developers.cost.packet_def')}
         >
           {t('developers.cost.packet', {
-            value: packets === null ? '—' : `${packets.toFixed(1)} ¢`,
+            value: packets === null ? '—' : centsLabel(packets.toFixed(1), t),
           })}
         </span>
         <Button

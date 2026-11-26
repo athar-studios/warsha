@@ -15,6 +15,13 @@
 - **Green**: factory `pnpm exec vitest run src/v3/pages/factory` 4 files / 40 passed; full desktop `pnpm exec vitest run` 90 files / 856 passed, 0 failed; `pnpm exec tsc --noEmit` exit 0; `pnpm run lint` 0 errors (1 pre-existing warning `developers/index.tsx:290`); prettier check clean on both changed files.
 - **Limits**: unit-level only, no browser re-walk. The D-RN-FLOOR-R4 PROGRESS note about all 5 markers on Coding describes the behaviour this run removes.
 
+## Run 2026-11-26 — Dead Advanced keys + Arabic copy fixes (D-RN-CLEAN3-COPY-1)
+
+- **Worktree/branch**: `.agents/worktrees/clean3-i18n`, `r-next/clean3-i18n`, base `5183b37`. Local commit only, no push/merge.
+- **A (R-F2a)**: removed `app.advancedMode`, `advanced.title`, `bench.title` (ar+en) and the `index.test.ts` assertion; deleted dead desktop `BenchTopbar.tsx` + its only children `GateBell.tsx`, `BrandMark.tsx` and their tests in `ShellBench.test.tsx` (InstrumentStrip tests kept). `apps/remote` uses none of these keys.
+- **B (R-5b)**: agent panel row label is now state-neutral `factory.panel.lastAction` (ar «آخر ما قام به»), and the `currentAction` key was deleted. The model falls back to «غير مسجّل»/"Not recorded" because the daemon does not report a model on pipeline events (follow-up for the factory lane). Developers mode localizes statuses, roles, stages, event kinds and cent units (`copy/developers.ts`). The secretary shows «انتهت المقابلة — غطّينا {covered} من {total} محاور» once the interview is done.
+- **Checks**: packages/i18n vitest 2 files / 61 passed; apps/desktop vitest 91 files / 854 passed; `tsc --noEmit` exit 0; desktop lint 0 errors (1 pre-existing warning `developers/index.tsx` useCallback deps).
+
 ## Run 2026-11-26 — Factory Floor re-audit fixes r2 (D-RN-FLOOR-R4)
 
 - **Browser re-walk at `8e6c117`** (`/home/moe/tools/playwright-ux/runs/2026-11-26-8e6c117-floor-r2/`, report + notes.json + 12 shots, observe-only lane, worktree left clean at `8e6c117`): **F1 PASS and F2 PASS in all four configs** (ar/en × 1280x800/1920x1080). F1: code-stage run with only a role-less `stage_started {from: plan_tasks, to: code}` and zero role-bearing `stage=code` events rendered all 5 markers on البرمجة/Coding, all يعمل/Working, 0 on planning. F2: `circleOverlaps` 0 at every station; التسليم holds 7 markers (6 in row 0 at pitch 24, min pairwise circle gap 2.0 units ≈ 2.09 px), all boxes inside their station rect. OCR limitation: at ar 1920x1080 tesseract missed التخطيط, which the DOM shows with 0 markers. Row-2 spill (>12 roles) not exercisable with the 7-role catalogue.

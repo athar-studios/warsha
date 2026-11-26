@@ -105,3 +105,25 @@ describe('Agent panel state row', () => {
     expect(screen.getByTestId('factory-panel-action').textContent).toBe('استدعاء أداة: git_status');
   });
 });
+
+describe('Agent panel action label and model copy (D-RN-CLEAN3-COPY-1)', () => {
+  it.each([
+    ['ar', 'ينتظرك', 'آخر ما قام به', 'غير مسجّل'],
+    ['en', 'Waiting on you', 'Last step', 'Not recorded'],
+  ] as const)('labels the action state-neutrally in %s and is honest about an unrecorded model', (locale, stateText, actionText, modelText) => {
+    draw(locale, agent({ state: 'waiting_on_owner', lastAction: 'agent_step', model: null }));
+    expect(screen.getByTestId('factory-panel-state').textContent).toBe(stateText);
+    const action = screen.getByTestId('factory-panel-action');
+    expect(action.previousElementSibling?.textContent).toBe(actionText);
+    const panelText = screen.getByTestId('factory-agent-panel').textContent ?? '';
+    expect(panelText).not.toContain('يعمل الآن');
+    expect(panelText).not.toContain('Doing now');
+    expect(screen.getByTestId('factory-panel-model').textContent).toBe(modelText);
+    cleanup();
+  });
+
+  it('shows the model when an event did report one', () => {
+    draw('ar', agent({ model: 'mock-1' }));
+    expect(screen.getByTestId('factory-panel-model').textContent).toBe('mock-1');
+  });
+});

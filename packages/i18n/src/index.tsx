@@ -714,10 +714,9 @@ export const messages: Record<Locale, Record<string, string>> = {
     // bell and the settings tab strip. These are the words an owner reads before reading any screen, so
     // they live here rather than in a component table.
 
-    // Top bar (§4). `app.simpleMode` / `app.advancedMode` / `app.settings` are the controls themselves.
+    // Top bar (§4). `app.simpleMode` / `app.factoryMode` / `app.settings` are the controls themselves.
     'app.simpleMode': 'بسيط',
     'app.factoryMode': 'المصنع',
-    'app.advancedMode': 'متقدّم',
     'app.settings': 'الإعدادات',
     'app.mode_label': 'نمط الواجهة',
     'app.mode_hint': 'بسيط هو الطاولة الأساسية؛ المتقدّم يكشف التفاصيل نفسها ولا يغيّر شيئاً.',
@@ -963,7 +962,6 @@ export const messages: Record<Locale, Record<string, string>> = {
     'settings_providers.kind.custom': 'نقطة نهاية مخصّصة',
 
     // ------------------------------------------------------------------- Advanced workbench (§5)
-    'advanced.title': 'طاولة العمل المتقدّمة',
     'advanced.tabs_label': 'ألواح المتقدّم',
     'advanced.tab_lanes': 'المسارات',
     'advanced.tab_events': 'الأحداث',
@@ -1979,7 +1977,6 @@ export const messages: Record<Locale, Record<string, string>> = {
 
     'app.simpleMode': 'Simple',
     'app.factoryMode': 'Factory',
-    'app.advancedMode': 'Advanced',
     'app.settings': 'Settings',
     'app.mode_label': 'Interface mode',
     'app.mode_hint':
@@ -2221,7 +2218,6 @@ export const messages: Record<Locale, Record<string, string>> = {
     'settings_providers.kind.deep_seek': 'DeepSeek',
     'settings_providers.kind.custom': 'Custom endpoint',
 
-    'advanced.title': 'Advanced workbench',
     'advanced.tabs_label': 'Advanced panes',
     'advanced.tab_lanes': 'Lanes',
     'advanced.tab_events': 'Events',
