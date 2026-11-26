@@ -1,6 +1,19 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-SIMPLE-HOME-WIDTH-1: widen Simple Home container to --w-content (1120px) while keeping --w-content-narrow at 720px
+
+- **Context**: Owner decision 2026-11-26 — SIMPLE HOME WIDTH ROUND. Simple Home (`apps/desktop/src/v3/pages/home/home.css`) previously capped `.v3-home-narrow` at `var(--w-content-narrow)` (720px), narrower than Settings, Factory, and Projects (`var(--w-content)` = 1120px).
+- **Decision**:
+  - Update `.v3-home-narrow` in `apps/desktop/src/v3/pages/home/home.css` (line 65) from `max-width: var(--w-content-narrow);` to `max-width: var(--w-content);`, keeping the `.v3-home-narrow` selector minimal to avoid markup/test churn.
+  - Keep `packages/ui/src/v3/tokens/tokens.css` untouched (`--w-content-narrow` remains `720px` for decision box / start screen / onboarding / inbox).
+- **Inner-element review at 1120px (1080px inner width after `padding-inline: var(--w-space-5)`) — no adjustments needed**:
+  - `.v3-home-grid` and `.v3-home-skeleton-cards`: `repeat(auto-fill, minmax(calc(var(--w-rail-width) - var(--w-space-5)), 1fr))` (`minmax(280px, 1fr)`, `gap: var(--w-space-3)` = 12px) fits 3 columns at ~352px/card (`864px <= 1080px < 1156px`), matching `apps/desktop/src/v3/pages/projects/projects.css`; `recentProjects.slice(0, 6)` yields 2 balanced rows of 3 cards and the 3 skeleton cards sit on 1 row instead of wrapping 2+1. Developers mode `DataTable` also uses the full 1080px width cleanly.
+  - `.v3-home-chips`: intrinsic-width flex-wrap pills lay out cleanly without stretching.
+  - `.v3-home-composer-card`, `<TextArea>` (`id="home-idea-input"`), `<TextField>` (`data-testid="home-repo-path-input"`), and `.v3-home-composer-footer`: `TextArea` and `TextField` align flush inside the 1040px inner card width (helpful for multi-line prompts and long repo paths), while `.v3-home-composer-footer` keeps `.v3-home-defaults-line` and CTA buttons on one row.
+  - `.v3-home-needsyou-row`: `.v3-home-needsyou-subject` (`flex: 1; min-inline-size: 0; ellipsis`) absorbs the extra room while badge, wait-time, and action link stay `white-space: nowrap`.
+- **Proof**: Added proving regression test `'uses standard 1120px --w-content width for .v3-home-narrow while preserving --w-content-narrow at 720px'` in `apps/desktop/src/v3/pages/home/Home.test.tsx`; verified `packages/ui/src/v3/tokens/tokens.test.ts` (17 passed), desktop `vitest run` (91 files / 857 passed), `tsc --noEmit` (exit 0), `eslint` (exit 0, 0 errors, 1 pre-existing warning), and `node scripts/check-engineering-policy.mjs` (8 checks, 0 failures).
+
 ## 2026-11-26 — D-RN-MIRROR-PUBLIC-1: hygiene criterion amended by owner decision: public warsha-dev mirror is allowed
 
 - **Context**: external verification round 2 of tip `5183b37` (report `claude-code-verify-clean2-2026-11-26.md`, blocker R-7a) found `5183b37` pushed to `athar-studios/warsha-dev`, which is **public**, while older records (the caveat at `DECISIONS.md` lines 1750-1753 as of `5183b37`) say `athar-studios/warsha-dev` is a private repo, so the no-publish hygiene criterion was marked failed.

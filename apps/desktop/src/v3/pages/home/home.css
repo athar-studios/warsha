@@ -62,7 +62,7 @@
 
 .v3-home-narrow {
   width: 100%;
-  max-width: var(--w-content-narrow);
+  max-width: var(--w-content);
   margin-inline: auto;
   padding-block-start: var(--w-space-8);
   padding-block-end: var(--w-space-10);
