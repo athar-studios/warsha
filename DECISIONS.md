@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-UNROUTED-1: rebase failed-stage transitions on CAS conflicts
+
+- **Cause**: Intake dispatch snapshots a run outside `state_lock`. Home calls `budget.set` after `runs.start`; the budget writer advances the row version under that lock. `record_stage_failure` later acquired the lock but attempted its stale version once, logged the conflict, and emitted `provider_required` while the persisted run remained Running.
+- **Fix**: retain CAS and retry at most eight attempts on version conflicts, reloading the entire row and reapplying only the target status/timestamp. Preserve concurrent budget/artifact changes and do not overwrite a newer terminal status. Other storage errors remain logged, not retried indefinitely.
+- **Proof**: RPC-start regression with a registered mock provider and no role routes holds the state lock until dispatch fails, commits a concurrent budget write, joins the intake task, then requires persisted Paused, one `provider_required` action, preserved budget, and exactly the next row version. No sleeps or real model calls. Before the production fix it failed with `left: Running`, `right: Paused`.
+- **Cancel assessment**: `cancel_run_with_device` already reloads inside `state_lock` on each CAS attempt (up to eight retries), signals active dispatch cancellation, and only returns after persisting Cancelled. Existing active-stage cancellation/stale-write tests cover that behavior; no demonstrated equivalent cancel defect, so no cancel change. The known flaky daemon cancel test remains another lane's responsibility.
+- **Process**: local-only daemon/pipeline scope; planner/implementer/reviewer/verifier capacity-merged explicitly in `/tmp/unrouted-cas-evidence/state.json`, not independent acceptance. No push/tag/merge or desktop edits.
+
 ## 2026-11-26 — D-RN-CAPTURE-LIVE-1: real OpenCode leaves unstaged output; capture needs no further filter
 
 One owner-authorized invocation used OpenCode v2.4.1, `opencode run`, `opencode/big-pickle`, through `BackendFactory::opencode()` in `/tmp/warsha-live-capture-3Uj85q/repo`. The launcher adds `--model opencode/big-pickle --standalone --auto`, clears the inherited environment with `env -i`, and redirects HOME/XDG into the scratch tree; no credential or `~/.config/opencode` was read. `opencode models` advertised that model (the initial `models opencode` form was rejected as an unexpected positional argument). One CLI invocation, not one inference turn: OpenCode used write, then shell to inspect its output, then finished, with three step-finish records reporting cost 0.

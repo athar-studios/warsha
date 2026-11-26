@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — unrouted RPC pause CAS rebase (D-RN-UNROUTED-1)
+
+- **Worktree/scope**: `.agents/worktrees/fix-unrouted-cas`, branch `r-next/fix-unrouted-cas`, base `b5d52da`, initially clean. Only pipeline failure transition, daemon regression, decision/progress edited. No unfamiliar changes encountered, desktop edits, symlinks, real model API, push/tag/merge.
+- **Root cause/fix**: dispatch uses an unlocked row snapshot; Home's post-start `budget.set` advances the row. Failure acquired `state_lock` but silently lost its single stale CAS, leaving persisted Running despite `provider_required`. Retry version conflicts up to eight attempts, reload the whole row and reapply status/timestamp only; preserve concurrent fields and newer terminal statuses.
+- **Red/green**: `CARGO_INCREMENTAL=0 cargo test -p warshad --lib tests::unrouted_agent_run_start_rebases_pause_after_concurrent_budget_write`: red 0 passed/1 failed (`left: Running`, `right: Paused`), green 1 passed/0 failed. RPC start with registered mock/no routes, deterministic lock barrier, concurrent budget CAS, intake task joined before persisted status/action/version/budget assertions; no new sleeps.
+- **Cancel assessment**: existing cancel path reloads under the shared lock on every CAS attempt with up to eight retries; active-stage cancellation and stale-write integrity tests cover persisted Cancelled/no late artifact. No demonstrated same-pattern cancel defect; no speculative cancel edits. The known flaky daemon hung-stage cancel test belongs to the parallel lane.
+- **Evidence/process**: `/tmp/unrouted-cas-evidence/` checkpoints, red/green logs and merged-role self-review; raw cargo output in `/tmp/unrouted-cas-*.log`. Roles capacity-merged, not independent verification or owner acceptance. Gates (cargo with `CARGO_INCREMENTAL=0`): `cargo fmt --all -- --check` exit 0; `cargo clippy -p warshad -p warsha-pipeline --all-targets -- -D warnings` exit 0; original unrouted targeted test 1 passed; `cargo test -p warsha-pipeline` 668 passed/7 ignored/0 failed across unit/integration targets, 0 doc tests; `cargo test -p warshad --lib` 342 passed/4 ignored/0 failed (including the known flaky hung-stage cancel test this run); `node scripts/check-engineering-policy.mjs` 8 checks/0 failures; `node scripts/check-arch.mjs` 5 rules/0 violations; `git diff --check` clean. Logs read back. Full workspace and desktop tests not run (not requested).
+
 ## Run 2026-11-26 — real OpenCode unstaged capture proof
 
 - **Worktree**: `.agents/worktrees/clean1-capture`, `r-next/clean1-capture`, base `90aad8d`; initially clean. No other sessions' changes encountered. No production edits; no push, tag, publish or merge. Decision D-RN-CAPTURE-LIVE-1.

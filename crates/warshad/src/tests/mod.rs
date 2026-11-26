@@ -8650,6 +8650,102 @@ async fn unrouted_agent_run_start_pauses_immediately_with_provider_required() {
     );
 }
 
+/// The failure transition must rebase a stage snapshot after another run-row writer.
+#[tokio::test]
+async fn unrouted_agent_run_start_rebases_pause_after_concurrent_budget_write() {
+    let temp = crate::test_util::fresh_tempdir();
+    let mut router = ProviderRouter::new();
+    router.register_provider(Box::new(warsha_providers::MockProvider::new("unrouted")));
+    let (state, store) = test_state_with_router(temp.path(), router).await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+    let project = rpc
+        .create_project(
+            &owner,
+            "CAS pause".into(),
+            "".into(),
+            "en".into(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Block dispatch until we own the same state lock used by budget/cancel writers.
+    // Intake reads its version before taking the router read lock; no timing sleeps.
+    let router_guard = state.providers.write().await;
+    let run = rpc
+        .start_run(
+            &owner,
+            project.id,
+            "unrouted idea".into(),
+            Some("agent".into()),
+            None,
+            Some(2500),
+        )
+        .await
+        .unwrap();
+    let ctrl = state.pipeline.control_for(run.id).await;
+    let state_guard = ctrl.state_lock.lock().await;
+    drop(router_guard);
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if store
+                .list_sessions_by_run(run.id)
+                .await
+                .unwrap()
+                .iter()
+                .any(|s| s.role == Role::Intake && s.status == warsha_core::SessionStatus::Failed)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("unrouted dispatch finishes before the pause acquires state_lock");
+
+    // Exactly the budget writer's read/modify/CAS, under its state_lock. The
+    // failure path is queued behind us with the older stage snapshot/version.
+    let (mut latest, version) = store.get_run_versioned(run.id).await.unwrap();
+    latest.budget_cents = Some(4321);
+    let budget_version = store.update_run_cas(&latest, version).await.unwrap();
+    drop(state_guard);
+    let tasks: Vec<_> = state.intake_tasks.lock().unwrap().drain(..).collect();
+    for task in tasks {
+        tokio::time::timeout(std::time::Duration::from_secs(2), task)
+            .await
+            .expect("intake settles promptly")
+            .unwrap();
+    }
+    let (persisted, settled_version) = store.get_run_versioned(run.id).await.unwrap();
+    assert_eq!(
+        persisted.status,
+        RunStatus::Paused,
+        "pause must survive the stale stage version"
+    );
+    assert_eq!(
+        persisted.budget_cents,
+        Some(4321),
+        "rebase must preserve the concurrent budget"
+    );
+    assert_eq!(
+        settled_version,
+        budget_version + 1,
+        "pause must commit on the latest version"
+    );
+    let events = store.get_events(run.id).await.unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|ev| ev.kind == EventKind::Error
+                && ev.payload.get("action").and_then(|v| v.as_str()) == Some("provider_required"))
+            .count(),
+        1
+    );
+}
+
 /// F-R20-1: A run stalled at a non-gate stage without any sessions for longer than
 /// dispatch_timeout must be reaped by the watchdog to Failed with stage_failed and retry_hint.
 #[tokio::test]
