@@ -492,6 +492,7 @@ async fn code_stage_receives_plan_in_prompt_and_context() {
 /// receives the plan content in its prompt.
 #[tokio::test]
 async fn code_stage_env_provider_receives_plan_in_prompt() {
+    let _env = crate::test_util::lock_clean_llm_env().await;
     let captured_prompts = Arc::new(Mutex::new(Vec::new()));
     let provider = CapturingProvider::new(captured_prompts.clone());
 
