@@ -1,6 +1,14 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-26 — D-RN-GATE-1: refresh live gate snapshots from the actual stage event
+
+- **Diagnosis**: ProjectPage uses mount-time `useRuns`/`useGates` snapshots, while `useRunEvents` called the snapshot RPC `runs.subscribe` only once on success. `advance_stage_locked` persists role-less `StageStarted {from,to}` on gate entry, not a pending `GateDecision`. `getGates` returns only stage/state; the readable body is the `brief` artifact (the intake result is saved under that name).
+- **Repair**: poll the snapshot RPC every second, reuse its cursor, merge persisted `runs.events` and buffered events by id (the floor's D-RN-FLOOR-1 approach), and cancel the timer on unmount. Persisted history covers cold rings and the mount/subscription race. Each previously unseen role-less StageStarted refreshes runs, gates, artifacts and budget; the existing current-stage/pending-state guard remains authoritative. No approval is inferred or performed.
+- **Brief**: Gate A renders the existing `brief.content` with the project's existing escaped `pre`/`bdi dir="auto"` text pattern, wrapped for readability. No fabricated fallback, new UI strings, catalog changes or raw HTML rendering.
+- **Proof**: before implementation, both mock-client regressions failed: `expected null not to be null`; `expected 'Decision waitingDo we approve the ide…' to contain '# Fake Intake Summary\\n\\n## Brief\\n- …'`. Added coverage separates live-only and persisted-only entry, deduplication, cursor reuse, and timer cleanup. See the live-gate evidence bundle and PROGRESS for final commands/results.
+- **Scope/roles**: only the dedicated fix-live-gate worktree; frame lane untouched. Owner supplied acceptance commands. Capacity merges implementer/self-review/check-runner roles explicitly; no independent review/verification or owner acceptance claimed. No push, tag, merge, publish or real model API.
+
 ## 2026-11-26 — D-RN-SWARM-RACE-1: the two CLEAN-1 swarm walks hold one named process lock
 
 `clean1_swarm_four_lanes_materialize_real_files` sets `WARSHA_CODING_BACKEND_FIXTURE=materialize`. `clean1_swarm_four_lanes_scripted_backend_derives_files` removes it. `FIXTURE_IN_FLIGHT` and `FIXTURE_PEAK` are process-global, and both walks call `reset_fixture_materialize_peak`. Beside each other, one walk restores or clears the switch while the other is inside `execute`, so the materialize path never writes and the peak stays at 2 (store 2, backend 0). One walk's reset can also zero the other's count.

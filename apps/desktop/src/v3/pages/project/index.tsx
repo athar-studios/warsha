@@ -38,7 +38,7 @@ import {
   type StatusPillState,
   type StepperStage,
 } from '@warsha/ui/v3';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAction } from '../../actions';
 import { canEndRuns } from '../../actions/capabilities';
@@ -287,6 +287,30 @@ export default function ProjectPage(): React.ReactElement {
   const artifactsResult = useArtifacts(runId);
   const eventsResult = useRunEvents(runId);
 
+  const seenStageEvents = useRef(new Set<string>());
+  const reloadRuns = runsResult.reload;
+  const reloadGates = gatesResult.reload;
+  const reloadArtifacts = artifactsResult.reload;
+  const reloadBudget = budgetResult.reload;
+  useEffect(() => {
+    let changed = false;
+    for (const event of eventsResult.data ?? []) {
+      if (event.runId !== runId || event.role !== null || event.kind !== 'StageStarted') continue;
+      if (seenStageEvents.current.has(event.id)) continue;
+      seenStageEvents.current.add(event.id);
+      changed = true;
+    }
+    // advance_stage_locked emits StageStarted {from,to}, not a pending
+    // GateDecision. Refresh both snapshots so the current-stage guard stays true.
+    if (changed) {
+      reloadRuns();
+      reloadGates();
+      reloadArtifacts();
+      reloadBudget();
+    }
+  }, [eventsResult.data, runId, reloadRuns, reloadGates, reloadArtifacts, reloadBudget]);
+
+  const gateBrief = artifactsResult.data?.find((artifact) => artifact.name === 'brief');
   const hasRunEndingCapability = canEndRuns(capabilities);
 
   // Local UI state
@@ -800,6 +824,15 @@ export default function ProjectPage(): React.ReactElement {
           <h2 className="v3-project-decision-question">
             {t(getGateQuestionKey(extractGateCode(pendingGate.stage)))}
           </h2>
+
+          {pendingGate.stage === 'gate_a' && gateBrief?.content && (
+            <pre
+              className="v3-project-gate-brief"
+              style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+            >
+              <bdi dir="auto">{gateBrief.content}</bdi>
+            </pre>
+          )}
 
           {hasRunEndingCapability && changesOpen && (
             <div className="v3-project-changes-box">

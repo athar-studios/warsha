@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   BudgetStatus,
   GateSummary,
@@ -119,6 +119,7 @@ function createMockClient(overrides: Partial<Record<string, unknown>> = {}): War
     listProviders: vi.fn().mockResolvedValue([{ name: 'p1', kind: 'open_router', enabled: true }]),
     getProject: vi.fn().mockResolvedValue(SAMPLE_PROJECT),
     listRuns: vi.fn().mockResolvedValue([RUNNING_RUN]),
+    getRunEvents: vi.fn().mockResolvedValue([]),
     getGates: vi.fn().mockResolvedValue(ALL_PENDING_GATES),
     getProjectBudget: vi.fn().mockResolvedValue({
       totalBudgetUsd: 12,
@@ -173,7 +174,11 @@ function createRunEndingClient(overrides: Partial<Record<string, unknown>> = {})
   });
 }
 
-function renderProject(client: WarshaClient | null, path = '/p/proj-1', locale: 'en' | 'ar' = 'en') {
+function renderProject(
+  client: WarshaClient | null,
+  path = '/p/proj-1',
+  locale: 'en' | 'ar' = 'en'
+) {
   return render(
     <ClientProvider client={client ?? undefined}>
       <CapabilitiesProvider client={client ?? undefined}>
@@ -191,6 +196,81 @@ function renderProject(client: WarshaClient | null, path = '/p/proj-1', locale: 
     </ClientProvider>
   );
 }
+
+describe('live gate regressions', () => {
+  const brief = {
+    name: 'brief',
+    content:
+      '# Fake Intake Summary\n\n## Brief\n- Goal, audience and constraints recorded for gate A.',
+    stage: 'idea',
+    role: 'intake',
+    created_at: '',
+    updated_at: '',
+    version: 1,
+  } satisfies RunArtifact;
+
+  it.each(['live', 'persisted'])(
+    'shows Gate A and its brief from a %s role-less stage event without remounting',
+    async (source) => {
+      vi.useFakeTimers();
+      const ideaRun = { ...AWAITING_GATE_RUN, stage: 'idea', status: 'running' };
+      const event = {
+        id: 'gate-entry',
+        runId: ideaRun.id,
+        stage: 'gate_a',
+        role: null,
+        kind: 'StageStarted',
+        payload: { from: 'idea', to: 'gate_a' },
+        costCents: null,
+        createdAt: '2026-11-26T00:00:01Z',
+        deviceId: null,
+      };
+      let atGate = false;
+      const client = createMockClient({
+        listRuns: vi.fn().mockImplementation(async () => [atGate ? AWAITING_GATE_RUN : ideaRun]),
+        getRunEvents: vi
+          .fn()
+          .mockImplementation(async () => (atGate && source === 'persisted' ? [event] : [])),
+        getGates: vi.fn().mockImplementation(async () => (atGate ? ALL_PENDING_GATES : [])),
+        getRunArtifacts: vi.fn().mockImplementation(async () => (atGate ? [brief] : [])),
+        subscribeRun: vi.fn().mockImplementation(async () => ({
+          seq: atGate ? 2 : 1,
+          gap_detected: false,
+          resync_required: false,
+          dropped_count: 0,
+          run: null,
+          events: atGate && source === 'live' ? [event] : [],
+        })),
+      });
+      const view = renderProject(client);
+      try {
+        await act(async () => {});
+        expect(screen.queryByTestId('project-decision-card')).toBeNull();
+        atGate = true;
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3000);
+        });
+        expect(screen.queryByTestId('project-decision-card')).not.toBeNull();
+        expect(screen.getByTestId('project-decision-card').textContent).toContain(brief.content);
+        expect(client.getGates).toHaveBeenCalledTimes(2);
+      } finally {
+        view.unmount();
+        vi.useRealTimers();
+      }
+    }
+  );
+
+  it('renders the stored brief body as text in the existing Gate A card', async () => {
+    renderProject(
+      createMockClient({
+        listRuns: vi.fn().mockResolvedValue([AWAITING_GATE_RUN]),
+        getRunArtifacts: vi.fn().mockResolvedValue([brief]),
+      })
+    );
+    const card = await screen.findByTestId('project-decision-card');
+    await waitFor(() => expect(card.textContent).toContain(brief.content));
+  });
+});
 
 describe('ProjectPage helpers', () => {
   it('only finds pending gate matching run.stage and ignores future pending gates', () => {
@@ -319,8 +399,8 @@ describe('ProjectPage helpers', () => {
             payload: { action: 'provider_required', retry_hint: 'project.retry_hint_provider' },
           },
         ],
-        'paused',
-      ),
+        'paused'
+      )
     ).toBe('project.retry_hint_provider');
   });
 });

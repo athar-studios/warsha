@@ -1,5 +1,14 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — live Gate A and readable intake brief
+
+- **Worktree**: `.agents/worktrees/fix-live-gate`, branch `r-next/fix-live-gate`, base `90aad8d`. D-RN-GATE-1. No Rust/frame/catalog changes; no push, tag, merge, publish or main changes. Initial tree clean; no unrelated concurrent changes observed.
+- **Repair**: `useRunEvents` now polls the snapshot RPC every second, reuses the cursor, merges persisted history by event id and cancels on unmount. The project refreshes run/gates/artifacts/budget once for each new role-less StageStarted. Its existing pending-current-stage guard stays intact. Gate A renders stored `brief.content` as escaped, wrapped, direction-isolated text; no invented body or new UI copy.
+- **Red proof**: mock-client tests before implementation failed with `expected null not to be null` and `expected 'Decision waitingDo we approve the ide…' to contain '# Fake Intake Summary\\n\\n## Brief\\n- …'` (`/tmp/live-gate-red.log`). Final regressions cover live-only and persisted-only transitions without remount within 3 seconds, existing brief rendering, cursor reuse, duplicate frames and timer cleanup.
+- **Checks**: `cd apps/desktop && pnpm vitest run > /tmp/live-gate-vitest.log 2>&1` — exit 0, 89 files / 813 passed (baseline 809). React act warnings remain in the suite. `cargo fmt --all -- --check` — exit 0. `node scripts/check-engineering-policy.mjs` — 8 checks, 0 failures. `node scripts/check-arch.mjs` — 5 rules, 0 violations. Scoped ESLint on the four changed TS files — exit 0. Logs copied into `bridge-io/policy/2026-11-26-live-gate/gates/`.
+- **Limit**: `pnpm typecheck` — exit 2: untouched `apps/desktop/src/v3/pages/developers/index.test.tsx(381,7): error TS2322: Type 'string' is not assignable to type 'ProjectId'`. Left alone. Its second e2e tsc command did not run. No clippy (no Rust edit), browser/Playwright rerun, native verification or independent reviewer/verifier; role merge explicit in state. No acceptance / FIXES COMPLETE claim.
+- **Dependencies**: temporary root/desktop/client/crypto/i18n/ui node_modules symlinks removed before commit; no dependencies committed. Evidence preserves red/green logs and checkpoints.
+
 ## Run 2026-11-26 — swarm walks no longer share the fixture switch
 
 - **Worktree**: `.agents/worktrees/fix-swarm-race`, branch `r-next/fix-swarm-race`, tip was `1f9b1c4`. No push, no merge. FIXES COMPLETE is not declared.
