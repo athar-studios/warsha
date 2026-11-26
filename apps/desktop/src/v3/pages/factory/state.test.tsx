@@ -1,4 +1,4 @@
-import type { RunSummary, WarshaEvent } from '@warsha/client';
+import type { Role, RunSummary, Stage, WarshaEvent } from '@warsha/client';
 import { describe, expect, it } from 'vitest';
 
 import { idleMsOf, placeWaitingAgents, reduceEvents } from './state';
@@ -114,11 +114,11 @@ describe('factory floor state machine (E3)', () => {
     expect(agent?.stage).toBe('gate_a');
   });
 
-  it('moves a working crew to the announced non-gate stage without knocking done agents', () => {
+  it('puts only the announced stage owner to work and marks earlier-stage agents done', () => {
     // The coder's AgentStep only lands after the model call returns, so while a
     // run sits in `code` the only stage signal is the role-less StageStarted the
-    // pipeline wrote on advance. A working crew must follow it onto `code`, or
-    // the floor keeps rendering the whole crew on the previous station.
+    // pipeline wrote on advance. The owner of `code` (coder) is the one working
+    // there; the agents whose stages are behind the run have finished.
     const agents = reduceEvents([
       event({ id: 'e1', kind: 'AgentStep', stage: 'plan_tasks', role: 'pm' }),
       event({ id: 'e2', kind: 'AgentStep', stage: 'plan_tasks', role: 'coder' }),
@@ -131,10 +131,11 @@ describe('factory floor state machine (E3)', () => {
         createdAt: '2026-11-18T10:00:02.000Z',
       }),
     ]);
-    for (const key of ['run-1:pm', 'run-1:coder']) {
-      expect(agents.get(key)?.state).toBe('working');
-      expect(agents.get(key)?.stage).toBe('code');
-    }
+    expect(agents.get('run-1:coder')?.state).toBe('working');
+    expect(agents.get('run-1:coder')?.stage).toBe('code');
+    expect(agents.get('run-1:pm')?.state).toBe('done');
+    expect(agents.get('run-1:pm')?.stage).toBe('plan_tasks');
+    expect(agents.size).toBe(2);
 
     // Done agents are history, not a live station: a later announcement leaves them alone.
     const finished = reduceEvents([
@@ -151,6 +152,129 @@ describe('factory floor state machine (E3)', () => {
     ]);
     expect(finished.get('run-1:coder')?.state).toBe('done');
     expect(finished.get('run-1:coder')?.stage).toBe('code');
+    // A finished run is not resurrected by seeding the announced stage's owner.
+    expect(finished.get('run-1:release')).toBeUndefined();
+    expect(finished.size).toBe(1);
+  });
+
+  it('R-5a: entering code after intake..architect leaves only a coder working on code', () => {
+    const steps: Array<[Stage, Role]> = [
+      ['idea', 'intake'],
+      ['research', 'researcher'],
+      ['prd_spec', 'pm'],
+      ['design', 'designer'],
+      ['plan_tasks', 'architect'],
+    ];
+    const agents = reduceEvents([
+      ...steps.map(([stage, role], index) =>
+        event({
+          id: `e${index}`,
+          kind: 'agent_step',
+          stage,
+          role,
+          createdAt: `2026-11-18T10:00:0${index}.000Z`,
+        })
+      ),
+      event({
+        id: 'e9',
+        kind: 'stage_started',
+        role: null,
+        stage: 'code',
+        payload: { from: 'plan_tasks', to: 'code' },
+        createdAt: '2026-11-18T10:00:09.000Z',
+      }),
+    ]);
+    for (const [stage, role] of steps) {
+      const agent = agents.get(`run-1:${role}`);
+      expect(agent?.state).toBe('done');
+      expect(agent?.stage).toBe(stage);
+    }
+    const coder = agents.get('run-1:coder');
+    expect(coder?.state).toBe('working');
+    expect(coder?.stage).toBe('code');
+    expect(coder?.role).toBe('coder');
+    const onCode = [...agents.values()].filter((a) => a.stage === 'code');
+    expect(onCode.map((a) => a.key)).toEqual(['run-1:coder']);
+    expect([...agents.values()].filter((a) => a.state === 'working')).toHaveLength(1);
+
+    // The coder's own first event updates the seeded marker, never a duplicate.
+    const withStep = reduceEvents([
+      ...steps.map(([stage, role], index) =>
+        event({ id: `e${index}`, kind: 'agent_step', stage, role })
+      ),
+      event({
+        id: 'e9',
+        kind: 'stage_started',
+        role: null,
+        stage: 'code',
+        payload: { from: 'plan_tasks', to: 'code' },
+      }),
+      event({ id: 'e10', kind: 'agent_step', stage: 'code', role: 'coder', costCents: 3 }),
+    ]);
+    expect([...withStep.values()].filter((a) => a.role === 'coder')).toHaveLength(1);
+    expect(withStep.get('run-1:coder')?.costCents).toBe(3);
+    expect(withStep.size).toBe(6);
+  });
+
+  it('R-5a: gates still park live agents; leaving a gate puts the new stage owner to work', () => {
+    const atGate = reduceEvents([
+      event({ id: 'e1', kind: 'agent_step', stage: 'prd_spec', role: 'pm' }),
+      event({ id: 'e2', kind: 'agent_step', stage: 'prd_spec', role: 'researcher' }),
+      event({
+        id: 'e3',
+        kind: 'stage_started',
+        role: null,
+        stage: 'gate_b',
+        payload: { from: 'prd_spec', to: 'gate_b' },
+      }),
+    ]);
+    for (const key of ['run-1:pm', 'run-1:researcher']) {
+      expect(atGate.get(key)?.state).toBe('waiting_on_owner');
+      expect(atGate.get(key)?.stage).toBe('gate_b');
+    }
+    expect(atGate.size).toBe(2);
+
+    const leftGate = reduceEvents([
+      event({ id: 'e1', kind: 'agent_step', stage: 'prd_spec', role: 'pm' }),
+      event({
+        id: 'e2',
+        kind: 'stage_started',
+        role: null,
+        stage: 'gate_b',
+        payload: { from: 'prd_spec', to: 'gate_b' },
+      }),
+      event({
+        id: 'e3',
+        kind: 'stage_started',
+        role: null,
+        stage: 'design',
+        payload: { from: 'gate_b', to: 'design' },
+      }),
+    ]);
+    expect(leftGate.get('run-1:pm')?.state).toBe('done');
+    expect(leftGate.get('run-1:designer')?.state).toBe('working');
+    expect(leftGate.get('run-1:designer')?.stage).toBe('design');
+
+    // A gate sending work back to its producing stage puts that owner back to work.
+    const backToDesign = reduceEvents([
+      event({ id: 'e1', kind: 'agent_step', stage: 'design', role: 'designer' }),
+      event({
+        id: 'e2',
+        kind: 'stage_started',
+        role: null,
+        stage: 'gate_a',
+        payload: { from: 'design', to: 'gate_a' },
+      }),
+      event({
+        id: 'e3',
+        kind: 'stage_started',
+        role: null,
+        stage: 'design',
+        payload: { from: 'gate_a', to: 'design' },
+      }),
+    ]);
+    expect(backToDesign.get('run-1:designer')?.state).toBe('working');
+    expect(backToDesign.size).toBe(1);
   });
 
   it('does not treat a finished or cancelled run as waiting', () => {

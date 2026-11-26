@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — Factory floor honesty R-5a (D-RN-FLOOR-R5A-1)
+
+- **Worktree/branch**: `/home/moe/Downloads/Warsha/.agents/worktrees/clean3-floor`, branch `r-next/clean3-floor`, base `5183b37`. No push/merge.
+- **Fix**: `applyEvent` in `apps/desktop/src/v3/pages/factory/state.ts:199-252`. On a role-less non-gate `stage_started`, only the announced stage's owner role(s) are `working` on it (one `run:role` marker seeded via `STAGE_ROLES` when the stage has a single owner and the run has none yet). Other live agents of the run are marked `done` on the stage they finished. Gate parking, RunFinished, no resurrection of `done`, and the snake_case kind normalization are unchanged.
+- **Red (base `state.ts`, new tests)**: `pnpm exec vitest run src/v3/pages/factory/state.test.tsx` gave 3 failed / 13 passed, each `expected 'working' to be 'done'`.
+- **Green**: factory `pnpm exec vitest run src/v3/pages/factory` 4 files / 40 passed; full desktop `pnpm exec vitest run` 90 files / 856 passed, 0 failed; `pnpm exec tsc --noEmit` exit 0; `pnpm run lint` 0 errors (1 pre-existing warning `developers/index.tsx:290`); prettier check clean on both changed files.
+- **Limits**: unit-level only, no browser re-walk. The D-RN-FLOOR-R4 PROGRESS note about all 5 markers on Coding describes the behaviour this run removes.
+
 ## Run 2026-11-26 — Factory Floor re-audit fixes r2 (D-RN-FLOOR-R4)
 
 - **Browser re-walk at `8e6c117`** (`/home/moe/tools/playwright-ux/runs/2026-11-26-8e6c117-floor-r2/`, report + notes.json + 12 shots, observe-only lane, worktree left clean at `8e6c117`): **F1 PASS and F2 PASS in all four configs** (ar/en × 1280x800/1920x1080). F1: code-stage run with only a role-less `stage_started {from: plan_tasks, to: code}` and zero role-bearing `stage=code` events rendered all 5 markers on البرمجة/Coding, all يعمل/Working, 0 on planning. F2: `circleOverlaps` 0 at every station; التسليم holds 7 markers (6 in row 0 at pitch 24, min pairwise circle gap 2.0 units ≈ 2.09 px), all boxes inside their station rect. OCR limitation: at ar 1920x1080 tesseract missed التخطيط, which the DOM shows with 0 markers. Row-2 spill (>12 roles) not exercisable with the 7-role catalogue.
