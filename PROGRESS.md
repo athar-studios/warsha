@@ -1,5 +1,14 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-26 — Factory Floor re-audit fixes r2 (D-RN-FLOOR-R4)
+
+- **Worktree/branch**: `/home/moe/Downloads/Warsha/.agents/worktrees/fix-floor-r4`, local branch `fix-floor-r4`, base `9916b74` (`r-next/integration` tip). Merged as `8e6c117` after Judge r23. No push/tag/publish. Findings from `/home/moe/tools/playwright-ux/runs/2026-11-26-1a6711d-floor-ar/report.md`.
+- **F1 (functional)**: `applyEvent` in `apps/desktop/src/v3/pages/factory/state.ts:157-181` now moves every non-`done` agent of the run onto a role-less non-gate `stage_started`; only `waiting_on_owner` becomes `working`, `idle` stays `idle`, `done` skipped, no agent created. A run in `code` no longer leaves its crew on التخطيط for the model call.
+- **F2 (geometry)**: التسليم widened 130→152 (x 840→818); `MIN_SLOT_PITCH = AGENT_RADIUS * 2 + 2 = 24` floor on `slotGap`; `slotStart` centres floored rows. Six 22px markers cannot fit 130 at any inset, so the 22 units came from the قراراتك gutter, keeping 30-unit outer margins.
+- **Proving tests**: `state.test.tsx` "moves a working crew to the announced non-gate stage without knocking done agents" (red was `expected 'plan_tasks' to be 'code'`); `Floor.test.tsx` "keeps six markers per station apart and inside every station box" loops all 5 stations (red was `expected 19.600... to be >= 22` on التسليم).
+- **Checks (mine + Judge r23, /tmp/judge-clean1-round23.md JUDGE PASS 100/100)**: factory vitest 4 files / 38 passed; full desktop vitest 90 files / 854 passed; `tsc --noEmit` exit 0; desktop lint 0 errors (1 pre-existing warning `developers/index.tsx:282`); `node scripts/check-engineering-policy.mjs` 8 checks, 0 failures. Judge reproduced both reds against base sources. Limits: unit-level only, no new browser walk re-measured `circleOverlaps`.
+
+
 ## Run 2026-11-26 — shared pipeline ENV_LOCK & RAII env guard (D-RN-PIPELINE-ENVLOCK-1)
 
 - **Worktree/branch**: `.agents/worktrees/fix-pipeline-envlock`, branch `r-next/fix-pipeline-envlock` (base `6ca306e`, initially clean). No production edits, no push/tag/merge/real model API calls.
