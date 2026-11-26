@@ -78,6 +78,8 @@ function makeMockClient(overrides: Record<string, unknown> = {}): WarshaClient {
     setProjectBudget: vi.fn().mockResolvedValue(undefined),
     startRun: vi.fn().mockResolvedValue(startedRun),
     getGithubStatus: vi.fn().mockResolvedValue({ configured: false, source: null }),
+    repoStatus: vi.fn().mockResolvedValue({ exists: true, isRepo: true, hasHead: true }),
+    prepareExistingFolder: vi.fn(async (path: string) => ({ repoPath: path })),
     prepareProjectFolder: vi
       .fn()
       .mockResolvedValue({ repoPath: '/tmp/prepared-projects/my-app' }),
@@ -222,7 +224,10 @@ describe('ProjectSourcePicker + HomePage integration', () => {
     invokeMock.mockImplementation(async (cmd: unknown) =>
       cmd === 'pick_folder' ? '/workspace/existing-app' : null
     );
-    const { client } = await renderHomeWithSource({ locale: 'en' });
+    const client = makeMockClient({
+      repoStatus: vi.fn().mockResolvedValue({ exists: true, isRepo: true, hasHead: true }),
+    });
+    const { client: renderedClient } = await renderHomeWithSource({ client, locale: 'en' });
 
     fireEvent.click(screen.getByRole('radio', { name: /Choose folder/i }));
     expect(screen.queryByTestId('home-source-picker-unavailable')).toBeNull();
@@ -449,11 +454,7 @@ describe('ProjectSourcePicker + HomePage integration', () => {
     });
 
     await waitFor(() => {
-      expect(client.createGithubRepo).toHaveBeenCalledWith(
-        'analytics-cli',
-        'Build analytics CLI',
-        '/tmp/github'
-      );
+      expect(client.createGithubRepo).toHaveBeenCalledWith('analytics-cli', undefined, '/tmp/github', true);
       expect(client.createProject).toHaveBeenCalledWith(
         'Build analytics CLI',
         'Build analytics CLI',
@@ -487,5 +488,372 @@ describe('ProjectSourcePicker + HomePage integration', () => {
     fireEvent.click(screen.getByTestId('new-project-source-integrations-button'));
     expect(onClose).toHaveBeenCalled();
     expect(screen.getByTestId('route-inspector').textContent).toBe('/settings/integrations');
+  });
+
+  it('existing non-git folder: probes repoStatus, shows confirm dialog, accept calls prepareExistingFolder then createProject', async () => {
+    const client = makeMockClient({
+      repoStatus: vi.fn().mockResolvedValue({ exists: true, isRepo: false, hasHead: false }),
+      prepareExistingFolder: vi
+        .fn()
+        .mockResolvedValue({ repoPath: '/workspace/plain-folder' }),
+    });
+    const { client: renderedClient } = await renderHomeWithSource({ client, locale: 'en' });
+
+    fireEvent.click(screen.getByRole('radio', { name: /Choose folder/i }));
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.source.existing_label')), {
+      target: { value: '/workspace/plain-folder' },
+    });
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.idea_label')), {
+      target: { value: 'Add dark mode toggle' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-start-button'));
+    });
+
+    await waitFor(() => {
+      expect(renderedClient.repoStatus).toHaveBeenCalledWith({ path: '/workspace/plain-folder' });
+      expect(screen.getByTestId('home-source-confirm')).toBeTruthy();
+      expect(screen.getByTestId('home-source-confirm').textContent).toContain(
+        translate('en', 'home.source.confirm_init_title')
+      );
+      expect(renderedClient.createProject).not.toHaveBeenCalled();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-source-confirm-accept'));
+    });
+
+    await waitFor(() => {
+      expect(renderedClient.prepareExistingFolder).toHaveBeenCalledWith('/workspace/plain-folder');
+      expect(renderedClient.createProject).toHaveBeenCalledWith(
+        'Add dark mode toggle',
+        'Add dark mode toggle',
+        'en',
+        '/workspace/plain-folder'
+      );
+    });
+  });
+
+  it('existing git repo with HEAD: creates directly without the confirm dialog', async () => {
+    const client = makeMockClient({
+      repoStatus: vi.fn().mockResolvedValue({ exists: true, isRepo: true, hasHead: true }),
+    });
+    const { client: renderedClient } = await renderHomeWithSource({ client, locale: 'en' });
+
+    fireEvent.click(screen.getByRole('radio', { name: /Choose folder/i }));
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.source.existing_label')), {
+      target: { value: '/workspace/repo-with-head' },
+    });
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.idea_label')), {
+      target: { value: 'Add dark mode toggle' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-start-button'));
+    });
+
+    await waitFor(() => {
+      expect(renderedClient.createProject).toHaveBeenCalledWith(
+        'Add dark mode toggle',
+        'Add dark mode toggle',
+        'en',
+        '/workspace/repo-with-head'
+      );
+    });
+    expect(screen.queryByTestId('home-source-confirm')).toBeNull();
+    expect(renderedClient.prepareExistingFolder).not.toHaveBeenCalled();
+  });
+
+  it('existing non-git folder: cancel aborts silently without prepare or create', async () => {
+    const client = makeMockClient({
+      repoStatus: vi.fn().mockResolvedValue({ exists: true, isRepo: false, hasHead: false }),
+    });
+    const { client: renderedClient } = await renderHomeWithSource({ client, locale: 'en' });
+
+    fireEvent.click(screen.getByRole('radio', { name: /Choose folder/i }));
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.source.existing_label')), {
+      target: { value: '/workspace/plain-folder' },
+    });
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.idea_label')), {
+      target: { value: 'Add dark mode toggle' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-start-button'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-source-confirm')).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-source-confirm-cancel'));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('home-source-confirm')).toBeNull();
+    });
+    expect(renderedClient.prepareExistingFolder).not.toHaveBeenCalled();
+    expect(renderedClient.createProject).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('home-composer-error')).toBeNull();
+  });
+
+  it('new_folder existing target: dialog then accept calls prepareProjectFolder with the parent and folder', async () => {
+    const client = makeMockClient({
+      repoStatus: vi.fn().mockResolvedValue({ exists: true, isRepo: false, hasHead: false }),
+      prepareProjectFolder: vi
+        .fn()
+        .mockResolvedValue({ repoPath: '/tmp/prepared-projects/my-app' }),
+    });
+    const { client: renderedClient } = await renderHomeWithSource({ client, locale: 'en' });
+
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.idea_label')), {
+      target: { value: 'Inventory tracker' },
+    });
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.source.parent_dir_label')), {
+      target: { value: '/tmp/prepared-projects' },
+    });
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.source.folder_name_label')), {
+      target: { value: 'my-app' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-start-button'));
+    });
+
+    await waitFor(() => {
+      expect(renderedClient.repoStatus).toHaveBeenCalledWith({
+        parentDir: '/tmp/prepared-projects',
+        name: 'my-app',
+      });
+      expect(screen.getByTestId('home-source-confirm')).toBeTruthy();
+      expect(renderedClient.prepareProjectFolder).not.toHaveBeenCalled();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-source-confirm-accept'));
+    });
+
+    await waitFor(() => {
+      expect(renderedClient.prepareProjectFolder).toHaveBeenCalledWith(
+        '/tmp/prepared-projects',
+        'my-app'
+      );
+      expect(renderedClient.createProject).toHaveBeenCalled();
+    });
+  });
+
+  it('new_folder fresh target: no dialog, prepares and creates directly', async () => {
+    const client = makeMockClient({
+      repoStatus: vi.fn().mockResolvedValue({ exists: false, isRepo: false, hasHead: false }),
+    });
+    const { client: renderedClient } = await renderHomeWithSource({ client, locale: 'en' });
+
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.idea_label')), {
+      target: { value: 'Inventory tracker' },
+    });
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.source.parent_dir_label')), {
+      target: { value: '/tmp/fresh-projects' },
+    });
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.source.folder_name_label')), {
+      target: { value: 'brand-new' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-start-button'));
+    });
+
+    await waitFor(() => {
+      expect(renderedClient.createProject).toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId('home-source-confirm')).toBeNull();
+  });
+
+  it('github_create: visibility defaults to private and never sends the idea as description', async () => {
+    const client = makeMockClient({
+      getGithubStatus: vi.fn().mockResolvedValue({
+        configured: true,
+        source: 'integration_secret',
+      }),
+    });
+    await renderHomeWithSource({ client, locale: 'en' });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('radio', { name: /Create GitHub repo/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-source-visibility-private')).toBeTruthy();
+    });
+
+    const privateInput = screen
+      .getByTestId('home-source-visibility-private')
+      .querySelector('input');
+    const publicInput = screen.getByTestId('home-source-visibility-public').querySelector('input');
+    expect(privateInput?.checked).toBe(true);
+    expect(publicInput?.checked).toBe(false);
+
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.idea_label')), {
+      target: { value: 'A brilliant idea that must never become the repo description' },
+    });
+    fireEvent.change(
+      screen.getByLabelText(translate('en', 'home.source.github_repo_name_label')),
+      { target: { value: 'visibility-check' } }
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-start-button'));
+    });
+
+    await waitFor(() => {
+      expect(client.createGithubRepo).toHaveBeenCalledWith(
+        'visibility-check',
+        undefined,
+        undefined,
+        true
+      );
+    });
+    const firstArg = (client.createGithubRepo as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(firstArg[1]).toBeUndefined();
+  });
+
+  it('github_create: selecting public sends private_repo false', async () => {
+    const client = makeMockClient({
+      getGithubStatus: vi.fn().mockResolvedValue({
+        configured: true,
+        source: 'integration_secret',
+      }),
+    });
+    await renderHomeWithSource({ client, locale: 'en' });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('radio', { name: /Create GitHub repo/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-source-visibility-public')).toBeTruthy();
+    });
+
+    fireEvent.click(
+      screen.getByTestId('home-source-visibility-public').querySelector('input') as HTMLElement
+    );
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.idea_label')), {
+      target: { value: 'Open source the world' },
+    });
+    fireEvent.change(
+      screen.getByLabelText(translate('en', 'home.source.github_repo_name_label')),
+      { target: { value: 'open-world' } }
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('home-start-button'));
+    });
+
+    await waitFor(() => {
+      expect(client.createGithubRepo).toHaveBeenCalledWith('open-world', undefined, undefined, false);
+    });
+  });
+
+  it('NewProjectDialog integrates ProjectSourcePicker and closes dialog on Integrations navigation', async () => {
+    const client = makeMockClient({
+      getGithubStatus: vi.fn().mockResolvedValue({ configured: false, source: null }),
+    });
+    const onClose = vi.fn();
+    await renderDialogWithSource({ client, locale: 'ar', onClose });
+
+    expect(screen.getByTestId('new-project-source-picker')).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('radio', {
+          name: new RegExp(translate('ar', 'home.source.opt_github_create')),
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('new-project-source-github-missing-banner')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId('new-project-source-integrations-button'));
+    expect(onClose).toHaveBeenCalled();
+    expect(screen.getByTestId('route-inspector').textContent).toBe('/settings/integrations');
+  });
+
+  it('NewProjectDialog confirm-init variant: non-git folder shows the confirm panel, accept prepares then creates, cancel aborts silently', async () => {
+    // NOTE: the dialog renders the same shared SourceConfirmPanel but under the
+    // dialog's own `new-project-source` idPrefix (consistent with every other
+    // new-project-source-* testid in this file); the composer uses home-source-*.
+    const client = makeMockClient({
+      repoStatus: vi.fn().mockResolvedValue({ exists: true, isRepo: false, hasHead: false }),
+      prepareExistingFolder: vi.fn().mockResolvedValue({ repoPath: '/workspace/dialog-folder' }),
+    });
+    const onClose = vi.fn();
+    await renderDialogWithSource({ client, locale: 'en', onClose });
+
+    fireEvent.click(screen.getByRole('radio', { name: /Choose folder/i }));
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.source.existing_label')), {
+      target: { value: '/workspace/dialog-folder' },
+    });
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.idea_label')), {
+      target: { value: 'Dialog confirm flow' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('new-project-submit-btn'));
+    });
+
+    await waitFor(() => {
+      expect(client.repoStatus).toHaveBeenCalledWith({ path: '/workspace/dialog-folder' });
+      expect(screen.getByTestId('new-project-source-confirm')).toBeTruthy();
+      expect(screen.getByTestId('new-project-source-confirm').textContent).toContain(
+        translate('en', 'home.source.confirm_init_title')
+      );
+    });
+    expect(client.prepareExistingFolder).not.toHaveBeenCalled();
+    expect(client.createProject).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('new-project-source-confirm-accept'));
+    });
+
+    await waitFor(() => {
+      expect(client.prepareExistingFolder).toHaveBeenCalledWith('/workspace/dialog-folder');
+      expect(client.createProject).toHaveBeenCalledWith(
+        'Dialog confirm flow',
+        'Dialog confirm flow',
+        'en',
+        '/workspace/dialog-folder'
+      );
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  it('NewProjectDialog confirm-init variant: cancel closes the panel without prepare or create', async () => {
+    const client = makeMockClient({
+      repoStatus: vi.fn().mockResolvedValue({ exists: true, isRepo: false, hasHead: false }),
+    });
+    const onClose = vi.fn();
+    await renderDialogWithSource({ client, locale: 'en', onClose });
+
+    fireEvent.click(screen.getByRole('radio', { name: /Choose folder/i }));
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.source.existing_label')), {
+      target: { value: '/workspace/dialog-folder' },
+    });
+    fireEvent.change(screen.getByLabelText(translate('en', 'home.idea_label')), {
+      target: { value: 'Dialog confirm flow' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('new-project-submit-btn'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('new-project-source-confirm')).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('new-project-source-confirm-cancel'));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('new-project-source-confirm')).toBeNull();
+    });
+    expect(client.prepareExistingFolder).not.toHaveBeenCalled();
+    expect(client.createProject).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId('new-project-dialog')).toBeTruthy();
   });
 });

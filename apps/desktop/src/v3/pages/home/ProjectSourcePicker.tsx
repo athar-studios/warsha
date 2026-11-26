@@ -6,6 +6,7 @@ import {
   IconGitBranch,
   IconLink,
   IconPlus,
+  Radio,
   Segmented,
   TextField,
 } from '@warsha/ui/v3';
@@ -22,6 +23,7 @@ export interface ProjectSourceValue {
   folderName: string;
   repoUrl: string;
   githubRepoName: string;
+  githubVisibility: 'private' | 'public';
 }
 
 export const INITIAL_PROJECT_SOURCE: ProjectSourceValue = {
@@ -31,11 +33,19 @@ export const INITIAL_PROJECT_SOURCE: ProjectSourceValue = {
   folderName: '',
   repoUrl: '',
   githubRepoName: '',
+  githubVisibility: 'private',
 };
 
-export interface ResolvedProjectSource {
-  repoPath?: string;
-  repoUrl?: string;
+export type ResolvedProjectSource =
+  | { kind: 'ready'; repoPath?: string; repoUrl?: string }
+  | { kind: 'confirm-init'; targetPath: string };
+
+/** A pending git-init confirmation: the probed folder plus what the accept path needs. */
+export interface SourceConfirmRequest {
+  targetPath: string;
+  mode: ProjectSourceMode;
+  parentDir: string;
+  folderName: string;
 }
 
 const VALID_MODES = new Set<ProjectSourceMode>([
@@ -83,23 +93,33 @@ export function validateProjectSource(
 export async function resolveProjectSource(
   client: Pick<
     WarshaClient,
-    'prepareProjectFolder' | 'cloneProjectRepo' | 'createGithubRepo'
+    'prepareProjectFolder' | 'prepareExistingFolder' | 'repoStatus' | 'cloneProjectRepo' | 'createGithubRepo'
   >,
-  value: ProjectSourceValue,
-  idea: string
+  value: ProjectSourceValue
 ): Promise<ResolvedProjectSource> {
   switch (value.mode) {
     case 'new_folder': {
       const parent = value.parentDir.trim();
       const folder = value.folderName.trim();
       if (!parent && !folder) {
-        return {};
+        return { kind: 'ready' };
+      }
+      const status = await client.repoStatus({ parentDir: parent, name: folder });
+      if (status.exists && !(status.isRepo && status.hasHead)) {
+        const targetPath = `${parent.replace(/\/+$/, '')}/${folder}`;
+        return { kind: 'confirm-init', targetPath };
       }
       const prepared = await client.prepareProjectFolder(parent, folder);
-      return { repoPath: prepared.repoPath };
+      return { kind: 'ready', repoPath: prepared.repoPath };
     }
-    case 'existing':
-      return { repoPath: value.existingPath.trim() };
+    case 'existing': {
+      const path = value.existingPath.trim();
+      const status = await client.repoStatus({ path });
+      if (status.isRepo && status.hasHead) {
+        return { kind: 'ready', repoPath: path };
+      }
+      return { kind: 'confirm-init', targetPath: path };
+    }
     case 'github_link': {
       const cloned = await client.cloneProjectRepo(
         value.repoUrl.trim(),
@@ -107,17 +127,21 @@ export async function resolveProjectSource(
         value.folderName.trim() || undefined
       );
       return {
+        kind: 'ready',
         repoPath: cloned.repoPath,
         repoUrl: cloned.repoUrl ?? undefined,
       };
     }
     case 'github_create': {
+      const isPrivate = value.githubVisibility !== 'public';
       const created = await client.createGithubRepo(
         value.githubRepoName.trim(),
-        idea,
-        value.parentDir.trim() || undefined
+        undefined,
+        value.parentDir.trim() || undefined,
+        isPrivate
       );
       return {
+        kind: 'ready',
         repoPath: created.repoPath,
         repoUrl: created.repoUrl,
       };
@@ -135,6 +159,67 @@ export interface ProjectSourcePickerProps {
   onGithubStatusChange: (status: GithubStatus | null) => void;
   disabled?: boolean;
   idPrefix?: string;
+}
+
+export interface SourceConfirmPanelProps {
+  idPrefix: string;
+  targetPath: string;
+  t: (key: string) => string;
+  pending?: boolean;
+  onAccept: () => void;
+  onCancel: () => void;
+}
+
+/**
+ * The single git-init confirmation (B-1/R-7). Rendered by both the Simple
+ * Home composer and NewProjectDialog with the same testids; accept continues
+ * the create flow, cancel aborts silently.
+ */
+export function SourceConfirmPanel({
+  idPrefix,
+  targetPath,
+  t,
+  pending = false,
+  onAccept,
+  onCancel,
+}: SourceConfirmPanelProps): React.ReactElement {
+  return (
+    <div
+      className="v3-source-confirm"
+      data-testid={`${idPrefix}-confirm`}
+      role="alertdialog"
+      aria-label={t('home.source.confirm_init_title')}
+    >
+      <p className="v3-source-confirm-title">{t('home.source.confirm_init_title')}</p>
+      <p className="v3-source-confirm-body">{t('home.source.confirm_init_body')}</p>
+      <p className="v3-source-confirm-path">
+        <bdi dir="auto">{targetPath}</bdi>
+      </p>
+      <div className="v3-source-confirm-actions">
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          onClick={onAccept}
+          disabled={pending}
+          loading={pending}
+          data-testid={`${idPrefix}-confirm-accept`}
+        >
+          {t('home.source.confirm_init_accept')}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={onCancel}
+          disabled={pending}
+          data-testid={`${idPrefix}-confirm-cancel`}
+        >
+          {t('home.source.confirm_init_cancel')}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 type PickerNotice = 'none' | 'unavailable' | 'error';
@@ -447,6 +532,31 @@ export function ProjectSourcePicker({
           ) : (
             <>
               <p className="v3-source-hint">{t('home.source.github_create_hint')}</p>
+              <fieldset className="v3-source-visibility">
+                <legend className="v3-source-visibility-label">
+                  {t('home.source.visibility_label')}
+                </legend>
+                <div className="v3-source-visibility-options">
+                  <Radio
+                    label={t('home.source.visibility_private')}
+                    name={`${idPrefix}-visibility`}
+                    value="private"
+                    checked={value.githubVisibility !== 'public'}
+                    onChange={() => onChange({ ...value, githubVisibility: 'private' })}
+                    disabled={disabled}
+                    data-testid={`${idPrefix}-visibility-private`}
+                  />
+                  <Radio
+                    label={t('home.source.visibility_public')}
+                    name={`${idPrefix}-visibility`}
+                    value="public"
+                    checked={value.githubVisibility === 'public'}
+                    onChange={() => onChange({ ...value, githubVisibility: 'public' })}
+                    disabled={disabled}
+                    data-testid={`${idPrefix}-visibility-public`}
+                  />
+                </div>
+              </fieldset>
               <div className="v3-source-grid">
                 <TextField
                   id={`${idPrefix}-github-repo-name`}

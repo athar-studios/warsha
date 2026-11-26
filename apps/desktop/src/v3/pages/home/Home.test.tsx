@@ -158,6 +158,22 @@ function makeMockClient(overrides: Partial<WarshaClient> = {}): WarshaClient {
     createProject: vi.fn().mockResolvedValue(createdProject),
     setProjectBudget: vi.fn().mockResolvedValue(undefined),
     startRun: vi.fn().mockResolvedValue(startedRun),
+    getGithubStatus: vi.fn().mockResolvedValue({ configured: false, source: null }),
+    repoStatus: vi.fn().mockResolvedValue({ exists: false, isRepo: false, hasHead: false }),
+    prepareExistingFolder: vi.fn(async (path: string) => ({ repoPath: path })),
+    prepareProjectFolder: vi
+      .fn()
+      .mockResolvedValue({ repoPath: '/tmp/prepared-projects/my-app' }),
+    cloneProjectRepo: vi.fn().mockResolvedValue({
+      repoPath: '/tmp/cloned/warsha-repo',
+      repoUrl: 'https://github.com/acme/warsha-repo',
+    }),
+    createGithubRepo: vi.fn().mockResolvedValue({
+      repoPath: '/tmp/github/new-repo',
+      repoUrl: 'https://github.com/acme/new-repo',
+      fullName: 'acme/new-repo',
+      htmlUrl: 'https://github.com/acme/new-repo',
+    }),
     ...overrides,
   } as unknown as WarshaClient;
 }

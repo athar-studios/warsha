@@ -72,9 +72,6 @@ export default {
   'home.alerts.run_failed': 'Some runs failed ({count}). Retry them from the inbox.',
   'home.alerts.quota_near': 'Provider quota is at {percent}% of its known limit.',
   'home.alerts.spend_near': 'Run spend is at {percent}% of its cap.',
-  'home.repo_path_label': 'Git repository path (optional)',
-  'home.repo_path_placeholder': 'e.g. /home/user/my-project',
-  'home.repo_path_hint': 'Path to an existing git repository to work on.',
   'home.new_project_btn': 'New project',
   'home.new_project_submit': 'Create',
   'home.new_project_dialog_title': 'Create new project',
@@ -116,9 +113,17 @@ export default {
     'Creating a new GitHub repository requires a connected GitHub token.',
   'home.source.github_settings_cta': 'Open Integrations settings',
   'home.source.github_create_hint':
-    'Creates a new repository under your connected GitHub account and clones it locally.',
+    'Creates a new repository under your connected GitHub account and clones it locally. Choose below whether it is private or public.',
   'home.source.github_repo_name_label': 'GitHub repository name',
   'home.source.github_repo_name_placeholder': 'e.g. my-next-app',
+  'home.source.visibility_label': 'Visibility',
+  'home.source.visibility_private': 'Private — only you can see it',
+  'home.source.visibility_public': 'Public — anyone on GitHub can see it',
+  'home.source.confirm_init_title': 'Initialize Git in this folder?',
+  'home.source.confirm_init_body':
+    "This folder is not a Git repository yet. Warsha will initialize Git inside it and create the first commit containing the folder's current files. Nothing will be deleted.",
+  'home.source.confirm_init_accept': 'Initialize and continue',
+  'home.source.confirm_init_cancel': 'Cancel',
   'home.source.err_missing_folder_name':
     'Enter a folder name alongside the chosen parent folder, or clear the parent folder to auto-create.',
   'home.source.err_missing_parent_dir':
@@ -126,4 +131,12 @@ export default {
   'home.source.err_missing_folder': 'Choose or enter a local folder path.',
   'home.source.err_missing_repo_url': 'Enter a GitHub repository URL or owner/repo.',
   'home.source.err_missing_repo_name': 'Enter a repository name for the new GitHub repository.',
+  'home.errors.not_git_repo': 'This folder is not a Git repository.',
+  'home.errors.clone_failed': 'Git clone failed.',
+  'home.errors.github_not_configured': 'GitHub is not connected.',
+  'home.errors.repo_name_taken': 'A repository with this name already exists on GitHub.',
+  'home.errors.folder_exists_not_empty': 'This folder already exists and is not empty.',
+  'home.errors.folder_missing': 'This folder does not exist or is not a directory.',
+  'home.errors.repo_name_empty': 'The repository name must not be empty.',
+  'home.errors.server_error': 'The server returned an error.',
 };
