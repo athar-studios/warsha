@@ -1740,6 +1740,7 @@ impl WarshaApiServer for WarshaRpc {
             .store(&format!("integration:{name}"), &code)
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        self.state.providers.write().await.reset_cooldown(&name);
         Ok(AuthCompleteResponse {
             message: "Successfully authenticated".to_string(),
         })
@@ -1752,6 +1753,7 @@ impl WarshaApiServer for WarshaRpc {
             .delete(&format!("integration:{name}"))
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        self.state.providers.write().await.reset_cooldown(&name);
         Ok(())
     }
 
@@ -1877,14 +1879,14 @@ impl WarshaApiServer for WarshaRpc {
         // next turn rather than only by the daemon after the next restart — and
         // registering calls nothing: the adapter is built on its first use, so a fresh
         // daemon with three configured providers still starts with no network at all.
-        self.state
-            .providers
-            .write()
-            .await
-            .register_provider(Box::new(DeferredProvider::new(
+        {
+            let mut router = self.state.providers.write().await;
+            router.register_provider(Box::new(DeferredProvider::new(
                 provider.clone(),
                 Arc::clone(&self.state.provider_factory),
             )));
+            router.reset_cooldown(&name);
+        }
 
         info!("provider {name} configured");
         Ok(provider.into())
@@ -1978,6 +1980,7 @@ impl WarshaApiServer for WarshaRpc {
         if health.healthy {
             self.persist_provider_test_outcome(&name, true, tested_at, None)
                 .await;
+            self.state.providers.write().await.reset_cooldown(&name);
             return Ok(health);
         }
 
@@ -2473,11 +2476,11 @@ impl WarshaApiServer for WarshaRpc {
         // its request headers, and a row that is gone does not take that back. Putting a
         // refusal under the same id is what makes removal a removal rather than the
         // deletion of the record that it happened.
-        self.state
-            .providers
-            .write()
-            .await
-            .register_provider(Box::new(RemovedProvider::new(&name)));
+        {
+            let mut router = self.state.providers.write().await;
+            router.register_provider(Box::new(RemovedProvider::new(&name)));
+            router.reset_cooldown(&name);
+        }
 
         // Routings that name it go too, written through in the same order `roles.set`
         // uses: stored first, then honoured. Leaving them would leave a role whose every

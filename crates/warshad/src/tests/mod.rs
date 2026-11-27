@@ -9089,3 +9089,288 @@ async fn secretary_interview_completion_writes_one_provisioning_row_per_rostered
         Some("researcher")
     );
 }
+
+fn sample_chat_request() -> warsha_providers::ChatRequest {
+    warsha_providers::ChatRequest {
+        model: "test-model".to_string(),
+        messages: vec![warsha_providers::ChatMessage {
+            role: warsha_providers::MessageRole::User,
+            content: "hello".to_string(),
+        }],
+        temperature: None,
+        max_tokens: None,
+        stream: false,
+    }
+}
+
+async fn engage_provider_cooldown(state: &DaemonState, name: &str) {
+    {
+        let mut router = state.providers.write().await;
+        router.register_provider(Box::new(
+            warsha_providers::MockProvider::new(name).with_failure(
+                warsha_providers::ProviderError::Http(401, "Unauthorized".to_string()),
+            ),
+        ));
+        router.set_role_routing(RoleRouting {
+            role: Role::Coder,
+            targets: vec![RoutingTarget {
+                provider_id: name.to_string(),
+                model_id: "test-model".to_string(),
+                weight: 100,
+            }],
+            fallback_enabled: false,
+            budget_cents_per_run: None,
+        });
+    }
+
+    let first = {
+        let router = state.providers.read().await;
+        router
+            .chat_with_fallback(Role::Coder, "cooldown-proj", sample_chat_request())
+            .await
+    };
+    assert!(
+        matches!(first, Err(warsha_providers::ProviderError::Http(401, _))),
+        "expected HTTP 401 failure to engage cooldown, got {first:?}"
+    );
+    assert!(
+        state.providers.read().await.is_in_cooldown(name),
+        "provider {name} must be in cooldown after HTTP 401"
+    );
+
+    let second = {
+        let router = state.providers.read().await;
+        router
+            .chat_with_fallback(Role::Coder, "cooldown-proj", sample_chat_request())
+            .await
+    };
+    assert!(
+        matches!(second, Err(warsha_providers::ProviderError::NotFound(_))),
+        "expected cooldown skip while in cooldown, got {second:?}"
+    );
+}
+
+#[tokio::test]
+async fn provider_add_clears_cooldown_and_is_immediately_callable() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+
+    engage_provider_cooldown(&state, "my-qwen").await;
+
+    rpc.add_provider(
+        &owner,
+        "my-qwen".to_string(),
+        "qwen".to_string(),
+        "sk-fixed-provider-key-12345".to_string(),
+        Some("http://127.0.0.1:9/v1".to_string()),
+    )
+    .await
+    .expect("providers.add succeeds");
+
+    assert!(
+        !state.providers.read().await.is_in_cooldown("my-qwen"),
+        "providers.add must reset provider cooldown"
+    );
+
+    let call = state
+        .providers
+        .read()
+        .await
+        .chat_with_fallback(Role::Coder, "cooldown-proj", sample_chat_request())
+        .await;
+    assert!(
+        call.is_ok(),
+        "provider must be immediately callable after providers.add, got {call:?}"
+    );
+}
+
+#[tokio::test]
+async fn provider_test_clears_cooldown_when_healthy() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::sync::atomic::{AtomicU16, Ordering};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("local addr").port();
+    let status_code = Arc::new(AtomicU16::new(401));
+    let status_ref = Arc::clone(&status_code);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let Ok(cloned) = stream.try_clone() else {
+                break;
+            };
+            let mut reader = BufReader::new(cloned);
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok() && line != "\r\n" {
+                line.clear();
+            }
+            let code = status_ref.load(Ordering::SeqCst);
+            let body = if code == 200 { r#"{"data":[]}"# } else { "{}" };
+            let response = format!(
+                "HTTP/1.1 {code} stub\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+
+    rpc.add_provider(
+        &owner,
+        "my-qwen".to_string(),
+        "qwen".to_string(),
+        "sk-test-provider-key-12345".to_string(),
+        Some(format!("http://127.0.0.1:{port}/v1")),
+    )
+    .await
+    .expect("providers.add succeeds");
+
+    engage_provider_cooldown(&state, "my-qwen").await;
+
+    // An unhealthy test must NOT clear the cooldown.
+    let unhealthy = rpc.test_provider(&owner, "my-qwen".to_string(), None).await;
+    assert!(unhealthy.is_err(), "401 test_provider must fail");
+    assert!(
+        state.providers.read().await.is_in_cooldown("my-qwen"),
+        "failed providers.test must leave cooldown intact"
+    );
+
+    // Once the endpoint accepts the key, a healthy test clears the cooldown.
+    status_code.store(200, Ordering::SeqCst);
+    let healthy = rpc
+        .test_provider(&owner, "my-qwen".to_string(), None)
+        .await
+        .expect("200 test_provider must succeed");
+    assert!(healthy.healthy);
+    assert!(
+        !state.providers.read().await.is_in_cooldown("my-qwen"),
+        "healthy providers.test must reset provider cooldown"
+    );
+
+    // With a working adapter registered under the same id, calls succeed immediately.
+    state
+        .providers
+        .write()
+        .await
+        .register_provider(Box::new(warsha_providers::MockProvider::new("my-qwen")));
+    let call = state
+        .providers
+        .read()
+        .await
+        .chat_with_fallback(Role::Coder, "cooldown-proj", sample_chat_request())
+        .await;
+    assert!(
+        call.is_ok(),
+        "provider must be immediately callable after healthy providers.test, got {call:?}"
+    );
+}
+
+#[tokio::test]
+async fn provider_auth_complete_and_disconnect_clear_cooldown() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+
+    engage_provider_cooldown(&state, "my-qwen").await;
+
+    // Even if a working adapter is registered, cooldown still blocks calls until reset.
+    state
+        .providers
+        .write()
+        .await
+        .register_provider(Box::new(warsha_providers::MockProvider::new("my-qwen")));
+    assert!(state.providers.read().await.is_in_cooldown("my-qwen"));
+
+    rpc.provider_auth_complete(
+        &owner,
+        "my-qwen".to_string(),
+        "sk-oauth-token-12345".to_string(),
+    )
+    .await
+    .expect("providers.auth_complete succeeds");
+
+    assert!(
+        !state.providers.read().await.is_in_cooldown("my-qwen"),
+        "providers.auth_complete must reset provider cooldown"
+    );
+
+    let call = state
+        .providers
+        .read()
+        .await
+        .chat_with_fallback(Role::Coder, "cooldown-proj", sample_chat_request())
+        .await;
+    assert!(
+        call.is_ok(),
+        "provider must be immediately callable after providers.auth_complete, got {call:?}"
+    );
+
+    engage_provider_cooldown(&state, "my-qwen").await;
+    rpc.provider_disconnect(&owner, "my-qwen".to_string())
+        .await
+        .expect("providers.disconnect succeeds");
+    assert!(
+        !state.providers.read().await.is_in_cooldown("my-qwen"),
+        "providers.disconnect must reset provider cooldown"
+    );
+}
+
+#[tokio::test]
+async fn provider_remove_clears_cooldown() {
+    let temp = crate::test_util::fresh_tempdir();
+    let (state, _store) = test_state(temp.path()).await;
+    let rpc = WarshaRpc::new(state.clone());
+    let owner = owner_ext();
+
+    rpc.add_provider(
+        &owner,
+        "my-qwen".to_string(),
+        "qwen".to_string(),
+        "sk-remove-provider-key-12345".to_string(),
+        Some("http://127.0.0.1:9/v1".to_string()),
+    )
+    .await
+    .expect("providers.add succeeds");
+
+    engage_provider_cooldown(&state, "my-qwen").await;
+
+    rpc.remove_provider(&owner, "my-qwen".to_string())
+        .await
+        .expect("providers.remove succeeds");
+
+    assert!(
+        !state.providers.read().await.is_in_cooldown("my-qwen"),
+        "providers.remove must reset provider cooldown"
+    );
+
+    // Calling the removed provider directly via a routing hits RemovedProvider rather than
+    // being silently skipped by a stale cooldown entry.
+    state.providers.write().await.set_role_routing(RoleRouting {
+        role: Role::Coder,
+        targets: vec![RoutingTarget {
+            provider_id: "my-qwen".to_string(),
+            model_id: "test-model".to_string(),
+            weight: 100,
+        }],
+        fallback_enabled: false,
+        budget_cents_per_run: None,
+    });
+    let removed_err = state
+        .providers
+        .read()
+        .await
+        .chat_with_fallback(Role::Coder, "cooldown-proj", sample_chat_request())
+        .await
+        .expect_err("removed provider must fail");
+    assert!(
+        removed_err.to_string().contains("was removed"),
+        "expected RemovedProvider refusal rather than cooldown skip, got {removed_err}"
+    );
+}
