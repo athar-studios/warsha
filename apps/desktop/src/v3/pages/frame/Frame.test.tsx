@@ -2,17 +2,32 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type {
-  GateSummary,
-  ProjectId,
-  ProjectSummary,
-  RunId,
-  RunSummary,
-  WarshaClient,
+import {
+  createClient,
+  type GateSummary,
+  type ProjectId,
+  type ProjectSummary,
+  type RunId,
+  type RunSummary,
+  type WarshaClient,
 } from '@warsha/client';
 import { I18nProvider } from '@warsha/i18n/v3';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mock @warsha/client to prevent real network calls from createClient in ClientProvider.reloadClient
+vi.mock('@warsha/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@warsha/client')>();
+  return {
+    ...actual,
+    createClient: vi.fn(() => ({
+      health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
+      listProjects: vi.fn().mockResolvedValue([]),
+      listRuns: vi.fn().mockResolvedValue([]),
+      getGates: vi.fn().mockResolvedValue([]),
+    })),
+  };
+});
 
 import { CapabilitiesProvider } from '../../app/CapabilitiesContext';
 import { ClientProvider } from '../../app/ClientContext';
@@ -220,6 +235,16 @@ describe('frame live run status', () => {
 
 describe('Frame component', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(createClient).mockImplementation(
+      () =>
+        ({
+          health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
+          listProjects: vi.fn().mockResolvedValue([]),
+          listRuns: vi.fn().mockResolvedValue([]),
+          getGates: vi.fn().mockResolvedValue([]),
+        }) as unknown as WarshaClient
+    );
     clearToastListeners();
     try {
       window.localStorage?.clear();
@@ -480,6 +505,205 @@ describe('Frame component', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Cannot reach Warsha daemon — retry')).toBeDefined();
+    });
+  });
+
+  // RR-1: Retry recovers/rediscovers daemon - Tauri runtime with client null
+  it('RR-1: Tauri retry invokes retry_daemon, reloads client, and succeeds when client is null', async () => {
+    const invokeCalls: { cmd: string; args?: Record<string, unknown> }[] = [];
+    let retried = false;
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokeCalls.push({ cmd, args });
+        if (cmd === 'retry_daemon') {
+          retried = true;
+          return undefined;
+        }
+        if (cmd === 'get_config' && args?.key === 'daemon_url') {
+          return retried ? 'http://127.0.0.1:9999' : '';
+        }
+        if (cmd === 'get_config' && args?.key === 'daemon_ws_url') {
+          return retried ? 'ws://127.0.0.1:9998' : '';
+        }
+        if (cmd === 'get_config' && args?.key === 'daemon_token') {
+          return retried ? 'test-token' : '';
+        }
+        return undefined;
+      },
+    };
+
+    // Client starts as null (get_config returns '' before retry_daemon)
+    const { container } = await renderFrame({ client: null, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cannot reach Warsha daemon — retry')).toBeDefined();
+    });
+
+    const retryBtn = container.querySelector(
+      '[data-action="frame.daemon.retry"]'
+    ) as HTMLButtonElement;
+    expect(retryBtn).not.toBeNull();
+
+    // Click retry - should invoke retry_daemon, then reload client, then health succeeds
+    await act(async () => {
+      fireEvent.click(retryBtn);
+      await Promise.resolve();
+    });
+
+    // Verify retry_daemon was invoked
+    expect(invokeCalls.some((c) => c.cmd === 'retry_daemon')).toBe(true);
+    // Verify get_config was called for new endpoint
+    expect(invokeCalls.some((c) => c.cmd === 'get_config' && c.args?.key === 'daemon_url')).toBe(
+      true
+    );
+
+    // Banner should clear after successful health
+    await waitFor(() => {
+      expect(screen.queryByText('Cannot reach Warsha daemon — retry')).toBeNull();
+    });
+  });
+
+  // RR-1: Retry when retry_daemon rejects - surfaces error cleanly
+  it('RR-1: Tauri retry surfaces error when retry_daemon rejects', async () => {
+    const invokeCalls: { cmd: string; args?: Record<string, unknown> }[] = [];
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokeCalls.push({ cmd, args });
+        if (cmd === 'retry_daemon') throw new Error('Warsha is already running as pid 123');
+        return undefined;
+      },
+    };
+
+    const { container } = await renderFrame({ client: null, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cannot reach Warsha daemon — retry')).toBeDefined();
+    });
+
+    const retryBtn = container.querySelector(
+      '[data-action="frame.daemon.retry"]'
+    ) as HTMLButtonElement;
+    expect(retryBtn).not.toBeNull();
+
+    // Click retry - retry_daemon rejects, error should surface
+    await act(async () => {
+      fireEvent.click(retryBtn);
+      await Promise.resolve();
+    });
+
+    // Verify retry_daemon was invoked
+    expect(invokeCalls.some((c) => c.cmd === 'retry_daemon')).toBe(true);
+
+    // Error toast should appear with the shell reason
+    await waitFor(() => {
+      expect(screen.getByText('Warsha is already running as pid 123')).toBeDefined();
+    });
+  });
+
+  // RR-1: Retry when health initially fails but retry_daemon works
+  it('RR-1: Tauri retry invokes retry_daemon when health fails, then succeeds', async () => {
+    const invokeCalls: { cmd: string; args?: Record<string, unknown> }[] = [];
+    let retried = false;
+
+    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {
+      invoke: async (cmd: string, args?: Record<string, unknown>) => {
+        invokeCalls.push({ cmd, args });
+        if (cmd === 'retry_daemon') {
+          retried = true;
+          return undefined;
+        }
+        if (cmd === 'get_config' && args?.key === 'daemon_url') {
+          return retried ? 'http://127.0.0.1:9999' : 'http://127.0.0.1:1111';
+        }
+        if (cmd === 'get_config' && args?.key === 'daemon_ws_url') {
+          return retried ? 'ws://127.0.0.1:9998' : 'ws://127.0.0.1:1112';
+        }
+        if (cmd === 'get_config' && args?.key === 'daemon_token') return 'test-token';
+        return undefined;
+      },
+    };
+
+    vi.mocked(createClient).mockImplementation((baseUrl: string) => {
+      if (baseUrl === 'http://127.0.0.1:1111') {
+        return {
+          health: vi.fn().mockRejectedValue(new Error('Daemon down')),
+          listProjects: vi.fn().mockResolvedValue([]),
+          listRuns: vi.fn().mockResolvedValue([]),
+          getGates: vi.fn().mockResolvedValue([]),
+        } as unknown as WarshaClient;
+      }
+      return {
+        health: vi.fn().mockResolvedValue({ status: 'ok', version: '0.2.1' }),
+        listProjects: vi.fn().mockResolvedValue([]),
+        listRuns: vi.fn().mockResolvedValue([]),
+        getGates: vi.fn().mockResolvedValue([]),
+      } as unknown as WarshaClient;
+    });
+
+    const { container } = await renderFrame({ client: null, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cannot reach Warsha daemon — retry')).toBeDefined();
+    });
+
+    const retryBtn = container.querySelector(
+      '[data-action="frame.daemon.retry"]'
+    ) as HTMLButtonElement;
+    expect(retryBtn).not.toBeNull();
+
+    // Click retry - should invoke retry_daemon because health failed, then reload client
+    await act(async () => {
+      fireEvent.click(retryBtn);
+      await Promise.resolve();
+    });
+
+    // Verify retry_daemon was invoked (because health failed)
+    expect(invokeCalls.some((c) => c.cmd === 'retry_daemon')).toBe(true);
+    // Verify get_config was called for new endpoint
+    expect(invokeCalls.some((c) => c.cmd === 'get_config' && c.args?.key === 'daemon_url')).toBe(
+      true
+    );
+
+    // Banner should clear after successful health
+    await waitFor(() => {
+      expect(screen.queryByText('Cannot reach Warsha daemon — retry')).toBeNull();
+    });
+  });
+
+  // RR-1: Non-Tauri/browser mode retry still works
+  it('RR-1: Non-Tauri retry calls reloadClient + health cleanly', async () => {
+    // Ensure no Tauri internals
+    delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+
+    const healthMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Offline'))
+      .mockResolvedValue({ status: 'ok', version: '0.2.1' });
+
+    const client = makeMockClient({ health: healthMock });
+    const { container } = await renderFrame({ client, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Cannot reach Warsha daemon — retry')).toBeDefined();
+    });
+
+    const retryBtn = container.querySelector(
+      '[data-action="frame.daemon.retry"]'
+    ) as HTMLButtonElement;
+    expect(retryBtn).not.toBeNull();
+
+    // Click retry - should just call reloadClient (which will return the same client) and health
+    await act(async () => {
+      fireEvent.click(retryBtn);
+      await Promise.resolve();
+    });
+
+    // Health should have been called
+    expect(healthMock).toHaveBeenCalled();
+
+    // Banner should clear
+    await waitFor(() => {
+      expect(screen.queryByText('Cannot reach Warsha daemon — retry')).toBeNull();
     });
   });
 

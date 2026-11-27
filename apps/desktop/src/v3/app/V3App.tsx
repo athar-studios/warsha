@@ -9,14 +9,14 @@ import { RouteOutlet, RouterProvider } from '../router';
 import { WebMcpBridge } from '../webmcp/WebMcpBridge';
 
 import { CapabilitiesProvider } from './CapabilitiesContext';
-import { ClientProvider, useClient } from './ClientContext';
+import { ClientProvider, useClient, useClientResolved } from './ClientContext';
 import { DataReadyProvider } from './DataReadyContext';
 import { DensityProvider } from './DensityContext';
 import { ThemeProvider } from './ThemeContext';
 import { decideStartupRoute, type StartupErrorKey } from './startup';
 
 export interface V3AppProps {
-  client?: WarshaClient;
+  client?: WarshaClient | null;
   initialRoute?: string;
 }
 
@@ -27,6 +27,7 @@ interface StartupFailure {
 
 function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactElement {
   const client = useClient();
+  const clientResolved = useClientResolved();
   const t = useT();
   const [startupRoute, setStartupRoute] = useState<string | null>(initialRoute ?? null);
   const [startupError, setStartupError] = useState<StartupFailure | null>(null);
@@ -34,6 +35,9 @@ function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactEle
   useEffect(() => {
     if (initialRoute) {
       setStartupRoute(initialRoute);
+      return;
+    }
+    if (!clientResolved) {
       return;
     }
 
@@ -45,7 +49,7 @@ function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactEle
       }
     };
 
-    decideStartupRoute({ readConfig, client: client ?? undefined })
+    decideStartupRoute({ readConfig, client })
       .then((decision) => {
         setStartupRoute(decision.route);
         setStartupError(
@@ -61,7 +65,7 @@ function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactEle
           detail: err instanceof Error ? err.message : String(err),
         });
       });
-  }, [initialRoute, client]);
+  }, [initialRoute, client, clientResolved]);
 
   return (
     <RouterProvider initialPath={startupRoute ?? '/'}>
@@ -87,7 +91,7 @@ function V3AppInner({ initialRoute }: { initialRoute?: string }): React.ReactEle
 export function V3App({ client, initialRoute }: V3AppProps): React.ReactElement {
   return (
     <ClientProvider client={client}>
-      <CapabilitiesProvider client={client}>
+      <CapabilitiesProvider client={client ?? undefined}>
         <I18nProvider>
           <ThemeProvider>
             <DensityProvider>

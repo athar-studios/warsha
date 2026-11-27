@@ -1573,6 +1573,9 @@ export default function HomePage(): React.ReactElement {
                         <span key={provider.name}>
                           {index > 0 ? ', ' : null}
                           <bdi dir="ltr">{provider.name}</bdi>
+                          {provider.last_test_error?.trim() ? (
+                            <> (<bdi dir="auto">{provider.last_test_error.trim()}</bdi>)</>
+                          ) : null}
                         </span>
                       ))}
                       {after}

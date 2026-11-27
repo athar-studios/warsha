@@ -1343,7 +1343,9 @@ describe('HomePage provider health gating & error honesty (CLEAN-6 DEFECT 2)', (
     });
 
     const warning = screen.getByTestId('home-provider-warning');
-    expect(warning.textContent).toContain("The saved login for open_router doesn't work");
+    // RN-1: warning now includes last_test_error in parentheses
+    expect(warning.textContent).toContain("open_router (401 Unauthorized)");
+    expect(warning.textContent).toContain("The saved login for");
     const bdi = warning.querySelector('bdi[dir="ltr"]');
     expect(bdi?.textContent).toBe('open_router');
 
@@ -1497,5 +1499,98 @@ describe('HomePage provider health gating & error honesty (CLEAN-6 DEFECT 2)', (
     const banner = screen.getByTestId('home-error-banner');
     expect(banner.textContent).toContain('أعاد الخادم خطأ.');
     expect(banner.textContent).toContain('RPC error undefined: undefined');
+  });
+
+  // RN-1: Home provider warning shows stored last_test_error
+  it('RN-1: provider warning displays last_test_error when set', async () => {
+    const client = makeMockClient({
+      listProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'open_router',
+          kind: 'custom',
+          enabled: true,
+          last_test_ok: false,
+          last_test_at: 1700000000,
+          last_test_error: '401 Unauthorized',
+        },
+      ]),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'unauthenticated' }),
+    });
+
+    await renderHome({ client, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-provider-warning')).toBeDefined();
+    });
+
+    const warning = screen.getByTestId('home-provider-warning');
+    // Should contain the provider name
+    expect(warning.textContent).toContain('open_router');
+    // Should contain the last_test_error
+    expect(warning.textContent).toContain('401 Unauthorized');
+    // Should have bdi dir="auto" for the error
+    const errorBdi = warning.querySelector('bdi[dir="auto"]');
+    expect(errorBdi?.textContent).toBe('401 Unauthorized');
+  });
+
+  it('RN-1: provider warning renders cleanly when last_test_error is null', async () => {
+    const client = makeMockClient({
+      listProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'open_router',
+          kind: 'custom',
+          enabled: true,
+          last_test_ok: false,
+          last_test_at: 1700000000,
+          last_test_error: null,
+        },
+      ]),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'unauthenticated' }),
+    });
+
+    await renderHome({ client, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-provider-warning')).toBeDefined();
+    });
+
+    const warning = screen.getByTestId('home-provider-warning');
+    // Should contain the provider name
+    expect(warning.textContent).toContain('open_router');
+    // Should NOT have empty () from last_test_error
+    expect(warning.textContent).not.toContain('()');
+    // Should not have bdi dir="auto" for error when null
+    const errorBdi = warning.querySelector('bdi[dir="auto"]');
+    expect(errorBdi).toBeNull();
+  });
+
+  it('RN-1: provider warning displays last_test_error in Arabic RTL without corruption', async () => {
+    const client = makeMockClient({
+      listProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'open_router',
+          kind: 'custom',
+          enabled: true,
+          last_test_ok: false,
+          last_test_at: 1700000000,
+          last_test_error: '401 Unauthorized',
+        },
+      ]),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'unauthenticated' }),
+    });
+
+    await renderHome({ client, locale: 'ar' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-provider-warning')).toBeDefined();
+    });
+
+    const warning = screen.getByTestId('home-provider-warning');
+    // Should contain the provider name in LTR
+    const nameBdi = warning.querySelector('bdi[dir="ltr"]');
+    expect(nameBdi?.textContent).toBe('open_router');
+    // Should contain the last_test_error in auto dir
+    const errorBdi = warning.querySelector('bdi[dir="auto"]');
+    expect(errorBdi?.textContent).toBe('401 Unauthorized');
   });
 });

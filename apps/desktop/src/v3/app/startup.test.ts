@@ -84,6 +84,31 @@ describe('decideStartupRoute', () => {
     expect(decision.route).not.toBe('/onboarding');
   });
 
+  it('includes trimmed daemon_startup_error as errorDetail when client is null', async () => {
+    const opts: StartupOptions = {
+      readConfig: async (key) =>
+        key === 'daemon_startup_error' ? '  Warsha is already running as pid 4242...  ' : '',
+      client: null,
+    };
+    const decision = await decideStartupRoute(opts);
+    expect(decision.route).toBe('/');
+    expect(decision.error).toBe('startup.errors.daemon_unreachable');
+    expect(decision.errorDetail).toBe('Warsha is already running as pid 4242...');
+  });
+
+  it('ignores readConfig errors on daemon_startup_error when client is null', async () => {
+    const opts: StartupOptions = {
+      readConfig: async () => {
+        throw new Error('config unavailable');
+      },
+      client: null,
+    };
+    const decision = await decideStartupRoute(opts);
+    expect(decision.route).toBe('/');
+    expect(decision.error).toBe('startup.errors.daemon_unreachable');
+    expect(decision.errorDetail).toBeUndefined();
+  });
+
   it('routes to Frame route with danger error when readConfig throws, never onboarding', async () => {
     const opts: StartupOptions = {
       readConfig: async () => {

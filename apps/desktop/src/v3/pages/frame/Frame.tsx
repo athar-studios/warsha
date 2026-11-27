@@ -202,13 +202,54 @@ export function Frame({ children }: FrameProps): React.ReactElement {
 
   const retryAction = useAction('frame.daemon.retry', async () => {
     let activeClient = client;
-    if (!activeClient && reloadClient) {
-      activeClient = await reloadClient();
+
+    // Detect Tauri runtime cleanly
+    const isTauri =
+      typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+    if (isTauri) {
+      // In Tauri: if no client OR health fails, invoke retry_daemon first
+      let needsRetryDaemon = !activeClient;
+      if (activeClient) {
+        try {
+          const health = await activeClient.health();
+          if (!health || !health.status || !isDaemonHealthy(health.status)) {
+            needsRetryDaemon = true;
+          }
+        } catch {
+          needsRetryDaemon = true;
+        }
+      }
+
+      if (needsRetryDaemon) {
+        try {
+          await invoke('retry_daemon');
+        } catch (err) {
+          // retry_daemon rejected - surface exact shell reason
+          const msg = err instanceof Error ? err.message : String(err);
+          // Ensure health reloads so banner reflects latest state
+          healthResult.reload();
+          throw new Error(msg);
+        }
+      }
+
+      // Reload client to pick up updated daemon_url/daemon_ws_url/daemon_token
+      if (reloadClient) {
+        activeClient = await reloadClient();
+      }
+    } else {
+      // Non-Tauri / browser: just reload client if needed
+      if (!activeClient && reloadClient) {
+        activeClient = await reloadClient();
+      }
     }
+
     if (!activeClient) {
       healthResult.reload();
       throw new Error(t('frame.daemon_offline'));
     }
+
+    // Verify daemon is healthy
     await activeClient.health();
     healthResult.reload();
     projectsResult.reload();
