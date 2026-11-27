@@ -6,11 +6,13 @@ import { readDaemonEndpoint } from '../../daemon';
 
 export interface ClientContextValue {
   client: WarshaClient | null;
+  resolved: boolean;
   reloadClient: () => Promise<WarshaClient | null>;
 }
 
 const ClientContext = createContext<ClientContextValue>({
   client: null,
+  resolved: true,
   reloadClient: async () => null,
 });
 
@@ -21,10 +23,12 @@ export interface ClientProviderProps {
 
 export function ClientProvider({ client: clientProp, children }: ClientProviderProps): React.ReactElement {
   const [resolvedClient, setResolvedClient] = useState<WarshaClient | null>(() => clientProp ?? null);
+  const [resolved, setResolved] = useState<boolean>(() => clientProp !== undefined);
 
   const reloadClient = useCallback(async (): Promise<WarshaClient | null> => {
     if (clientProp) {
       setResolvedClient(clientProp);
+      setResolved(true);
       return clientProp;
     }
 
@@ -39,18 +43,21 @@ export function ClientProvider({ client: clientProp, children }: ClientProviderP
       if (endpoint.baseUrl) {
         const newClient = createClient(endpoint.baseUrl, endpoint.token);
         setResolvedClient(newClient);
+        setResolved(true);
         return newClient;
       }
     } catch {
       // In plain browser / test environment, endpoint may not resolve
     }
     setResolvedClient(null);
+    setResolved(true);
     return null;
   }, [clientProp]);
 
   useEffect(() => {
     if (clientProp) {
       setResolvedClient(clientProp);
+      setResolved(true);
       return;
     }
     void reloadClient();
@@ -59,9 +66,10 @@ export function ClientProvider({ client: clientProp, children }: ClientProviderP
   const value = useMemo<ClientContextValue>(
     () => ({
       client: resolvedClient,
+      resolved,
       reloadClient,
     }),
-    [resolvedClient, reloadClient]
+    [resolvedClient, resolved, reloadClient]
   );
 
   return <ClientContext.Provider value={value}>{children}</ClientContext.Provider>;
@@ -69,6 +77,10 @@ export function ClientProvider({ client: clientProp, children }: ClientProviderP
 
 export function useClient(): WarshaClient | null {
   return useContext(ClientContext).client;
+}
+
+export function useClientResolved(): boolean {
+  return useContext(ClientContext).resolved;
 }
 
 export function useReloadClient(): () => Promise<WarshaClient | null> {

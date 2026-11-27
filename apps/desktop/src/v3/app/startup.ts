@@ -39,10 +39,24 @@ function detailOf(err: unknown): string | undefined {
 export async function decideStartupRoute(options: StartupOptions): Promise<StartupDecision> {
   // If client is explicitly null (endpoint could not be resolved), daemon is unreachable
   if (options.client === null) {
-    return {
-      route: '/',
-      error: 'startup.errors.daemon_unreachable',
-    };
+    // Read daemon_startup_error to surface shell lock refusal or port-bind errors
+    let startupErr = '';
+    try {
+      startupErr = await options.readConfig('daemon_startup_error');
+    } catch {
+      // Ignore read errors
+    }
+    const detail = startupErr.trim();
+    return detail.length > 0
+      ? {
+          route: '/',
+          error: 'startup.errors.daemon_unreachable',
+          errorDetail: detail,
+        }
+      : {
+          route: '/',
+          error: 'startup.errors.daemon_unreachable',
+        };
   }
 
   // If client is provided, verify daemon health before anything else

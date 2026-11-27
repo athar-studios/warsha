@@ -1,16 +1,37 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { invoke } from '@tauri-apps/api/core';
 import { render, screen, waitFor } from '@testing-library/react';
 import type { WarshaClient } from '@warsha/client';
 import { LOCALE_STORAGE_KEY } from '@warsha/i18n/v3';
 import { fontSizes, lineHeights } from '@warsha/ui/v3';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mock @tauri-apps/api/core invoke at module level
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(),
+}));
 
 import { V3App } from './V3App';
 
 describe('V3App', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default mock: return empty string for all get_config calls
+    (invoke as ReturnType<typeof vi.fn>).mockImplementation(
+      async (cmd: string) => {
+        if (cmd === 'get_config') return '';
+        return '';
+      }
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('displays danger banner when startup decision errors and clears it when rerun succeeds', async () => {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
     const failingClient = {
@@ -69,6 +90,49 @@ describe('V3App', () => {
     } finally {
       window.localStorage.removeItem(LOCALE_STORAGE_KEY);
     }
+  });
+
+  // B-1: startup error surfacing - empty daemon_startup_error
+  it('renders danger banner with catalog message only when daemon_startup_error is empty', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+
+    const { container } = render(<V3App client={null} />);
+
+    await waitFor(() => {
+      const banner = container.querySelector('.v3-danger-banner');
+      expect(banner).not.toBeNull();
+      expect(banner).toHaveTextContent('Cannot reach the Warsha daemon');
+      // No detail span when daemon_startup_error is empty
+      const detail = banner?.querySelector('.v3-danger-detail');
+      expect(detail).toBeNull();
+    });
+  });
+
+  // B-1: startup error surfacing - populated daemon_startup_error
+  it('renders danger banner with daemon_startup_error detail when populated', async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, 'en');
+
+    // Mock invoke to return populated daemon_startup_error
+    (invoke as ReturnType<typeof vi.fn>).mockImplementation(
+      async (cmd: string, args?: Record<string, unknown>) => {
+        if (cmd === 'get_config' && args?.key === 'daemon_startup_error') {
+          return 'Warsha is already running as pid 4242...';
+        }
+        return '';
+      }
+    );
+
+    const { container } = render(<V3App />);
+
+    await waitFor(() => {
+      const banner = container.querySelector('.v3-danger-banner');
+      expect(banner).not.toBeNull();
+      expect(banner).toHaveTextContent('Cannot reach the Warsha daemon');
+      const detail = banner?.querySelector('.v3-danger-detail');
+      expect(detail).not.toBeNull();
+      expect(detail?.getAttribute('dir')).toBe('auto');
+      expect(detail).toHaveTextContent('Warsha is already running as pid 4242...');
+    });
   });
 
   it('renders Frame with route page and main data-ready="true"', () => {
