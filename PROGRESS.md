@@ -1,5 +1,27 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-27 — CLEAN-6 backend: stale daemon lock takeover, honest auth_start, provider-named failures, persisted last-test (D-RN-CLEAN6-1)
+
+- **Branch & worktree**: `r-next/clean6-backend` (base `9ec3e43`) in `.agents/worktrees/clean6-backend`. Code commit **`c899952`** (plus this `PROGRESS.md` commit). Local only; no push, merge, tag, or `main` changes. UI/TS lanes (`packages/client`, `packages/i18n`, `apps/desktop/src/**`) untouched.
+- **Changes**:
+  - **DEFECT 1 (`apps/desktop/src-tauri/src/lib.rs`)**: `daemon_for` parses holder PID + lock path on `DaemonError::Lock(reason)`, verifies **both** PID liveness (`/proc/<pid>` on Linux, `kill -0` on non-Linux Unix, `tasklist` on Windows) and an authorized `projects.list` RPC probe on `127.0.0.1:{ws_port}` with this shell's `auth_token`. Attaches (`owned: false`) only when both pass; otherwise logs via `append_note`, deletes stale `warshad.lock` + `warshad.pid`, retries `start_daemon` once (re-running verification if a second `Lock` occurs), and falls back to OS-chosen ports if still blocked. Added 3 regression tests (stale dead-pid lock takeover, stranger server on RPC port refuses silent attach, live sibling attaches unowned).
+  - **DEFECT 2(c) (`crates/warshad/src/{api.rs,lib.rs}`)**: added `AuthStartResponse::ApiKey { name }` (keeping `Pkce` and `Device` for future flows), removed the placeholder `http://localhost:8080/auth`, and returned `ApiKey { name }` from `provider_auth_start`.
+  - **DEFECT 2(b) (`crates/warsha-providers/src/{openai,anthropic}.rs`, `crates/warsha-pipeline/src/lib.rs`)**: removed the doubled `"Authentication failed: "` prefix at the 401/403 sites, threaded `provider: Option<String>` from `providers.route(role)` into `record_stage_failure` (emitting `"provider"` in `EventKind::Error` payload when routed, omitted when unrouted), and emitted the pinned auth `retry_hint` `"Log in to this provider again in Settings -> Models & providers"`. Added unit + pipeline regression tests.
+  - **DEFECT 2(a) (`crates/warsha-store/src/{lib.rs,settings.rs}`, `crates/warshad/src/{api.rs,lib.rs,rpc/mod.rs,settings.rs}`)**: added nullable `last_test_ok`, `last_test_at`, and `last_test_error` columns to `configured_providers` via `repair_provider_last_test`, persisted scrubbed outcomes on every `providers.test` completion, and exposed `last_test_ok: boolean | null`, `last_test_at: number | null`, `last_test_error: string | null` on `ProviderRecord` in `providers.list` while keeping `providers.auth_status` unchanged. Added store + daemon persistence regression tests.
+  - **Docs (`DECISIONS.md`)**: logged `D-RN-CLEAN6-1`.
+- **Verification**:
+  - `cargo fmt --all --check` (root, `CARGO_TARGET_DIR=/home/moe/tools/target-clean6-backend`): exit 0.
+  - `cargo fmt --check` (`apps/desktop/src-tauri`): exit 0.
+  - `cargo clippy --workspace --all-targets -- -D warnings` (`CARGO_TARGET_DIR=/home/moe/tools/target-clean6-backend`): exit 0.
+  - `cargo clippy --all-targets -- -D warnings` (`apps/desktop/src-tauri`, `CARGO_TARGET_DIR=/home/moe/tools/target-clean6-tauri`): exit 0.
+  - `cargo test -p warsha-git`: **17 passed** (14 unit + 3 integration), 0 failed, 0 ignored.
+  - `cargo test -p warsha-providers`: **83 passed** (74 unit + 9 failover), 0 failed, 0 ignored.
+  - `cargo test -p warsha-store`: **58 passed** (29 lib + 1 migration_safety + 4 run_version + 19 settings_characterization + 5 settings_migration), 0 failed, 0 ignored.
+  - `cargo test -p warsha-pipeline`: **680 passed**, 0 failed, 7 ignored.
+  - `cargo test -p warshad`: **443 passed**, 0 failed, 5 ignored.
+  - `cargo test` (`apps/desktop/src-tauri`, `CARGO_TARGET_DIR=/home/moe/tools/target-clean6-tauri`): **11 passed**, 0 failed, 0 ignored.
+  - `node scripts/check-engineering-policy.mjs`: exit 0 (**8 checks, 0 failures**).
+
 ## FIXES COMPLETE — CLEAN-5 — 2026-11-27
 
 Both blockers proven practically at the merged tip `bd4edcc`: the Playwright AR+EN walk at `/home/moe/tools/playwright-ux/runs/2026-11-27-bd4edcc/` (report.md, notes.json, captured.json, 14 screenshots) passed **31/31 checks** — B-1 creates a working project from an ordinary non-git folder after the localized confirm (files preserved, cancelled folder untouched), B-2 captures `"private": true` by default (explicit Public only by choice) with `"description": ""` — the idea never reaches the wire — and R-4 renders the daemon error translated with the raw detail preserved. Judges: r31 **PASS 94/100** at `97a5f1a` (`d9c8fbe`), r32 **PASS 100/100** at `dd85e30` (`c01d2e3`); records commit `bd4edcc` carries lane SHAs + merge SHAs + round. Full workspace gates green (`cargo test --workspace` 1473/0/13 at the base; per-crate and vitest/tsc/eslint/vite/policy gates recorded on the lanes). `main` untouched (`5f4b742`); nothing pushed, tagged, or published. R-2 (orphaned remote repo on partial failure) was not ordered and remains open.
