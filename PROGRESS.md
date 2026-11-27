@@ -1,5 +1,15 @@
 # PROGRESS.md — Warsha Build Log
 
+## FIXES COMPLETE — CLEAN-8 — 2026-11-27
+
+Test-only CLEAN-8 fix verified and merged into `r-next/integration` at **`219bb41`** (docs closeout on top), with **zero non-test product code changes** (non-test prefix `apps/desktop/src-tauri/src/lib.rs` lines 1–1494 verified byte-identical to `8e50063`), `main` untouched (`5f4b742`), onboarding merges kept frozen on their lanes, and zero push/tag/publish actions taken:
+- **Lane & Judge**: `r-next/clean8-test` @ **`aabf9ea`** — **Judge r42 PASS** (`/tmp/judge-clean8-test.md`, archived at `/home/moe/tools/judge-archive/judge-clean8-test-r42.md`), merged into `r-next/integration` as **`219bb41`**.
+- **Permanent Judge archive**: copied all 47 Judge & audit markdown records (`/tmp/judge-*.md`, `/tmp/clean7-security-audit.md`, `/tmp/clean7-walk-plan.md`) to `/home/moe/tools/judge-archive/`.
+- **Gates on merged `219bb41`**:
+  - `apps/desktop/src-tauri`: `cargo fmt --check`, `cargo clippy -q --all-targets -- -D warnings`, and **15/15** consecutive `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml` runs (`13 passed; 0 failed` per run, `0` failures).
+  - Rust workspace: `cargo fmt --all --check`, `cargo clippy -q --workspace --all-targets -- -D warnings`, `cargo test --workspace` (**70 suites, 1491 passed, 0 failed, 13 ignored**).
+  - JS/TS & policy: `packages/i18n` vitest (**2/64**); `packages/client` vitest (**2/214**) + `tsc` (`0`); `apps/desktop` vitest (**93/912**) + `tsc --noEmit` (`0`) + `tsc --noEmit -p tsconfig.e2e.json` (`0`) + `eslint` (`0` errors, `1` pre-existing warning at `apps/desktop/src/v3/pages/developers/index.tsx:291`) + `vite build` (`0`); `node scripts/check-engineering-policy.mjs` (**8 checks, 0 failures**).
+
 ## Run 2026-11-27 — CLEAN-8 test-only lane: eliminate `unused_port()` race and tighten stranger-port fallback assertion (`D-RN-CLEAN8-1`)
 
 - **Branch & worktree**: `r-next/clean8-test` (base `8e50063`) in `.agents/worktrees/clean8-test`. Local only; zero changes to non-test product code, `main`, or root checkout.
