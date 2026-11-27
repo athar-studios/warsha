@@ -71,6 +71,7 @@ export const Segmented: React.FC<SegmentedProps> = ({
         padding: 'var(--w-space-1)',
         gap: 'var(--w-space-1)',
         fontFamily: 'var(--w-font-sans)',
+        pointerEvents: 'none',
         ...style,
       }}
       data-action={dataAction}
@@ -108,10 +109,11 @@ export const Segmented: React.FC<SegmentedProps> = ({
               boxShadow: isSelected ? 'var(--w-shadow-1)' : 'none',
               cursor: optDisabled ? 'not-allowed' : 'pointer',
               opacity: optDisabled ? 0.5 : 1,
+              pointerEvents: 'auto',
               transition: 'background-color var(--w-dur-fast) var(--w-ease), color var(--w-dur-fast) var(--w-ease)',
             }}
           >
-            {opt.label}
+            <span style={{ pointerEvents: 'none' }}>{opt.label}</span>
           </button>
         );
       })}
