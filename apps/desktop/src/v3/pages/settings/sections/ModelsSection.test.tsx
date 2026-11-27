@@ -542,4 +542,95 @@ describe('ModelsSection - Model Discovery & Live List Diff', () => {
     expect(within(row).getByText('http://127.0.0.1:8000/v1')).toBeDefined();
     expect(within(row).queryByText('غير معروف')).toBeNull();
   });
+
+  it('opens prefilled login dialog on api_key response, upserts key, and refreshes providers', async () => {
+    const providers: ProviderConfig[] = [
+      {
+        name: '9router',
+        kind: 'custom',
+        enabled: true,
+        api_base: 'http://127.0.0.1:8000/v1',
+        last_test_ok: false,
+      },
+    ];
+    const listProviders = vi.fn().mockResolvedValue(providers);
+    const addProvider = vi.fn().mockResolvedValue(undefined);
+    const providerAuthStart = vi
+      .fn()
+      .mockResolvedValue({ kind: 'api_key', name: '9router' });
+    const client = createClient({
+      listProviders,
+      addProvider,
+      providerAuthStart,
+    });
+
+    renderSection(client, 'en');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-row-9router')).toBeDefined();
+    });
+
+    const row = screen.getByTestId('provider-row-9router');
+    const loginBtn = row.querySelector('[data-action="settings.provider.login"]') as HTMLElement;
+    expect(loginBtn).toBeDefined();
+    fireEvent.click(loginBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-login-dialog')).toBeDefined();
+    });
+    expect(providerAuthStart).toHaveBeenCalledWith('9router');
+
+    const dialog = screen.getByTestId('provider-login-dialog');
+    expect(dialog.textContent).toContain('Log in to 9router');
+    const nameInput = within(dialog).getByTestId('provider-form-name').querySelector('input')!;
+    const kindSelect = within(dialog).getByTestId('provider-form-kind').querySelector('select')!;
+    const apiBaseInput = within(dialog).getByTestId('provider-form-api-base').querySelector('input')!;
+    const keyInput = within(dialog).getByTestId('provider-form-key').querySelector('input')!;
+
+    expect(nameInput.value).toBe('9router');
+    expect(nameInput.disabled).toBe(true);
+    expect(kindSelect.value).toBe('custom');
+    expect(apiBaseInput.value).toBe('http://127.0.0.1:8000/v1');
+    expect(keyInput.value).toBe('');
+    expect(keyInput.required).toBe(true);
+
+    fireEvent.change(keyInput, { target: { value: 'sk-fresh-9router-key' } });
+    const saveBtn = dialog.querySelector('[data-action="settings.provider.add.save"]') as HTMLElement;
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(addProvider).toHaveBeenCalledWith({
+        name: '9router',
+        kind: 'custom',
+        key: 'sk-fresh-9router-key',
+        api_base: 'http://127.0.0.1:8000/v1',
+      });
+    });
+    await waitFor(() => {
+      expect(listProviders.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it('keeps pkce window.open behavior on Log in', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const providerAuthStart = vi
+      .fn()
+      .mockResolvedValue({ kind: 'pkce', url: 'https://auth.example.com/oauth' });
+    const client = createClient({ providerAuthStart });
+
+    renderSection(client, 'en');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-row-mock-provider')).toBeDefined();
+    });
+
+    const row = screen.getByTestId('provider-row-mock-provider');
+    const loginBtn = row.querySelector('[data-action="settings.provider.login"]') as HTMLElement;
+    fireEvent.click(loginBtn);
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith('https://auth.example.com/oauth');
+    });
+    expect(screen.queryByTestId('provider-login-dialog')).toBeNull();
+  });
 });

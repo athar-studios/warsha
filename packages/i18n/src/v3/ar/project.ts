@@ -60,6 +60,8 @@ export default {
   'project.run_cancelled_banner': 'أُلغي هذا التشغيل. يمكنك البدء من جديد متى شئت.',
   'project.retry_hint.stage_failed': 'راجع إعداد مزوّد النموذج ثم أعد محاولة هذه المرحلة',
   'project.retry_hint.provider_required': 'عيِّن مسار مزوّد لهذا الدور من الإعدادات ← النماذج',
+  'project.retry_hint.provider_auth':
+    'سجّل الدخول إلى هذا المزوّد مجددًا من الإعدادات ← النماذج والمزوّدين.',
   'project.run_cancel_open': 'ألغِ التشغيل',
   'project.run_cancel_confirm': 'نعم، ألغِ التشغيل',
   'project.run_cancel_dialog_title': 'إلغاء التشغيل الحالي',

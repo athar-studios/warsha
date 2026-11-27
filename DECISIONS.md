@@ -1,6 +1,24 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-27 — D-RN-CLEAN6-2: UI lane — provider-health composer banner & Start gating, failure provider naming, login-as-edit dialog, RPC error honesty
+
+- **Date / base**: 2026-11-27, isolated worktree `.agents/worktrees/clean6-ui`, branch `r-next/clean6-ui`, base `9ec3e43`. Local only; no push, tag, merge, publish, or real model API calls.
+- **Context**: CLEAN-6 DEFECT 2 identified three UX gaps around broken/expired provider keys plus raw error leakage on the home projects list: (a) Simple Home only checked `capabilities.provider` (`listProviders.length > 0`), letting Start launch a run that immediately dies 401 on a dead saved key; (b) project failure banners and activity rows did not name the failing provider or translate the daemon `provider_auth` retry hint; (c) clicking **Log in** on an API-key provider only handled `pkce` (`window.open`), doing nothing for `api_key` providers; and `home-error-banner` / `projects-error-banner` rendered raw `projectsResult.error.message` without `describeRpcError`.
+- **Decisions**:
+  1. **Composer health banner policy (warn-on-unhealthy, explicit proceed, never fake success)** (`apps/desktop/src/v3/pages/home/index.tsx`, `packages/client/src/index.ts`, `apps/desktop/src/v3/actions/registry/home.ts`):
+     - `ProviderConfig` gains optional `last_test_ok?: boolean | null`, `last_test_at?: number | null`, `last_test_error?: string | null` (absent on older daemons — never inferred as healthy).
+     - `findUnhealthyRoutedProviders(providers, routings, authStatuses)` inspects enabled providers routed to roles (falling back to all enabled providers when `routings` is empty) and flags any provider with `last_test_ok === false` OR (`last_test_ok !== true` and `authStatus.kind === 'unauthenticated'`).
+     - When unacknowledged, Simple Home renders `Banner` (`variant="attention"`, `data-testid="home-provider-warning"`) naming each affected provider in `<bdi dir="ltr">` with two actions: **Open provider settings** (`/settings/models`) and **Proceed anyway** (`data-testid="home-provider-proceed"`). `Start`, `Interview`, and `NewProjectDialog` submit remain `disabled` with `disabledReason` (`home.provider_warning.start_blocked`) until the owner explicitly acknowledges or fixes the provider; fresh installs with zero providers keep the existing `Add a model provider` CTA unchanged.
+  2. **Failure provider naming + localized auth retry hint** (`apps/desktop/src/v3/pages/project/index.tsx`):
+     - `extractEventProvider` and `findFailureProvider` extract `payload.provider` onto both `project-run-ended-banner` (`data-testid="project-banner-provider"`) and `project-latest-sentence` / activity feed items inside `<bdi dir="ltr">`.
+     - `retryHintKey` maps `"Log in to this provider again in Settings -> Models & providers"` to `project.retry_hint.provider_auth` (`en` + native MSA `ar`).
+  3. **Login-as-edit dialog for `api_key` providers** (`packages/client/src/index.ts`, `apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx`, `apps/desktop/src/v3/actions/registry/settings.ts`, `apps/desktop/e2e/v3/settings.spec.ts`):
+     - `AuthStartResponse` adds `{ kind: 'api_key'; name?: string }`.
+     - On **Log in** (`data-action="settings.provider.login"`), `kind === 'api_key'` opens the existing provider dialog in edit/login mode (`data-testid="provider-login-dialog"`, title `settings.providers.login_title`), prefilling locked `name`, `kind`, and `api_base`, clearing `key` as required, and reusing `client.addProvider(...)` upsert + `loadData()`. `pkce` (`window.open`) and `device` flows stay unchanged. No credential is read, prefilled, or logged.
+  4. **Projects-list error honesty** (`apps/desktop/src/v3/pages/home/index.tsx`, `apps/desktop/src/v3/pages/projects/index.tsx`):
+     - `home-error-banner` and `projects-error-banner` route `projectsResult.error` through `describeRpcError(err, t)` so the localized summary displays above the raw detail in `<bdi dir="auto">`.
+
 ## 2026-11-26 — D-RN-CLEAN5-1: private-by-default GitHub creation, existing-folder probe+prepare, clone token off argv
 
 - **Context**: external review of `2aef9ea` (`claude-code-verify-clean4-2026-11-26.md`) raised two release blockers and one residual: B-2 `projects.create_github_repo` created **public** repos by default (no `private` field in `CreateRepoBody`, GitHub defaults to public); B-1 the CLEAN-4 "existing folder" promise was unusable — `projects.create` rejects non-git folders via `validate_repository` with no prepare path; R-1 the HTTPS clone token traveled on the git **argv** (`-c http.extraHeader=...`, visible in process listings).

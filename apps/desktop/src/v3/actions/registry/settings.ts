@@ -75,8 +75,8 @@ export const ACTIONS: readonly ActionDef[] = [
     rpc: ['providers.disconnect'],
   },
   {
-    id: 'settings.provider.auth',
-    labelKey: 'settings.providers.auth_start',
+    id: 'settings.provider.login',
+    labelKey: 'settings.providers.login',
     effect: 'rpc',
     rpc: ['providers.auth_start'],
   },

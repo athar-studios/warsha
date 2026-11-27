@@ -126,6 +126,7 @@ export default {
   'settings.providers.validation.key_required': 'يرجى إدخال مفتاح API.',
   'settings.providers.error.no_client': 'العميل غير متصل بالخادم.',
   'settings.providers.login': 'سجّل الدخول',
+  'settings.providers.login_title': 'سجّل الدخول إلى {name}',
   'settings.providers.disconnect': 'قطع الاتصال',
   'settings.providers.auth.authenticated': 'مسجَّل الدخول',
   'settings.providers.auth.unauthenticated': 'لم يُسجَّل الدخول',

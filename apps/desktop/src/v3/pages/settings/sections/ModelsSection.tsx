@@ -126,6 +126,9 @@ export function ModelsSection(): React.ReactElement {
   // Destructive confirmation dialogs
   const [removeProviderTarget, setRemoveProviderTarget] = useState<ProviderConfig | null>(null);
   const [removeModelTarget, setRemoveModelTarget] = useState<CustomModelRecord | null>(null);
+  // DEFECT 2(c): which row opened the dialog in "log in" (edit) mode. The name
+  // field is disabled so the upsert path keeps a stable lookup key.
+  const [loginTarget, setLoginTarget] = useState<ProviderConfig | null>(null);
 
   // Add custom model inline inputs
   const [modelProvider, setModelProvider] = useState('');
@@ -198,6 +201,7 @@ export function ModelsSection(): React.ReactElement {
 
   const closeAddDialog = (): void => {
     setAddOpen(false);
+    setLoginTarget(null);
     setFormName('');
     setFormKind('openai');
     setFormKey('');
@@ -209,6 +213,27 @@ export function ModelsSection(): React.ReactElement {
     setDialogModelsError(null);
     setDialogSelectedModel('');
     setDialogManualModel('');
+  };
+
+  /**
+   * DEFECT 2(c): open the Add Provider dialog prefilled as an edit of the
+   * row: name + kind + api_base carried over, key cleared so the owner types
+   * a fresh one. Save reuses the same `providers.add` upsert as a new row.
+   */
+  const openLoginDialog = (provider: ProviderConfig): void => {
+    setLoginTarget(provider);
+    setFormName(provider.name);
+    setFormKind(provider.kind);
+    setFormKey('');
+    setFormApiBase(provider.api_base ?? '');
+    setFormError(null);
+    setSavePending(false);
+    setDialogDiscoveredModels([]);
+    setDialogDiscoveredFetched(false);
+    setDialogModelsError(null);
+    setDialogSelectedModel('');
+    setDialogManualModel('');
+    setAddOpen(true);
   };
 
   const addProviderAction = useAction('settings.provider.add.save', async () => {
@@ -583,13 +608,20 @@ export function ModelsSection(): React.ReactElement {
                       <Button
                         size="sm"
                         variant="ghost"
-                        data-action="settings.provider.auth"
+                        data-action="settings.provider.login"
                         onClick={async () => {
                           // Handle auth flow start
                           if (client) {
                             const start = await client.providerAuthStart(p.name);
                             if (start.kind === 'pkce') {
+                              if (start.url) {
                                 window.open(start.url);
+                              }
+                            } else if (start.kind === 'api_key') {
+                              // DEFECT 2(c): real rows are `api_key` — open the Add
+                              // Provider dialog prefilled as an edit so the owner
+                              // re-enters the key via the existing upsert path.
+                              openLoginDialog(p);
                             }
                           }
                         }}
@@ -906,13 +938,17 @@ export function ModelsSection(): React.ReactElement {
         </div>
       </Card>
 
-      {/* Add Provider Dialog */}
+      {/* Add Provider Dialog — doubles as Log in dialog in login mode (DEFECT 2c). */}
       <Dialog
         open={addOpen}
         onClose={closeAddDialog}
-        title={t('settings.providers.form.title')}
+        title={
+          loginTarget
+            ? t('settings.providers.login_title', { name: loginTarget.name })
+            : t('settings.providers.form.title')
+        }
         className="v3-provider-dialog"
-        data-testid="add-provider-dialog"
+        data-testid={loginTarget ? 'provider-login-dialog' : 'add-provider-dialog'}
       >
         <div
           style={{
@@ -939,6 +975,7 @@ export function ModelsSection(): React.ReactElement {
             }}
             dir="ltr"
             data-testid="provider-form-name"
+            disabled={loginTarget !== null}
           />
           <Select
             label={t('settings.providers.form.kind')}

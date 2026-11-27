@@ -1310,3 +1310,142 @@ describe('buildNeedsYou unit logic', () => {
     expect(rows[0].subject).toBe('Alpha Project · run-1 · bench.stage.gate_a');
   });
 });
+
+describe('HomePage provider health gating & error honesty (CLEAN-6 DEFECT 2)', () => {
+  beforeEach(() => {
+    clearInterviewEntry('proj-1');
+    clearToastListeners();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('shows warning banner and disables Start when a routed provider has last_test_ok: false, then allows Start after Proceed anyway', async () => {
+    const client = makeMockClient({
+      listProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'open_router',
+          kind: 'custom',
+          enabled: true,
+          last_test_ok: false,
+          last_test_at: 1700000000,
+          last_test_error: '401 Unauthorized',
+        },
+      ]),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'unauthenticated' }),
+    });
+
+    await renderHome({ client, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-provider-warning')).toBeDefined();
+    });
+
+    const warning = screen.getByTestId('home-provider-warning');
+    expect(warning.textContent).toContain("The saved login for open_router doesn't work");
+    const bdi = warning.querySelector('bdi[dir="ltr"]');
+    expect(bdi?.textContent).toBe('open_router');
+
+    const ideaInput = document.getElementById('home-idea-input') as HTMLTextAreaElement;
+    fireEvent.change(ideaInput, { target: { value: 'Build a calm invoice tracker' } });
+
+    const startBtn = screen.getByTestId('home-start-button') as HTMLButtonElement;
+    const interviewBtn = screen.getByTestId('home-interview-button') as HTMLButtonElement;
+    expect(startBtn.disabled).toBe(true);
+    expect(startBtn.getAttribute('aria-disabled')).toBe('true');
+    expect(interviewBtn.disabled).toBe(true);
+    expect(interviewBtn.getAttribute('aria-disabled')).toBe('true');
+
+    fireEvent.click(startBtn);
+    expect(client.createProject).not.toHaveBeenCalled();
+
+    const proceedBtn = screen.getByTestId('home-provider-proceed');
+    fireEvent.click(proceedBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('home-provider-warning')).toBeNull();
+    });
+    const enabledStartBtn = screen.getByTestId('home-start-button') as HTMLButtonElement;
+    const enabledInterviewBtn = screen.getByTestId('home-interview-button') as HTMLButtonElement;
+    expect(enabledStartBtn.disabled).toBe(false);
+    expect(enabledInterviewBtn.disabled).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(enabledStartBtn);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(client.createProject).toHaveBeenCalledTimes(1);
+      expect(client.startRun).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('hides warning banner and keeps Start enabled when routed provider has last_test_ok: true', async () => {
+    const client = makeMockClient({
+      listProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'open_router',
+          kind: 'custom',
+          enabled: true,
+          last_test_ok: true,
+          last_test_at: 1700000000,
+          last_test_error: null,
+        },
+      ]),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'authenticated' }),
+    });
+
+    await renderHome({ client, locale: 'en' });
+
+    await waitFor(() => {
+      expect(client.listProviders).toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId('home-provider-warning')).toBeNull();
+
+    const ideaInput = document.getElementById('home-idea-input') as HTMLTextAreaElement;
+    fireEvent.change(ideaInput, { target: { value: 'Build a calm invoice tracker' } });
+    const startBtn = screen.getByTestId('home-start-button') as HTMLButtonElement;
+    expect(startBtn.disabled).toBe(false);
+  });
+
+  it('falls back to checking enabled unauthenticated providers when role routings are empty', async () => {
+    const client = makeMockClient({
+      listRoleRoutings: vi.fn().mockResolvedValue([]),
+      listProviders: vi.fn().mockResolvedValue([
+        {
+          name: '9router',
+          kind: 'custom',
+          enabled: true,
+          last_test_ok: null,
+        },
+      ]),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'unauthenticated' }),
+    });
+
+    await renderHome({ client, locale: 'ar' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-provider-warning')).toBeDefined();
+    });
+    const warning = screen.getByTestId('home-provider-warning');
+    expect(warning.querySelector('bdi[dir="ltr"]')?.textContent).toBe('9router');
+    expect(warning.textContent).toContain('تعذّر استخدام تسجيل الدخول المحفوظ');
+  });
+
+  it('routes projects-list RPC errors through describeRpcError instead of raw error alone', async () => {
+    const client = makeMockClient({
+      listProjects: vi.fn().mockRejectedValue(new Error('RPC error undefined: undefined')),
+    });
+
+    await renderHome({ client, locale: 'ar' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-error-banner')).toBeDefined();
+    });
+    const banner = screen.getByTestId('home-error-banner');
+    expect(banner.textContent).toContain('أعاد الخادم خطأ.');
+    expect(banner.textContent).toContain('RPC error undefined: undefined');
+  });
+});

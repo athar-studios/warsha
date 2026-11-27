@@ -1056,9 +1056,9 @@ test.describe('Settings v3', () => {
     await expectRpc(page, 'providers.disconnect');
   });
 
-  test('actions: settings.provider.auth', async ({ page }) => {
+  test('actions: settings.provider.login', async ({ page }) => {
     await openV3(page, '/settings/models', { lang: 'en' });
-    await act(page, 'settings.provider.auth');
+    await act(page, 'settings.provider.login');
     await expectRpc(page, 'providers.auth_start');
   });
 

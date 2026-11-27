@@ -15,7 +15,8 @@ export interface AuthStatus {
 }
 
 export interface AuthStartResponse {
-  kind: 'pkce' | 'device';
+  kind: 'pkce' | 'device' | 'api_key';
+  name?: string;
   url?: string;
   user_code?: string;
   verification_uri?: string;
@@ -763,6 +764,16 @@ export interface ProviderConfig {
    */
   api_base?: string;
   budgetUsd?: number;
+  /**
+   * Last connection-test outcome for the row (`providers.list`, backend lane
+   * contract): `true` when the stored key last worked, `false` when it last
+   * failed, `null` when never tested. `last_test_error` carries the raw daemon
+   * detail and `last_test_at` the unix timestamp, when known. Absent on older
+   * daemons — the UI treats missing fields as unknown, never as healthy.
+   */
+  last_test_ok?: boolean | null;
+  last_test_at?: number | null;
+  last_test_error?: string | null;
 }
 
 export interface RoutingTargetConfig {

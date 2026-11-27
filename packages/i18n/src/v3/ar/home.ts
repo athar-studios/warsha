@@ -7,6 +7,13 @@ export default {
   'home.start': 'ابدأ المشروع',
   'home.estimate.line': 'التكلفة التقديرية لهذه الجولة: ${min}–${max} (تقديرية)',
   'home.provider_add': 'أضِف مزوّدًا أولًا',
+  'home.provider_warning.title': 'تسجيل دخول المزوّد المحفوظ يحتاج إلى انتباه',
+  'home.provider_warning.body':
+    'تعذّر استخدام تسجيل الدخول المحفوظ لـ {name} — سجّل الدخول مجددًا في الإعدادات ← النماذج والمزوّدين.',
+  'home.provider_warning.proceed': 'المتابعة رغم ذلك',
+  'home.provider_warning.open_settings': 'فتح الإعدادات ← النماذج والمزوّدين',
+  'home.provider_warning.start_blocked':
+    'زر البدء معطّل حتى تُصلح تسجيل دخول المزوّد أو تختار المتابعة رغم ذلك.',
   'home.defaults_prefix': 'النموذج',
   'home.defaults_budget_prefix': 'حدّ الإنفاق',
   'home.defaults_open': 'تغيير',

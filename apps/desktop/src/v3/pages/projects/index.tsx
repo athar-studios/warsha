@@ -23,6 +23,7 @@ import { useDataReady } from '../../app/DataReadyContext';
 import { useDensity } from '../../app/DensityContext';
 import { getSimpleStageLabelKey } from '../../copy/stages';
 import { useProjects } from '../../data';
+import { describeRpcError } from '../../data/rpcErrors';
 import { useNavigate } from '../../router';
 import { RunModeChip, toRunModeChip } from '../bench/components/RunModeChip';
 import { countPendingGatesAtCurrentStage } from '../frame/Frame';
@@ -406,6 +407,9 @@ export default function ProjectsPage(): React.ReactElement {
 
   const isInitialLoading = projectsResult.status === 'loading';
   const isError = projectsResult.status === 'error';
+  const projectsListError = projectsResult.error
+    ? describeRpcError(projectsResult.error, t)
+    : null;
   const isTotalEmpty =
     projectsResult.status === 'empty' ||
     (projectsResult.status === 'ready' && rawProjects.length === 0);
@@ -443,7 +447,16 @@ export default function ProjectsPage(): React.ReactElement {
             data-testid="projects-error-banner"
           >
             <Banner variant="danger" title={t('projects.error_title')} action={retryButtonElement}>
-              <bdi dir="auto">{projectsResult.error?.message || t('common.error')}</bdi>
+              {projectsListError ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-1)' }}>
+                  <span>{t(projectsListError.key)}</span>
+                  {projectsListError.detail ? (
+                    <bdi dir="auto">{projectsListError.detail}</bdi>
+                  ) : null}
+                </div>
+              ) : (
+                t('common.error')
+              )}
             </Banner>
           </div>
         )}
