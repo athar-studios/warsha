@@ -1,5 +1,27 @@
 # PROGRESS.md — Warsha Build Log
 
+## FIXES COMPLETE — CLEAN-6 — 2026-11-27
+
+All CLEAN-6 defects and the open pointer question resolved and verified at merged tip **`2e170b4`** (`r-next/integration`), with `main` untouched (`5f4b742`), onboarding merges kept frozen on their lanes, and zero publish/push/tag actions taken:
+- **DEFECT 1 (stale daemon lock)**: `apps/desktop/src-tauri/src/lib.rs` (`daemon_for` / `verify_lock_holder`) checks both holder PID liveness and an authorized `projects.list` probe using `config.auth_token`, attaching unowned only when both pass and otherwise removing the stale lock/pid files, retrying once, or falling back to OS ports (3 unit tests + stale-lock daemon launch proven in walk).
+- **DEFECT 2(a)/(b)/(c) + provider cooldown reset**:
+  - `warsha-store` persists `last_test_ok` / `last_test_at` / `last_test_error`, `warshad` populates `has_stored_key` in `providers.list` (`KEYCHAIN_TIMEOUT`-bounded), returns `AuthStartResponse::ApiKey { name }` from `providers.auth_start`, and calls `reset_cooldown(&name)` on `provider_auth_complete`, `provider_disconnect`, `add_provider`, healthy `test_provider`, and `remove_provider` (4 regression tests).
+  - `warsha-providers` drops the doubled `"Authentication failed: "` prefix; `warsha-pipeline` emits `provider` and pinned `retry_hint` `"Log in to this provider again in Settings -> Models & providers"` on `ProviderError::Auth`.
+  - `packages/client` strictly decodes Rust externally-tagged `AuthStatus` / `AuthStartResponse` enums; `HomePage` (`findUnhealthyRoutedProviders`, `home-provider-warning`, Start/Interview/`NewProjectDialog` gating, `home-provider-proceed` override) warns before Start; `ProjectPage` renders `<bdi dir="ltr">` provider name and localized `project.retry_hint.provider_auth`; `ModelsSection` shows `settings.provider.login` when unauthenticated or failed and opens prefilled `provider-login-dialog`.
+- **OPEN QUESTION (ProjectSourcePicker mouse clicks)**: Standalone pointer probe at `/home/moe/tools/playwright-ux/runs/2026-11-27-segprobe/` passed **60/60** across EN+AR, DPR `1.0`/`1.25`/`1.5`, raw CDP move/down/up (center, label, 2px corners), press-dwell-release, and Playwright clicks; classified as a native WebKitGTK↔Wayland webview artifact, not an element-level hit-test bug, and re-verified by pointer clicks in the CLEAN-6 walk.
+- **Playwright EN+AR walk (`2e170b4`)**: `/home/moe/tools/playwright-ux/runs/2026-11-27-2e170b4/` (`report.md`, `notes.json`, 12 screenshots) passed **25/25 checks, 0 failed, 0 console errors** — covering stale-lock daemon launch, persisted `last_test_ok=false`, Home + dialog Start gating + Proceed override, 401 failure attribution + localized EN/AR Settings hint, Log-in dialog prefill + re-test + cooldown clear, mouse-switched `ProjectSourcePicker` across all 4 modes, and B-1 confirm/cancel/git-init re-walk.
+
+## Run 2026-11-27 — CLEAN-6 FIX ROUND merge & Judge record (round CLEAN-6; merge freeze lifted for this round only)
+
+- **Lanes judged at their exact SHAs, then merged into `r-next/integration`:**
+  - UI `r-next/clean6-ui` @ `827f8a5` (impl `d2d4eee`) — **Judge r33 PASS 98/100** (`/tmp/judge-clean6-ui.md`, cites SHA `827f8a5`, round `r33`). Merged as **`dcb81f3`**.
+  - Backend `r-next/clean6-backend` @ `6e730c4` (impl `c899952`) — **Judge r34 PASS 97/100** (`/tmp/judge-clean6-backend.md`, cites SHA `6e730c4`, round `r34`). Merged as **`94c7eb9`**.
+  - Backend follow-up `r-next/clean6-backend` @ `a6f8198` (`has_stored_key` in `providers.list`) — **Judge r35 PASS 8/8** (`/tmp/judge-clean6-backend-r35.md`, cites SHA `a6f8198`, round `r35`). Merged as **`2cba81a`**.
+  - UI follow-up `r-next/clean6-ui` @ `81b9041` (strict Rust-enum auth decoders + `has_stored_key` + Log-in button on failed test) — **Judge r36 PASS 7/7** (`/tmp/judge-clean6-ui-r36.md`, cites SHA `81b9041`, round `r36`; superseded prior OpenRouter 429 rate-limit attempt). Merged as **`4605dcb`**.
+  - Backend cooldown fix `r-next/clean6-backend` @ `d5a03da` (`reset_cooldown` on credential/lifecycle updates + 4 tests) — **Judge r38 PASS 10/10** (`/tmp/judge-clean6-backend-r38.md`, cites SHA `d5a03da`, round `r38`; superseded malformed-XML r37 attempt). Merged as **`2e170b4`**.
+- **Union-resolved**: `DECISIONS.md` (`D-RN-CLEAN6-1`, `D-RN-CLEAN6-2`) and `PROGRESS.md` on `dcb81f3`; zero conflict markers.
+- **Final integration gates**: logged under `/home/moe/tools/gates-4605dcb/` + final post-`2e170b4`/doc-commit run recorded below.
+
 ## Run 2026-11-27 — CLEAN-6 backend: stale daemon lock takeover, honest auth_start, provider-named failures, persisted last-test (D-RN-CLEAN6-1)
 
 - **Branch & worktree**: `r-next/clean6-backend` (base `9ec3e43`) in `.agents/worktrees/clean6-backend`. Code commit **`c899952`** (plus this `PROGRESS.md` commit). Local only; no push, merge, tag, or `main` changes. UI/TS lanes (`packages/client`, `packages/i18n`, `apps/desktop/src/**`) untouched.
