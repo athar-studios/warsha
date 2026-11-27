@@ -649,6 +649,36 @@ async fn wait_for_stage(
     }
 }
 
+/// Poll `runs.events` until at least `min` events are persisted, or fail after 5s.
+///
+/// `wait_for_stage` returns as soon as the run row flips to `GateA` while the
+/// trailing `StageStarted` event is persisted immediately afterward in the same
+/// advance, so an immediate `runs.events` read can still observe the stage flip
+/// before the third event lands.
+async fn wait_for_min_events(
+    rpc: &WarshaRpc,
+    ext: &warshad::RpcExtensions,
+    run_id: warsha_core::RunId,
+    min: usize,
+) -> Vec<Event> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let events = rpc
+            .get_events(ext, run_id)
+            .await
+            .expect("the run's events are readable");
+        if events.len() >= min {
+            return events;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "events stayed at {} instead of reaching {min}: {events:?}",
+            events.len()
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 #[tokio::test]
 async fn e2e_real_arabic_request_clinic_flow() {
     let _env_guard = ENV_LOCK.lock().await;
@@ -711,12 +741,10 @@ async fn e2e_real_arabic_request_clinic_flow() {
         "brief artifact must be present after intake execution"
     );
 
-    // Initial event is logged
-    let events = rpc
-        .get_events(&ext, run.id)
-        .await
-        .expect("the run's events are readable");
-    assert_eq!(events.len(), 3);
+    // The run's append-only log records stage_started(idea), agent_step(idea),
+    // and stage_started(gate_a); the third can land just after the run row flips.
+    let events = wait_for_min_events(&rpc, &ext, run.id, 3).await;
+    assert_eq!(events.len(), 3, "unexpected events: {events:?}");
     assert_eq!(events[0].kind, EventKind::StageStarted);
     assert_eq!(events[0].stage, Stage::Idea);
 

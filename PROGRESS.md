@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-27 — CLEAN-9 test-only lane: poll for expected intake events in `e2e_real_arabic_request.rs` (`D-RN-CLEAN9-1`)
+
+- **Branch & worktree**: `r-next/clean9-test` (base `55825fc`) in `.agents/worktrees/clean9-test`. Local only; zero changes to non-test product code, `main`, or root checkout; no push, tag, or publish.
+- **Changes**:
+  - `crates/warshad/tests/e2e_real_arabic_request.rs`: added `wait_for_min_events(&rpc, &ext, run_id, min)` (5s deadline, 50ms poll via `rpc.get_events`) beside `wait_for_stage` and replaced the immediate `rpc.get_events(&ext, run.id)` read after `wait_for_stage(..., Stage::GateA)` with `wait_for_min_events(&rpc, &ext, run.id, 3).await` + `assert_eq!(events.len(), 3, "unexpected events: {events:?}")`, keeping all event assertions intact. Verified no other site in `e2e_real_arabic_request.rs` asserts event counts immediately after an async `wait_for_stage`.
+  - `DECISIONS.md`: logged `D-RN-CLEAN9-1` deferring the multi-crate `Store` atomic stage+event transaction redesign out of the test-only CLEAN-9 round.
+- **Verification**: `cargo fmt --all --check` exit 0; `CARGO_TARGET_DIR=/home/moe/tools/target-clean9-test cargo clippy -q --workspace --all-targets -- -D warnings` exit 0; `e2e_real_arabic_request_clinic_flow` passed **30/30** consecutive runs (`1 passed; 0 failed` per run); `node scripts/check-engineering-policy.mjs` exit 0 (**8 checks, 0 failures**).
+
 ## FIXES COMPLETE — CLEAN-8 — 2026-11-27
 
 Test-only CLEAN-8 fix verified and merged into `r-next/integration` at **`219bb41`** (docs closeout on top), with **zero non-test product code changes** (non-test prefix `apps/desktop/src-tauri/src/lib.rs` lines 1–1494 verified byte-identical to `8e50063`), `main` untouched (`5f4b742`), onboarding merges kept frozen on their lanes, and zero push/tag/publish actions taken:

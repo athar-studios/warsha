@@ -1,6 +1,15 @@
 
 # DECISIONS.md — Architecture and Design Decisions
 
+## 2026-11-27 — D-RN-CLEAN9-1: poll for expected events in `e2e_real_arabic_request.rs`; defer atomic stage+event `Store` transaction
+
+- **Branch / base**: `r-next/clean9-test`, base `55825fc`, isolated worktree `.agents/worktrees/clean9-test`. Local only; test-only round with zero changes to non-test product code, `main`, or the root checkout; no push, tag, or publish.
+- **Question**: Should stage persistence (`store.update_run_cas`) and `StageStarted`/lifecycle event persistence (`store.append_event`) be atomic in one transaction, or should `GateA` wait until events are written?
+- **Assessment & Decision (Deferred, non-blocking)**:
+  1. **Product assessment**: Making stage + event writes atomic in a single storage transaction (e.g., `update_run_cas_with_events`) would prevent any reader polling `runs.get` + `events.list` from observing a new stage (such as `GateA`) before its trailing `StageStarted` event is persisted.
+  2. **Why deferred**: `warsha_store::Store` (`crates/warsha-store/src/lib.rs`) separates `update_run_cas` and `append_event` across 18 transition sites in `crates/warsha-pipeline/src/lib.rs` (e.g., lines 939/953, 2066/2071, 2144/2165, 2298/2316, 2330/2348, 2354/2367, 2374/2387, 2740/2764), and flipping the write order (`append_event` before `update_run_cas`) risks orphaned events on a CAS `VersionConflict`. Redesigning the `Store` persistence boundary across `warsha-store` and `warsha-pipeline` is therefore deferred out of the test-only CLEAN-9 round.
+  3. **Test-only fix (`crates/warshad/tests/e2e_real_arabic_request.rs`)**: Added `wait_for_min_events(&rpc, &ext, run_id, min)` (5s deadline, 50ms poll via `rpc.get_events`, matching `crates/warshad/tests/e2e_request_to_artifact.rs`) and replaced the immediate `rpc.get_events(&ext, run.id)` read after `wait_for_stage(..., Stage::GateA)` with `wait_for_min_events(&rpc, &ext, run.id, 3).await`, keeping all event count and content assertions unchanged. Verified no other site in `e2e_real_arabic_request.rs` asserts event counts right after an async `wait_for_stage`.
+
 ## 2026-11-27 — D-RN-CLEAN6-1: stale daemon lock takeover, honest auth_start, provider-named failures, persisted last-test
 
 - **Branch / base**: `r-next/clean6-backend`, base `9ec3e43`, isolated worktree `.agents/worktrees/clean6-backend`. Local only; no push, tag, merge, or UI/TS edits.
