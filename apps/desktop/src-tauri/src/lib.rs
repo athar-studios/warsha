@@ -1387,49 +1387,26 @@ fn retry_daemon(state: State<'_, ShellState>) -> Result<DaemonEndpoint, String> 
     state.retry_daemon()
 }
 
-/// Build and run the app: start the daemon, publish where it is, and reap it on exit.
+/// Build and run the app: guard single-instance, start the daemon, publish where it is, and reap it on exit.
 ///
-/// The daemon starts *before* the window is created, and synchronously. The webview's first
-/// `get_config` therefore cannot race the daemon's ports, which is the failure mode a background
-/// start would introduce: the frontend would read an empty `daemon_url` and fall back to its
-/// development defaults.
+/// Plugin registration order in `tauri::Builder::default()` is load-bearing (`tauri-2.12.5`'s
+/// `initialize_plugins` initializes plugins in registration order before `app::setup()` creates
+/// the `"main"` window from `tauri.conf.json`):
+///
+/// 1. `tauri-plugin-single-instance` runs first; a second Tauri GUI launch focuses the existing
+///    instance's `"main"` window and exits inside `initialize_plugins` *before* `"warsha-shell-init"`
+///    (and therefore before [`start_shell`] / [`daemon_for`]) ever executes.
+/// 2. `"warsha-shell-init"` runs immediately after on the first instance, calling [`start_shell`]
+///    synchronously and calling `app.manage(shell)` *before* `app::setup()` creates the `"main"`
+///    webview window. The webview's first `get_config` therefore cannot race the daemon's ports,
+///    which is the failure mode a background start would introduce: the frontend would read an
+///    empty `daemon_url` and fall back to its development defaults.
 pub fn run() -> anyhow::Result<()> {
-    let (data_dir, outcome) = start_shell();
-    let settings_path = data_dir.join(SETTINGS_FILE);
-    let log_path = data_dir.join(LOG_FILE);
-
-    let (endpoint, process, startup_error) = match outcome {
-        Ok((endpoint, process)) => (endpoint, process, None),
-        Err(error) => (
-            DaemonEndpoint {
-                base_url: String::new(),
-                ws_url: String::new(),
-                token: String::new(),
-                owned: false,
-            },
-            None,
-            Some(error),
-        ),
-    };
-
-    // Initialize ShellState with Mutex fields for endpoint and startup_error
-    // Note: The tauri-plugin-single-instance plugin runs in its setup BEFORE app.setup(),
-    // so we must initialize ShellState here (not in .setup()) to ensure the second Tauri
-    // process exits inside the plugin BEFORE start_shell() runs.
-    let shell = ShellState {
-        endpoint: Mutex::new(endpoint),
-        startup_error: Mutex::new(startup_error),
-        process: Mutex::new(process),
-        settings: Mutex::new(read_settings(&settings_path)),
-        settings_path,
-        log_path,
-        data_dir,
-    };
-
     let app = tauri::Builder::default()
-        // tauri-plugin-single-instance MUST be the FIRST plugin so its setup runs before app.setup().
-        // This ensures a second Tauri GUI process exits inside the plugin (focusing the existing
-        // "main" window) BEFORE start_shell() runs and attempts to bind ports or acquire the lock.
+        // tauri-plugin-single-instance MUST be the FIRST plugin so its setup runs first inside
+        // initialize_plugins() (before app::setup() creates "main" and before warsha-shell-init).
+        // A second Tauri GUI process focuses the existing "main" window and exits inside this
+        // plugin BEFORE start_shell() ever runs or touches warshad.lock / daemon ports.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
@@ -1437,9 +1414,46 @@ pub fn run() -> anyhow::Result<()> {
                 let _ = w.set_focus();
             }
         }))
+        // Run start_shell() and manage ShellState immediately after single-instance verification,
+        // still inside initialize_plugins() and therefore synchronously before app::setup()
+        // creates the "main" webview window.
+        .plugin(
+            tauri::plugin::Builder::<_, ()>::new("warsha-shell-init")
+                .setup(|app, _api| {
+                    let (data_dir, outcome) = start_shell();
+                    let settings_path = data_dir.join(SETTINGS_FILE);
+                    let log_path = data_dir.join(LOG_FILE);
+
+                    let (endpoint, process, startup_error) = match outcome {
+                        Ok((endpoint, process)) => (endpoint, process, None),
+                        Err(error) => (
+                            DaemonEndpoint {
+                                base_url: String::new(),
+                                ws_url: String::new(),
+                                token: String::new(),
+                                owned: false,
+                            },
+                            None,
+                            Some(error),
+                        ),
+                    };
+
+                    let shell = ShellState {
+                        endpoint: Mutex::new(endpoint),
+                        startup_error: Mutex::new(startup_error),
+                        process: Mutex::new(process),
+                        settings: Mutex::new(read_settings(&settings_path)),
+                        settings_path,
+                        log_path,
+                        data_dir,
+                    };
+                    app.manage(shell);
+                    Ok(())
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(shell)
         .invoke_handler(tauri::generate_handler![
             get_config,
             set_config,
