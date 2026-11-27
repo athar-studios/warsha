@@ -10,6 +10,6 @@
     "test": "mdbook test"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.20.2"
   }
 }

@@ -11,5 +11,5 @@ workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
-sha2 = "0.10"
-hex = "0.4"
+sha2 = "0.11.2"
+hex = "0.4.3"

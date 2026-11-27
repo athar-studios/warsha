@@ -20,11 +20,11 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 ulid = { workspace = true }
 chrono = { workspace = true }
-async-trait = "0.1"
+async-trait = "0.1.92"
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = "0.2.191"
 
 [dev-dependencies]
 tempfile = { workspace = true }
-futures = "0.3"
+futures = "0.3.34"
