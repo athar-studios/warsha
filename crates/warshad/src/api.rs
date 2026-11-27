@@ -937,6 +937,8 @@ pub struct ProviderRecord {
     pub last_test_ok: Option<bool>,
     pub last_test_at: Option<u64>,
     pub last_test_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_stored_key: Option<bool>,
 }
 
 impl From<StoredProvider> for ProviderRecord {
@@ -949,6 +951,7 @@ impl From<StoredProvider> for ProviderRecord {
             last_test_ok: provider.last_test_ok,
             last_test_at: provider.last_test_at,
             last_test_error: provider.last_test_error,
+            has_stored_key: None,
         }
     }
 }
