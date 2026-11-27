@@ -1,5 +1,32 @@
 # PROGRESS.md — Warsha Build Log
 
+## FIXES COMPLETE — CLEAN-7 — 2026-11-27
+
+All CLEAN-7 fixes (BLOCKER B-1, RR-1, RN-1, RR-3) verified and merged at tip **`c5069d5`** (`r-next/integration`, docs closeout on top), with `main` untouched (`5f4b742`), onboarding merges kept frozen on their lanes, `RR-2` untouched per owner order, and zero publish/push/tag actions taken:
+- **BLOCKER B-1 (never delete `warshad.lock`, real endpoint discovery, single-instance guard, startup error surfacing)**:
+  - `crates/warshad/src/{lock.rs,state.rs,startup.rs}`: atomically writes `<data_dir>/warshad.endpoint` (`{"pid","rpc_url","ws_url"}` with real bound ports, never `auth_token`) once listeners bind, and removes only `warshad.endpoint` in `DaemonHandle::{shutdown,drop}` while keeping `warshad.lock`/`warshad.pid` untouched.
+  - `apps/desktop/src-tauri/src/lib.rs`: deleted `remove_stale_lock_files` completely; never unlinks `warshad.lock` or `warshad.pid`; `verify_lock_holder` parses `warshad.endpoint` (falling back to `configured_endpoint`) and probes that real `rpc_url` with `config.auth_token`, returning `"Warsha is already running as pid {pid} (holding ...): could not connect (...). Close that instance before launching again."` when the holder PID is alive and the probe fails (and never calls `fallback_os_ports` to launch a second daemon); registers `tauri-plugin-single-instance` (`2.5.5`) first before `"warsha-shell-init"` so a second GUI instance focuses `"main"` and exits before `start_shell()` runs; exposes read-only `daemon_startup_error` via `get_config`.
+  - `apps/desktop/src/v3/{app/startup.ts,app/ClientContext.tsx,app/V3App.tsx}`: `ClientProvider` exposes `useClientResolved()`; `V3App` waits for endpoint resolution before deciding startup route; `decideStartupRoute` reads `daemon_startup_error` when `client === null` and surfaces it in `.v3-danger-banner` with `<span className="v3-danger-detail" dir="auto">`.
+- **SECONDARY RR-1 (`retry_daemon` + Frame Retry recovery)**:
+  - `apps/desktop/src-tauri/src/lib.rs`: added `#[tauri::command] retry_daemon` backed by `ShellState::retry_daemon_with_config` (reuses healthy owned handle or re-runs `daemon_for`, updating `endpoint`, `process`, and `daemon_startup_error`).
+  - `apps/desktop/src/v3/pages/frame/Frame.tsx`: in Tauri runtime when `!activeClient` or `activeClient.health()` fails, `retryAction` invokes `retry_daemon` (surfacing rejection reasons via error toast), reloads client via `reloadClient()`, and verifies `health()`.
+- **SECONDARY RN-1 (`last_test_error` in Home provider warning)**:
+  - `apps/desktop/src/v3/pages/home/index.tsx`: `home-provider-warning` renders trimmed `provider.last_test_error` inside `(<bdi dir="auto">{err}</bdi>)` beside `<bdi dir="ltr">{provider.name}</bdi>`.
+- **SECONDARY RR-3 (wire `apps/desktop/src-tauri` into gate set)**:
+  - `package.json`: added `rust:check` and `tauri:check`; `.github/workflows/ci.yml`: added `tauri-shell` job (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`) wired into `summary.needs` and `summary` status check.
+- **Verification & Playwright EN+AR walk (`c5069d5`)**:
+  - Rust workspace (`/home/moe/tools/gates-c5069d5/`): `cargo fmt --all --check` exit 0; `cargo clippy --workspace --all-targets -- -D warnings` exit 0; `cargo test --workspace` **70 suites, 1491 passed, 0 failed, 13 ignored**; `apps/desktop/src-tauri` `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` (**13 passed, 0 failed**).
+  - JS & policy (`/home/moe/tools/gates-c5069d5/`): `packages/i18n` **2/64**; `packages/client` **2/214** + `tsc` 0; `apps/desktop` **93/912** + `tsc --noEmit` 0 + `tsc --noEmit -p tsconfig.e2e.json` 0 + `eslint` 0 errors (1 pre-existing warning at `apps/desktop/src/v3/pages/developers/index.tsx:291`) + `vite build` 0; `node scripts/check-engineering-policy.mjs` **8/0**.
+  - B-1 Shell + Tier-2 Single-Instance (`/home/moe/tools/playwright-ux/runs/2026-11-27-c5069d5/b1-shell.mjs`): **11/11 PASS** (live holder on OS ports + stranger 401 on configured `ws_port` + mismatched token -> `"Warsha is already running as pid ..."` with `warshad.lock` inode/pid/process-count unchanged and live holder answering `projects.list`; matching-token sibling attaches via `warshad.endpoint`; `ShellState::retry_daemon_with_config` recovers; genuinely dead holder + `SIGKILL` recovery start cleanly; `xvfb-run` + `dbus-run-session` second `warsha-desktop` launch exits `0`, `warshad.lock` inode unchanged, `warsha-desktop` count `1`).
+  - Playwright EN+AR walk (`/home/moe/tools/playwright-ux/runs/2026-11-27-c5069d5/report.md`): **32/32 PASS, 0 failed, 0 page/console errors** (`16/16` EN + `16/16` AR) covering B-1 startup error banner (`dir="auto"`), RR-1 retry failure/recovery/port-drift/non-Tauri safety, RN-1 `last_test_error` in `<bdi dir="auto">`, DEFECT 2(a)/(b)/(c) flow, `ProjectSourcePicker` mouse switching, and B-1 non-git confirm/cancel.
+
+## Run 2026-11-27 — CLEAN-7 FIX ROUND merge & Judge record (round CLEAN-7; merge freeze lifted for this round only)
+
+- **Lanes judged at their exact SHAs, then merged into `r-next/integration`:**
+  - Backend/Shell `r-next/clean7-backend` @ `f114700` — **Judge r39 PASS 95/100** (`/tmp/judge-clean7-backend-r39.md`; `-5` for missing `D-RN-CLEAN7-1` + `run()` plugin ordering). Follow-up commit **`d5ed0a2`** (`warsha-shell-init` plugin after `tauri_plugin_single_instance::init` + `D-RN-CLEAN7-1` in `DECISIONS.md`) — **Judge r40 PASS 10/10** (`/tmp/judge-clean7-backend-r40.md`, cites SHA `d5ed0a2`, round `r40`). Merged as **`9f9b1ac`**.
+  - UI `r-next/clean7-ui` @ `9ac03a28` — **Judge r41 PASS 100/100** (`/tmp/judge-clean7-ui.md`, cites SHA `9ac03a28`, round `r41`). Merged as **`c5069d5`**.
+- **Independent security/concurrency audit**: `/tmp/clean7-security-audit.md` (zero HIGH/blocker findings).
+
 ## FIXES COMPLETE — CLEAN-6 — 2026-11-27
 
 All CLEAN-6 defects and the open pointer question resolved and verified at merged tip **`2e170b4`** (`r-next/integration`), with `main` untouched (`5f4b742`), onboarding merges kept frozen on their lanes, and zero publish/push/tag actions taken:
