@@ -602,6 +602,8 @@ export function findUnhealthyRoutedProviders(
     if (!provider.enabled) return false;
     if (considerRoutedOnly && !routed.has(provider.name)) return false;
     if (provider.last_test_ok === false) return true;
+    if (provider.has_stored_key === false) return true;
+    if (provider.has_stored_key === true) return false;
     if (provider.last_test_ok !== true) {
       return authStatuses?.[provider.name]?.kind === 'unauthenticated';
     }

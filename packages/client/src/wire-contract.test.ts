@@ -13,6 +13,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createClient,
+  decodeAuthStartResponse,
+  decodeAuthStatus,
   decodeCustomModelRecord,
   decodeDeviceSummary,
   decodeFileContent,
@@ -707,5 +709,71 @@ describe('wire contract — Wave 2 rows decode snake_case into the client types'
     expect(decodeIntegrationStatus(INTEGRATION_WIRE).connected).toBe(true);
     expect(decodeFileEntry(TREE_WIRE[2]).name).toBe('Cargo.toml');
     expect(decodeFileContent({ path: 'p', content: 'c' }).mimeType).toBe('text/plain');
+  });
+
+  it('decodes serde externally-tagged AuthStatus and AuthStartResponse Rust wire payloads', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse('Authenticated'));
+    await expect(client.providerAuthStatus('openai')).resolves.toEqual({
+      kind: 'authenticated',
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse('Unauthenticated'));
+    await expect(client.providerAuthStatus('9router')).resolves.toEqual({
+      kind: 'unauthenticated',
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        Pending: {
+          user_code: 'ABCD-1234',
+          verification_uri: 'https://example.com',
+        },
+      })
+    );
+    await expect(client.providerAuthStatus('github-copilot')).resolves.toEqual({
+      kind: 'pending',
+      user_code: 'ABCD-1234',
+      verification_uri: 'https://example.com',
+    });
+
+    fetchMock.mockResolvedValueOnce(okResponse({ ApiKey: { name: '9router' } }));
+    await expect(client.providerAuthStart('9router')).resolves.toEqual({
+      kind: 'api_key',
+      name: '9router',
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({ Pkce: { url: 'https://auth.example.com' } })
+    );
+    await expect(client.providerAuthStart('openai')).resolves.toEqual({
+      kind: 'pkce',
+      url: 'https://auth.example.com',
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      okResponse({
+        Device: {
+          user_code: 'WXYZ',
+          verification_uri: 'https://device.example.com',
+        },
+      })
+    );
+    await expect(client.providerAuthStart('github-copilot')).resolves.toEqual({
+      kind: 'device',
+      user_code: 'WXYZ',
+      verification_uri: 'https://device.example.com',
+    });
+
+    // Normalized shapes pass through cleanly; unexpected auth_status falls back and
+    // unexpected auth_start throws.
+    expect(decodeAuthStatus({ kind: 'authenticated' })).toEqual({ kind: 'authenticated' });
+    expect(decodeAuthStatus(null)).toEqual({ kind: 'unauthenticated' });
+    expect(decodeAuthStartResponse({ kind: 'api_key', name: '9router' })).toEqual({
+      kind: 'api_key',
+      name: '9router',
+    });
+    expect(() => decodeAuthStartResponse({ Unknown: {} })).toThrow(
+      'Unexpected providers.auth_start response shape'
+    );
   });
 });
