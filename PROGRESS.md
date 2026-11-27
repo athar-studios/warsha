@@ -1,5 +1,16 @@
 # PROGRESS.md — Warsha Build Log
 
+## FIXES COMPLETE — CLEAN-9 — 2026-11-27
+
+Test-only CLEAN-9 fix verified and merged into `r-next/integration` at **`7c3e530`** (docs closeout on top), with **zero non-test product code changes** (only `crates/warshad/tests/e2e_real_arabic_request.rs`, `DECISIONS.md`, and `PROGRESS.md` touched across `55825fc..7c3e530`; `apps/desktop/src-tauri/src/lib.rs` lines 1–1494 verified byte-identical to `8e50063`), `main` untouched (`5f4b742`), onboarding merges kept frozen on their lanes, and zero push/tag/publish actions taken:
+- **Lane & Judge**: `r-next/clean9-test` @ **`7924926`** — **Judge r43 PASS** (`/tmp/judge-clean9-test.md`, archived at `/home/moe/tools/judge-archive/judge-clean9-test-r43.md`), merged into `r-next/integration` as **`7c3e530`**.
+- **Product decision (`D-RN-CLEAN9-1`)**: Evaluated atomic stage+event persistence (`store.update_run_cas` + `store.append_event`); deferred multi-crate `Store` transaction redesign across 18 pipeline transition sites out of this test-only round and logged rationale in `DECISIONS.md`.
+- **Gates on merged `7c3e530`**:
+  - Flaky test stability: `e2e_real_arabic_request_clinic_flow` passed **30/30** consecutive runs (`1 passed; 0 failed` per run).
+  - Rust workspace: `cargo fmt --all --check`, `cargo clippy -q --workspace --all-targets -- -D warnings`, and **two** full `cargo test --workspace --no-fail-fast` runs (**Run 1: 70 suites, 1491 passed, 0 failed, 13 ignored**; **Run 2: 70 suites, 1491 passed, 0 failed, 13 ignored**).
+  - `apps/desktop/src-tauri`: `cargo fmt --check`, `cargo clippy -q --all-targets -- -D warnings`, `cargo test` (**13 passed; 0 failed**).
+  - JS/TS & policy: `packages/i18n` vitest (**2/64**); `packages/client` vitest (**2/214**) + `tsc --noEmit` (`0`); `apps/desktop` vitest (**93/912**) + `tsc --noEmit` (`0`) + `tsc --noEmit -p tsconfig.e2e.json` (`0`) + `eslint` (`0` errors, `1` pre-existing warning at `apps/desktop/src/v3/pages/developers/index.tsx:291`) + `vite build` (`0`); `node scripts/check-engineering-policy.mjs` (**8 checks, 0 failures**).
+
 ## Run 2026-11-27 — CLEAN-9 test-only lane: poll for expected intake events in `e2e_real_arabic_request.rs` (`D-RN-CLEAN9-1`)
 
 - **Branch & worktree**: `r-next/clean9-test` (base `55825fc`) in `.agents/worktrees/clean9-test`. Local only; zero changes to non-test product code, `main`, or root checkout; no push, tag, or publish.
