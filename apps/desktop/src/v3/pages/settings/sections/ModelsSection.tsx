@@ -590,7 +590,7 @@ export function ModelsSection(): React.ReactElement {
                     )}
                   </div>
                   <div className="v3-settings-row-actions">
-                    {authStatus?.kind === 'authenticated' ? (
+                    {authStatus?.kind === 'authenticated' && (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -604,7 +604,8 @@ export function ModelsSection(): React.ReactElement {
                       >
                         {t('settings.providers.disconnect')}
                       </Button>
-                    ) : (
+                    )}
+                    {(authStatus?.kind !== 'authenticated' || testState === 'fail') && (
                       <Button
                         size="sm"
                         variant="ghost"

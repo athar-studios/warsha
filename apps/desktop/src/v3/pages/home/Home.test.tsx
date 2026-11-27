@@ -1434,6 +1434,56 @@ describe('HomePage provider health gating & error honesty (CLEAN-6 DEFECT 2)', (
     expect(warning.textContent).toContain('تعذّر استخدام تسجيل الدخول المحفوظ');
   });
 
+  it('does not show warning when routed provider has has_stored_key: true even with last_test_ok: null and unauthenticated auth status', async () => {
+    const client = makeMockClient({
+      listProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'open_router',
+          kind: 'custom',
+          enabled: true,
+          last_test_ok: null,
+          has_stored_key: true,
+        },
+      ]),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'unauthenticated' }),
+    });
+
+    await renderHome({ client, locale: 'en' });
+
+    await waitFor(() => {
+      expect(client.listProviders).toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId('home-provider-warning')).toBeNull();
+
+    const ideaInput = document.getElementById('home-idea-input') as HTMLTextAreaElement;
+    fireEvent.change(ideaInput, { target: { value: 'Build a calm invoice tracker' } });
+    const startBtn = screen.getByTestId('home-start-button') as HTMLButtonElement;
+    expect(startBtn.disabled).toBe(false);
+  });
+
+  it('shows warning when routed provider has has_stored_key: false even with last_test_ok: null', async () => {
+    const client = makeMockClient({
+      listProviders: vi.fn().mockResolvedValue([
+        {
+          name: 'open_router',
+          kind: 'custom',
+          enabled: true,
+          last_test_ok: null,
+          has_stored_key: false,
+        },
+      ]),
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'authenticated' }),
+    });
+
+    await renderHome({ client, locale: 'en' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('home-provider-warning')).toBeDefined();
+    });
+    const warning = screen.getByTestId('home-provider-warning');
+    expect(warning.querySelector('bdi[dir="ltr"]')?.textContent).toBe('open_router');
+  });
+
   it('routes projects-list RPC errors through describeRpcError instead of raw error alone', async () => {
     const client = makeMockClient({
       listProjects: vi.fn().mockRejectedValue(new Error('RPC error undefined: undefined')),

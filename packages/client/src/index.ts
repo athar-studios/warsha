@@ -26,13 +26,110 @@ export interface AuthCompleteResponse {
   message: string;
 }
 
-function decodeAuthStatus(value: unknown): AuthStatus {
-  // Simple decoder for now
-  return value as AuthStatus;
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function decodeAuthStartResponse(value: unknown): AuthStartResponse {
-  return value as AuthStartResponse;
+export function decodeAuthStatus(value: unknown): AuthStatus {
+  if (value === 'Authenticated') {
+    return { kind: 'authenticated' };
+  }
+  if (value === 'Unauthenticated') {
+    return { kind: 'unauthenticated' };
+  }
+  if (isPlainRecord(value)) {
+    const pending = value['Pending'];
+    if (isPlainRecord(pending)) {
+      const userCode = typeof pending['user_code'] === 'string' ? pending['user_code'] : undefined;
+      const verificationUri =
+        typeof pending['verification_uri'] === 'string' ? pending['verification_uri'] : undefined;
+      return {
+        kind: 'pending',
+        ...(userCode !== undefined ? { user_code: userCode } : {}),
+        ...(verificationUri !== undefined ? { verification_uri: verificationUri } : {}),
+      };
+    }
+
+    const kind = value['kind'];
+    if (kind === 'authenticated') {
+      return { kind: 'authenticated' };
+    }
+    if (kind === 'unauthenticated') {
+      return { kind: 'unauthenticated' };
+    }
+    if (kind === 'pending') {
+      const userCode = typeof value['user_code'] === 'string' ? value['user_code'] : undefined;
+      const verificationUri =
+        typeof value['verification_uri'] === 'string' ? value['verification_uri'] : undefined;
+      return {
+        kind: 'pending',
+        ...(userCode !== undefined ? { user_code: userCode } : {}),
+        ...(verificationUri !== undefined ? { verification_uri: verificationUri } : {}),
+      };
+    }
+  }
+  return { kind: 'unauthenticated' };
+}
+
+export function decodeAuthStartResponse(value: unknown): AuthStartResponse {
+  if (isPlainRecord(value)) {
+    const apiKey = value['ApiKey'];
+    if (isPlainRecord(apiKey)) {
+      const name = typeof apiKey['name'] === 'string' ? apiKey['name'] : undefined;
+      return {
+        kind: 'api_key',
+        ...(name !== undefined ? { name } : {}),
+      };
+    }
+
+    const pkce = value['Pkce'];
+    if (isPlainRecord(pkce)) {
+      const url = typeof pkce['url'] === 'string' ? pkce['url'] : undefined;
+      return {
+        kind: 'pkce',
+        ...(url !== undefined ? { url } : {}),
+      };
+    }
+
+    const device = value['Device'];
+    if (isPlainRecord(device)) {
+      const userCode = typeof device['user_code'] === 'string' ? device['user_code'] : undefined;
+      const verificationUri =
+        typeof device['verification_uri'] === 'string' ? device['verification_uri'] : undefined;
+      return {
+        kind: 'device',
+        ...(userCode !== undefined ? { user_code: userCode } : {}),
+        ...(verificationUri !== undefined ? { verification_uri: verificationUri } : {}),
+      };
+    }
+
+    const kind = value['kind'];
+    if (kind === 'api_key') {
+      const name = typeof value['name'] === 'string' ? value['name'] : undefined;
+      return {
+        kind: 'api_key',
+        ...(name !== undefined ? { name } : {}),
+      };
+    }
+    if (kind === 'pkce') {
+      const url = typeof value['url'] === 'string' ? value['url'] : undefined;
+      return {
+        kind: 'pkce',
+        ...(url !== undefined ? { url } : {}),
+      };
+    }
+    if (kind === 'device') {
+      const userCode = typeof value['user_code'] === 'string' ? value['user_code'] : undefined;
+      const verificationUri =
+        typeof value['verification_uri'] === 'string' ? value['verification_uri'] : undefined;
+      return {
+        kind: 'device',
+        ...(userCode !== undefined ? { user_code: userCode } : {}),
+        ...(verificationUri !== undefined ? { verification_uri: verificationUri } : {}),
+      };
+    }
+  }
+  throw new Error('Unexpected providers.auth_start response shape');
 }
 
 function decodeAuthCompleteResponse(value: unknown): AuthCompleteResponse {
@@ -774,6 +871,8 @@ export interface ProviderConfig {
   last_test_ok?: boolean | null;
   last_test_at?: number | null;
   last_test_error?: string | null;
+  /** True when the daemon finds a non-empty key stored for this provider in the OS keychain. */
+  has_stored_key?: boolean | null;
 }
 
 export interface RoutingTargetConfig {

@@ -633,4 +633,29 @@ describe('ModelsSection - Model Discovery & Live List Diff', () => {
     });
     expect(screen.queryByTestId('provider-login-dialog')).toBeNull();
   });
+
+  it('shows Log in button even when authStatus is authenticated if provider test failed', async () => {
+    const client = createClient({
+      providerAuthStatus: vi.fn().mockResolvedValue({ kind: 'authenticated' }),
+      testProvider: vi.fn().mockRejectedValue(new Error('401 Unauthorized')),
+    });
+
+    renderSection(client, 'en');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('provider-row-mock-provider')).toBeDefined();
+    });
+
+    const row = screen.getByTestId('provider-row-mock-provider');
+    expect(row.querySelector('[data-action="settings.provider.disconnect"]')).not.toBeNull();
+    expect(row.querySelector('[data-action="settings.provider.login"]')).toBeNull();
+
+    const testBtn = row.querySelector('[data-action="settings.provider.test"]') as HTMLElement;
+    fireEvent.click(testBtn);
+
+    await waitFor(() => {
+      expect(row.querySelector('[data-action="settings.provider.login"]')).not.toBeNull();
+    });
+    expect(row.querySelector('[data-action="settings.provider.disconnect"]')).not.toBeNull();
+  });
 });
