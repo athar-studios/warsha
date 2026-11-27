@@ -389,6 +389,9 @@ async fn a_legacy_daemon_database_migrates_and_keeps_its_rows() {
     );
     assert_full_schema(store.pool()).await;
     assert!(has_column(store.pool(), "pairing_devices", "expires_at").await);
+    assert!(has_column(store.pool(), "configured_providers", "last_test_ok").await);
+    assert!(has_column(store.pool(), "configured_providers", "last_test_at").await);
+    assert!(has_column(store.pool(), "configured_providers", "last_test_error").await);
 
     // The row a pre-H1 daemon paired is grandfathered with the 10-minute grace
     // window the expiry migration always used.

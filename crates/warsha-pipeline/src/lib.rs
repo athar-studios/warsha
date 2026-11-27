@@ -1098,7 +1098,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             Ok(completion) => completion,
             Err(error) => {
                 return Err(self
-                    .record_stage_failure(run, *version, ctrl, stage, role, error)
+                    .record_stage_failure(run, *version, ctrl, stage, role, None, error)
                     .await);
             }
         };
@@ -1115,6 +1115,8 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                     let router = self.providers.read().await;
                     router.route(role).unwrap_or_default()
                 };
+                let failed_provider =
+                    (!routed_provider.is_empty()).then(|| routed_provider.clone());
                 let session = warsha_core::Session {
                     id: session_id,
                     run_id: Some(run.id),
@@ -1178,7 +1180,15 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                             Ok(Err(error)) => {
                                 let _ = self.store.finish_session(session_id, warsha_core::SessionStatus::Failed, Utc::now()).await;
                                 return Err(self
-                                    .record_stage_failure(run, *version, ctrl, stage, role, error)
+                                    .record_stage_failure(
+                                        run,
+                                        *version,
+                                        ctrl,
+                                        stage,
+                                        role,
+                                        failed_provider.clone(),
+                                        error,
+                                    )
                                     .await);
                             }
                             Err(_elapsed) => {
@@ -1191,7 +1201,15 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                                     stage_timeout.as_secs(),
                                 )));
                                 return Err(self
-                                    .record_stage_failure(run, *version, ctrl, stage, role, error)
+                                    .record_stage_failure(
+                                        run,
+                                        *version,
+                                        ctrl,
+                                        stage,
+                                        role,
+                                        failed_provider.clone(),
+                                        error,
+                                    )
                                     .await);
                             }
                         }
@@ -1219,7 +1237,15 @@ impl<S: SettingsProvider> PipelineEngine<S> {
                             "Code stage quality validation failed: {reason}"
                         ));
                         return Err(self
-                            .record_stage_failure(run, *version, ctrl, stage, role, error)
+                            .record_stage_failure(
+                                run,
+                                *version,
+                                ctrl,
+                                stage,
+                                role,
+                                failed_provider,
+                                error,
+                            )
                             .await);
                     }
                 }
@@ -1848,6 +1874,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
     /// [`EventKind::Error`] with `"action": "stage_failed"` or `"provider_required"`
     /// explains why. The error itself is *not* swallowed — the caller gets it back so
     /// the RPC reply is still an honest failure of the call that made it.
+    #[allow(clippy::too_many_arguments)]
     async fn record_stage_failure(
         &self,
         run: &mut Run,
@@ -1855,6 +1882,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         ctrl: &RunControl,
         stage: Stage,
         role: Role,
+        provider: Option<String>,
         error: PipelineError,
     ) -> PipelineError {
         let message = scrub_llm_error(&error);
@@ -1924,6 +1952,10 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             }
         }
 
+        let is_auth_failure = matches!(
+            error,
+            PipelineError::Provider(warsha_providers::ProviderError::Auth(_))
+        );
         let action = if is_unrouted {
             "provider_required"
         } else {
@@ -1931,9 +1963,24 @@ impl<S: SettingsProvider> PipelineEngine<S> {
         };
         let retry_hint = if is_unrouted {
             "Configure a provider route for this role in Settings -> Models"
+        } else if is_auth_failure {
+            "Log in to this provider again in Settings -> Models & providers"
         } else {
             "Check model provider configuration and retry stage"
         };
+
+        let mut payload = serde_json::json!({
+            "action": action,
+            "stage": stage_to_string(stage),
+            "role": role,
+            "message": message,
+            "retry_hint": retry_hint,
+        });
+        if let Some(provider_name) = provider.filter(|name| !name.is_empty()) {
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("provider".to_string(), serde_json::json!(provider_name));
+            }
+        }
 
         let error_event = Event {
             id: Ulid::new(),
@@ -1941,13 +1988,7 @@ impl<S: SettingsProvider> PipelineEngine<S> {
             stage,
             role: Some(role),
             kind: EventKind::Error,
-            payload: serde_json::json!({
-                "action": action,
-                "stage": stage_to_string(stage),
-                "role": role,
-                "message": message,
-                "retry_hint": retry_hint,
-            }),
+            payload,
             cost_cents: None,
             tokens: None,
             created_at: Utc::now(),
@@ -4253,6 +4294,84 @@ mod tests {
                 .find(|event| event.payload["action"] == "provider_required")
                 .expect("no provider_required event was recorded");
             assert_eq!(required.payload["role"], "researcher");
+            assert_eq!(
+                required.payload["retry_hint"],
+                "Configure a provider route for this role in Settings -> Models"
+            );
+            assert!(
+                required.payload.get("provider").is_none(),
+                "unrouted stage must not invent a provider name: {}",
+                required.payload
+            );
+        }
+
+        #[tokio::test]
+        async fn auth_failure_event_carries_provider_name_and_relogin_retry_hint() {
+            let _env = crate::test_util::lock_clean_llm_env().await;
+            let store = temp_store().await;
+            let project = project_in(&store, "en").await;
+
+            let mut router = ProviderRouter::new();
+            router.register_provider(Box::new(
+                MockProvider::new("bad-auth-provider")
+                    .with_failure(warsha_providers::ProviderError::Auth("401".to_string())),
+            ));
+            router.set_role_routing(RoleRouting {
+                role: Role::Researcher,
+                targets: vec![RoutingTarget {
+                    provider_id: "bad-auth-provider".to_string(),
+                    model_id: "mock-model".to_string(),
+                    weight: 100,
+                }],
+                fallback_enabled: false,
+                budget_cents_per_run: None,
+            });
+
+            let engine = PipelineEngine::new(
+                store.clone(),
+                Arc::new(RwLock::new(router)),
+                Arc::new(SettingsStore::new()),
+            );
+
+            let run = engine
+                .start_run(project.id, "Build a todo app")
+                .await
+                .expect("a run starts");
+            crate::test_util::mark_intake_done(&store, run.id).await;
+            engine
+                .advance_stage(run.id)
+                .await
+                .expect("advance to Gate A");
+            engine
+                .approve_gate(run.id, Stage::GateA, DeviceId::new())
+                .await
+                .expect("Gate A approves");
+
+            let error = engine
+                .advance_stage(run.id)
+                .await
+                .expect_err("auth failure must fail the stage");
+            assert!(error.to_string().contains("Authentication failed: 401"));
+
+            let stored = store.get_run(run.id).await.expect("the run is readable");
+            assert_eq!(stored.status, RunStatus::Failed);
+
+            let events = store.get_events(run.id).await.expect("the run's events");
+            let failed = events
+                .iter()
+                .find(|event| event.payload["action"] == "stage_failed")
+                .expect("stage_failed event recorded");
+            assert_eq!(failed.payload["provider"], "bad-auth-provider");
+            assert_eq!(
+                failed.payload["retry_hint"],
+                "Log in to this provider again in Settings -> Models & providers"
+            );
+            let msg = failed.payload["message"].as_str().unwrap_or("");
+            assert!(msg.contains("Authentication failed: 401"), "msg: {msg}");
+            assert!(
+                !msg.contains("Authentication failed: Authentication failed"),
+                "doubled auth text must not occur: {msg}"
+            );
         }
 
         /// P-E1b boundary: the harness's `stages` vector is a lookup table keyed by

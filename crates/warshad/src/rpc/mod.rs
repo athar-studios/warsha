@@ -599,6 +599,23 @@ impl WarshaRpc {
         Ok(transition)
     }
 
+    pub(crate) async fn persist_provider_test_outcome(
+        &self,
+        name: &str,
+        ok: bool,
+        tested_at: u64,
+        error: Option<&str>,
+    ) {
+        if let Err(err) = self
+            .state
+            .settings
+            .record_provider_test_result(name, ok, tested_at, error)
+            .await
+        {
+            warn!("failed to persist providers.test outcome for {name}: {err}");
+        }
+    }
+
     pub(crate) async fn resolve_test_model(
         &self,
         provider: &StoredProvider,

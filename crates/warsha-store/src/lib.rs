@@ -291,6 +291,7 @@ impl Store {
             .map_err(|e| StoreError::Migration(e.to_string()))?;
         let mut transaction = pool.begin().await?;
         repair_settings_expiry(&mut transaction).await?;
+        repair_provider_last_test(&mut transaction).await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -1809,6 +1810,31 @@ async fn repair_settings_expiry(connection: &mut sqlx::SqliteConnection) -> Resu
     Ok(())
 }
 
+/// Add the per-provider last-test outcome columns to `configured_providers` when absent.
+///
+/// Mirrors [`repair_settings_expiry`]: `006_settings.sql` cannot be modified without invalidating
+/// `_sqlx_migrations` checksums on existing installs, and an `ALTER TABLE` inside a new
+/// migration file would collide if [`SettingsRepository::migrate`] already prepared the table.
+async fn repair_provider_last_test(connection: &mut sqlx::SqliteConnection) -> Result<()> {
+    for (column, col_type) in [
+        ("last_test_ok", "INTEGER"),
+        ("last_test_at", "INTEGER"),
+        ("last_test_error", "TEXT"),
+    ] {
+        let present: Option<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('configured_providers') WHERE name = ?",
+        )
+        .bind(column)
+        .fetch_optional(&mut *connection)
+        .await?;
+        if present.is_none() {
+            let alter = format!("ALTER TABLE configured_providers ADD COLUMN {column} {col_type}");
+            sqlx::query(&alter).execute(&mut *connection).await?;
+        }
+    }
+    Ok(())
+}
+
 // --------------------------------------------------------------- row mapping
 
 fn column_text(row: &sqlx::sqlite::SqliteRow, column: &'static str) -> Result<String> {
@@ -2402,6 +2428,9 @@ mod tests {
                 api_base: None,
                 enabled: true,
                 created_at: 1_700_000_000,
+                last_test_ok: None,
+                last_test_at: None,
+                last_test_error: None,
             })
             .await
             .expect("the settings write lands");

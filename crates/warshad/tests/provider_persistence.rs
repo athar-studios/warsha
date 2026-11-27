@@ -346,7 +346,21 @@ async fn a_provider_added_over_rpc_survives_a_restart_and_leaves_no_key_on_disk(
         .map(String::as_str)
         .collect();
     fields.sort_unstable();
-    assert_eq!(fields, vec!["api_base", "enabled", "kind", "name"]);
+    assert_eq!(
+        fields,
+        vec![
+            "api_base",
+            "enabled",
+            "kind",
+            "last_test_at",
+            "last_test_error",
+            "last_test_ok",
+            "name",
+        ]
+    );
+    assert_eq!(added["last_test_ok"], json!(null));
+    assert_eq!(added["last_test_at"], json!(null));
+    assert_eq!(added["last_test_error"], json!(null));
 
     // The listed provider is the added one, and the key is not in the list.
     let listed = rpc.call("providers.list", json!([])).await;
@@ -802,4 +816,113 @@ async fn daemon_add_and_test_with_failing_primary_store_completes_within_timeout
     );
 
     daemon.shutdown().await;
+}
+
+#[tokio::test]
+async fn providers_test_persists_last_test_outcome_and_auth_start_returns_api_key() {
+    use std::sync::atomic::{AtomicU16, Ordering};
+
+    let dir = fresh_tempdir();
+    let data_dir = dir.path().join("data");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind switchable stub");
+    let port = listener.local_addr().expect("stub addr").port();
+    let status_code = Arc::new(AtomicU16::new(401));
+    let status_for_thread = Arc::clone(&status_code);
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok() && line != "\r\n" {
+                line.clear();
+            }
+            let code = status_for_thread.load(Ordering::SeqCst);
+            let body = if code == 200 {
+                r#"{"data":[]}"#.to_string()
+            } else {
+                format!(r#"{{"error":"bad token {CANARY_KEY}"}}"#)
+            };
+            let response = format!(
+                "HTTP/1.1 {code} stub\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    let base_url = format!("http://127.0.0.1:{port}/v1");
+    let secrets = Arc::new(InMemorySecretStore::new());
+
+    let (first, rpc) = daemon_over(&data_dir, secrets.clone()).await;
+    rpc.call(
+        "providers.add",
+        add_params("persisted-qwen", &base_url, CANARY_KEY),
+    )
+    .await;
+
+    // 1. providers.auth_start must honestly report ApiKey instead of a fake PKCE URL.
+    let auth_start = rpc
+        .call("providers.auth_start", json!({ "name": "persisted-qwen" }))
+        .await;
+    assert_eq!(
+        auth_start,
+        json!({ "ApiKey": { "name": "persisted-qwen" } })
+    );
+
+    // 2. providers.auth_status shape stays unchanged.
+    let auth_status = rpc
+        .call("providers.auth_status", json!({ "name": "persisted-qwen" }))
+        .await;
+    assert_eq!(auth_status, json!("Unauthenticated"));
+
+    // 3. Before any test, last_test_* fields are null.
+    let initial_list = rpc.call("providers.list", json!([])).await;
+    assert_eq!(initial_list[0]["last_test_ok"], json!(null));
+    assert_eq!(initial_list[0]["last_test_at"], json!(null));
+    assert_eq!(initial_list[0]["last_test_error"], json!(null));
+
+    // 4. A failing providers.test persists last_test_ok=false + scrubbed error + timestamp.
+    let failed = rpc
+        .call_refused("providers.test", json!({ "name": "persisted-qwen" }))
+        .await;
+    assert!(
+        message(&failed).contains("refused the API key"),
+        "expected refusal reason: {failed}"
+    );
+    let after_fail = rpc.call("providers.list", json!([])).await;
+    assert_eq!(after_fail[0]["last_test_ok"], json!(false));
+    assert!(
+        after_fail[0]["last_test_at"].is_u64(),
+        "last_test_at must be a unix timestamp: {after_fail}"
+    );
+    let recorded_error = after_fail[0]["last_test_error"]
+        .as_str()
+        .expect("last_test_error recorded");
+    assert!(!recorded_error.is_empty());
+    assert!(
+        !recorded_error.contains(CANARY_KEY),
+        "last_test_error must be scrubbed of secrets: {recorded_error}"
+    );
+    first.shutdown().await;
+
+    // 5. Across daemon restart, the failed test state survives and a passing test flips it to ok.
+    let (second, rpc) = daemon_over(&data_dir, secrets).await;
+    let reloaded = rpc.call("providers.list", json!([])).await;
+    assert_eq!(reloaded[0]["last_test_ok"], json!(false));
+    assert_eq!(
+        reloaded[0]["last_test_error"].as_str(),
+        Some(recorded_error)
+    );
+
+    status_code.store(200, Ordering::SeqCst);
+    let passed = rpc
+        .call("providers.test", json!({ "name": "persisted-qwen" }))
+        .await;
+    assert_eq!(passed["healthy"], json!(true));
+
+    let after_pass = rpc.call("providers.list", json!([])).await;
+    assert_eq!(after_pass[0]["last_test_ok"], json!(true));
+    assert!(after_pass[0]["last_test_at"].is_u64());
+    assert_eq!(after_pass[0]["last_test_error"], json!(null));
+
+    second.shutdown().await;
 }
