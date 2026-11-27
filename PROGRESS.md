@@ -22,6 +22,27 @@
   - `cargo test` (`apps/desktop/src-tauri`, `CARGO_TARGET_DIR=/home/moe/tools/target-clean6-tauri`): **11 passed**, 0 failed, 0 ignored.
   - `node scripts/check-engineering-policy.mjs`: exit 0 (**8 checks, 0 failures**).
 
+## Run 2026-11-27 — CLEAN-6 UI: provider-failure UX (DEFECT 2a/2b/2c) + projects-list error honesty (`D-RN-CLEAN6-2`)
+
+- **Branch & worktree**: `r-next/clean6-ui` (base `9ec3e43`, implementation commit `d2d4eee`) in `.agents/worktrees/clean6-ui`. Local commits only; no push, merge, tag, or `main`/`crates/`/`apps/desktop/src-tauri/` changes.
+- **Changes**:
+  - `packages/client/src/index.ts`: added optional `last_test_ok`, `last_test_at`, `last_test_error` fields on `ProviderConfig` and the `{ kind: 'api_key', name?: string }` union variant on `AuthStartResponse`.
+  - `apps/desktop/src/v3/pages/home/index.tsx`: added composer health check (`listProviders` + `providerAuthStatus`) with `findUnhealthyRoutedProviders`, attention banner (`data-testid="home-provider-warning"`), `<bdi dir="ltr">` provider names, `/settings/models` CTA, session-only Proceed button (`data-testid="home-provider-proceed"`), Start/Interview/NewProjectDialog gating (`disabled` + `disabledReason`), and routed `home-error-banner` through `describeRpcError`. Kept fresh-install no-provider flow intact.
+  - `apps/desktop/src/v3/pages/projects/index.tsx`: routed `projects-error-banner` through `describeRpcError` with raw detail inside `<bdi dir="auto">`.
+  - `apps/desktop/src/v3/pages/project/index.tsx`: added `project.retry_hint.provider_auth` mapping for `"Log in to this provider again in Settings -> Models & providers"`, rendered event/failure `provider` names in `<bdi dir="ltr">` inside feed items, latest sentence, and failure banner (`data-testid="project-banner-provider"`).
+  - `apps/desktop/src/v3/pages/settings/sections/ModelsSection.tsx` & `apps/desktop/src/v3/actions/registry/{home,settings}.ts` & `apps/desktop/e2e/v3/settings.spec.ts`: handled `api_key` in the Log in button (`data-action="settings.provider.login"`) by opening the prefilled Add Provider dialog in login mode (`data-testid="provider-login-dialog"`) while preserving the `pkce` `window.open` branch.
+  - `packages/i18n/src/v3/{en,ar}/{home,project,settings}.ts` & `packages/i18n/src/v3/index.test.ts`: added native AR + EN keys (`home.provider_warning.*`, `project.retry_hint.provider_auth`, `settings.providers.login_title`) and parity tests.
+  - `apps/desktop/src/v3/pages/home/Home.test.tsx`, `apps/desktop/src/v3/pages/project/Project.test.tsx`, `apps/desktop/src/v3/pages/settings/sections/ModelsSection.test.tsx`, `DECISIONS.md`: added unit tests for DEFECT 2(a)/(b)/(c) + error honesty and logged `D-RN-CLEAN6-2`.
+- **Gates** (verified at `d2d4eee` with temporary per-package `node_modules` symlinks removed afterward):
+  - `pnpm --dir packages/i18n exec vitest run`: **2 files, 64 passed** (0 failed).
+  - `pnpm --dir packages/client exec vitest run`: **2 files, 213 passed** (0 failed).
+  - `pnpm --dir packages/client exec tsc --noEmit`: exit 0.
+  - `pnpm --dir apps/desktop exec vitest run`: **93 files, 898 passed** (0 failed).
+  - `pnpm --dir apps/desktop exec tsc --noEmit`: exit 0.
+  - `pnpm --dir apps/desktop exec eslint src --ext .ts,.tsx`: **0 errors**, 1 pre-existing warning (`src/v3/pages/developers/index.tsx:291`).
+  - `pnpm --dir apps/desktop exec vite build`: exit 0 (`dist/` built in 7.72s).
+  - `node scripts/check-engineering-policy.mjs`: **8 checks, 0 failures**.
+
 ## FIXES COMPLETE — CLEAN-5 — 2026-11-27
 
 Both blockers proven practically at the merged tip `bd4edcc`: the Playwright AR+EN walk at `/home/moe/tools/playwright-ux/runs/2026-11-27-bd4edcc/` (report.md, notes.json, captured.json, 14 screenshots) passed **31/31 checks** — B-1 creates a working project from an ordinary non-git folder after the localized confirm (files preserved, cancelled folder untouched), B-2 captures `"private": true` by default (explicit Public only by choice) with `"description": ""` — the idea never reaches the wire — and R-4 renders the daemon error translated with the raw detail preserved. Judges: r31 **PASS 94/100** at `97a5f1a` (`d9c8fbe`), r32 **PASS 100/100** at `dd85e30` (`c01d2e3`); records commit `bd4edcc` carries lane SHAs + merge SHAs + round. Full workspace gates green (`cargo test --workspace` 1473/0/13 at the base; per-crate and vitest/tsc/eslint/vite/policy gates recorded on the lanes). `main` untouched (`5f4b742`); nothing pushed, tagged, or published. R-2 (orphaned remote repo on partial failure) was not ordered and remains open.

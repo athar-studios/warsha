@@ -131,6 +131,7 @@ export default {
   'settings.providers.validation.key_required': 'Please enter an API key.',
   'settings.providers.error.no_client': 'Daemon client is not connected.',
   'settings.providers.login': 'Log in',
+  'settings.providers.login_title': 'Log in to {name}',
   'settings.providers.disconnect': 'Disconnect',
   'settings.providers.auth.authenticated': 'Signed in',
   'settings.providers.auth.unauthenticated': 'Not signed in',

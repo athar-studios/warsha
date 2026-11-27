@@ -1120,4 +1120,67 @@ describe('ProjectPage component', () => {
     expect(chip).toBeDefined();
     expect(chip.getAttribute('data-runmode')).toBe('plan');
   });
+
+  it('renders provider name and localized provider_auth hint for stage failure events (EN & AR)', async () => {
+    const makeAuthFailureClient = () =>
+      createMockClient({
+        listRuns: vi.fn().mockResolvedValue([FAILED_RUN]),
+        subscribeRun: vi.fn().mockResolvedValue({
+          seq: 2,
+          gap_detected: false,
+          resync_required: false,
+          dropped_count: 0,
+          run: FAILED_RUN,
+          events: [
+            {
+              id: 'evt-auth-fail',
+              runId: 'run-failed' as RunId,
+              stage: 'code',
+              role: 'coder',
+              kind: 'error',
+              payload: {
+                action: 'stage_failed',
+                provider: '9router',
+                message: 'Provider error: Authentication failed: 401',
+                retry_hint: 'Log in to this provider again in Settings -> Models & providers',
+              },
+              costCents: null,
+              createdAt: '2026-10-02T09:05:00.000Z',
+              deviceId: null,
+            },
+          ],
+        }),
+      });
+
+    const { unmount } = renderProject(makeAuthFailureClient(), '/p/proj-1', 'en');
+    await waitFor(() => {
+      expect(screen.getByTestId('project-run-ended-banner')).toBeDefined();
+    });
+
+    expect(screen.getByTestId('project-banner-provider').textContent).toBe('9router');
+    expect(screen.getByTestId('project-banner-retry-hint').textContent).toBe(
+      'Log in to this provider again in Settings → Models & providers.'
+    );
+    expect(screen.getByTestId('project-activity-feed').textContent).toContain('9router');
+    expect(
+      retryHintKey('Log in to this provider again in Settings -> Models & providers')
+    ).toBe('project.retry_hint.provider_auth');
+    expect(retryHintKey('Check model provider configuration and retry stage')).toBe(
+      'project.retry_hint.stage_failed'
+    );
+    expect(retryHintKey('Configure a provider route for this role in Settings -> Models')).toBe(
+      'project.retry_hint.provider_required'
+    );
+    unmount();
+
+    renderProject(makeAuthFailureClient(), '/p/proj-1', 'ar');
+    await waitFor(() => {
+      expect(screen.getByTestId('project-run-ended-banner')).toBeDefined();
+    });
+    expect(screen.getByTestId('project-banner-provider').textContent).toBe('9router');
+    expect(screen.getByTestId('project-banner-retry-hint').textContent).toBe(
+      'سجّل الدخول إلى هذا المزوّد مجددًا من الإعدادات ← النماذج والمزوّدين.'
+    );
+    expect(screen.getByTestId('project-activity-feed').textContent).toContain('9router');
+  });
 });

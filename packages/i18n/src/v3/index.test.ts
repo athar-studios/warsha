@@ -105,4 +105,34 @@ describe('i18n v3', () => {
       expect(translate('ar', key)).not.toBe(translate('en', key));
     }
   });
+
+  it('translates CLEAN-6 provider health, auth hint, and login dialog keys in Arabic and English', () => {
+    const clean6Keys = [
+      'home.provider_warning.title',
+      'home.provider_warning.body',
+      'home.provider_warning.proceed',
+      'home.provider_warning.open_settings',
+      'home.provider_warning.start_blocked',
+      'project.retry_hint.provider_auth',
+      'settings.providers.login_title',
+    ];
+    for (const key of clean6Keys) {
+      expect(catalogs.en[key]).toBeDefined();
+      expect(catalogs.ar[key]).toBeDefined();
+      expect(translate('en', key, { name: '9router' })).not.toBe(key);
+      expect(translate('ar', key, { name: '9router' })).not.toBe(key);
+      expect(translate('ar', key, { name: '9router' })).not.toBe(
+        translate('en', key, { name: '9router' })
+      );
+    }
+    expect(translate('en', 'home.provider_warning.body', { name: '9router' })).toBe(
+      "The saved login for 9router doesn't work — log in again in Settings → Models & providers."
+    );
+    expect(translate('en', 'project.retry_hint.provider_auth')).toBe(
+      'Log in to this provider again in Settings → Models & providers.'
+    );
+    expect(translate('en', 'settings.providers.login_title', { name: '9router' })).toBe(
+      'Log in to 9router'
+    );
+  });
 });

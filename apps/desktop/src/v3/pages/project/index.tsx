@@ -173,6 +173,28 @@ export function extractRetryHint(payload: unknown): string {
   return typeof rec.retry_hint === 'string' ? rec.retry_hint.trim() : '';
 }
 
+/** Provider name carried by a stage-failure event payload, when the daemon names one. */
+export function extractEventProvider(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return '';
+  const rec = payload as Record<string, unknown>;
+  return typeof rec.provider === 'string' ? rec.provider.trim() : '';
+}
+
+/** Newest provider name carried by an error event for the failure banner. */
+export function findFailureProvider(events: readonly WarshaEvent[] | null | undefined): string {
+  if (!events || events.length === 0) return '';
+  let provider = '';
+  let at = '';
+  for (const event of events) {
+    if (event.kind !== 'error') continue;
+    const next = extractEventProvider(event.payload);
+    if (!next || event.createdAt < at) continue;
+    provider = next;
+    at = event.createdAt;
+  }
+  return provider;
+}
+
 /**
  * Newest retry hint for the banner that is showing.
  *
@@ -232,6 +254,9 @@ export function retryHintKey(hint: string): string {
   }
   if (hint === 'Configure a provider route for this role in Settings -> Models') {
     return 'project.retry_hint.provider_required';
+  }
+  if (hint === 'Log in to this provider again in Settings -> Models & providers') {
+    return 'project.retry_hint.provider_auth';
   }
   return '';
 }
@@ -633,8 +658,10 @@ export default function ProjectPage(): React.ReactElement {
     return visibleEvents.map((ev) => {
       const rawSummary = extractEventSummary(ev.payload);
       const summary = rawSummary === 'project.provider_required' ? t(rawSummary) : rawSummary;
+      const eventProvider = extractEventProvider(ev.payload);
       // A run's end says which ending it was (R-EXT-2). Every other kind keeps the
-      // plain-language label the map already owns.
+      // plain-language label the map already owns. A daemon-named provider is
+      // surfaced next to the message so an auth failure points at the row to fix.
       const finished = decodeRunFinished(ev);
       return {
         id: ev.id,
@@ -646,6 +673,12 @@ export default function ProjectPage(): React.ReactElement {
             <span>
               {finished ? t(`events.run_finished.${finished}`) : t(projectEventLabelKey(ev))}
             </span>
+            {eventProvider ? (
+              <>
+                {' — '}
+                <bdi dir="ltr">{eventProvider}</bdi>
+              </>
+            ) : null}
             {summary ? (
               <>
                 {' — '}
@@ -671,6 +704,10 @@ export default function ProjectPage(): React.ReactElement {
   // cancelled banner keeps the newest hint on any error event, including one
   // with no action. An empty hint renders no hint element.
   const rawRetryHint = findRetryHint(eventsResult.data, isPaused ? 'paused' : 'failed');
+  const failureProvider = useMemo(
+    () => (isFailedOrCancelled ? findFailureProvider(eventsResult.data) : ''),
+    [isFailedOrCancelled, eventsResult.data]
+  );
   const isPausedProviderRequired = isPaused && rawRetryHint.length > 0;
 
   const showRetryHint = isFailedOrCancelled || isPausedProviderRequired;
@@ -866,6 +903,14 @@ export default function ProjectPage(): React.ReactElement {
                 {currentRun.status === 'cancelled'
                   ? t('project.run_cancelled_banner')
                   : t('project.run_failed_banner')}
+                {failureProvider ? (
+                  <>
+                    {' — '}
+                    <bdi dir="ltr" data-testid="project-banner-provider">
+                      {failureProvider}
+                    </bdi>
+                  </>
+                ) : null}
               </div>
             ) : null}
             {retryHint.trim() ? (
@@ -997,6 +1042,12 @@ export default function ProjectPage(): React.ReactElement {
                 <>
                   <span>·</span>
                   <span>{t(projectEventLabelKey(latestEvent))}</span>
+                  {extractEventProvider(latestEvent.payload) ? (
+                    <>
+                      <span>·</span>
+                      <bdi dir="ltr">{extractEventProvider(latestEvent.payload)}</bdi>
+                    </>
+                  ) : null}
                   {extractEventSummary(latestEvent.payload) ? (
                     <bdi dir="auto">
                       (

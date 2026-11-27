@@ -61,6 +61,8 @@ export default {
   'project.retry_hint.stage_failed': 'Check model provider configuration and retry stage',
   'project.retry_hint.provider_required':
     'Configure a provider route for this role in Settings → Models',
+  'project.retry_hint.provider_auth':
+    'Log in to this provider again in Settings → Models & providers.',
   'project.run_cancel_open': 'Cancel run',
   'project.run_cancel_confirm': 'Yes, cancel the run',
   'project.run_cancel_dialog_title': 'Cancel current run',

@@ -1,10 +1,12 @@
 import {
   canonicalRoleKey,
+  type AuthStatus,
   type CostEstimate,
   type GateSummary,
   type GithubStatus,
   type ProjectId,
   type ProjectSummary,
+  type ProviderConfig,
   type RoleRouting,
   type RunSummary,
 } from '@warsha/client';
@@ -88,6 +90,9 @@ export interface NewProjectDialogProps {
   open: boolean;
   onClose: () => void;
   onSubmit?: (name: string, idea: string, repoPath?: string, repoUrl?: string) => Promise<void>;
+  /** DEFECT 2(a): mirrors the composer's provider-warning gate for the create button. */
+  startBlocked?: boolean;
+  startBlockedReason?: string;
 }
 
 /** Thrown when the source probe needs the git-init confirmation first. */
@@ -97,6 +102,8 @@ export function NewProjectDialog({
   open,
   onClose,
   onSubmit,
+  startBlocked = false,
+  startBlockedReason,
 }: NewProjectDialogProps): React.ReactElement {
   const t = useT();
   const { locale } = useLocale();
@@ -176,7 +183,7 @@ export function NewProjectDialog({
 
   const handleSubmit = async () => {
     const trimmedIdea = idea.trim();
-    if (!trimmedIdea) return;
+    if (!trimmedIdea || startBlocked) return;
     const validationError = validateProjectSource(sourceValue, githubStatus, t);
     if (validationError) {
       setError(validationError);
@@ -321,7 +328,8 @@ export function NewProjectDialog({
             variant="primary"
             data-action="home.new-project.submit"
             onClick={() => void handleSubmit()}
-            disabled={!idea.trim() || submitting || githubCreateBlocked}
+            disabled={!idea.trim() || submitting || githubCreateBlocked || startBlocked}
+            disabledReason={startBlocked ? startBlockedReason : undefined}
             loading={submitting}
             data-testid="new-project-submit-btn"
           >
@@ -574,6 +582,33 @@ export function buildNeedsYou(
 }
 
 /** The once-per-condition owner alerts, computed from daemon records only. */
+/** Routed-but-unhealthy providers that must gate the composer Start button. */
+export function findUnhealthyRoutedProviders(
+  providers: readonly ProviderConfig[] | null | undefined,
+  routings: readonly RoleRouting[] | null | undefined,
+  authStatuses?: Readonly<Record<string, AuthStatus>>
+): ProviderConfig[] {
+  if (!providers || providers.length === 0) return [];
+  const routed = new Set<string>();
+  if (routings && routings.length > 0) {
+    for (const routing of routings) {
+      for (const target of routing.targets ?? []) {
+        if (target.provider_id) routed.add(target.provider_id);
+      }
+    }
+  }
+  const considerRoutedOnly = routed.size > 0;
+  return providers.filter((provider) => {
+    if (!provider.enabled) return false;
+    if (considerRoutedOnly && !routed.has(provider.name)) return false;
+    if (provider.last_test_ok === false) return true;
+    if (provider.last_test_ok !== true) {
+      return authStatuses?.[provider.name]?.kind === 'unauthenticated';
+    }
+    return false;
+  });
+}
+
 export function homeAlerts(params: {
   oldestWaitingGateAt: string | null;
   failedRuns: readonly RunSummary[];
@@ -635,6 +670,50 @@ export default function HomePage(): React.ReactElement {
   const projectsResult = useProjects();
   const rolesResult = useRoles();
   const modelsResult = useModels();
+  // DEFECT 2(a): provider health for the composer warning. `providers.list`
+  // carries last_test_* and `auth_status` carries key presence; the warning
+  // gates Start (until acknowledged) rather than failing the run later.
+  const [providerHealth, setProviderHealth] = useState<readonly ProviderConfig[]>([]);
+  const [providerAuth, setProviderAuth] = useState<Readonly<Record<string, AuthStatus>>>({});
+  const [providerWarningAcked, setProviderWarningAcked] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!client) {
+      setProviderHealth([]);
+      setProviderAuth({});
+      setProviderWarningAcked(false);
+      return;
+    }
+    const loadHealth = async (): Promise<void> => {
+      try {
+        const provList = await client.listProviders();
+        if (!active) return;
+        setProviderHealth(provList);
+        setProviderWarningAcked(false);
+        const statuses: Record<string, AuthStatus> = {};
+        await Promise.all(
+          provList.map(async (provider) => {
+            try {
+              statuses[provider.name] = await client.providerAuthStatus(provider.name);
+            } catch {
+              // Leave absent: the fallback only warns on explicit unauthenticated.
+            }
+          })
+        );
+        if (active) setProviderAuth(statuses);
+      } catch {
+        if (active) {
+          setProviderHealth([]);
+          setProviderAuth({});
+        }
+      }
+    };
+    void loadHealth();
+    return () => {
+      active = false;
+    };
+  }, [client]);
   // The default budget is a plain set/read value, re-read on mount, on focus and after any save.
   const defaultBudgetResult = useDefaultBudget();
 
@@ -1089,6 +1168,7 @@ export default function HomePage(): React.ReactElement {
 
   const handleInterviewSubmit = (): void => {
     if (!idea.trim() || startInterviewAction.pending || !capabilities.provider) return;
+    if (showProviderWarning) return;
     const validationError = validateProjectSource(sourceValue, githubStatus, t);
     if (validationError) {
       setComposerError(validationError);
@@ -1100,6 +1180,7 @@ export default function HomePage(): React.ReactElement {
 
   const handleStartSubmit = (): void => {
     if (!idea.trim() || startAction.pending || !capabilities.provider) return;
+    if (showProviderWarning) return;
     const validationError = validateProjectSource(sourceValue, githubStatus, t);
     if (validationError) {
       setComposerError(validationError);
@@ -1133,6 +1214,27 @@ export default function HomePage(): React.ReactElement {
   }, [projectsResult.data]);
 
   const hasProvider = capabilities.provider;
+
+  const unhealthyProviders = useMemo(
+    () => findUnhealthyRoutedProviders(providerHealth, rolesResult.data, providerAuth),
+    [providerHealth, providerAuth, rolesResult.data]
+  );
+  // DEFECT 2(a): warn on unhealthy routed providers, never fake success. A
+  // fresh install with no providers keeps today's add-provider flow (no new
+  // friction); the banner only gates Start once a row exists and looks bad.
+  const showProviderWarning =
+    hasProvider &&
+    providerHealth.length > 0 &&
+    unhealthyProviders.length > 0 &&
+    !providerWarningAcked;
+  const startBlocked = showProviderWarning || githubCreateBlocked;
+  const startBlockedReason = showProviderWarning
+    ? t('home.provider_warning.start_blocked')
+    : undefined;
+
+  const projectsListError = projectsResult.error
+    ? describeRpcError(projectsResult.error, t)
+    : null;
 
   // Table columns for Advanced mode
   const tableColumns: DataTableColumn<ProjectSummary>[] = useMemo(() => {
@@ -1268,6 +1370,8 @@ export default function HomePage(): React.ReactElement {
 
         <NewProjectDialog
           open={newProjectDialogOpen}
+          startBlocked={startBlocked}
+          startBlockedReason={startBlockedReason}
           onClose={() => {
             setNewProjectDialogOpen(false);
             projectsResult.reload();
@@ -1293,7 +1397,16 @@ export default function HomePage(): React.ReactElement {
             data-testid="home-error-banner"
           >
             <Banner variant="danger" title={t('home.error_title')} action={retryButtonElement}>
-              {projectsResult.error?.message || t('common.error')}
+              {projectsListError ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--w-space-1)' }}>
+                  <span>{t(projectsListError.key)}</span>
+                  {projectsListError.detail ? (
+                    <bdi dir="auto">{projectsListError.detail}</bdi>
+                  ) : null}
+                </div>
+              ) : (
+                t('common.error')
+              )}
             </Banner>
           </div>
         )}
@@ -1412,6 +1525,62 @@ export default function HomePage(): React.ReactElement {
             </div>
           ) : null}
 
+          {showProviderWarning ? (
+            <div style={{ marginBlockStart: 'var(--w-space-2)' }}>
+              <Banner
+                variant="attention"
+                title={t('home.provider_warning.title')}
+                data-testid="home-provider-warning"
+                action={
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 'var(--w-space-2)',
+                      flexWrap: 'wrap',
+                      justifyContent: 'flex-end',
+                    }}
+                  >
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      data-action="home.provider.warning.settings"
+                      onClick={() => navigate('/settings/models')}
+                    >
+                      {t('home.provider_warning.open_settings')}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      data-action="home.provider.warning.proceed"
+                      data-testid="home-provider-proceed"
+                      onClick={() => setProviderWarningAcked(true)}
+                    >
+                      {t('home.provider_warning.proceed')}
+                    </Button>
+                  </div>
+                }
+              >
+                {(() => {
+                  const marker = '__WARSHA_PROVIDER_NAMES__';
+                  const template = t('home.provider_warning.body', { name: marker });
+                  const [before = '', after = ''] = template.split(marker);
+                  return (
+                    <span>
+                      {before}
+                      {unhealthyProviders.map((provider, index) => (
+                        <span key={provider.name}>
+                          {index > 0 ? ', ' : null}
+                          <bdi dir="ltr">{provider.name}</bdi>
+                        </span>
+                      ))}
+                      {after}
+                    </span>
+                  );
+                })()}
+              </Banner>
+            </div>
+          ) : null}
+
           <div className="v3-home-composer-footer">
             <span className="v3-home-defaults-line">
               <span>{t('home.defaults_prefix')}</span>
@@ -1439,7 +1608,13 @@ export default function HomePage(): React.ReactElement {
                 <Button
                   variant="secondary"
                   size="lg"
-                  disabled={!idea.trim() || startInterviewAction.pending || githubCreateBlocked}
+                  disabled={
+                    !idea.trim() ||
+                    startInterviewAction.pending ||
+                    githubCreateBlocked ||
+                    showProviderWarning
+                  }
+                  disabledReason={startBlockedReason}
                   loading={startInterviewAction.pending}
                   onClick={handleInterviewSubmit}
                   data-action="home.interview.start"
@@ -1451,7 +1626,10 @@ export default function HomePage(): React.ReactElement {
                   variant="primary"
                   size="lg"
                   iconEnd={<IconSend size={18} />}
-                  disabled={!idea.trim() || startAction.pending || githubCreateBlocked}
+                  disabled={
+                    !idea.trim() || startAction.pending || githubCreateBlocked || showProviderWarning
+                  }
+                  disabledReason={startBlockedReason}
                   loading={startAction.pending}
                   onClick={handleStartSubmit}
                   data-action="home.start"

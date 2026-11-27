@@ -61,6 +61,17 @@ export const ACTIONS: readonly ActionDef[] = [
     route: '/onboarding',
   },
   {
+    id: 'home.provider.warning.proceed',
+    labelKey: 'home.provider_warning.proceed',
+    effect: 'state',
+  },
+  {
+    id: 'home.provider.warning.settings',
+    labelKey: 'home.provider_warning.open_settings',
+    effect: 'nav',
+    route: '/settings/models',
+  },
+  {
     id: 'home.retry',
     labelKey: 'home.retry',
     effect: 'rpc',

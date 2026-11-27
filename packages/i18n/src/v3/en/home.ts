@@ -9,6 +9,12 @@ export default {
   'home.start': 'Start project',
   'home.estimate.line': 'Estimated cost for this run: ${min}–${max} (estimated)',
   'home.provider_add': 'Add a provider first',
+  'home.provider_warning.title': 'Saved provider login needs attention',
+  'home.provider_warning.body': "The saved login for {name} doesn't work — log in again in Settings → Models & providers.",
+  'home.provider_warning.proceed': 'Proceed anyway',
+  'home.provider_warning.open_settings': 'Open Settings → Models & providers',
+  'home.provider_warning.start_blocked':
+    'Start is disabled until the provider login is fixed or you choose Proceed anyway.',
   'home.defaults_prefix': 'Model',
   'home.defaults_budget_prefix': 'Budget limit',
   'home.defaults_open': 'Change',
