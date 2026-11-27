@@ -72,6 +72,12 @@ fn lock_holder(path: &Path) -> String {
 ///   name, and B and C both lock successfully because they locked different files. The
 ///   next bind to the RPC port is then a crash, or two databases in one directory.
 ///   Leaving the file costs one inode and makes every instance contend on the same one.
+///
+/// The endpoint file (`warshad.endpoint`) is written by the holder after binding its
+/// actual OS ports and removed on shutdown/drop. It is separate from the lock file and
+/// does not participate in the advisory lock.
+pub const ENDPOINT_FILE: &str = "warshad.endpoint";
+
 #[derive(Debug)]
 pub(crate) struct LockFile {
     path: PathBuf,

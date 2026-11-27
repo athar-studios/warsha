@@ -34,13 +34,17 @@ pub const CONFIG_DAEMON_TOKEN: &str = "daemon_token";
 /// Config key reporting the data directory the daemon and desktop settings live in.
 pub const CONFIG_DATA_DIR: &str = "data_dir";
 
+/// Config key reporting any daemon startup error (read-only via `get_config`; `set_config` refuses it).
+pub const CONFIG_DAEMON_STARTUP_ERROR: &str = "daemon_startup_error";
+
 /// The keys above are the shell's to answer: `set_config` refuses them, so a stray write
 /// from the webview cannot point the app at an endpoint that is not there or alter the data directory.
-const SHELL_OWNED_KEYS: [&str; 4] = [
+const SHELL_OWNED_KEYS: [&str; 5] = [
     CONFIG_DAEMON_URL,
     CONFIG_DAEMON_WS_URL,
     CONFIG_DAEMON_TOKEN,
     CONFIG_DATA_DIR,
+    CONFIG_DAEMON_STARTUP_ERROR,
 ];
 
 /// Name of the settings file the non-daemon preferences live in, inside the daemon's data dir.
@@ -74,7 +78,9 @@ pub struct DaemonEndpoint {
 
 /// The shell's live state: the daemon it owns, where it is, and the webview's own preferences.
 pub struct ShellState {
-    endpoint: DaemonEndpoint,
+    endpoint: Mutex<DaemonEndpoint>,
+    /// Any daemon startup error, so `get_config` can surface it and `retry_daemon` can clear it.
+    startup_error: Mutex<Option<String>>,
     /// The daemon this shell started, kept so `RunEvent::Exit` can stop it.
     process: Mutex<Option<DaemonHandle>>,
     settings: Mutex<BTreeMap<String, String>>,
@@ -107,9 +113,26 @@ impl ShellState {
     /// for "not set yet".
     fn get(&self, key: &str) -> String {
         match key {
-            CONFIG_DAEMON_URL => self.endpoint.base_url.clone(),
-            CONFIG_DAEMON_WS_URL => self.endpoint.ws_url.clone(),
-            CONFIG_DAEMON_TOKEN => self.endpoint.token.clone(),
+            CONFIG_DAEMON_URL => self
+                .endpoint
+                .lock()
+                .map(|e| e.base_url.clone())
+                .unwrap_or_default(),
+            CONFIG_DAEMON_WS_URL => self
+                .endpoint
+                .lock()
+                .map(|e| e.ws_url.clone())
+                .unwrap_or_default(),
+            CONFIG_DAEMON_TOKEN => self
+                .endpoint
+                .lock()
+                .map(|e| e.token.clone())
+                .unwrap_or_default(),
+            CONFIG_DAEMON_STARTUP_ERROR => self
+                .startup_error
+                .lock()
+                .map(|e| e.as_ref().cloned().unwrap_or_default())
+                .unwrap_or_default(),
             CONFIG_DATA_DIR => self.data_dir.display().to_string(),
             _ => self.preferences().get(key).cloned().unwrap_or_default(),
         }
@@ -149,6 +172,109 @@ impl ShellState {
             self.note(&format!("could not store {key}: {error}"));
             error
         })
+    }
+
+    /// Retry daemon startup if the current state is failed or the owned daemon is unreachable.
+    /// Returns the current endpoint on success, or an error on failure.
+    /// This is unit-testable without `tauri::State` because it operates on `&self` only.
+    fn retry_daemon(&self) -> Result<DaemonEndpoint, String> {
+        self.retry_daemon_with_config(None)
+    }
+
+    /// Internal retry with optional config override for testing.
+    fn retry_daemon_with_config(
+        &self,
+        config_override: Option<DaemonConfig>,
+    ) -> Result<DaemonEndpoint, String> {
+        // First, check if we have an owned daemon that is still responsive
+        let (current_endpoint, has_owned_handle) = {
+            let process_guard = self.process.lock().map_err(|e| e.to_string())?;
+            let endpoint_guard = self.endpoint.lock().map_err(|e| e.to_string())?;
+            (endpoint_guard.clone(), process_guard.is_some())
+        };
+
+        if has_owned_handle {
+            // Probe the current endpoint with an authorized request
+            let host = current_endpoint.base_url.trim_start_matches("http://");
+            let probe = raw_request(
+                host,
+                &rpc_request(host, &current_endpoint.token, "projects.list"),
+            );
+            if probe
+                .as_ref()
+                .is_ok_and(|r| r.contains("jsonrpc") && r.contains("result"))
+            {
+                // Owned daemon is healthy — clear any startup error and return the endpoint
+                if let Ok(mut err) = self.startup_error.lock() {
+                    *err = None;
+                }
+                return Ok(current_endpoint);
+            }
+        }
+
+        // No healthy owned daemon — clear dead handle if any, then retry startup
+        if has_owned_handle {
+            if let Ok(mut process_guard) = self.process.lock() {
+                *process_guard = None;
+            }
+        }
+
+        // Load config and try to start/attach
+        let config = if let Some(cfg) = config_override {
+            cfg
+        } else {
+            match tauri::async_runtime::block_on(warshad::load_or_create_config(None)) {
+                Ok(config) => config,
+                Err(error) => {
+                    let err_msg = format!("could not read the daemon configuration: {error}");
+                    if let Ok(mut err) = self.startup_error.lock() {
+                        *err = Some(err_msg.clone());
+                    }
+                    self.note(&err_msg);
+                    return Err(err_msg);
+                }
+            }
+        };
+
+        match daemon_for(config) {
+            Ok((endpoint, handle)) => {
+                // Success — update state
+                if let Ok(mut endpoint_guard) = self.endpoint.lock() {
+                    *endpoint_guard = endpoint.clone();
+                }
+                if let Ok(mut process_guard) = self.process.lock() {
+                    *process_guard = handle;
+                }
+                if let Ok(mut err) = self.startup_error.lock() {
+                    *err = None;
+                }
+                if endpoint.owned {
+                    self.note(&format!("daemon started on {}", endpoint.base_url));
+                } else {
+                    self.note("using a daemon another instance already started");
+                }
+                Ok(endpoint)
+            }
+            Err(error) => {
+                // Failure — update error state
+                if let Ok(mut endpoint_guard) = self.endpoint.lock() {
+                    *endpoint_guard = DaemonEndpoint {
+                        base_url: String::new(),
+                        ws_url: String::new(),
+                        token: String::new(),
+                        owned: false,
+                    };
+                }
+                if let Ok(mut process_guard) = self.process.lock() {
+                    *process_guard = None;
+                }
+                if let Ok(mut err) = self.startup_error.lock() {
+                    *err = Some(error.clone());
+                }
+                self.note(&error);
+                Err(error)
+            }
+        }
     }
 
     /// Append one line to the shell's log, best effort: a log that cannot be written must not be
@@ -260,6 +386,7 @@ fn with_webview_origins(mut config: DaemonConfig) -> DaemonConfig {
 }
 
 /// The endpoint of a daemon that is already running on the ports `config` names.
+#[allow(dead_code)]
 fn configured_endpoint(config: &DaemonConfig) -> DaemonEndpoint {
     DaemonEndpoint {
         base_url: format!("http://127.0.0.1:{}", config.ws_port),
@@ -328,6 +455,7 @@ fn parse_lock_pid(reason: &str) -> Option<u32> {
 }
 
 /// Extract the quoted lock path embedded in `reason`, falling back to `data_dir/warshad.lock`.
+#[allow(dead_code)]
 fn parse_lock_path(reason: &str, data_dir: &Path) -> PathBuf {
     if let Some((_, rest)) = reason.split_once("another warshad holds ") {
         if rest.starts_with('"') {
@@ -372,6 +500,7 @@ fn is_pid_alive(pid: u32) -> bool {
 }
 
 /// Probe `127.0.0.1:{config.ws_port}` with an authorized JSON-RPC `projects.list` request.
+#[allow(dead_code)]
 fn probe_configured_endpoint(config: &DaemonConfig) -> Result<(), String> {
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpStream};
@@ -411,32 +540,145 @@ fn probe_configured_endpoint(config: &DaemonConfig) -> Result<(), String> {
     }
 }
 
-/// Verify that a lock holder is a real live sibling: its PID is alive AND the configured
-/// endpoint answers an authorized JSON-RPC probe using our token.
-fn verify_lock_holder(config: &DaemonConfig, reason: &str) -> Result<u32, String> {
-    let pid = parse_lock_pid(reason)
-        .ok_or_else(|| format!("lock reason named no live pid ({reason})"))?;
+/// Parse the endpoint file (`warshad.endpoint`) for pid, rpc_url, ws_url.
+/// Returns (pid, rpc_url, ws_url) if the file exists and parses cleanly.
+fn parse_endpoint_file(data_dir: &Path) -> Option<(u32, String, String)> {
+    let endpoint_path = data_dir.join("warshad.endpoint");
+    let content = std::fs::read_to_string(&endpoint_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let pid = json.get("pid")?.as_u64()? as u32;
+    let rpc_url = json.get("rpc_url")?.as_str()?.to_string();
+    let ws_url = json.get("ws_url")?.as_str()?.to_string();
+    Some((pid, rpc_url, ws_url))
+}
+
+/// Probe a given RPC URL with an authorized JSON-RPC `projects.list` request.
+/// Returns the base_url and ws_url on success, or an error message on failure.
+fn probe_rpc_url(rpc_url: &str, ws_url: &str, token: &str) -> Result<(String, String), String> {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+
+    // Extract host:port from rpc_url (e.g., "http://127.0.0.1:8766" -> "127.0.0.1:8766")
+    let host = rpc_url
+        .strip_prefix("http://")
+        .or_else(|| rpc_url.strip_prefix("https://"))
+        .ok_or_else(|| format!("invalid rpc_url scheme: {rpc_url}"))?;
+
+    let addr: SocketAddr = host
+        .parse()
+        .map_err(|error| format!("invalid rpc address {host}: {error}"))?;
+    let timeout = Duration::from_secs(2);
+    let mut stream = TcpStream::connect_timeout(&addr, timeout)
+        .map_err(|error| format!("connect {host}: {error}"))?;
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+    let req = rpc_request(host, token, "projects.list");
+    stream
+        .write_all(req.as_bytes())
+        .map_err(|error| format!("write to {host}: {error}"))?;
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .map_err(|error| format!("read from {host}: {error}"))?;
+    let status_ok = response
+        .lines()
+        .next()
+        .is_some_and(|line| line.starts_with("HTTP/") && line.contains(" 200"));
+    if status_ok && rpc_json_body(&response).is_some() {
+        Ok((rpc_url.to_string(), ws_url.to_string()))
+    } else {
+        Err(format!(
+            "endpoint {host} rejected or failed authorized probe ({})",
+            first_line(&response)
+        ))
+    }
+}
+
+/// Verify that a lock holder is a real live sibling by probing the endpoint file's rpc_url.
+/// Returns the DaemonEndpoint (with base_url = rpc_url from endpoint, ws_url from endpoint)
+/// if the holder is alive and the endpoint answers authorized probe.
+/// Otherwise returns an actionable error message.
+fn verify_lock_holder(config: &DaemonConfig, reason: &str) -> Result<DaemonEndpoint, String> {
+    let data_dir = &config.data_dir;
+
+    // First, try to read pid from the endpoint file
+    let mut endpoint_pid = None;
+    let mut endpoint_rpc_url = None;
+    let mut endpoint_ws_url = None;
+
+    if let Some((pid, rpc_url, ws_url)) = parse_endpoint_file(data_dir) {
+        endpoint_pid = Some(pid);
+        endpoint_rpc_url = Some(rpc_url);
+        endpoint_ws_url = Some(ws_url);
+    }
+
+    // Parse pid from lock reason (the holder's pid)
+    let lock_pid = parse_lock_pid(reason);
+
+    // If endpoint file exists and parses cleanly, and its pid matches lock pid (when lock pid is known),
+    // probe that endpoint. Otherwise fall back to configured endpoint.
+    let (selected_rpc_url, selected_ws_url, probe_pid) =
+        if let (Some(ep_pid), Some(rpc_url), Some(ws_url)) =
+            (endpoint_pid, endpoint_rpc_url, endpoint_ws_url)
+        {
+            // If we have a lock_pid and it doesn't match endpoint pid, something is wrong - fall back
+            if let Some(lp) = lock_pid {
+                if lp != ep_pid {
+                    // Pid mismatch - fall back to configured endpoint
+                    (
+                        format!("http://127.0.0.1:{}", config.ws_port),
+                        format!("ws://127.0.0.1:{}", config.http_port),
+                        lock_pid,
+                    )
+                } else {
+                    // Pids match - use endpoint file's URLs
+                    (rpc_url, ws_url, Some(ep_pid))
+                }
+            } else {
+                // No lock_pid (shouldn't happen for Lock error) - use endpoint file
+                (rpc_url, ws_url, Some(ep_pid))
+            }
+        } else {
+            // No endpoint file or failed to parse - fall back to configured endpoint
+            // But still try to get pid from warshad.pid if lock_pid failed
+            let fallback_pid = lock_pid.or_else(|| {
+                let pid_path = data_dir.join("warshad.pid");
+                std::fs::read_to_string(&pid_path)
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u32>().ok())
+                    .filter(|&p| p > 0)
+            });
+            (
+                format!("http://127.0.0.1:{}", config.ws_port),
+                format!("ws://127.0.0.1:{}", config.http_port),
+                fallback_pid,
+            )
+        };
+
+    // Confirm pid is alive
+    let pid = probe_pid.ok_or_else(|| format!("lock reason named no live pid ({reason})"))?;
     if !is_pid_alive(pid) {
         return Err(format!("lock holder pid {pid} is dead"));
     }
-    probe_configured_endpoint(config)?;
-    Ok(pid)
-}
 
-/// Remove the lock file named in `reason` (plus `data_dir/warshad.lock`) and its sibling `.pid`
-/// mirror so a stale lock left by a crashed daemon can be replaced.
-fn remove_stale_lock_files(data_dir: &Path, reason: &str) {
-    let parsed_lock = parse_lock_path(reason, data_dir);
-    let default_lock = data_dir.join("warshad.lock");
-    for lock_path in [parsed_lock, default_lock] {
-        let pid_path = lock_path.with_extension("pid");
-        let _ = std::fs::remove_file(&lock_path);
-        let _ = std::fs::remove_file(&pid_path);
+    // Probe the selected RPC URL
+    match probe_rpc_url(&selected_rpc_url, &selected_ws_url, &config.auth_token) {
+        Ok((base_url, ws_url)) => Ok(DaemonEndpoint {
+            base_url,
+            ws_url,
+            token: config.auth_token.clone(),
+            owned: false,
+        }),
+        Err(probe_err) => Err(format!(
+            "Warsha is already running as pid {pid} (holding {}): could not connect ({probe_err}). Close that instance before launching again.",
+            data_dir.display()
+        )),
     }
 }
 
 /// Retry starting `config` on OS-chosen ports after a failed start; if that attempt still hits a
-/// lock error, verify the holder before ever attaching.
+/// lock error, verify the holder before ever attaching. NEVER unlink lock files.
 fn fallback_os_ports(
     config: &DaemonConfig,
     first_failure: &str,
@@ -448,22 +690,26 @@ fn fallback_os_ports(
     match tauri::async_runtime::block_on(warshad::start_daemon(free_ports)) {
         Ok(handle) => Ok((owned_endpoint(&config.auth_token, &handle), Some(handle))),
         Err(DaemonError::Lock(second_reason)) => {
-            if verify_lock_holder(config, &second_reason).is_ok() {
-                append_note(
-                    log_path,
-                    &format!("using a daemon another instance already started: {second_reason}"),
-                );
-                Ok((configured_endpoint(config), None))
-            } else {
-                append_note(
-                    log_path,
-                    &format!(
-                        "warshad did not attach on OS-chosen-port retry ({second_reason}): verification failed"
-                    ),
-                );
-                Err(format!(
-                    "warshad did not start: {first_failure}; retrying on OS-chosen ports: {second_reason}"
-                ))
+            // On lock error during fallback, verify the holder - NEVER delete lock files
+            match verify_lock_holder(config, &second_reason) {
+                Ok(endpoint) => {
+                    append_note(
+                        log_path,
+                        &format!(
+                            "using a daemon another instance already started: {second_reason}"
+                        ),
+                    );
+                    Ok((endpoint, None))
+                }
+                Err(err) => {
+                    append_note(
+                        log_path,
+                        &format!(
+                            "warshad did not attach on OS-chosen-port retry ({second_reason}): {err}"
+                        ),
+                    );
+                    Err(err) // Return actionable error - NEVER start a second daemon
+                }
             }
         }
         Err(second_failure) => Err(format!(
@@ -478,56 +724,72 @@ fn daemon_for(config: DaemonConfig) -> Result<(DaemonEndpoint, Option<DaemonHand
     let log_path = config.data_dir.join(LOG_FILE);
     match tauri::async_runtime::block_on(warshad::start_daemon(config.clone())) {
         Ok(handle) => Ok((owned_endpoint(&config.auth_token, &handle), Some(handle))),
-        Err(DaemonError::Lock(reason)) => match verify_lock_holder(&config, &reason) {
-            Ok(_pid) => {
-                // Both checks passed: the holder PID is alive and the configured RPC port answered
-                // our authorized probe, so this truly is a live sibling sharing our config.
-                append_note(
-                    &log_path,
-                    &format!("using a daemon another instance already started: {reason}"),
-                );
-                Ok((configured_endpoint(&config), None))
-            }
-            Err(verify_err) => {
-                append_note(
-                    &log_path,
-                    &format!(
-                        "stale or foreign daemon lock ({reason}): {verify_err}; removing stale lock and retrying"
-                    ),
-                );
-                remove_stale_lock_files(&config.data_dir, &reason);
-                match tauri::async_runtime::block_on(warshad::start_daemon(config.clone())) {
-                    Ok(handle) => {
-                        append_note(
-                            &log_path,
-                            &format!(
-                                "took over stale daemon lock on 127.0.0.1:{}",
-                                handle.rpc_port()
-                            ),
-                        );
-                        Ok((owned_endpoint(&config.auth_token, &handle), Some(handle)))
-                    }
-                    Err(DaemonError::Lock(second_reason)) => {
-                        if verify_lock_holder(&config, &second_reason).is_ok() {
-                            append_note(
-                                &log_path,
-                                &format!(
-                                    "using a daemon another instance already started: {second_reason}"
-                                ),
-                            );
-                            Ok((configured_endpoint(&config), None))
-                        } else {
-                            let detail = format!("lock retry failed: {second_reason}");
-                            fallback_os_ports(&config, &detail, &log_path)
+        Err(DaemonError::Lock(reason)) => {
+            match verify_lock_holder(&config, &reason) {
+                Ok(endpoint) => {
+                    // Live holder verified via endpoint file - attach unowned
+                    append_note(
+                        &log_path,
+                        &format!("using a daemon another instance already started: {reason}"),
+                    );
+                    Ok((endpoint, None))
+                }
+                Err(err) => {
+                    // Check if it's a dead pid (exit race while flock closing)
+                    if let Some(pid) = parse_lock_pid(&reason) {
+                        if !is_pid_alive(pid) {
+                            // Rare exit race: holder died but flock not yet released
+                            // Sleep 100ms and retry ONCE without deleting lock files
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            match tauri::async_runtime::block_on(warshad::start_daemon(
+                                config.clone(),
+                            )) {
+                                Ok(handle) => {
+                                    append_note(
+                                        &log_path,
+                                        &format!(
+                                            "took over stale daemon lock on 127.0.0.1:{}",
+                                            handle.rpc_port()
+                                        ),
+                                    );
+                                    return Ok((
+                                        owned_endpoint(&config.auth_token, &handle),
+                                        Some(handle),
+                                    ));
+                                }
+                                Err(DaemonError::Lock(second_reason)) => {
+                                    // Re-verify on second Lock
+                                    match verify_lock_holder(&config, &second_reason) {
+                                        Ok(endpoint) => {
+                                            append_note(
+                                                &log_path,
+                                                &format!("using a daemon another instance already started: {second_reason}"),
+                                            );
+                                            return Ok((endpoint, None));
+                                        }
+                                        Err(second_err) => {
+                                            // Live holder whose probe failed - return actionable error IMMEDIATELY
+                                            // NEVER delete warshad.lock, NEVER call fallback_os_ports, NEVER start second daemon
+                                            append_note(&log_path, &second_err);
+                                            return Err(second_err);
+                                        }
+                                    }
+                                }
+                                Err(retry_failure) => {
+                                    return Err(format!(
+                                        "warshad did not start after stale lock retry: {retry_failure}"
+                                    ));
+                                }
+                            }
                         }
                     }
-                    Err(retry_failure) => {
-                        let detail = format!("after stale lock takeover: {retry_failure}");
-                        fallback_os_ports(&config, &detail, &log_path)
-                    }
+                    // Live holder whose probe failed - return actionable error IMMEDIATELY
+                    // NEVER delete warshad.lock, NEVER call fallback_os_ports, NEVER start second daemon
+                    append_note(&log_path, &err);
+                    Err(err)
                 }
             }
-        },
+        }
         Err(first_failure) => fallback_os_ports(&config, &first_failure.to_string(), &log_path),
     }
 }
@@ -1119,6 +1381,12 @@ async fn pick_folder(
     }
 }
 
+/// `retry_daemon` — retry daemon startup if the current state is failed or the owned daemon is unreachable.
+#[tauri::command]
+fn retry_daemon(state: State<'_, ShellState>) -> Result<DaemonEndpoint, String> {
+    state.retry_daemon()
+}
+
 /// Build and run the app: start the daemon, publish where it is, and reap it on exit.
 ///
 /// The daemon starts *before* the window is created, and synchronously. The webview's first
@@ -1144,30 +1412,39 @@ pub fn run() -> anyhow::Result<()> {
         ),
     };
 
+    // Initialize ShellState with Mutex fields for endpoint and startup_error
+    // Note: The tauri-plugin-single-instance plugin runs in its setup BEFORE app.setup(),
+    // so we must initialize ShellState here (not in .setup()) to ensure the second Tauri
+    // process exits inside the plugin BEFORE start_shell() runs.
     let shell = ShellState {
-        endpoint,
+        endpoint: Mutex::new(endpoint),
+        startup_error: Mutex::new(startup_error),
         process: Mutex::new(process),
         settings: Mutex::new(read_settings(&settings_path)),
         settings_path,
         log_path,
         data_dir,
     };
-    if let Some(error) = startup_error {
-        shell.note(&error);
-    } else if shell.endpoint.owned {
-        shell.note(&format!("daemon started on {}", shell.endpoint.base_url));
-    } else {
-        shell.note("using a daemon another instance already started");
-    }
 
     let app = tauri::Builder::default()
+        // tauri-plugin-single-instance MUST be the FIRST plugin so its setup runs before app.setup().
+        // This ensures a second Tauri GUI process exits inside the plugin (focusing the existing
+        // "main" window) BEFORE start_shell() runs and attempts to bind ports or acquire the lock.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(shell)
         .invoke_handler(tauri::generate_handler![
             get_config,
             set_config,
-            pick_folder
+            pick_folder,
+            retry_daemon
         ])
         .build(tauri::generate_context!())?;
 
@@ -1231,12 +1508,13 @@ mod tests {
     /// A shell state over one scratch directory, with no daemon in it.
     fn shell(directory: &Path) -> ShellState {
         ShellState {
-            endpoint: DaemonEndpoint {
+            endpoint: Mutex::new(DaemonEndpoint {
                 base_url: "http://127.0.0.1:1234".to_string(),
                 ws_url: "ws://127.0.0.1:4321".to_string(),
                 token: "a-token".to_string(),
                 owned: false,
-            },
+            }),
+            startup_error: Mutex::new(None),
             process: Mutex::new(None),
             settings: Mutex::new(read_settings(&directory.join(SETTINGS_FILE))),
             settings_path: directory.join(SETTINGS_FILE),
@@ -1464,12 +1742,14 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[allow(dead_code)]
     struct FlockGuard {
         child: std::process::Child,
     }
 
     #[cfg(unix)]
     impl FlockGuard {
+        #[allow(dead_code)]
         fn acquire(lock_path: &Path) -> Self {
             let mut child = std::process::Command::new("flock")
                 .arg("-x")
@@ -1519,30 +1799,28 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn stale_lock_with_dead_pid_is_taken_over_and_answers_authorized_probe() {
-        let dir = scratch("defect1-stale-lock-dead-pid");
+    fn genuinely_dead_holder_flock_released_inert_files_on_disk_daemon_for_starts_normally() {
+        // Scenario 1: Genuinely dead holder (flock released, inert warshad.lock and warshad.pid files still on disk)
+        // daemon_for should start normally and answer authorized probe.
+        let dir = scratch("genuinely-dead-holder");
         let lock_path = dir.join("warshad.lock");
         let pid_path = dir.join("warshad.pid");
         let dead = dead_pid().to_string();
         std::fs::write(&lock_path, &dead).expect("write stale lock");
         std::fs::write(&pid_path, &dead).expect("write stale pid");
-        let _guard = FlockGuard::acquire(&lock_path);
+        // IMPORTANT: Do NOT acquire flock - the flock must be released to simulate a genuinely dead holder
 
         let http_port = unused_port();
         let ws_port = unused_port();
-        let cfg = test_daemon_config(&dir, http_port, ws_port, "clean6-stale-token");
+        let cfg = test_daemon_config(&dir, http_port, ws_port, "dead-holder-token");
 
-        let (endpoint, handle) = daemon_for(cfg).expect("daemon_for takes over stale lock");
+        let (endpoint, handle) =
+            daemon_for(cfg).expect("daemon_for starts normally over dead holder");
         assert!(
             endpoint.owned,
-            "taken-over daemon must be owned by this shell"
+            "daemon started over dead holder must be owned"
         );
-        let handle = handle.expect("taken-over daemon returns DaemonHandle");
-        assert_eq!(
-            endpoint.base_url,
-            format!("http://127.0.0.1:{ws_port}"),
-            "takeover binds the configured RPC port"
-        );
+        let handle = handle.expect("daemon handle must exist");
 
         let host = endpoint.base_url.trim_start_matches("http://");
         let reply = raw_request(host, &rpc_request(host, &endpoint.token, "projects.list"))
@@ -1552,10 +1830,14 @@ mod tests {
             "RPC reply must contain JSON-RPC result: {reply}"
         );
 
-        let log = std::fs::read_to_string(dir.join(LOG_FILE)).expect("desktop.log exists");
+        // Verify warshad.lock and warshad.pid still exist (NEVER deleted)
         assert!(
-            log.contains("stale or foreign daemon lock") && log.contains("took over stale"),
-            "desktop.log should record stale lock takeover: {log}"
+            lock_path.exists(),
+            "warshad.lock must remain after dead holder takeover"
+        );
+        assert!(
+            pid_path.exists(),
+            "warshad.pid must remain after dead holder takeover"
         );
 
         tauri::async_runtime::block_on(handle.shutdown());
@@ -1563,22 +1845,55 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn live_external_server_on_rpc_port_never_triggers_silent_attach() {
+    fn live_holder_on_os_port_plus_stranger_on_configured_port_b1_reproducer() {
+        // Scenario 2: Live holder on OS port + stranger on configured port (exact B-1 reproducer)
+        // Instance A starts via warshad::start_daemon with http_port=0, ws_port=0 (writes warshad.endpoint)
+        // Stranger TcpListener answers 401 on configured ws_port
+        // Instance B calls daemon_for with different auth_token
+        // MUST return Err containing "already running" and "pid"
+        // MUST leave warshad.lock intact
+        // MUST NOT start a second daemon (only 1 daemon holds the lock, warshad.endpoint still points to A's port)
         use std::io::Write;
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
 
-        let dir = scratch("defect1-stranger-port");
+        let dir = scratch("b1-reproducer");
         let lock_path = dir.join("warshad.lock");
         let pid_path = dir.join("warshad.pid");
-        // Simulate a live PID (ourselves) holding the lock while an unrelated server answers on the RPC port.
-        let live_pid = std::process::id().to_string();
-        std::fs::write(&lock_path, &live_pid).expect("write lock pid");
-        std::fs::write(&pid_path, &live_pid).expect("write pid mirror");
-        let _guard = FlockGuard::acquire(&lock_path);
 
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind stranger port");
-        let stranger_port = listener.local_addr().expect("stranger addr").port();
+        // Start instance A on OS-chosen ports (writes warshad.endpoint)
+        let token_a = "instance-a-token";
+        let sibling_cfg = with_webview_origins(test_daemon_config(&dir, 0, 0, token_a));
+        let sibling = tauri::async_runtime::block_on(warshad::start_daemon(sibling_cfg))
+            .expect("start instance A on OS ports");
+        let a_rpc_port = sibling.rpc_port();
+        let a_http_port = sibling.http_port();
+
+        // Verify warshad.endpoint was written with A's actual ports
+        let endpoint_path = dir.join("warshad.endpoint");
+        assert!(
+            endpoint_path.exists(),
+            "warshad.endpoint must be written by instance A"
+        );
+        let endpoint_content = std::fs::read_to_string(&endpoint_path).expect("read endpoint file");
+        assert!(
+            endpoint_content.contains(&a_rpc_port.to_string()),
+            "endpoint must contain A's RPC port"
+        );
+        assert!(
+            endpoint_content.contains(&a_http_port.to_string()),
+            "endpoint must contain A's HTTP port"
+        );
+        assert!(
+            !endpoint_content.contains("auth_token"),
+            "endpoint must NOT contain auth_token"
+        );
+
+        // Start a stranger server on the configured port (which is different from A's actual port)
+        // We'll use a different configured port for instance B
+        let stranger_port = unused_port();
+        let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", stranger_port))
+            .expect("bind stranger port");
         listener
             .set_nonblocking(true)
             .expect("nonblocking stranger listener");
@@ -1600,59 +1915,264 @@ mod tests {
             }
         });
 
-        let http_port = unused_port();
-        let cfg = test_daemon_config(&dir, http_port, stranger_port, "clean6-our-token");
-        let (endpoint, handle) =
-            daemon_for(cfg).expect("daemon_for falls back to OS ports instead of attaching");
+        // Instance B calls daemon_for with DIFFERENT auth_token and configured ws_port = stranger_port
+        // This should probe warshad.endpoint (which has A's actual RPC port), fail auth, and return actionable error
+        let token_b = "instance-b-different-token";
+        let attach_cfg = test_daemon_config(&dir, a_http_port, stranger_port, token_b);
+        let result = daemon_for(attach_cfg);
 
+        // MUST return Err containing "already running" and "pid"
         assert!(
-            endpoint.owned,
-            "must NOT silently attach to unauthorized stranger endpoint"
+            result.is_err(),
+            "daemon_for must fail with actionable error"
         );
-        assert_ne!(
-            endpoint.base_url,
-            format!("http://127.0.0.1:{stranger_port}"),
-            "must NOT point at the unauthorized stranger port"
-        );
-        let handle = handle.expect("fallback daemon handle must exist");
-
-        let host = endpoint.base_url.trim_start_matches("http://");
-        let reply = raw_request(host, &rpc_request(host, &endpoint.token, "projects.list"))
-            .expect("authorized RPC probe succeeds on fallback daemon");
+        let err = result.unwrap_err();
         assert!(
-            rpc_json_body(&reply).is_some(),
-            "fallback daemon answers with our token: {reply}"
+            err.contains("already running"),
+            "error must contain 'already running': {}",
+            err
+        );
+        assert!(err.contains("pid"), "error must contain pid: {}", err);
+
+        // MUST leave warshad.lock intact
+        assert!(lock_path.exists(), "warshad.lock must remain intact");
+        assert!(pid_path.exists(), "warshad.pid must remain intact");
+
+        // warshad.endpoint must still point to A's ports
+        let endpoint_content = std::fs::read_to_string(&endpoint_path).expect("read endpoint file");
+        assert!(
+            endpoint_content.contains(&a_rpc_port.to_string()),
+            "endpoint must still point to A's RPC port"
+        );
+        assert!(
+            endpoint_content.contains(&a_http_port.to_string()),
+            "endpoint must still point to A's HTTP port"
         );
 
-        tauri::async_runtime::block_on(handle.shutdown());
+        // Only 1 daemon should be running (A)
+        tauri::async_runtime::block_on(sibling.shutdown());
         stop.store(true, Ordering::Relaxed);
         let _ = server_thread.join();
     }
 
     #[test]
-    fn live_sibling_with_valid_lock_and_authorized_endpoint_attaches_unowned() {
-        let dir = scratch("defect1-live-sibling");
-        let token = "clean6-sibling-token";
+    fn live_sibling_on_os_port_sharing_token_plus_stranger_on_configured_port_attaches_unowned() {
+        // Scenario 3: Live sibling on OS port sharing our token + stranger on configured port
+        // Instance A on OS ports, stranger 401 on configured ws_port
+        // Instance B with SAME auth_token -> probes warshad.endpoint (ignoring the stranger on ws_port)
+        // and attaches unowned (owned == false) with base_url == A's rpc_url and ws_url == A's ws_url
+        use std::io::Write;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let dir = scratch("live-sibling-stranger");
+        let lock_path = dir.join("warshad.lock");
+        let pid_path = dir.join("warshad.pid");
+
+        // Start instance A on OS-chosen ports
+        let token = "shared-sibling-token";
         let sibling_cfg = with_webview_origins(test_daemon_config(&dir, 0, 0, token));
         let sibling = tauri::async_runtime::block_on(warshad::start_daemon(sibling_cfg))
-            .expect("start live sibling warshad");
+            .expect("start instance A on OS ports");
+        let a_rpc_port = sibling.rpc_port();
+        let a_http_port = sibling.http_port();
 
-        let attach_cfg = test_daemon_config(&dir, sibling.http_port(), sibling.rpc_port(), token);
-        let (endpoint, handle) =
-            daemon_for(attach_cfg).expect("daemon_for attaches to verified live sibling");
+        // Verify warshad.endpoint was written
+        let endpoint_path = dir.join("warshad.endpoint");
+        assert!(
+            endpoint_path.exists(),
+            "warshad.endpoint must be written by instance A"
+        );
+
+        // Start a stranger server on a different configured port
+        let stranger_port = unused_port();
+        let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", stranger_port))
+            .expect("bind stranger port");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking stranger listener");
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = stop.clone();
+        let server_thread = std::thread::spawn(move || {
+            while !stop_flag.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let _ = stream.write_all(
+                            b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                        );
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Instance B with SAME token, configured ws_port = stranger_port
+        // Should probe warshad.endpoint (A's actual RPC port) and attach unowned
+        let attach_cfg = test_daemon_config(&dir, a_http_port, stranger_port, token);
+        let (endpoint, handle) = daemon_for(attach_cfg)
+            .expect("daemon_for attaches to verified live sibling via endpoint file");
 
         assert!(!endpoint.owned, "live sibling attach must be owned=false");
         assert!(handle.is_none(), "attached sibling has no owned handle");
         assert_eq!(
             endpoint.base_url,
-            format!("http://127.0.0.1:{}", sibling.rpc_port())
+            format!("http://127.0.0.1:{}", a_rpc_port),
+            "base_url must be A's actual RPC port from warshad.endpoint"
         );
         assert_eq!(
             endpoint.ws_url,
-            format!("ws://127.0.0.1:{}", sibling.http_port())
+            format!("ws://127.0.0.1:{}", a_http_port),
+            "ws_url must be A's actual HTTP port from warshad.endpoint"
         );
         assert_eq!(endpoint.token, token);
 
+        // warshad.lock must remain intact
+        assert!(lock_path.exists(), "warshad.lock must remain intact");
+        assert!(pid_path.exists(), "warshad.pid must remain intact");
+
         tauri::async_runtime::block_on(sibling.shutdown());
+        stop.store(true, Ordering::Relaxed);
+        let _ = server_thread.join();
+    }
+
+    #[test]
+    fn live_stranger_on_configured_rpc_port_never_silent_attaches() {
+        // Scenario 4: Live stranger on configured RPC port - never silent-attaches
+        // This tests that we don't attach to a stranger even if they're on the configured port
+        // (the endpoint file takes precedence if it exists, but if no endpoint file, we probe configured port
+        // and should fail auth and not silently attach)
+        use std::io::Write;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let dir = scratch("stranger-on-configured-rpc");
+        let lock_path = dir.join("warshad.lock");
+        let pid_path = dir.join("warshad.pid");
+
+        // Write a lock file with our PID (simulating a dead holder scenario)
+        let our_pid = std::process::id().to_string();
+        std::fs::write(&lock_path, &our_pid).expect("write lock pid");
+        std::fs::write(&pid_path, &our_pid).expect("write pid mirror");
+        // Don't acquire flock - we want to test the case where no endpoint file exists
+        // and a stranger is on the configured port
+
+        // Start a stranger server on the configured RPC port (ws_port)
+        let stranger_port = unused_port();
+        let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", stranger_port))
+            .expect("bind stranger port");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking stranger listener");
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = stop.clone();
+        let server_thread = std::thread::spawn(move || {
+            while !stop_flag.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let _ = stream.write_all(
+                            b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                        );
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        // Call daemon_for with a different token - should NOT silently attach to stranger
+        let cfg = test_daemon_config(&dir, unused_port(), stranger_port, "our-token");
+        let result = daemon_for(cfg);
+
+        // Should fail (either fall back to OS ports or return actionable error)
+        // But MUST NOT silently attach to the stranger
+        assert!(
+            result.is_err() || result.as_ref().map(|(e, _)| e.owned).unwrap_or(false),
+            "must NOT silently attach to unauthorized stranger on configured port"
+        );
+
+        // If it fell back to OS ports, it should be owned
+        if let Ok((endpoint, handle)) = result {
+            assert!(endpoint.owned, "if started on OS ports, must be owned");
+            assert!(handle.is_some(), "fallback daemon must have handle");
+            tauri::async_runtime::block_on(handle.unwrap().shutdown());
+        }
+
+        stop.store(true, Ordering::Relaxed);
+        let _ = server_thread.join();
+    }
+
+    #[test]
+    fn retry_daemon_recovers_when_blocking_condition_clears() {
+        // Scenario 5: RR-1 retry recovery
+        // ShellState retry recovers once blocking condition clears
+        // and updates get("daemon_url") + clears get("daemon_startup_error")
+        let dir = scratch("retry-daemon-recovery");
+        let settings_path = dir.join(SETTINGS_FILE);
+        let log_path = dir.join(LOG_FILE);
+        let data_dir = dir.to_path_buf();
+
+        // Create a ShellState with a failed startup_error
+        let shell = ShellState {
+            endpoint: Mutex::new(DaemonEndpoint {
+                base_url: String::new(),
+                ws_url: String::new(),
+                token: String::new(),
+                owned: false,
+            }),
+            startup_error: Mutex::new(Some("initial startup failure".to_string())),
+            process: Mutex::new(None),
+            settings: Mutex::new(read_settings(&settings_path)),
+            settings_path,
+            log_path,
+            data_dir,
+        };
+
+        // Verify initial state
+        assert_eq!(shell.get(CONFIG_DAEMON_URL), "");
+        assert_eq!(
+            shell.get(CONFIG_DAEMON_STARTUP_ERROR),
+            "initial startup failure"
+        );
+
+        // Now simulate successful daemon start by manually setting up a working daemon
+        // We'll start a real daemon and then test retry_daemon
+        let token = "retry-test-token";
+        let cfg = with_webview_origins(test_daemon_config(&dir, 0, 0, token));
+        let cfg_for_retry = cfg.clone();
+        let handle = tauri::async_runtime::block_on(warshad::start_daemon(cfg))
+            .expect("start daemon for retry test");
+
+        // Now test retry_daemon - it should find the already-running daemon and attach to it
+        let result = shell.retry_daemon_with_config(Some(cfg_for_retry));
+        assert!(result.is_ok(), "retry_daemon should succeed: {:?}", result);
+
+        let endpoint = result.unwrap();
+        // Since a daemon is already running, we attach to it (owned = false)
+        // The key assertion is that startup_error is cleared and endpoint is populated
+        assert!(
+            !endpoint.owned,
+            "attached to existing daemon must be owned=false"
+        );
+        assert_eq!(endpoint.token, token);
+        assert!(!endpoint.base_url.is_empty());
+        assert!(!endpoint.ws_url.is_empty());
+
+        // Verify state was updated
+        assert_eq!(shell.get(CONFIG_DAEMON_URL), endpoint.base_url);
+        assert_eq!(shell.get(CONFIG_DAEMON_WS_URL), endpoint.ws_url);
+        assert_eq!(shell.get(CONFIG_DAEMON_TOKEN), token);
+        assert_eq!(
+            shell.get(CONFIG_DAEMON_STARTUP_ERROR),
+            "",
+            "startup_error must be cleared on success"
+        );
+
+        // Clean up
+        tauri::async_runtime::block_on(handle.shutdown());
     }
 }

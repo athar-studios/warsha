@@ -11,6 +11,7 @@ use base64::Engine as _;
 use jsonrpsee::server::ServerBuilder;
 use keyring::Entry;
 use rand::TryRngCore;
+use serde_json::json;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -756,6 +757,34 @@ pub(crate) async fn start_daemon_with_interfaces(
         http_listener.local_addr()?
     );
 
+    // Write warshad.endpoint with the real OS-chosen ports (atomically via temp file + rename)
+    // This is the single source of truth for what ports the daemon actually bound.
+    // NEVER write auth_token to this file.
+    {
+        // Determine the host to advertise in the endpoint file.
+        // Use "127.0.0.1" when bind is loopback, unspecified, or we have a loopback companion.
+        // Otherwise use the bracketed/unbracketed bind address.
+        let host = if bind.is_loopback() || bind.is_unspecified() || loopback_rpc_server.is_some() {
+            "127.0.0.1".to_string()
+        } else if bind.to_string().contains(':') && !bind.to_string().starts_with('[') {
+            format!("[{}]", bind)
+        } else {
+            bind.to_string()
+        };
+        let rpc_url = format!("http://{host}:{actual_rpc_port}");
+        let ws_url = format!("ws://{host}:{actual_http_port}");
+        let endpoint_json = json!({
+            "pid": std::process::id(),
+            "rpc_url": rpc_url,
+            "ws_url": ws_url,
+        });
+        let endpoint_path = config.data_dir.join(crate::lock::ENDPOINT_FILE);
+        let temp_path = endpoint_path.with_extension("tmp");
+        std::fs::write(&temp_path, endpoint_json.to_string())?;
+        std::fs::rename(&temp_path, &endpoint_path)?;
+        info!("wrote endpoint file to {}", endpoint_path.display());
+    }
+
     // A non-loopback bind publishes the daemon past this machine. On Windows the inbound
     // firewall rule for it is not created on the daemon's behalf — raising the firewall is
     // the owner's elevated, deliberate act — so the exact one-command fix is printed here
@@ -840,6 +869,7 @@ pub(crate) async fn start_daemon_with_interfaces(
         // only ever runs on a runtime, so asking for the current one cannot fail here.
         runtime: tokio::runtime::Handle::current(),
         reaped: std::sync::atomic::AtomicBool::new(false),
+        endpoint_path: Some(config.data_dir.join(crate::lock::ENDPOINT_FILE)),
     })
 }
 
