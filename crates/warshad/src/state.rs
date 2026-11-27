@@ -278,6 +278,9 @@ pub struct DaemonHandle {
     pub(crate) runtime: tokio::runtime::Handle,
     /// Whether the children have already been reaped, so the drop sweep runs once.
     pub(crate) reaped: std::sync::atomic::AtomicBool,
+    /// Path to the endpoint file (`warshad.endpoint`), written on start and removed on
+    /// shutdown/drop. NEVER the lock file or pid file.
+    pub(crate) endpoint_path: Option<PathBuf>,
 }
 
 const DROP_REAP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
@@ -363,6 +366,10 @@ impl DaemonHandle {
         if killed > 0 {
             info!("killed {killed} child process(es) on shutdown");
         }
+        // Remove the endpoint file (warshad.endpoint) — NEVER warshad.lock or warshad.pid
+        if let Some(path) = self.endpoint_path.take() {
+            let _ = std::fs::remove_file(&path);
+        }
     }
 }
 
@@ -416,6 +423,10 @@ impl Drop for DaemonHandle {
             ),
         }
         self.reaped.store(true, std::sync::atomic::Ordering::SeqCst);
+        // Remove the endpoint file (warshad.endpoint) — NEVER warshad.lock or warshad.pid
+        if let Some(path) = self.endpoint_path.take() {
+            let _ = std::fs::remove_file(&path);
+        }
     }
 }
 
