@@ -874,11 +874,12 @@ async fn providers_test_persists_last_test_outcome_and_auth_start_returns_api_ke
         .await;
     assert_eq!(auth_status, json!("Unauthenticated"));
 
-    // 3. Before any test, last_test_* fields are null.
+    // 3. Before any test, last_test_* fields are null and has_stored_key is true.
     let initial_list = rpc.call("providers.list", json!([])).await;
     assert_eq!(initial_list[0]["last_test_ok"], json!(null));
     assert_eq!(initial_list[0]["last_test_at"], json!(null));
     assert_eq!(initial_list[0]["last_test_error"], json!(null));
+    assert_eq!(initial_list[0]["has_stored_key"], json!(true));
 
     // 4. A failing providers.test persists last_test_ok=false + scrubbed error + timestamp.
     let failed = rpc
@@ -905,13 +906,14 @@ async fn providers_test_persists_last_test_outcome_and_auth_start_returns_api_ke
     first.shutdown().await;
 
     // 5. Across daemon restart, the failed test state survives and a passing test flips it to ok.
-    let (second, rpc) = daemon_over(&data_dir, secrets).await;
+    let (second, rpc) = daemon_over(&data_dir, secrets.clone()).await;
     let reloaded = rpc.call("providers.list", json!([])).await;
     assert_eq!(reloaded[0]["last_test_ok"], json!(false));
     assert_eq!(
         reloaded[0]["last_test_error"].as_str(),
         Some(recorded_error)
     );
+    assert_eq!(reloaded[0]["has_stored_key"], json!(true));
 
     status_code.store(200, Ordering::SeqCst);
     let passed = rpc
@@ -923,6 +925,81 @@ async fn providers_test_persists_last_test_outcome_and_auth_start_returns_api_ke
     assert_eq!(after_pass[0]["last_test_ok"], json!(true));
     assert!(after_pass[0]["last_test_at"].is_u64());
     assert_eq!(after_pass[0]["last_test_error"], json!(null));
+    assert_eq!(after_pass[0]["has_stored_key"], json!(true));
+
+    // 6. Deleting the key from the secret store flips has_stored_key to false.
+    warsha_providers::SecretStore::delete(secrets.as_ref(), "persisted-qwen")
+        .await
+        .expect("delete stored API key");
+    let after_delete = rpc.call("providers.list", json!([])).await;
+    assert_eq!(after_delete[0]["has_stored_key"], json!(false));
+
+    // 7. Storing an integration credential also satisfies has_stored_key, and disconnecting clears it.
+    rpc.call(
+        "providers.auth_complete",
+        json!({ "name": "persisted-qwen", "code": CANARY_KEY }),
+    )
+    .await;
+    let after_auth_complete = rpc.call("providers.list", json!([])).await;
+    assert_eq!(after_auth_complete[0]["has_stored_key"], json!(true));
+
+    rpc.call("providers.disconnect", json!({ "name": "persisted-qwen" }))
+        .await;
+    let after_disconnect = rpc.call("providers.list", json!([])).await;
+    assert_eq!(after_disconnect[0]["has_stored_key"], json!(false));
+
+    second.shutdown().await;
+}
+
+#[tokio::test]
+async fn providers_list_bounds_hanging_secret_store_and_omits_has_stored_key() {
+    use std::time::Instant;
+    use warsha_providers::{Result as ProviderResult, SecretStore};
+
+    #[derive(Debug)]
+    struct HangingLoadSecretStore;
+
+    #[async_trait::async_trait]
+    impl SecretStore for HangingLoadSecretStore {
+        async fn store(&self, _account: &str, _key: &str) -> ProviderResult<()> {
+            Ok(())
+        }
+        async fn load(&self, _account: &str) -> ProviderResult<String> {
+            std::future::pending().await
+        }
+        async fn delete(&self, _account: &str) -> ProviderResult<()> {
+            Ok(())
+        }
+    }
+
+    let dir = fresh_tempdir();
+    let data_dir = dir.path().join("data");
+    let endpoint = StubEndpoint::start(200);
+
+    // Seed the provider row using an in-memory store, then restart over a hanging store.
+    let seeded_secrets = Arc::new(InMemorySecretStore::new());
+    let (first, rpc) = daemon_over(&data_dir, seeded_secrets).await;
+    rpc.call(
+        "providers.add",
+        add_params("hung-list-qwen", &endpoint.base_url, CANARY_KEY),
+    )
+    .await;
+    first.shutdown().await;
+
+    let (second, rpc) = daemon_over(&data_dir, Arc::new(HangingLoadSecretStore)).await;
+    let start = Instant::now();
+    let list = rpc.call("providers.list", json!([])).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(6),
+        "providers.list must stay bounded on a hanging keychain (took {elapsed:?})"
+    );
+    assert_eq!(list[0]["name"], json!("hung-list-qwen"));
+    assert!(
+        list[0].get("has_stored_key").is_none(),
+        "has_stored_key must be omitted (None) on secret store timeout: {list}"
+    );
 
     second.shutdown().await;
 }

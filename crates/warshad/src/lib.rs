@@ -1680,7 +1680,14 @@ impl WarshaApiServer for WarshaRpc {
             .load_providers()
             .await
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
-        Ok(stored.into_iter().map(ProviderRecord::from).collect())
+        let mut records = Vec::with_capacity(stored.len());
+        for provider in stored {
+            let has_stored_key = provider_has_stored_key(&self.state.secrets, &provider.name).await;
+            let mut record = ProviderRecord::from(provider);
+            record.has_stored_key = has_stored_key;
+            records.push(record);
+        }
+        Ok(records)
     }
 
     async fn provider_auth_status(
@@ -4882,6 +4889,64 @@ impl warsha_pipeline::RunLiveness for StoreRunLiveness {
             ),
             Err(_) => false,
         }
+    }
+}
+
+/// Check whether `account` holds a non-empty secret in `secrets` (or `fallback`
+/// if the primary read fails or times out), bounded by [`KEYCHAIN_TIMEOUT`].
+///
+/// Returns `Some(true)` if a non-empty secret is found, `Some(false)` if the
+/// store answers cleanly that no secret exists, or `None` if a timeout prevents
+/// ruling out a stored secret. Never logs any secret value.
+async fn check_secret_account(
+    secrets: &Arc<dyn warsha_providers::SecretStore>,
+    fallback: Option<&Arc<dyn warsha_providers::SecretStore>>,
+    account: &str,
+) -> Option<bool> {
+    match tokio::time::timeout(KEYCHAIN_TIMEOUT, secrets.load(account)).await {
+        Ok(Ok(secret)) => Some(!secret.trim().is_empty()),
+        Ok(Err(_)) => {
+            if let Some(fb) = fallback {
+                match tokio::time::timeout(KEYCHAIN_TIMEOUT, fb.load(account)).await {
+                    Ok(Ok(secret)) => Some(!secret.trim().is_empty()),
+                    Ok(Err(_)) => Some(false),
+                    Err(_) => None,
+                }
+            } else {
+                Some(false)
+            }
+        }
+        Err(_) => {
+            if let Some(fb) = fallback {
+                match tokio::time::timeout(KEYCHAIN_TIMEOUT, fb.load(account)).await {
+                    Ok(Ok(secret)) if !secret.trim().is_empty() => Some(true),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Determine whether a provider has a stored credential under `&name` or
+/// `integration:{name}`, bounded by [`KEYCHAIN_TIMEOUT`].
+async fn provider_has_stored_key(
+    secrets: &Arc<dyn warsha_providers::SecretStore>,
+    name: &str,
+) -> Option<bool> {
+    let fallback = warsha_providers::fallback_store();
+    let api_key_status = check_secret_account(secrets, fallback.as_ref(), name).await;
+    if api_key_status == Some(true) {
+        return Some(true);
+    }
+    let integration_account = format!("integration:{name}");
+    let integration_status =
+        check_secret_account(secrets, fallback.as_ref(), &integration_account).await;
+    match (api_key_status, integration_status) {
+        (_, Some(true)) | (Some(true), _) => Some(true),
+        (Some(false), Some(false)) => Some(false),
+        _ => None,
     }
 }
 
