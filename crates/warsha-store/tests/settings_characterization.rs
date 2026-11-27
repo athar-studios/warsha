@@ -134,6 +134,14 @@ trait SettingsOps: Sized {
 
     /// Insert or replace one configured provider.
     async fn save_provider(&self, provider: &StoredProvider) -> Result<(), StoreError>;
+    /// Record the latest connectivity-test outcome for a configured provider.
+    async fn record_provider_test_result(
+        &self,
+        name: &str,
+        ok: bool,
+        tested_at: u64,
+        error: Option<&str>,
+    ) -> Result<(), StoreError>;
     /// One provider by name.
     async fn load_provider(&self, name: &str) -> Result<Option<StoredProvider>, StoreError>;
     /// Every provider, oldest first.
@@ -277,6 +285,16 @@ impl SettingsOps for SettingsRepo {
 
     async fn save_provider(&self, provider: &StoredProvider) -> Result<(), StoreError> {
         SettingsRepo::save_provider(self, provider).await
+    }
+
+    async fn record_provider_test_result(
+        &self,
+        name: &str,
+        ok: bool,
+        tested_at: u64,
+        error: Option<&str>,
+    ) -> Result<(), StoreError> {
+        SettingsRepo::record_provider_test_result(self, name, ok, tested_at, error).await
     }
 
     async fn load_provider(&self, name: &str) -> Result<Option<StoredProvider>, StoreError> {
@@ -911,6 +929,9 @@ async fn provider_crud_round_trips_through_the_store<S: SettingsOps>() {
         api_base: Some("https://openrouter.ai/api/v1".to_string()),
         enabled: true,
         created_at: 1_700_000_000,
+        last_test_ok: None,
+        last_test_at: None,
+        last_test_error: None,
     };
     let custom = StoredProvider {
         name: "my-llm".to_string(),
@@ -918,6 +939,9 @@ async fn provider_crud_round_trips_through_the_store<S: SettingsOps>() {
         api_base: Some("http://localhost:8000/v1".to_string()),
         enabled: true,
         created_at: 1_700_000_100,
+        last_test_ok: None,
+        last_test_at: None,
+        last_test_error: None,
     };
 
     store
@@ -939,6 +963,33 @@ async fn provider_crud_round_trips_through_the_store<S: SettingsOps>() {
         .expect("single load");
     assert_eq!(single, Some(openrouter));
 
+    // Recording a failed test persists ok=false + scrubbed error, then a pass flips it to ok=true.
+    store
+        .record_provider_test_result("my-llm", false, 1_700_000_200, Some("HTTP 401"))
+        .await
+        .expect("failed test recorded");
+    let tested_fail = store
+        .load_provider("my-llm")
+        .await
+        .expect("reload failed")
+        .expect("my-llm present");
+    assert_eq!(tested_fail.last_test_ok, Some(false));
+    assert_eq!(tested_fail.last_test_at, Some(1_700_000_200));
+    assert_eq!(tested_fail.last_test_error.as_deref(), Some("HTTP 401"));
+
+    store
+        .record_provider_test_result("my-llm", true, 1_700_000_300, None)
+        .await
+        .expect("passing test recorded");
+    let tested_ok = store
+        .load_provider("my-llm")
+        .await
+        .expect("reload ok")
+        .expect("my-llm present");
+    assert_eq!(tested_ok.last_test_ok, Some(true));
+    assert_eq!(tested_ok.last_test_at, Some(1_700_000_300));
+    assert_eq!(tested_ok.last_test_error, None);
+
     // Update of kind / api_base preserves created_at.
     let updated = StoredProvider {
         name: "open_router".to_string(),
@@ -946,6 +997,9 @@ async fn provider_crud_round_trips_through_the_store<S: SettingsOps>() {
         api_base: Some("https://openrouter.example.com/v1".to_string()),
         enabled: false,
         created_at: 1_800_000_000, // ignored by the ON CONFLICT DO UPDATE
+        last_test_ok: None,
+        last_test_at: None,
+        last_test_error: None,
     };
     store.save_provider(&updated).await.expect("update stored");
     let reloaded = store.load_provider("open_router").await.expect("reload");
@@ -957,6 +1011,9 @@ async fn provider_crud_round_trips_through_the_store<S: SettingsOps>() {
             api_base: Some("https://openrouter.example.com/v1".to_string()),
             enabled: false,
             created_at: 1_700_000_000,
+            last_test_ok: None,
+            last_test_at: None,
+            last_test_error: None,
         })
     );
 

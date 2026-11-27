@@ -934,6 +934,9 @@ pub struct ProviderRecord {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base: Option<String>,
+    pub last_test_ok: Option<bool>,
+    pub last_test_at: Option<u64>,
+    pub last_test_error: Option<String>,
 }
 
 impl From<StoredProvider> for ProviderRecord {
@@ -943,6 +946,9 @@ impl From<StoredProvider> for ProviderRecord {
             kind: provider.kind,
             enabled: provider.enabled,
             api_base: provider.api_base,
+            last_test_ok: provider.last_test_ok,
+            last_test_at: provider.last_test_at,
+            last_test_error: provider.last_test_error,
         }
     }
 }
@@ -965,6 +971,9 @@ pub enum AuthStartResponse {
     Device {
         user_code: String,
         verification_uri: String,
+    },
+    ApiKey {
+        name: String,
     },
 }
 

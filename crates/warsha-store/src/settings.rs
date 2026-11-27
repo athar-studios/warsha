@@ -28,8 +28,8 @@ use sqlx::{Row, SqlitePool};
 use warsha_core::ProjectPermissions;
 
 use crate::{
-    column_int, column_opt_int, column_opt_text, column_text, repair_settings_expiry, Result,
-    StoreError,
+    column_int, column_opt_int, column_opt_text, column_text, repair_provider_last_test,
+    repair_settings_expiry, Result, StoreError,
 };
 
 // --------------------------------------------------------------- stored rows
@@ -139,6 +139,15 @@ pub struct StoredProvider {
     pub enabled: bool,
     /// When the provider was added, in Unix seconds. Ordering only.
     pub created_at: u64,
+    /// Outcome of the most recent `providers.test` run, or `None` if untested.
+    #[serde(default)]
+    pub last_test_ok: Option<bool>,
+    /// Unix seconds timestamp of the most recent `providers.test` run.
+    #[serde(default)]
+    pub last_test_at: Option<u64>,
+    /// Scrubbed error summary from the most recent failed `providers.test`.
+    #[serde(default)]
+    pub last_test_error: Option<String>,
 }
 
 /// One harness row: the queryable header columns plus the whole
@@ -344,6 +353,7 @@ impl SettingsRepo {
             .execute(&mut *transaction)
             .await?;
         repair_settings_expiry(&mut transaction).await?;
+        repair_provider_last_test(&mut transaction).await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -654,10 +664,13 @@ impl SettingsRepo {
     /// re-entered) and takes the kind and base URL the caller just sent.
     pub async fn save_provider(&self, provider: &StoredProvider) -> Result<()> {
         sqlx::query(
-            "INSERT INTO configured_providers (name, kind, api_base, enabled, created_at) \
-             VALUES (?, ?, ?, ?, ?) \
+            "INSERT INTO configured_providers \
+             (name, kind, api_base, enabled, created_at, last_test_ok, last_test_at, last_test_error) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT(name) DO UPDATE SET \
-             kind = excluded.kind, api_base = excluded.api_base, enabled = excluded.enabled",
+             kind = excluded.kind, api_base = excluded.api_base, enabled = excluded.enabled, \
+             last_test_ok = excluded.last_test_ok, last_test_at = excluded.last_test_at, \
+             last_test_error = excluded.last_test_error",
         )
         .bind(&provider.name)
         .bind(&provider.kind)
@@ -667,6 +680,36 @@ impl SettingsRepo {
             provider.created_at,
             "configured_providers.created_at",
         )?)
+        .bind(provider.last_test_ok.map(i64::from))
+        .bind(
+            provider
+                .last_test_at
+                .map(|at| sql_int(at, "configured_providers.last_test_at"))
+                .transpose()?,
+        )
+        .bind(provider.last_test_error.as_deref())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Record the latest connectivity-test outcome for an existing provider.
+    pub async fn record_provider_test_result(
+        &self,
+        name: &str,
+        ok: bool,
+        tested_at: u64,
+        error: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE configured_providers \
+             SET last_test_ok = ?, last_test_at = ?, last_test_error = ? \
+             WHERE name = ?",
+        )
+        .bind(i64::from(ok))
+        .bind(sql_int(tested_at, "configured_providers.last_test_at")?)
+        .bind(error)
+        .bind(name)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -675,8 +718,8 @@ impl SettingsRepo {
     /// One provider by name, or `None` when no such row exists.
     pub async fn load_provider(&self, name: &str) -> Result<Option<StoredProvider>> {
         let row = sqlx::query(
-            "SELECT name, kind, api_base, enabled, created_at FROM configured_providers \
-             WHERE name = ?",
+            "SELECT name, kind, api_base, enabled, created_at, last_test_ok, last_test_at, last_test_error \
+             FROM configured_providers WHERE name = ?",
         )
         .bind(name)
         .fetch_optional(&self.pool)
@@ -687,8 +730,8 @@ impl SettingsRepo {
     /// Every configured provider, oldest first, then by name.
     pub async fn load_providers(&self) -> Result<Vec<StoredProvider>> {
         let rows = sqlx::query(
-            "SELECT name, kind, api_base, enabled, created_at FROM configured_providers \
-             ORDER BY created_at ASC, name ASC",
+            "SELECT name, kind, api_base, enabled, created_at, last_test_ok, last_test_at, last_test_error \
+             FROM configured_providers ORDER BY created_at ASC, name ASC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -1172,6 +1215,12 @@ fn column_bool(row: &sqlx::sqlite::SqliteRow, column: &'static str) -> Result<bo
 /// One `configured_providers` row, in the column order both provider queries
 /// select.
 fn stored_provider_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<StoredProvider> {
+    let last_test_ok = column_opt_int(row, "last_test_ok")?.map(|value| value != 0);
+    let last_test_at = column_opt_int(row, "last_test_at")?
+        .map(|value| unsigned_u64(value, "configured_providers.last_test_at"))
+        .transpose()?;
+    let last_test_error = column_opt_text(row, "last_test_error")?;
+
     Ok(StoredProvider {
         name: column_text(row, "name")?,
         kind: column_text(row, "kind")?,
@@ -1181,6 +1230,9 @@ fn stored_provider_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<StoredProvi
             column_int(row, "created_at")?,
             "configured_providers.created_at",
         )?,
+        last_test_ok,
+        last_test_at,
+        last_test_error,
     })
 }
 

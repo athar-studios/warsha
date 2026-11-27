@@ -1288,6 +1288,9 @@ fn a_providers_endpoint_falls_back_to_its_kinds_default() {
         api_base: Some("http://127.0.0.1:8000/v1".to_string()),
         enabled: true,
         created_at: 1_700_000_000,
+        last_test_ok: None,
+        last_test_at: None,
+        last_test_error: None,
     };
     // What the owner named wins.
     assert_eq!(
@@ -1317,6 +1320,9 @@ fn a_providers_endpoint_falls_back_to_its_kinds_default() {
         api_base: None,
         enabled: true,
         created_at: 1_700_000_000,
+        last_test_ok: None,
+        last_test_at: None,
+        last_test_error: None,
     };
     assert_eq!(
         provider_endpoint(&openai).as_deref(),
@@ -1329,6 +1335,9 @@ fn a_providers_endpoint_falls_back_to_its_kinds_default() {
         api_base: None,
         enabled: true,
         created_at: 1_700_000_000,
+        last_test_ok: None,
+        last_test_at: None,
+        last_test_error: None,
     };
     assert_eq!(
         provider_endpoint(&anthropic).as_deref(),
@@ -1341,6 +1350,9 @@ fn a_providers_endpoint_falls_back_to_its_kinds_default() {
         api_base: None,
         enabled: true,
         created_at: 1_700_000_000,
+        last_test_ok: None,
+        last_test_at: None,
+        last_test_error: None,
     };
     assert_eq!(
         provider_endpoint(&ollama).as_deref(),
@@ -1366,6 +1378,9 @@ fn a_providers_model_comes_from_its_kind_and_blank_input_is_no_input() {
         api_base: None,
         enabled: true,
         created_at: 1_700_000_000,
+        last_test_ok: None,
+        last_test_at: None,
+        last_test_error: None,
     };
     assert_eq!(
         provider_model(&kimi),

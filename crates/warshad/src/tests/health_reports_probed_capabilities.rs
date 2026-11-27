@@ -49,6 +49,9 @@ async fn health_reports_probed_capabilities() {
             api_base: None,
             enabled: true,
             created_at: 0,
+            last_test_ok: None,
+            last_test_at: None,
+            last_test_error: None,
         })
         .await
         .expect("save provider");

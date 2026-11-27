@@ -1707,12 +1707,18 @@ impl WarshaApiServer for WarshaRpc {
         name: String,
     ) -> RpcResult<AuthStartResponse> {
         self.authorize(ext, "providers.auth_start").await?;
-        // Placeholder until a provider kind ships its real authorize URL (A2 follow-up);
-        // `name` is kept in the signature so the RPC contract is already final.
-        let _ = &name;
-        Ok(AuthStartResponse::Pkce {
-            url: "http://localhost:8080/auth".to_string(),
-        })
+        let stored = self
+            .state
+            .settings
+            .load_provider(&name)
+            .await
+            .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?;
+        let response = match stored.as_ref().map(|provider| provider.kind.as_str()) {
+            // None of the provider kinds currently shipped support a hosted OAuth/PKCE flow;
+            // report API-key auth honestly instead of returning a dead placeholder URL.
+            Some(_) | None => AuthStartResponse::ApiKey { name },
+        };
+        Ok(response)
     }
 
     async fn provider_auth_complete(
@@ -1849,6 +1855,9 @@ impl WarshaApiServer for WarshaRpc {
             api_base,
             enabled: true,
             created_at: u64::try_from(Utc::now().timestamp()).unwrap_or_default(),
+            last_test_ok: None,
+            last_test_at: None,
+            last_test_error: None,
         };
         self.state
             .settings
@@ -1897,25 +1906,44 @@ impl WarshaApiServer for WarshaRpc {
             .map_err(|e| ErrorObject::owned(-32000, e.to_string(), None::<()>))?
             .ok_or_else(|| provider_refusal(format!("no provider named {name} is configured")))?;
 
-        let endpoint = provider_endpoint(&provider).ok_or_else(|| {
-            provider_refusal(format!(
+        let tested_at = u64::try_from(Utc::now().timestamp()).unwrap_or_default();
+
+        let Some(endpoint) = provider_endpoint(&provider) else {
+            let reason = format!(
                 "no base URL is known for provider kind {}; add it again with api_base",
                 provider.kind
-            ))
-        })?;
+            );
+            self.persist_provider_test_outcome(&name, false, tested_at, Some(&reason))
+                .await;
+            return Err(provider_refusal(reason));
+        };
         let key = match self.state.secrets.load(&name).await {
             Ok(k) => k,
             Err(e) => {
                 if let Some(fallback) = warsha_providers::fallback_store() {
-                    fallback.load(&name).await.map_err(|fb_err| {
-                        provider_refusal(format!(
-                            "the API key for {name} could not be read from the OS keychain ({e}) or fallback store ({fb_err})"
-                        ))
-                    })?
+                    match fallback.load(&name).await {
+                        Ok(k) => k,
+                        Err(fb_err) => {
+                            let reason = format!(
+                                "the API key for {name} could not be read from the OS keychain ({e}) or fallback store ({fb_err})"
+                            );
+                            self.persist_provider_test_outcome(
+                                &name,
+                                false,
+                                tested_at,
+                                Some(&reason),
+                            )
+                            .await;
+                            return Err(provider_refusal(reason));
+                        }
+                    }
                 } else {
-                    return Err(provider_refusal(format!(
+                    let reason = format!(
                         "the API key for {name} could not be read from the OS keychain: {e}"
-                    )));
+                    );
+                    self.persist_provider_test_outcome(&name, false, tested_at, Some(&reason))
+                        .await;
+                    return Err(provider_refusal(reason));
                 }
             }
         };
@@ -1933,18 +1961,27 @@ impl WarshaApiServer for WarshaRpc {
         if let Some(reason) =
             ProviderSetupWizard::test_connection(&endpoint, &key, &resolved_model).reason()
         {
-            return Err(provider_refusal(reason));
+            let scrubbed = warsha_providers::scrub_key(&reason, &key);
+            self.persist_provider_test_outcome(&name, false, tested_at, Some(&scrubbed))
+                .await;
+            return Err(provider_refusal(scrubbed));
         }
 
-        let health = probe_endpoint(&endpoint, &key).await;
+        let mut health = probe_endpoint(&endpoint, &key).await;
         if health.healthy {
+            self.persist_provider_test_outcome(&name, true, tested_at, None)
+                .await;
             return Ok(health);
         }
 
-        let reason = health
+        let raw_reason = health
             .error
             .clone()
             .unwrap_or_else(|| "the connection test failed".to_string());
+        let reason = warsha_providers::scrub_key(&raw_reason, &key);
+        health.error = Some(reason.clone());
+        self.persist_provider_test_outcome(&name, false, tested_at, Some(&reason))
+            .await;
         warn!("provider {name} failed its connection test: {reason}");
         Err(ErrorObject::owned(-32000, reason, Some(health)))
     }

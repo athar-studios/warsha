@@ -466,6 +466,9 @@ mod tests {
             api_base: api_base.map(str::to_string),
             enabled: true,
             created_at: 1_700_000_000,
+            last_test_ok: None,
+            last_test_at: None,
+            last_test_error: None,
         }
     }
 

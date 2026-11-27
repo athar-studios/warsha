@@ -324,6 +324,21 @@ impl SettingsStore {
         Ok(())
     }
 
+    /// Persist the latest connectivity-test outcome for a configured provider.
+    pub async fn record_provider_test_result(
+        &self,
+        name: &str,
+        ok: bool,
+        tested_at: u64,
+        error: Option<&str>,
+    ) -> SettingsResult<()> {
+        let store = self.repo().await?;
+        store
+            .record_provider_test_result(name, ok, tested_at, error)
+            .await?;
+        Ok(())
+    }
+
     /// Delete one provider by name, returning true if it existed.
     pub async fn delete_provider(&self, name: &str) -> SettingsResult<bool> {
         let store = self.repo().await?;
@@ -815,6 +830,9 @@ mod tests {
             api_base: Some("https://openrouter.ai/api/v1".to_string()),
             enabled: true,
             created_at: 1_700_000_000,
+            last_test_ok: None,
+            last_test_at: None,
+            last_test_error: None,
         };
         settings
             .save_provider(&provider)

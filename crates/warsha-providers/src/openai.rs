@@ -441,7 +441,7 @@ fn map_openai_error(
     let code = status.as_u16();
     match code {
         400 | 422 => ProviderError::Http(code, scrubbed),
-        401 | 403 => ProviderError::Auth(format!("Authentication failed: {code}")),
+        401 | 403 => ProviderError::Auth(code.to_string()),
         404 => ProviderError::ModelNotFound(scrubbed),
         429 => ProviderError::RateLimited(scrubbed),
         402 => ProviderError::QuotaExhausted(scrubbed),
@@ -792,5 +792,21 @@ mod tests {
         .await;
         assert!(res.is_err(), "hanging keyring call must time out");
         assert!(start.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn map_openai_error_auth_does_not_double_prefix() {
+        let err_401 = map_openai_error(
+            reqwest::StatusCode::UNAUTHORIZED,
+            "bad key".to_string(),
+            None,
+        );
+        assert_eq!(err_401.to_string(), "Authentication failed: 401");
+        let err_403 = map_openai_error(
+            reqwest::StatusCode::FORBIDDEN,
+            "forbidden".to_string(),
+            None,
+        );
+        assert_eq!(err_403.to_string(), "Authentication failed: 403");
     }
 }
