@@ -1,5 +1,13 @@
 # PROGRESS.md — Warsha Build Log
 
+## Run 2026-11-27 — CLEAN-8 test-only lane: eliminate `unused_port()` race and tighten stranger-port fallback assertion (`D-RN-CLEAN8-1`)
+
+- **Branch & worktree**: `r-next/clean8-test` (base `8e50063`) in `.agents/worktrees/clean8-test`. Local only; zero changes to non-test product code, `main`, or root checkout.
+- **Changes**:
+  - `apps/desktop/src-tauri/src/lib.rs` (`#[cfg(test)] mod tests` only): removed `fn unused_port() -> u16`; updated `genuinely_dead_holder_flock_released_inert_files_on_disk_daemon_for_starts_normally` to pass `0, 0`; updated `live_holder_on_os_port_plus_stranger_on_configured_port_b1_reproducer`, `live_sibling_on_os_port_sharing_token_plus_stranger_on_configured_port_attaches_unowned`, and `live_stranger_on_configured_rpc_port_never_silent_attaches` to bind stranger `TcpListener::bind("127.0.0.1:0")` directly without drop-and-rebind; updated `live_stranger_on_configured_rpc_port_never_silent_attaches` to pass `http_port = 0`, document the un-flocked `warshad.lock`/`warshad.pid` -> `fallback_os_ports` path accurately, and assert the fallback owned `handle`, distinct `rpc_port()`/`base_url`, and authorized `projects.list` RPC reply.
+  - `DECISIONS.md`: logged `D-RN-CLEAN8-1`.
+- **Verification**: `(cd apps/desktop/src-tauri && cargo fmt --check && CARGO_TARGET_DIR=/home/moe/tools/target-clean8-test cargo clippy -q --all-targets -- -D warnings)` exit 0; `CARGO_TARGET_DIR=/home/moe/tools/target-clean8-test cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml` passed **15/15** consecutive runs (`13 passed; 0 failed` per run); `node scripts/check-engineering-policy.mjs` green.
+
 ## FIXES COMPLETE — CLEAN-7 — 2026-11-27
 
 All CLEAN-7 fixes (BLOCKER B-1, RR-1, RN-1, RR-3) verified and merged at tip **`c5069d5`** (`r-next/integration`, docs closeout on top), with `main` untouched (`5f4b742`), onboarding merges kept frozen on their lanes, `RR-2` untouched per owner order, and zero publish/push/tag actions taken:

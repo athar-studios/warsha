@@ -1739,11 +1739,6 @@ mod tests {
         }
     }
 
-    fn unused_port() -> u16 {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback port");
-        listener.local_addr().expect("local addr").port()
-    }
-
     fn test_daemon_config(dir: &Path, http_port: u16, ws_port: u16, token: &str) -> DaemonConfig {
         DaemonConfig {
             data_dir: dir.to_path_buf(),
@@ -1824,9 +1819,7 @@ mod tests {
         std::fs::write(&pid_path, &dead).expect("write stale pid");
         // IMPORTANT: Do NOT acquire flock - the flock must be released to simulate a genuinely dead holder
 
-        let http_port = unused_port();
-        let ws_port = unused_port();
-        let cfg = test_daemon_config(&dir, http_port, ws_port, "dead-holder-token");
+        let cfg = test_daemon_config(&dir, 0, 0, "dead-holder-token");
 
         let (endpoint, handle) =
             daemon_for(cfg).expect("daemon_for starts normally over dead holder");
@@ -1905,9 +1898,8 @@ mod tests {
 
         // Start a stranger server on the configured port (which is different from A's actual port)
         // We'll use a different configured port for instance B
-        let stranger_port = unused_port();
-        let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", stranger_port))
-            .expect("bind stranger port");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind stranger port");
+        let stranger_port = listener.local_addr().expect("stranger local_addr").port();
         listener
             .set_nonblocking(true)
             .expect("nonblocking stranger listener");
@@ -1999,9 +1991,8 @@ mod tests {
         );
 
         // Start a stranger server on a different configured port
-        let stranger_port = unused_port();
-        let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", stranger_port))
-            .expect("bind stranger port");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind stranger port");
+        let stranger_port = listener.local_addr().expect("stranger local_addr").port();
         listener
             .set_nonblocking(true)
             .expect("nonblocking stranger listener");
@@ -2066,17 +2057,16 @@ mod tests {
         let lock_path = dir.join("warshad.lock");
         let pid_path = dir.join("warshad.pid");
 
-        // Write a lock file with our PID (simulating a dead holder scenario)
+        // Write our_pid to un-flocked warshad.lock and warshad.pid with no warshad.endpoint file,
+        // while a live unauthorized stranger holds the configured ws_port, exercising the
+        // port-in-use -> fallback_os_ports path (no DaemonError::Lock).
         let our_pid = std::process::id().to_string();
         std::fs::write(&lock_path, &our_pid).expect("write lock pid");
         std::fs::write(&pid_path, &our_pid).expect("write pid mirror");
-        // Don't acquire flock - we want to test the case where no endpoint file exists
-        // and a stranger is on the configured port
 
         // Start a stranger server on the configured RPC port (ws_port)
-        let stranger_port = unused_port();
-        let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", stranger_port))
-            .expect("bind stranger port");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind stranger port");
+        let stranger_port = listener.local_addr().expect("stranger local_addr").port();
         listener
             .set_nonblocking(true)
             .expect("nonblocking stranger listener");
@@ -2098,23 +2088,35 @@ mod tests {
             }
         });
 
-        // Call daemon_for with a different token - should NOT silently attach to stranger
-        let cfg = test_daemon_config(&dir, unused_port(), stranger_port, "our-token");
+        // Call daemon_for with http_port = 0 and ws_port = stranger_port - must NOT silently attach
+        // to the stranger and must fall back to OS-chosen ports with a new owned daemon.
+        let cfg = test_daemon_config(&dir, 0, stranger_port, "our-token");
         let result = daemon_for(cfg);
 
-        // Should fail (either fall back to OS ports or return actionable error)
-        // But MUST NOT silently attach to the stranger
-        assert!(
-            result.is_err() || result.as_ref().map(|(e, _)| e.owned).unwrap_or(false),
-            "must NOT silently attach to unauthorized stranger on configured port"
+        let (endpoint, handle) = result
+            .expect("daemon_for falls back to OS ports when stranger holds configured rpc port");
+        assert!(endpoint.owned, "fallback daemon on OS ports must be owned");
+        let handle = handle.expect("fallback daemon must return an owned handle");
+        assert_ne!(
+            handle.rpc_port(),
+            stranger_port,
+            "fallback daemon must not use the stranger's port"
+        );
+        assert_ne!(
+            endpoint.base_url,
+            format!("http://127.0.0.1:{stranger_port}"),
+            "endpoint base_url must not point at the stranger's port"
         );
 
-        // If it fell back to OS ports, it should be owned
-        if let Ok((endpoint, handle)) = result {
-            assert!(endpoint.owned, "if started on OS ports, must be owned");
-            assert!(handle.is_some(), "fallback daemon must have handle");
-            tauri::async_runtime::block_on(handle.unwrap().shutdown());
-        }
+        let host = endpoint.base_url.trim_start_matches("http://");
+        let reply = raw_request(host, &rpc_request(host, &endpoint.token, "projects.list"))
+            .expect("authorized RPC probe on fallback daemon succeeds");
+        assert!(
+            rpc_json_body(&reply).is_some(),
+            "RPC reply on fallback daemon must contain JSON-RPC result: {reply}"
+        );
+
+        tauri::async_runtime::block_on(handle.shutdown());
 
         stop.store(true, Ordering::Relaxed);
         let _ = server_thread.join();
